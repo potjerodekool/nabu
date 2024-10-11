@@ -1,0 +1,95 @@
+package io.github.potjerodekool.nabu.example;
+
+import io.github.potjerodekool.nabu.lang.jpa.JpaPredicate;
+import io.github.potjerodekool.employee.Employee;
+
+import java.time.LocalDate;
+
+fun findByFirstName(firstName: String): JpaPredicate<Employee> {
+    return { e : Employee ->
+        String s = "Test";
+        e.firstName == firstName;
+    }
+}
+
+fun findByNotFirstName(firstName: String): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.firstName != firstName;
+    }
+}
+
+fun findByLastName(lastName: String): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.lastName == lastName;
+    }
+}
+
+fun findByFirstNameAndLastName(firstName: String,
+                               lastName: String): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.firstName == firstName &&
+        e.lastName == lastName;
+    }
+}
+
+fun findByFirstNameOrLastName(firstName: String,
+                              lastName: String): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.firstName == firstName ||
+        e.lastName == lastName;
+    }
+}
+
+fun findByIsActive(isActive: boolean): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.isActive == isActive;
+    }
+}
+
+fun findByNotActive(): JpaPredicate<Employee> {
+    return { e : Employee ->
+        !e.isActive;
+    }
+}
+
+fun findByActive(): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.isActive == true;
+    }
+}
+
+fun findByInActive(): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.isActive == false;
+    }
+}
+
+fun findByFirstNameIsNull(): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.firstName == null;
+    }
+}
+
+fun findByFirstNameIsNotNull(): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.firstName != null;
+    }
+}
+
+fun findByBirthdayAfter(date: LocalDate): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.birthDay > date;
+    }
+}
+
+fun findByLeveLessThen(level: int): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.level < level;
+    }
+}
+
+fun findByCompanyName(name: String): JpaPredicate<Employee> {
+    return { e : Employee ->
+        e.company.name == name;
+    }
+}

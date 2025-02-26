@@ -36,7 +36,7 @@ public class LivenessAnaliser {
         out.put(node.getKey(), value);
     }
 
-    FlowGraph<?> getFlowGraph() {
+    public FlowGraph<?> getFlowGraph() {
         return flowGraph;
     }
 

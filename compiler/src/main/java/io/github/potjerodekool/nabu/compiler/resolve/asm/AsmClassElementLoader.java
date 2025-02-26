@@ -1,11 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.element.PackageElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.*;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.Types;
 
 import java.nio.file.Path;
 
@@ -23,30 +22,31 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
 
     public AsmClassElementLoader(final SymbolTable symbolTable) {
         this.symbolTable = symbolTable;
-        types = new Types(symbolTable);
+        types = new TypesImpl(this, symbolTable);
     }
 
     @Override
-    public ClassSymbol resolveClass(final String name) {
+    public TypeElement resolveClass(final String name) {
         final var internalName = ClassUtils.toInternalName(name);
 
-        var type = this.symbolTable.getClassSymbol(internalName);
+        var element = this.symbolTable.getClassSymbol(internalName);
 
-        if (type != null) {
-            return type;
+        if (element != null) {
+            return element;
         }
 
         final var matchResultOptional = this.classPath.find(internalName);
 
-        if (matchResultOptional.isEmpty()) {
-            return null;
+        if (matchResultOptional.isPresent()) {
+            final var bytecode = matchResultOptional.get().data();
+            element = readClass(bytecode);
         }
 
-        final var bytecode = matchResultOptional.get().data();
-        return readClass(bytecode);
+        return element;
     }
 
-    private ClassSymbol readClass(final byte[] bytecode) {
+
+    private TypeElement readClass(final byte[] bytecode) {
         return ClazzReader.read(bytecode, symbolTable, this);
     }
 
@@ -76,16 +76,9 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
         classPath.addClassPathEntry(path);
     }
 
+    @Override
     public Types getTypes() {
         return types;
-    }
-
-    @Override
-    public TypeMirror resolveType(final String internalName) {
-        final var clazz = resolveClass(internalName);
-        return clazz != null
-                ? types.getDeclaredType(clazz)
-                : null;
     }
 
     @Override
@@ -98,10 +91,10 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
         final var javaLangPackage = symbolTable.findPackage("java.lang");
 
         javaLangPackage.getEnclosedElements().stream()
-                        .filter(it -> switch (it.getKind()) {
-                            case CLASS, INTERFACE, ANNOTATION, RECORD, ENUM -> true;
-                            default -> false;
-                        }).forEach(importScope::define);
+                .filter(it -> switch (it.getKind()) {
+                    case CLASS, INTERFACE, ANNOTATION, RECORD, ENUM -> true;
+                    default -> false;
+                }).forEach(importScope::define);
     }
 
     @Override

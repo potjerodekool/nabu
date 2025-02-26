@@ -1,0 +1,46 @@
+package io.github.potjerodekool.nabu.example;
+
+import java.util.List;
+
+fun forLoop(times: int): int {
+    var result = 0;
+
+    for (var i = 0; i < times; i++) {
+        result += 2;
+    }
+
+    return result;
+}
+
+fun forLoop(list: List<Integer>): int {
+    var result = 0;
+
+    for(var number : list) {
+        result += number;
+    }
+
+    return result;
+}
+
+fun whileLoop(list: List<Integer>) : int {
+    var result = 0;
+    var pos = 0;
+    while(pos < list.size()) {
+        result += list.get(pos);
+        pos++;
+    }
+
+    return result;
+}
+
+fun doWhileLoop(number: int) : int {
+    var result = 0;
+    var steps = 5;
+
+    do {
+        result += number;
+        steps--;
+    } while (steps > 0);
+
+    return result;
+}

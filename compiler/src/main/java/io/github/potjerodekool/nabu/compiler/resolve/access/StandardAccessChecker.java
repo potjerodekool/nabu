@@ -10,7 +10,8 @@ public final class StandardAccessChecker implements AccessChecker {
     }
 
     @Override
-    public boolean isAccessible(final Element element, final ClassSymbol classSymbol) {
+    public boolean isAccessible(final Element element,
+                                final TypeElement classSymbol) {
         if (element instanceof VariableElement variableElement) {
             return isAccessible(variableElement, classSymbol);
         } else {
@@ -19,12 +20,12 @@ public final class StandardAccessChecker implements AccessChecker {
     }
 
     private boolean isAccessible(final VariableElement variableElement,
-                                 final ClassSymbol classSymbol) {
+                                 final TypeElement classSymbol) {
         if (variableElement.getKind() != ElementKind.FIELD) {
             return true;
         }
 
-        final var declaringClass = (ClassSymbol) variableElement.getEnclosingElement();
+        final var declaringClass = (TypeElement) variableElement.getEnclosingElement();
 
         if (variableElement.isPrivate()) {
             return classSymbol.getQualifiedName().equals(declaringClass.getQualifiedName());

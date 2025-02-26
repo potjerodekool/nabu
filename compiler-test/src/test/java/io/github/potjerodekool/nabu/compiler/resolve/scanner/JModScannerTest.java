@@ -30,6 +30,6 @@ class JModScannerTest {
         final var fileMatchResult = assertInstanceOf(FileMatchResult.class, result);
         assertEquals("/classes/java/lang", fileMatchResult.path().toString());
 
-        scanner.walkDirectory("java/lang", path -> System.out.println(path.toString()));
+        //scanner.walkDirectory("java/lang", path -> System.out.println(path.toString()));
     }
 }

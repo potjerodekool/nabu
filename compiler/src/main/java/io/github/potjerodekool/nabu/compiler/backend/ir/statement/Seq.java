@@ -4,24 +4,16 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.IExpression;
 
 import java.util.List;
-import java.util.Objects;
 
 public class Seq extends IStatement {
 
     private final IStatement left;
     private final IStatement right;
 
-    public Seq(final IStatement left, final IStatement right) {
-        validate(left);
-        validate(right);
+    public Seq(final IStatement left,
+               final IStatement right) {
         this.left = left;
         this.right = right;
-    }
-
-    private void validate(final IStatement statement) {
-        if (statement == null) {
-            throw new NullPointerException();
-        }
     }
 
     public IStatement getLeft() {

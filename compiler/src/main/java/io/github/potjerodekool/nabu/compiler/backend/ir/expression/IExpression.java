@@ -1,16 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.expression;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
+import io.github.potjerodekool.nabu.compiler.backend.ir.INode;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 
 import java.util.List;
 
-public abstract class IExpression {
+public abstract class IExpression extends INode {
 
     private IType type;
-
-    private int lineNumber = -1;
 
     public abstract <P> Temp accept(CodeVisitor<P> visitor, P param);
 
@@ -26,11 +25,7 @@ public abstract class IExpression {
         this.type = type;
     }
 
-    public int getLineNumber() {
-        return lineNumber;
-    }
-
-    public void setLineNumber(final int lineNumber) {
-        this.lineNumber = lineNumber;
+    public IExpression flipCompare() {
+        return this;
     }
 }

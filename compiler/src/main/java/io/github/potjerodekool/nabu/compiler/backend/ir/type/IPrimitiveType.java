@@ -29,4 +29,9 @@ public final class IPrimitiveType extends IType {
             case null, default -> null;
         };
     }
+
+    @Override
+    public <R, P> R accept(final ITypeVisitor<R, P> visitor, final P param) {
+        return visitor.visitPrimitiveType(this, param);
+    }
 }

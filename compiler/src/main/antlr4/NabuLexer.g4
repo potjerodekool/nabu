@@ -4,46 +4,219 @@ lexer grammar NabuLexer;
 package io.github.potjerodekool.nabu;
 }
 
-LPAREN     : '(';
-RPAREN     : ')';
-LBRACE     : '{';
-RBRACE     : '}';
-LBRACK     : '[';
-RBRACK     : ']';
-COLON    : ':';
-ARROW    : '->';
-SEMI_COLOR: ';';
-DOT: '.';
-COMMA: ',';
-ASSIGN: '=';
-EQUAL    : '==';
-NOT_EQUAL: '!=';
-GT: '>';
-GE: '>=';
-LT: '<';
-LE: '<=';
-AND      : '&&';
-OR       : '||';
-BANG: '!';
-QUESTION : '?';
-AT         : '@';
-EXTENDS      : 'extends';
-INT: 'int';
-BYTE: 'byte';
-SHORT: 'short';
-LONG: 'long';
-CHAR: 'char';
-FLOAT: 'float';
-DOUBLE: 'double';
-SUPER        : 'super';
-PACKAGE : 'package';
-IMPORT : 'import';
-FUN: 'fun';
-RETURN: 'return';
-BOOLEAN: 'boolean';
-INSTANCE_OF: 'instanceof';
-AS : 'as';
-VAR: 'var';
+ASSIGN      : '=';
+GT          : '>';
+LT          : '<';
+BANG        : '!';
+TILDE       : '~';
+QUESTION    : '?';
+COLON       : ':';
+ARROW       : '->';
+EQUAL       : '==';
+LE          : '<=';
+GE          : '>=';
+NOT_EQUAL   : '!=';
+AND         : '&&';
+OR          : '||';
+INC         : '++';
+DEC         : '--';
+ADD         : '+';
+SUB         : '-';
+MUL      : '*';
+DIV      : '/';
+BITAND      : '&';
+BITOR       : '|';
+CARET    : '^';
+MOD      : '%';
+ADD_ASSIGN     : '+=';
+SUB_ASSIGN     : '-=';
+MUL_ASSIGN     : '*=';
+DIV_ASSIGN     : '/=';
+AND_ASSIGN     : '&=';
+OR_ASSIGN      : '|=';
+XOR_ASSIGN     : '^=';
+MOD_ASSIGN     : '%=';
+LSHIFT_ASSIGN  : '<<=';
+RSHIFT_ASSIGN  : '>>=';
+URSHIFT_ASSIGN : '>>>=';
+
+LPAREN      : '(';
+RPAREN      : ')';
+LBRACE      : '{';
+RBRACE      : '}';
+LBRACK      : '[';
+RBRACK      : ']';
+
+SEMI_COLOR  : ';';
+DOT         : '.';
+COMMA       : ',';
+ELLIPSIS   : '...';
+
+AT          : '@';
+INT         : 'int';
+BYTE        : 'byte';
+SHORT       : 'short';
+LONG        : 'long';
+CHAR        : 'char';
+FLOAT       : 'float';
+DOUBLE      : 'double';
+VOID        : 'void';
+SUPER       : 'super';
+PACKAGE     : 'package';
+IMPORT      : 'import';
+FUN         : 'fun';
+RETURN      : 'return';
+BOOLEAN     : 'boolean';
+INSTANCE_OF : 'instanceof';
+AS          : 'as';
+VAR         : 'var';
+IF          : 'if';
+ELSE        : 'else';
+ASSERT      : 'assert';
+DO          : 'do';
+WHILE       : 'while';
+FOR         : 'for';
+BREAK       : 'break';
+CONTINUE    : 'continue';
+SWITCH      : 'switch';
+CASE        : 'case';
+DEFAULT     : 'default';
+TRY         : 'try';
+CATCH       : 'catch';
+SYNHRONZED  : 'synchronized';
+FINALLY     : 'finally';
+YIELD       : 'yield';
+NEW          : 'new';
+
+CLASS        : 'class';
+
+ABSTRACT     : 'abstract';
+FINAL       : 'final';
+PRIVATE      : 'private';
+PROTECTED    : 'protected';
+PUBLIC       : 'public';
+STATIC       : 'static';
+NATIVE       : 'native';
+NONSEALED  : 'non-sealed';
+SEALED     : 'sealed';
+STRICTFP     : 'strictfp';
+IMPLEMENTS   : 'implements';
+EXTENDS     : 'extends';
+
+PERMITS    : 'permits';
+PROVIDES   : 'provides';
+RECORD     : 'record';
+REQUIRES   : 'requires';
+
+TRANSIENT    : 'transient';
+VOLATILE     : 'volatile';
+ENUM         : 'enum';
+INTERFACE    : 'interface';
+
+THIS         : 'this';
+THROW        : 'throw';
+THROWS       : 'throws';
+
+EXPORTS: 'exports';
+MODELE : 'module';
+OPEN : 'open';
+OPENS: 'opens';
+TO: 'to';
+TRANSITIVE: 'transitive';
+USES: 'uses';
+WITH: 'with';
+
+OACA       : '<>';
+COLONCOLON : '::';
+
+IntegerLiteral:
+    DecimalIntegerLiteral
+    | HexIntegerLiteral
+    | OctalIntegerLiteral
+    | BinaryIntegerLiteral
+;
+
+FloatingPointLiteral: DecimalFloatingPointLiteral | HexadecimalFloatingPointLiteral;
+
+fragment DecimalFloatingPointLiteral:
+    Digits '.' Digits? ExponentPart? FloatTypeSuffix?
+    | '.' Digits ExponentPart? FloatTypeSuffix?
+    | Digits ExponentPart FloatTypeSuffix?
+    | Digits FloatTypeSuffix
+;
+
+fragment ExponentPart: ExponentIndicator SignedInteger;
+
+fragment ExponentIndicator: [eE];
+
+fragment SignedInteger: Sign? Digits;
+
+fragment Sign: [+-];
+
+fragment FloatTypeSuffix: [fFdD];
+
+fragment HexadecimalFloatingPointLiteral: HexSignificand BinaryExponent FloatTypeSuffix?;
+
+fragment HexSignificand: HexNumeral '.'? | '0' [xX] HexDigits? '.' HexDigits;
+
+fragment BinaryExponent: BinaryExponentIndicator SignedInteger;
+
+fragment BinaryExponentIndicator: [pP];
+
+fragment DecimalIntegerLiteral: DecimalNumeral IntegerTypeSuffix?;
+
+fragment HexIntegerLiteral: HexNumeral IntegerTypeSuffix?;
+
+fragment OctalIntegerLiteral: OctalNumeral IntegerTypeSuffix?;
+
+fragment BinaryIntegerLiteral: BinaryNumeral IntegerTypeSuffix?;
+
+fragment IntegerTypeSuffix: [lL];
+
+fragment DecimalNumeral: '0' | NonZeroDigit (Digits? | Underscores Digits);
+
+fragment Digits: Digit (DigitsAndUnderscores? Digit)?;
+
+fragment Digit: '0' | NonZeroDigit;
+
+fragment NonZeroDigit: [1-9];
+
+fragment DigitsAndUnderscores: DigitOrUnderscore+;
+
+fragment DigitOrUnderscore: Digit | '_';
+
+fragment Underscores: '_'+;
+
+fragment HexNumeral: '0' [xX] HexDigits;
+
+fragment HexDigits: HexDigit (HexDigitsAndUnderscores? HexDigit)?;
+
+fragment HexDigit: [0-9a-fA-F];
+
+fragment HexDigitsAndUnderscores: HexDigitOrUnderscore+;
+
+fragment HexDigitOrUnderscore: HexDigit | '_';
+
+fragment OctalNumeral: '0' Underscores? OctalDigits;
+
+fragment OctalDigits: OctalDigit (OctalDigitsAndUnderscores? OctalDigit)?;
+
+fragment OctalDigit: [0-7];
+
+fragment OctalDigitsAndUnderscores: OctalDigitOrUnderscore+;
+
+fragment OctalDigitOrUnderscore: OctalDigit | '_';
+
+fragment BinaryNumeral: '0' [bB] BinaryDigits;
+
+fragment BinaryDigits: BinaryDigit (BinaryDigitsAndUnderscores? BinaryDigit)?;
+
+fragment BinaryDigit: [01];
+
+fragment BinaryDigitsAndUnderscores: BinaryDigitOrUnderscore+;
+
+fragment BinaryDigitOrUnderscore: BinaryDigit | '_';
+
 
 StringLiteral
 	:	'"' StringCharacters? '"'
@@ -60,7 +233,13 @@ StringCharacter
 	|	EscapeSequence
 	;
 
+TextBlock: '"""' [ \t]* [\n\r] [.\r\b]* '"""';
+
 BooleanLiteral: 'true' | 'false';
+
+CharacterLiteral: '\'' SingleCharacter '\'' | '\'' EscapeSequence '\'';
+
+fragment SingleCharacter: ~['\\\r\n];
 
 NullLiteral: 'null';
 
@@ -729,16 +908,6 @@ UnicodeEscape
     ;
 
 fragment
-OctalDigit
-	:	[0-7]
-	;
-
-fragment
 ZeroToThree
 	:	[0-3]
-	;
-
-fragment
-HexDigit
-	:	[0-9a-fA-F]
 	;

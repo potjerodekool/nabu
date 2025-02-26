@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IExpressionSta
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Jump;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
+import io.github.potjerodekool.nabu.compiler.tree.Tag;
 
 public class Ex implements Exp {
     private final IExpression exp;
@@ -37,7 +38,7 @@ public class Ex implements Exp {
                 }
             }
         }
-        return new CJump(CJump.EQUALS, exp, new Const(1), t, f);
+        return new CJump(Tag.EQ, exp, new Const(1), t, f);
     }
 
 }

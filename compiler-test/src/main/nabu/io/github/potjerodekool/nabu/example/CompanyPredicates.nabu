@@ -1,0 +1,17 @@
+package io.github.potjerodekool.nabu.example;
+
+import io.github.potjerodekool.nabu.lang.jpa.JpaPredicate;
+import io.github.potjerodekool.nabu.lang.jpa.InnerJoin;
+import io.github.potjerodekool.employee.Company;
+import io.github.potjerodekool.employee.Employee;
+
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Root;
+
+fun findCompanyByEmployeeFirstName(employeeFirstName: String): JpaPredicate<Company> {
+    return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
+        var e = (InnerJoin<Company, Employee>) c.employees ;
+        return e.firstName == employeeFirstName;
+    };
+}

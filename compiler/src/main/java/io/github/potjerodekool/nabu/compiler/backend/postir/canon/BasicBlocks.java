@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.backend.postir.canon;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.ILabelStatement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IThrowStatement;
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Jump;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 
 import java.util.ArrayList;
@@ -15,9 +14,17 @@ public class BasicBlocks {
 
     private final List<List<IStatement>> blocks = new ArrayList<>();
 
-    private final ILabel endLabel = new ILabel("basicEND");
+    private final ILabel endLabel;
 
     public BasicBlocks(final List<IStatement> statements) {
+        final var lastStatement = statements.getLast();
+
+        if (lastStatement instanceof ILabelStatement labelStatement) {
+            endLabel = labelStatement.getLabel();
+        } else {
+            endLabel = new ILabel("basicEND");
+        }
+
         mkBlocks(statements);
     }
 
@@ -49,7 +56,7 @@ public class BasicBlocks {
         });
 
         if (currentBlock != null) {
-            currentBlock.add(new Jump(endLabel));
+            //currentBlock.add(new Jump(endLabel));
             endCurrentBlock();
         }
     }
@@ -63,7 +70,7 @@ public class BasicBlocks {
 
     private void startNewBlock(final ILabelStatement startLabel) {
         if (currentBlock != null) {
-            currentBlock.add(new Jump(startLabel.getLabel()));
+            //currentBlock.add(new Jump(startLabel.getLabel()));
             endCurrentBlock();
         }
 
@@ -71,7 +78,7 @@ public class BasicBlocks {
         currentBlock.add(startLabel);
     }
 
-    List<List<IStatement>> getBlocks() {
+    public List<List<IStatement>> getBlocks() {
         return blocks;
     }
 

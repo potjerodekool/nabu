@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 public class Resolver {
 
@@ -15,19 +15,14 @@ public class Resolver {
         this.importScope = importScope;
     }
 
-    public TypeMirror resolveType(final String name) {
-        var type = classElementLoader.resolveType(name);
+    public Element resolveClass(final String name) {
+        var clazz = classElementLoader.resolveClass(name);
 
-        if (type == null) {
-            final var clazz = resolveInImportScope(name);
-
-            if (clazz != null) {
-                type = classElementLoader.getTypes()
-                        .getDeclaredType(clazz);
-            }
+        if (clazz == null) {
+            return resolveInImportScope(name);
+        } else {
+            return clazz;
         }
-
-        return type;
     }
 
     private TypeElement resolveInImportScope(final String name) {

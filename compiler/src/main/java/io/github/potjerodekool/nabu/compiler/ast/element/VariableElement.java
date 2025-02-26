@@ -1,22 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.ast.element;
 
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+public interface VariableElement extends Element {
 
-public class VariableElement extends AbstractSymbol {
+    Object getConstantValue();
 
-    private TypeMirror variableType;
+    default boolean isUnnamed() { return getSimpleName().isEmpty(); }
 
-    public VariableElement(final ElementKind kind,
-                           final String name,
-                           final AbstractSymbol owner) {
-        super(kind, name, owner);
-    }
-
-    public TypeMirror getVariableType() {
-        return variableType;
-    }
-
-    public void setVariableType(final TypeMirror variableType) {
-        this.variableType = variableType;
-    }
 }

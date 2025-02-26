@@ -11,26 +11,11 @@
 
     <artifactId>compiler-test</artifactId>
 
-    <properties>
-        <java.version>21</java.version>
-        <maven.compiler.source>${java.version}</maven.compiler.source>
-        <maven.compiler.target>${java.version}</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <lombok.version>1.18.34</lombok.version>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>io.github.potjerodekool</groupId>
-            <artifactId>nabu-compiler</artifactId>
+            <artifactId>nabu-jpa-support</artifactId>
             <version>1.0-SNAPSHOT</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>${lombok.version}</version>
-            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -61,7 +46,7 @@
         <dependency>
             <groupId>org.springframework.data</groupId>
             <artifactId>spring-data-jpa</artifactId>
-            <version>3.3.2</version>
+            <version>3.4.3</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -79,11 +64,20 @@
 
         <dependency>
             <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-compiler</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
             <artifactId>test-app</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>system</scope>
-            <systemPath>${project.basedir}/test-app.jar</systemPath>
+            <systemPath>${project.basedir}/lib/test-app.jar</systemPath>
         </dependency>
+        -->
     </dependencies>
 
     <build>
@@ -101,9 +95,28 @@
                         </goals>
                         <configuration>
                             <sources>
-                                <source>src/test/nabu</source>
+                                <source>src/main/nabu</source>
                             </sources>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>
@@ -112,14 +125,26 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>${java.version}</release>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                            <version>${lombok.version}</version>
-                        </path>
-                    </annotationProcessorPaths>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>io.github.potjerodekool</groupId>
+                <artifactId>nabu-maven-plugin</artifactId>
+                <version>1.0-SNAPSHOT</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>io.github.potjerodekool</groupId>
+                        <artifactId>nabu-jpa-plugin</artifactId>
+                        <version>1.0-SNAPSHOT</version>
+                    </dependency>
+                </dependencies>
             </plugin>
         </plugins>
     </build>

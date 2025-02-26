@@ -1,12 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.type;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.AbstractSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 
 public interface TypeVariable extends ReferenceType {
 
-    AbstractSymbol asElement();
+    Element asElement();
 
     TypeMirror getUpperBound();
 
     TypeMirror getLowerBound();
+
+    boolean isCaptured();
+
 }

@@ -17,16 +17,11 @@ public final class IReferenceType extends IType {
                    final ITypeKind typeKind,
                    final List<IType> typeArguments) {
         super(typeKind);
-
         if (name == null && ITypeKind.NULL != typeKind) {
             throw new NullPointerException();
         }
 
         if (typeArguments != null) {
-            if (typeArguments.isEmpty()) {
-                throw new IllegalArgumentException();
-            }
-
             for (final IType typeArgument : typeArguments) {
                 if (typeArgument == null) {
                     throw new NullPointerException();
@@ -44,13 +39,10 @@ public final class IReferenceType extends IType {
         this.typeArguments = typeArguments;
     }
 
-    public static IReferenceType create(final String name,
+    public static IReferenceType create(final ITypeKind kind,
+                                        final String name,
                                         final List<IType> typeArguments) {
-        return new IReferenceType(name, ITypeKind.DECLARED, typeArguments);
-    }
-
-    public static IReferenceType create(final String name) {
-        return new IReferenceType(name, ITypeKind.DECLARED, null);
+        return new IReferenceType(name, kind, typeArguments);
     }
 
     public String getName() {
@@ -88,6 +80,11 @@ public final class IReferenceType extends IType {
         int result = super.hashCode();
         result = 31 * result + (name != null ? name.hashCode() : 0);
         return result;
+    }
+
+    @Override
+    public <R, P> R accept(final ITypeVisitor<R, P> visitor, final P param) {
+        return visitor.visitReferenceType(this, param);
     }
 
     @Override

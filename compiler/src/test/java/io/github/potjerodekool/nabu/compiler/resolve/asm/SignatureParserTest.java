@@ -1,0 +1,461 @@
+package io.github.potjerodekool.nabu.compiler.resolve.asm;
+
+import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.PackageElementBuilder;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.resolve.TypesImpl;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
+import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
+import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
+import io.github.potjerodekool.nabu.test.TestElementLoader;
+import org.junit.jupiter.api.Test;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.signature.SignatureReader;
+import org.objectweb.asm.signature.SignatureVisitor;
+
+import java.nio.file.Path;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class SignatureParserTest {
+
+    @Test
+    void test1() {
+        parseAndAssertFieldSignature("TT;");
+    }
+
+    @Test
+    void test2() {
+        parseAndAssertFieldSignature("[Ljava/util/Optional<Ljava/lang/String;>;");
+    }
+
+    @Test
+    void test3() {
+        parseAndAssertFieldSignature("[Ljava/lang/reflect/TypeVariable<*>;");
+    }
+
+    @Test
+    void test5() {
+        parseAndAssertFieldSignature("Ljava/util/Optional<*>;");
+    }
+
+    @Test
+    void test6() {
+        parseAndAssertClassSignature("<T:Ljava/lang/Object;>Ljava/lang/Object;Ljava/io/Serializable;Ljava/lang/reflect/GenericDeclaration;Ljava/lang/reflect/Type;Ljava/lang/reflect/AnnotatedElement;Ljava/lang/invoke/TypeDescriptor$OfField<Ljava/lang/Class<*>;>;Ljava/lang/constant/Constable;");
+    }
+
+    @Test
+    void test7() {
+        parseAndAssertClassSignature("<X:Ljava/lang/Object;>Ljava/lang/Object;Ljakarta/persistence/criteria/From<TX;TX;>;");
+    }
+
+    @Test
+    void test8() {
+        parseAndAssertMethodSignature("<T:Ljava/lang/Object;>([TT;)[TT;");
+    }
+
+    @Test
+    void test9() {
+        parseAndAssertMethodSignature("<U:Ljava/lang/Object;T:TU;>(Ljava/util/concurrent/CompletableFuture<TT;>;)Ljava/util/concurrent/CompletableFuture<TU;>;");
+    }
+
+    @Test
+    void test10() {
+        parseAndAssertMethodSignature("<Y::Ljava/lang/Comparable<-TY;>;>(Ljakarta/persistence/criteria/Expression<+TY;>;TY;)Ljakarta/persistence/criteria/Predicate;");
+    }
+
+    @Test
+    void test11() {
+        parseAndAssertMethodSignature("(I)TE;");
+    }
+
+    @Test
+    void test() {
+        final var signature = "Ljava/util/Optional<Ljava/lang/String;>;";
+        final var reader = new SignatureReader(signature);
+        final var visitor = new SignaturePrinter(Opcodes.ASM9);
+        reader.accept(visitor);
+    }
+
+    private void parseAndAssertClassSignature(final String signature) {
+        final var printer = new Printer();
+
+        final var parser = parseSignature(signature);
+        final var formalTypeParameters = parser.createFormalTypeParameters();
+
+        printer.visitTypeVariables(formalTypeParameters);
+
+        final var superType = parser.createSuperType();
+        superType.accept(printer, null);
+
+        final var interfaceTypes = parser.createInterfaceTypes();
+
+        for (final var interfaceType : interfaceTypes) {
+            printer.process(interfaceType);
+        }
+
+        final var actual = printer.getText();
+
+        assertEquals(signature, actual);
+    }
+
+    private void parseAndAssertFieldSignature(final String signature) {
+        final var fieldType = parseSignature(signature).createFieldType();
+        final var printer = new Printer();
+        printer.process(fieldType);
+        assertEquals(signature, printer.getText());
+    }
+
+    private void parseAndAssertMethodSignature(final String signature) {
+        final var methodSignature = parseSignature(signature).createMethodSignature();
+        final var methodType = new CMethodType(
+                null,
+                methodSignature.typeVariables(),
+                methodSignature.returnType(),
+                methodSignature.argumentTypes(),
+                methodSignature.thrownTypes()
+        );
+        final var printer = new Printer();
+        printer.process(methodType);
+        assertEquals(signature, printer.getText());
+    }
+
+    protected SignatureParser parseSignature(final String signature) {
+        final var loader = new TestElementLoader();
+        final var reader = new SignatureReader(signature);
+
+        final var signatureBuilder = new SignatureParser(
+                Opcodes.ASM9,
+                loader
+        );
+
+        reader.accept(signatureBuilder);
+        return signatureBuilder;
+    }
+
+}
+
+class Printer implements TypeVisitor<Object, PrinterContext> {
+
+    private final StringBuilder builder = new StringBuilder();
+
+    public void process(final TypeMirror typeMirror) {
+        typeMirror.accept(this, new PrinterContext());
+    }
+
+    @Override
+    public Object visitUnknownType(final TypeMirror typeMirror, final PrinterContext param) {
+        throw new TodoException();
+    }
+
+    @Override
+    public Object visitArrayType(final io.github.potjerodekool.nabu.compiler.type.ArrayType arrayType, final PrinterContext param) {
+        print("[");
+        arrayType.getComponentType().accept(this, param);
+        return null;
+    }
+
+    @Override
+    public Object visitDeclaredType(final DeclaredType classType, final PrinterContext param) {
+        if (classType.getEnclosingType() != null) {
+            classType.getEnclosingType().accept(this, param);
+            print("$");
+        }
+
+        final var clazz = (TypeElement) classType.asElement();
+        print("L");
+        print(clazz.getQualifiedName().replace('.', '/'));
+
+        if (classType.getTypeArguments() != null && !classType.getTypeArguments().isEmpty()) {
+            print("<");
+
+            final var typeArgs = classType.getTypeArguments();
+
+            typeArgs.forEach(typeArg -> typeArg.accept(this, param));
+
+            print(">");
+        }
+
+        print(";");
+
+        return null;
+    }
+
+    @Override
+    public Object visitMethodType(final ExecutableType methodType, final PrinterContext context) {
+        final var typeVariables = methodType.getTypeVariables();
+
+        if (!typeVariables.isEmpty()) {
+            final var subContext = context.withFormalTypeVariable(true);
+            print("<");
+            typeVariables.forEach(typeVariable -> typeVariable.accept(this, subContext));
+            print(">");
+        }
+
+        print("(");
+        methodType.getParameterTypes().forEach(argType -> argType.accept(this, context));
+        print(")");
+        methodType.getReturnType().accept(this, context);
+        return null;
+    }
+
+    @Override
+    public Object visitNoType(final NoType noType, final PrinterContext param) {
+        print("V");
+        return null;
+    }
+
+    @Override
+    public Object visitPrimitiveType(final io.github.potjerodekool.nabu.compiler.type.PrimitiveType primitiveType, final PrinterContext param) {
+        final var descriptor = switch (primitiveType.getKind()) {
+            case TypeKind.BYTE -> "B";
+            case TypeKind.CHAR -> "C";
+            case TypeKind.DOUBLE -> "D";
+            case TypeKind.FLOAT -> "F";
+            case TypeKind.INT -> "I";
+            case TypeKind.LONG -> "J";
+            case TypeKind.SHORT -> "S";
+            case TypeKind.BOOLEAN -> "Z";
+            default -> throw new IllegalArgumentException();
+        };
+        print(descriptor);
+        return null;
+    }
+
+    @Override
+    public Object visitWildcardType(final io.github.potjerodekool.nabu.compiler.type.WildcardType wildcardType, final PrinterContext param) {
+        if (wildcardType.getExtendsBound() != null) {
+            if (isObjectType(wildcardType.getExtendsBound())) {
+                print("*");
+            } else {
+                print("+");
+                wildcardType.getExtendsBound().accept(this, param);
+            }
+        } else if (wildcardType.getSuperBound() != null) {
+            print("-");
+            wildcardType.getSuperBound().accept(this, param);
+        } else {
+            print("*");
+        }
+        return null;
+    }
+
+    private boolean isObjectType(final TypeMirror typeMirror) {
+        if (typeMirror instanceof DeclaredType declaredType) {
+            final var clazz = (TypeElement) declaredType.asElement();
+            return Constants.OBJECT.equals(clazz.getQualifiedName());
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public Object visitTypeVariable(final TypeVariable typeVariable,
+                                    final PrinterContext context) {
+        final var name = typeVariable.asElement().getSimpleName();
+
+        final var isFormalTypeVariable = context.isFormalTypeVariable();
+
+        if (isFormalTypeVariable
+                && typeVariable.getUpperBound() != null) {
+
+            if (context.isBound()) {
+                print("T");
+            }
+
+            print(name);
+
+            final var upperBound = typeVariable.getUpperBound();
+
+            print(":");
+
+            if (hasTypeArguments(upperBound)) {
+                print(":");
+            }
+
+            upperBound.accept(this, context.withBound(true));
+        } else if (isFormalTypeVariable
+                && typeVariable.getLowerBound() != null) {
+            if (context.isBound()) {
+                print("T");
+            }
+
+            print(name);
+            print(":");
+
+            final var lowerBound = typeVariable.getLowerBound();
+            if (hasTypeArguments(lowerBound)) {
+                print(":");
+            }
+
+            lowerBound.accept(this, context.withBound(true));
+        } else {
+            print("T" + name + ";");
+        }
+
+        return null;
+    }
+
+    private boolean hasTypeArguments(final TypeMirror typeMirror) {
+        if (typeMirror instanceof DeclaredType declaredType) {
+            return !declaredType.getTypeArguments().isEmpty();
+        } else {
+            return false;
+        }
+    }
+
+    private Printer print(final String text) {
+        builder.append(text);
+        return this;
+    }
+
+    public String getText() {
+        return builder.toString();
+    }
+
+    public void visitTypeVariables(final List<TypeVariable> typeVariables) {
+        final var context = new PrinterContext(true,false);
+        if (!typeVariables.isEmpty()) {
+            print("<");
+            typeVariables.forEach(it -> it.accept(this, context));
+            print(">");
+        }
+    }
+}
+
+class SignaturePrinter extends SignatureVisitor {
+
+    protected SignaturePrinter(final int api) {
+        super(api);
+    }
+
+    private void print(final String text) {
+        System.out.print(text);
+    }
+
+    private void println(final String text) {
+        System.out.println(text);
+    }
+
+    @Override
+    public void visitFormalTypeParameter(final String name) {
+        println(name);
+    }
+
+    @Override
+    public SignatureVisitor visitClassBound() {
+        return this;
+    }
+
+    @Override
+    public SignatureVisitor visitInterfaceBound() {
+        return this;
+    }
+
+    @Override
+    public SignatureVisitor visitSuperclass() {
+        println("SUPER_CLASS");
+        return this;
+    }
+
+    @Override
+    public SignatureVisitor visitInterface() {
+        return this;
+    }
+
+    @Override
+    public SignatureVisitor visitParameterType() {
+        return this;
+    }
+
+    @Override
+    public SignatureVisitor visitReturnType() {
+        return this;
+    }
+
+    @Override
+    public SignatureVisitor visitExceptionType() {
+        return this;
+    }
+
+    @Override
+    public void visitBaseType(final char descriptor) {
+        println(descriptor + "");
+    }
+
+    @Override
+    public void visitTypeVariable(final String name) {
+        println(name);
+    }
+
+    @Override
+    public SignatureVisitor visitArrayType() {
+        return this;
+    }
+
+    @Override
+    public void visitClassType(final String name) {
+        println(name);
+    }
+
+    @Override
+    public void visitInnerClassType(final String name) {
+        println(name);
+    }
+
+    @Override
+    public void visitTypeArgument() {
+        println("TypeArg");
+    }
+
+    @Override
+    public SignatureVisitor visitTypeArgument(final char wildcard) {
+        return this;
+    }
+
+    @Override
+    public void visitEnd() {
+        println("END");
+    }
+}
+
+class PrinterContext {
+
+    private final boolean isFormalTypeVariable;
+    private final boolean isBound;
+
+    PrinterContext() {
+        this.isFormalTypeVariable = false;
+        this.isBound = false;
+    }
+
+    PrinterContext(final boolean isFormalTypeVariable,
+                   final boolean isBound) {
+        this.isFormalTypeVariable = isFormalTypeVariable;
+        this.isBound = isBound;
+    }
+
+    public boolean isFormalTypeVariable() {
+        return isFormalTypeVariable;
+    }
+
+    public boolean isBound() {
+        return isBound;
+    }
+
+    public PrinterContext withFormalTypeVariable(final boolean value) {
+        return new PrinterContext(value, isBound);
+    }
+
+    public PrinterContext withBound(final boolean value) {
+        return new PrinterContext(false, value);
+    }
+
+}

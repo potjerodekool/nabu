@@ -39,3 +39,4 @@ build/
 /compiler-test/output/
 /compiler/src/main/antlr4/gen/
 /.idea/
+/compiler/gen/

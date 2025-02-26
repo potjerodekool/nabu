@@ -3,25 +3,21 @@ package io.github.potjerodekool.nabu.compiler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
-
-import static org.mockito.Mockito.when;
 
 class NabuCompilerTest {
 
     private final Path outputDir = Paths.get("output");
 
     @AfterEach
-    void tearDown() {
-        //delete(outputDir);
+    void tearDown() throws IOException {
+        delete(outputDir);
     }
 
     @BeforeEach
@@ -33,13 +29,15 @@ class NabuCompilerTest {
 
     private void delete(final Path path) throws IOException {
         if (Files.isDirectory(path)) {
-            Files.newDirectoryStream(path).forEach(subPath -> {
-                try {
-                    delete(subPath);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
+            try (var stream = Files.newDirectoryStream(path)) {
+                stream.forEach(subPath -> {
+                    try {
+                        delete(subPath);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
         } else {
             Files.deleteIfExists(path);
         }
@@ -47,26 +45,31 @@ class NabuCompilerTest {
 
     @Test
     void test() throws IOException {
-        final var compiler = new NabuCompiler();
+        try (final var compiler = new NabuCompiler()) {
+            final var classPath = System.getProperty("java.class.path");
+            final var pathSeparator = File.pathSeparator;
+            final var pathElements = classPath.split(pathSeparator);
 
-        final var classPath = System.getProperty("java.class.path");
-        final var pathSeparator = File.pathSeparator;
-        final var pathElements = classPath.split(pathSeparator);
+            for (final String pathElement : pathElements) {
+                compiler.addClassPathEntry(Paths.get(pathElement));
+            }
 
-        for (final String pathElement : pathElements) {
-            compiler.addClassPathEntry(Paths.get(pathElement));
+            final var options = new Options()
+                    .sourceRoot(Paths.get("src/test/nabu"));
+
+            compiler.compile(options);
+
+            buildJar();
         }
-
-        final var options = new Options()
-                .sourceRoot(Paths.get("src/test/nabu"));
-
-        compiler.compile(options);
-
-        buildJar();
     }
 
     private void buildJar() throws IOException {
-        final var jarPath = Paths.get("test-app.jar");
+        final var jarPath = Paths.get("lib","test-app.jar");
+        final var parentPath = jarPath.getParent();
+
+        if (Files.notExists(parentPath)) {
+            Files.createDirectories(parentPath);
+        }
 
         try (var outputStream = Files.newOutputStream(jarPath);
              var jarOutputStream = new JarOutputStream(outputStream)) {
@@ -75,7 +78,7 @@ class NabuCompilerTest {
     }
 
     private void fillJar(final JarOutputStream outputStream) throws IOException {
-        Files.walkFileTree(outputDir, new FileVisitor<Path>() {
+        Files.walkFileTree(outputDir, new FileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
                 final var fileName = outputDir.relativize(dir);
@@ -108,12 +111,12 @@ class NabuCompilerTest {
             }
 
             @Override
-            public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            public FileVisitResult visitFileFailed(final Path file, final IOException exc) {
                 return FileVisitResult.CONTINUE;
             }
 
             @Override
-            public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
+            public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) {
                 return FileVisitResult.CONTINUE;
             }
         });

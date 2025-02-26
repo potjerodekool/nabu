@@ -19,7 +19,7 @@ public class JModScanner implements FileScanner, FileVisitor<Path> {
     public JModScanner(final Path path) {
         this.path = path;
         try {
-            this.fileSystem = createFileSystem();
+            this.fileSystem = getFileSystem();
             final var classes = fileSystem.getPath("/classes");
             Files.walkFileTree(classes, this);
         } catch (IOException e) {
@@ -34,11 +34,16 @@ public class JModScanner implements FileScanner, FileVisitor<Path> {
         }
     }
 
-    private FileSystem createFileSystem() throws IOException {
+    private FileSystem getFileSystem() throws IOException {
         final var zipFile = URI.create("jar:file:" + path.toUri().getRawPath());
-        return FileSystems.newFileSystem(zipFile, Map.of(
-                "create", "false",
-                "encoding", "UTF-8"));
+
+        try {
+            return FileSystems.getFileSystem(zipFile);
+        } catch (final FileSystemNotFoundException e) {
+            return FileSystems.newFileSystem(zipFile, Map.of(
+                    "create", "false",
+                    "encoding", "UTF-8"));
+        }
     }
 
     @Override

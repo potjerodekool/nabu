@@ -9,7 +9,7 @@ public class Flags {
     public static final int PUBLIC = 1;
     public static final int PRIVATE = 2;
     public static final int STATIC = 4;
-    public static final int SYNTHENTIC = 8;
+    public static final int SYNTHETIC = 8;
     public static final int FINAL = 16;
 
     private Flags() {
@@ -31,7 +31,7 @@ public class Flags {
         }
 
         if (modifiers.contains(Modifier.SYNTHENTIC)) {
-            flags += SYNTHENTIC;
+            flags += SYNTHETIC;
         }
 
         if (modifiers.contains(Modifier.FINAL)) {

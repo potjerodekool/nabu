@@ -3,8 +3,8 @@ package io.github.potjerodekool.nabu.compiler.backend.graph;
 import java.util.Collections;
 import java.util.List;
 
-import static io.github.potjerodekool.nabu.compiler.CollectionUtils.headAndTailList;
-import static io.github.potjerodekool.nabu.compiler.CollectionUtils.tailOf;
+import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
+import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.tailOf;
 
 public final class Node {
     private final Graph mygraph;
@@ -96,11 +96,6 @@ public final class Node {
 
     Graph getMygraph() {
         return mygraph;
-    }
-
-    @Override
-    public boolean equals(final Object obj) {
-        return obj == this;
     }
 
     @Override

@@ -1,12 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.graph;
 
-import io.github.potjerodekool.nabu.compiler.CollectionUtils;
-
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-import static io.github.potjerodekool.nabu.compiler.CollectionUtils.*;
+import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.*;
 
 public abstract class Graph {
 

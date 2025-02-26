@@ -1,17 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.ast.element;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.AbstractSymbol;
+
+import java.util.Set;
+
 public abstract class TypeSymbol extends AbstractSymbol {
 
     public TypeSymbol(final ElementKind kind,
+                      final Set<Modifier> modifiers,
                       final String name,
-                      final AbstractSymbol owner) {
-        super(kind, name, owner);
+                      final Element owner) {
+        super(kind, modifiers, name, owner);
     }
 
-    public TypeSymbol(final ElementKind kind,
-                      final NestingKind nestingKind,
-                      final String name,
-                      final AbstractSymbol owner) {
-        super(kind, nestingKind, name, owner);
-    }
 }

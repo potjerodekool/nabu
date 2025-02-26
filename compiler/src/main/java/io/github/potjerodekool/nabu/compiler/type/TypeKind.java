@@ -11,9 +11,14 @@ public enum TypeKind {
     LONG,
     DOUBLE,
     ARRAY,
-    REFERENCE,
-    METHOD,
+    DECLARED,
+    EXECUTABLE,
     NULL,
     WILDCARD,
-    TYPEVAR
+    INTERSECTION,
+    NONE,
+    TYPEVAR,
+    PACKAGE,
+    MODULE,
+    ERROR
 }

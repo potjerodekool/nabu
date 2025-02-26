@@ -1,14 +1,28 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.expression.CExpression;
+import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class BlockStatement extends Statement {
 
     private final List<Statement> statements = new ArrayList<>();
+
+    public BlockStatement() {
+    }
+
+    public BlockStatement(final List<Statement> statements) {
+        statements.forEach(Objects::requireNonNull);
+        this.statements.addAll(statements);
+    }
+
+    public BlockStatement(final BlockStatementBuilder builder) {
+        super(builder);
+        this.statements.addAll(builder.statements);
+    }
 
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
@@ -16,26 +30,21 @@ public class BlockStatement extends Statement {
     }
 
     public BlockStatement statement(final Statement statement) {
-        if (statement == null) {
-            throw new NullPointerException();
-        }
-
+        Objects.requireNonNull(statement);
         this.statements.add(statement);
         return this;
     }
 
     public BlockStatement statement(final List<Statement> statements) {
-        for (final Statement statement : statements) {
-            if (statement == null) {
-                throw new NullPointerException();
-            }
-        }
+        statements.forEach(Objects::requireNonNull);
         this.statements.addAll(statements);
         return this;
     }
 
-    public BlockStatement statement(final CExpression expression) {
-        return statement(new StatementExpression(expression));
+    public BlockStatement statement(final ExpressionTree expression) {
+        final var se = new StatementExpression(expression);
+        se.setLineNumber(expression.getLineNumber());
+        return statement(se);
     }
 
     public List<Statement> getStatements() {
@@ -46,23 +55,4 @@ public class BlockStatement extends Statement {
         return new BlockStatementBuilder(this);
     }
 
-    public static class BlockStatementBuilder extends StatementBuilder<BlockStatement> {
-
-        private final List<Statement> statements = new ArrayList<>();
-
-        protected BlockStatementBuilder(final BlockStatement original) {
-            super(original);
-        }
-
-        public BlockStatementBuilder statements(final List<Statement> statements) {
-            this.statements.addAll(statements);
-            return this;
-        }
-
-        @Override
-        public BlockStatement build() {
-            return fill(new BlockStatement()
-                    .statement(statements));
-        }
-    }
 }

@@ -3,46 +3,37 @@ package io.github.potjerodekool.nabu.compiler.backend.ir.statement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.IExpression;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
+import io.github.potjerodekool.nabu.compiler.tree.Tag;
 
 import java.util.Arrays;
 import java.util.List;
 
 public class CJump extends IStatement {
 
-    public static final Operator EQUALS = Operator.EQUALS;
-    public static final Operator NOT_EQUALS = Operator.NOT_EQUALS;
-    public static final Operator GE = Operator.GE;
-    public static final Operator LT = Operator.LT;
-    public static final Operator LE = Operator.LE;
-    public static final Operator GT = Operator.GT;
-    public static final Operator UGT = Operator.UGT;
-    public static final Operator ULE = Operator.ULE;
-    public static final Operator ULT = Operator.ULT;
-    public static final Operator UGE = Operator.UGE;
-
-    private Operator operator;
+    private Tag tag;
     private IExpression left;
     private IExpression right;
     private final ILabel trueLabel;
     private final ILabel falseLabel;
 
-    public CJump(final Operator operator,
-                 final IExpression l, final IExpression r,
+    public CJump(final Tag tag,
+                 final IExpression l,
+                 final IExpression r,
                  final ILabel t,
                  final ILabel f) {
-        this.operator = operator;
+        this.tag = tag;
         this.left = l;
         this.right = r;
         this.trueLabel = t;
         this.falseLabel = f;
     }
 
-    public Operator getOperator() {
-        return operator;
+    public Tag getTag() {
+        return tag;
     }
 
-    public void setOperator(final Operator operator) {
-        this.operator = operator;
+    public void setTag(final Tag tag) {
+        this.tag = tag;
     }
 
     public IExpression getLeft() {
@@ -76,7 +67,7 @@ public class CJump extends IStatement {
 
     @Override
     public String toString() {
-        return left + " " + operator + " " + right + " then " + trueLabel + " else " + falseLabel + '\n';
+        return left + " " + tag + " " + right + " then " + trueLabel + " else " + falseLabel + '\n';
     }
 
     @Override
@@ -87,7 +78,7 @@ public class CJump extends IStatement {
     @Override
     public IStatement build(final List<IExpression> kids) {
         return new
-                CJump(operator, kids.getFirst(), kids.getLast(), trueLabel, falseLabel);
+                CJump(tag,kids.getFirst(), kids.getLast(), trueLabel, falseLabel);
     }
 
     @Override
@@ -101,22 +92,22 @@ public class CJump extends IStatement {
     }
 
     public IStatement flip() {
-        return new CJump(not(operator), left, right, falseLabel, trueLabel);
+        return new CJump(not(tag), left, right, falseLabel, trueLabel);
     }
 
     public IStatement changeFalseLabel(final ILabel newFalseLabel) {
-        return new CJump(operator, left, right, trueLabel, newFalseLabel);
+        return new CJump(tag, left, right, trueLabel, newFalseLabel);
     }
 
-    private Operator not(final Operator operator) {
-        return switch (operator) {
-            case EQUALS -> Operator.NOT_EQUALS;
-            case NOT_EQUALS -> Operator.EQUALS;
-            case GE -> Operator.LT;
-            case LT -> Operator.GE;
-            case GT -> Operator.LE;
-            case LE -> Operator.GT;
-            default -> throw new IllegalArgumentException(String.valueOf(operator));
+    private Tag not(final Tag tag) {
+        return switch (tag) {
+            case EQ -> Tag.NE;
+            case NE -> Tag.EQ;
+            case GE -> Tag.LT;
+            case LT -> Tag.GE;
+            case GT -> Tag.LE;
+            case LE -> Tag.GT;
+            default -> throw new IllegalArgumentException(String.valueOf(tag));
         };
     }
 }

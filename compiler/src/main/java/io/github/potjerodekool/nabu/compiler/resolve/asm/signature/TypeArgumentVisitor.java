@@ -1,73 +1,83 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.type.ClassType;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.TypeUtils;
-import io.github.potjerodekool.nabu.compiler.type.immutable.ImmutableWildcardType;
-import io.github.potjerodekool.nabu.compiler.type.mutable.MutableClassType;
-import io.github.potjerodekool.nabu.compiler.type.mutable.MutableTypeVariable;
-import lombok.extern.java.Log;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableTypeVariable;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableWildcardType;
 
-@Log
-public class TypeArgumentVisitor extends AbstractSignatureVisitor {
+public class TypeArgumentVisitor extends AbstractVisitor {
 
+    private MutableType type;
     private final char wildcard;
-    private TypeMirror currenType;
 
     protected TypeArgumentVisitor(final int api,
-                                  final AsmClassElementLoader loader,
-                                  final AbstractSignatureVisitor parent,
+                                  final ClassElementLoader loader,
+                                  final AbstractVisitor parent,
                                   final char wildcard) {
         super(api, loader, parent);
         this.wildcard = wildcard;
     }
 
-    @Override
-    public void visitTypeVariable(final String name) {
-        currenType = new MutableTypeVariable(name);
-        parent.addTypeArgument(currenType);
+    public void visitClassType(final String name) {
+        type = new MutableClassType(loader.resolveClass(name));
+        parent.addTypeArgument(type);
     }
 
     @Override
-    public void visitClassType(final String name) {
-        final var clazz = getLoader().resolveClass(name);
-        currenType = getTypes().getDeclaredType(clazz);
-        parent.addTypeArgument(currenType);
+    public void visitTypeVariable(final String name) {
+        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var type = new MutableTypeVariable(name, objectType, null);
+        final var classType = (MutableClassType) parent.getType();
+        classType.addTypeArgument(process(type));
+    }
+
+    private MutableType process(final MutableType typeMirror) {
+        if (wildcard == '-') {
+            return new MutableWildcardType(
+                    null,
+                    typeMirror
+            );
+        } else if (wildcard == '+') {
+            return new MutableWildcardType(
+                    typeMirror,
+                    null
+            );
+        } else {
+            return typeMirror;
+        }
     }
 
     @Override
     public void visitTypeArgument() {
-        final var classType = (MutableClassType) currenType;
-        classType.addParameterType(new ImmutableWildcardType(null, null));
+        final var classType = (MutableClassType) type;
+        classType.addTypeArgument(new MutableWildcardType(
+                null,
+                null
+        ));
+    }
+
+    @Override
+    public MutableType getType() {
+        return type;
+    }
+
+    @Override
+    public void setType(final MutableType type) {
+        this.type = type;
+    }
+
+    @Override
+    protected void addTypeArgument(final MutableType type) {
+        ((MutableClassType) this.type).addTypeArgument(type);
     }
 
     @Override
     public void visitInnerClassType(final String name) {
-        final var outerClassName = TypeUtils.INSTANCE.getClassName(currenType);
-        final var innerClassName = outerClassName + "$" + name;
-
-        final var innerClassElement = getLoader().resolveClass(innerClassName);
-        final var innerType = (ClassType) getTypes().getDeclaredType(innerClassElement);
-
-        final var outerClassType = (MutableClassType) currenType;
-        outerClassType.toInnerClassType(innerType);
-    }
-
-    @Override
-    protected void addTypeArgument(final TypeMirror type) {
-        final var classType = (MutableClassType) currenType;
-        classType.addParameterType(type);
-    }
-
-    @Override
-    protected void setType(final TypeMirror type) {
-        currenType = type;
-        parent.addTypeArgument(currenType);
-    }
-
-    @Override
-    public void visitEnd() {
-        //TODO
+        final var classType = (MutableClassType) this.type;
+        final var innerName = classType.getClassName() + "$" + name;
+        final var element = loader.resolveClass(innerName);
+        this.type = new MutableClassType(element, classType);
     }
 }

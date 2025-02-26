@@ -8,9 +8,9 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 import java.util.List;
 import java.util.StringJoiner;
 
-import static io.github.potjerodekool.nabu.compiler.CollectionUtils.headAndTailList;
+import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
 
-public class DefaultCall extends IExpression implements Call {
+public final class DefaultCall extends IExpression implements Call {
 
     private final Name owner;
     private final Name function;

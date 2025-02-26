@@ -1,10 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
-/**
- * Created by evert on 16/12/2014.
- */
 public enum ITypeKind {
-    DECLARED,
+    CLASS,
+    INTERFACE,
     BYTE,
     ENUM,
     VOID,
@@ -20,5 +18,6 @@ public enum ITypeKind {
     NULL,
     WILDCARD,
     UNION,
+    INTERSECTION,
     METHOD
 }

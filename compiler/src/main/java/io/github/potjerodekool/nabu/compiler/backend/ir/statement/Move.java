@@ -6,7 +6,6 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.expression.Mem;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 
 public class Move extends IStatement {
 
@@ -16,17 +15,8 @@ public class Move extends IStatement {
 
     public Move(final IExpression src,
                 final IExpression dst) {
-        this(src, dst, -1);
-    }
-
-    public Move(final IExpression src,
-                final IExpression dst,
-                final int lineNumber) {
-        Objects.requireNonNull(src);
-        Objects.requireNonNull(dst);
         this.src = src;
         this.dst = dst;
-        setLineNumber(lineNumber);
     }
 
     public IExpression getSrc() {
@@ -59,8 +49,12 @@ public class Move extends IStatement {
         if (dst instanceof Mem) {
             statement = new Move(new Mem(kids.get(0)), kids.get(1));
         } else {
-            statement = new Move(dst, kids.getFirst());
+            statement = new Move(kids.getFirst(), dst);
         }
         return statement;
+    }
+
+    public String toString() {
+        return src + " -> " + dst;
     }
 }

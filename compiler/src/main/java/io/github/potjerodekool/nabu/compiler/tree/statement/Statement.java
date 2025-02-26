@@ -4,11 +4,11 @@ import io.github.potjerodekool.nabu.compiler.tree.Tree;
 
 public abstract class Statement extends Tree {
 
-    protected static abstract class StatementBuilder<E extends Statement> extends TreeBuilder<E> {
+    public Statement() {
+    }
 
-        protected StatementBuilder(final E original) {
-            super(original);
-        }
+    public Statement(final StatementBuilder<?> builder) {
+        super(builder);
     }
 
 }

@@ -11,5 +11,7 @@ public enum ElementKind {
     ANNOTATION,
     RECORD,
     ENUM,
-    PACKAGE
+    ENUM_CONSTANT,
+    PACKAGE,
+    TYPE_PARAMETER
 }

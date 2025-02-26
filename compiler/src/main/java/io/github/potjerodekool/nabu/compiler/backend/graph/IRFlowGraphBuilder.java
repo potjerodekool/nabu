@@ -32,8 +32,7 @@ public class IRFlowGraphBuilder {
             flowGraph.map.put(node, statement);
             flowGraph.revMap.put(statement,node);
 
-            if (statement instanceof ILabelStatement) {
-                final ILabelStatement labelStatement = (ILabelStatement) statement;
+            if (statement instanceof final ILabelStatement labelStatement) {
                 labelInstrMap.put(labelStatement.getLabel(), statement);
             }
         });

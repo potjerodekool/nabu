@@ -42,4 +42,12 @@ public interface CodeVisitor<P> {
     void visitThrowStatement(IThrowStatement throwStatement, P param);
 
     Temp visitUnop(Unop unop, P param);
+
+    Temp visitFieldAccess(IFieldAccess fieldAccess, P param);
+
+    void visitBlockStatement(IBlockStatement blockStatement, P param);
+
+    void visitVariableDeclaratorStatement(IVariableDeclaratorStatement variableDeclaratorStatement, P param);
+
+    Temp visitCastExpression(CastExpression castExpression, P param);
 }

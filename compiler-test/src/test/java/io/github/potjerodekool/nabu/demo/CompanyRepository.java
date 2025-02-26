@@ -11,10 +11,7 @@ public class CompanyRepository {
     public JpaPredicate<Company> findCompanyByEmployeeFirstName(final String firstName) {
         return (root, query, builder) -> {
             final Join<Company, Employee> e = root.join("employees", JoinType.INNER);
-            return builder.equal(
-                    e.get("firstName"),
-                    firstName
-            );
+            return builder.equal(e.get("firstName"), firstName);
         };
     }
 }

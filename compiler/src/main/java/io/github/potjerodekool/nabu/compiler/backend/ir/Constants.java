@@ -13,6 +13,8 @@ public final class Constants {
     public static final String NEW = "new";
 
     public static final String OBJECT = "java.lang.Object";
+    public static final String CLONEABLE = "java.lang.Cloneable";
+    public static final String SERIALIZABLE = "java.io.Serializable";
     public static final String CLAZZ = "java.lang.Class";
     public static final String ENUM = "java.lang.Enum";
     public static final String STRING = "java.lang.String";

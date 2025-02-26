@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.ir.expression;
 
 import java.util.List;
 
-public interface Call {
+public sealed interface Call permits DefaultCall, DynamicCall {
 
     List<IExpression> kids();
 

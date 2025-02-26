@@ -1,23 +1,24 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.expression.CPrimitiveType;
-import io.github.potjerodekool.nabu.compiler.tree.expression.CTypeApply;
 import io.github.potjerodekool.nabu.compiler.type.*;
-import io.github.potjerodekool.nabu.compiler.type.VariableType;
 
 import java.util.List;
 
 class TypeResolver extends AbstractTreeVisitor<IType, Object> implements TypeVisitor<IType, Object> {
 
     @Override
-    public IType visitTypeIdentifier(final CTypeApply typeIdentifier, final Object param) {
+    public IType visitUnknownType(final TypeMirror typeMirror, final Object param) {
+        throw new TodoException();
+    }
+
+    @Override
+    public IType visitTypeIdentifier(final TypeApplyTree typeIdentifier, final Object param) {
         final var typeParameters = typeIdentifier.getTypeParameters();
         final List<IType> types;
 
@@ -29,23 +30,27 @@ class TypeResolver extends AbstractTreeVisitor<IType, Object> implements TypeVis
             types = null;
         }
 
-        final var type = (ClassType) typeIdentifier.getType();
-        final var clazz = (ClassSymbol) type.asElement();
+        final var type = (DeclaredType) typeIdentifier.getType();
+        final var clazz = (TypeElement) type.asElement();
+        final var kind = clazz.getKind() == ElementKind.INTERFACE
+                ? ITypeKind.INTERFACE
+                : ITypeKind.CLASS;
 
         return IReferenceType.create(
+                kind,
                 clazz.getQualifiedName(),
                 types
         );
     }
 
     @Override
-    public IType visitIdentifier(final CIdent ident, final Object param) {
-        final var type = ident.getType();
+    public IType visitIdentifier(final IdentifierTree identifier, final Object param) {
+        final var type = identifier.getType();
         return type.accept(this, param);
     }
 
     @Override
-    public IType visitPrimitiveType(final CPrimitiveType primitiveType, final Object param) {
+    public IType visitPrimitiveType(final PrimitiveTypeTree primitiveType, final Object param) {
         return switch (primitiveType.getKind()) {
             case BOOLEAN -> IPrimitiveType.BOOLEAN;
             case INT -> IPrimitiveType.INT;
@@ -55,80 +60,100 @@ class TypeResolver extends AbstractTreeVisitor<IType, Object> implements TypeVis
             case CHAR -> IPrimitiveType.CHAR;
             case FLOAT -> IPrimitiveType.FLOAT;
             case DOUBLE -> IPrimitiveType.DOUBLE;
+            case VOID -> IPrimitiveType.VOID;
         };
     }
 
     @Override
-    public IType visitTypeNameExpression(final CTypeNameExpression typeNameExpression, final Object param) {
+    public IType visitTypeNameExpression(final TypeNameExpressioTree typeNameExpression, final Object param) {
         final var className = asString(typeNameExpression);
-        return IReferenceType.create(className);
+        final var declaredType = (DeclaredType) typeNameExpression.getType();
+        final var kind = declaredType.asElement().getKind() == ElementKind.INTERFACE
+                ? ITypeKind.INTERFACE
+                : ITypeKind.CLASS;
+
+        return IReferenceType.create(kind, className, List.of());
     }
 
-    private String asString(final CExpression expression) {
+    private String asString(final ExpressionTree expression) {
         return switch (expression) {
-            case CTypeNameExpression typeNameExpression -> {
+            case TypeNameExpressioTree typeNameExpression -> {
                 final var packageName = asString(typeNameExpression.getPackageName());
                 final var className = asString(typeNameExpression.getIdenifier());
                 yield packageName + "." + className;
             }
-            case CIdent ident -> ident.getName();
-            case CTypeApply typeIdentifier -> typeIdentifier.getName();
+            case IdentifierTree ident -> ident.getName();
+            case TypeApplyTree typeIdentifier -> typeIdentifier.getName();
             default -> "";
         };
     }
 
     @Override
-    public IType visitArrayType(final ArrayType arrayType, final Object param) {
-        throw new TodoException();
-    }
+    public IType visitDeclaredType(final DeclaredType classType, final Object param) {
+        final var clazz = (TypeElement) classType.asElement();
+        final List<IType> typeArguments;
 
-    @Override
-    public IType visitClassType(final ClassType classType, final Object param) {
-        final var clazz = (ClassSymbol) classType.asElement();
-
-        if (classType.getParameterTypes() != null) {
-            throw new TodoException();
+        if (classType.getTypeArguments() != null) {
+            typeArguments = classType.getTypeArguments().stream()
+                    .map(it -> it.accept(this, param))
+                    .toList();
+        } else {
+            typeArguments = null;
         }
 
+        final var kind = clazz.getKind() == ElementKind.INTERFACE
+                ? ITypeKind.INTERFACE
+                : ITypeKind.CLASS;
 
         return IReferenceType.create(
+                kind,
                 clazz.getQualifiedName(),
-                null
+                typeArguments
         );
     }
 
     @Override
-    public IType visitMethodType(final MethodType methodType, final Object param) {
-        throw new TodoException();
-    }
-
-    @Override
-    public IType visitVoidType(final VoidType voidType, final Object param) {
-        throw new TodoException();
-    }
-
-    @Override
     public IType visitPrimitiveType(final PrimitiveType primitiveType, final Object param) {
-        throw new TodoException();
-    }
-
-    @Override
-    public IType visitNullType(final NullType nullType, final Object param) {
-        throw new TodoException();
-    }
-
-    @Override
-    public IType visitVariableType(final VariableType variableType, final Object param) {
-        return null;
+        return switch (primitiveType.getKind()) {
+            case BOOLEAN -> IPrimitiveType.BOOLEAN;
+            case INT -> IPrimitiveType.INT;
+            case BYTE -> IPrimitiveType.BYTE;
+            case LONG -> IPrimitiveType.LONG;
+            case CHAR -> IPrimitiveType.CHAR;
+            case SHORT -> IPrimitiveType.SHORT;
+            case FLOAT -> IPrimitiveType.FLOAT;
+            case DOUBLE -> IPrimitiveType.DOUBLE;
+            default -> throw new TodoException();
+        };
     }
 
     @Override
     public IType visitWildcardType(final WildcardType wildcardType, final Object param) {
-        throw new TodoException();
+        final var extendsBound = wildcardType.getExtendsBound() != null
+                ? wildcardType.getExtendsBound().accept(this, param)
+                : null;
+
+        final var superBound = wildcardType.getSuperBound() != null
+                ? wildcardType.getSuperBound().accept(this, param) : null;
+
+        return new IWildcardType(extendsBound, superBound);
     }
 
     @Override
-    public IType visitTypeVariable(final TypeVariable typeVariable, final Object param) {
-        throw new TodoException();
+    public IType visitWildCardExpression(final WildCardExpressionTree wildCardExpression, final Object param) {
+        if (wildCardExpression.getExtendsBound() != null
+            || wildCardExpression.getSuperBound() != null) {
+            throw new TodoException();
+        }
+
+        final var extendsBound = wildCardExpression.getExtendsBound() != null
+                ? wildCardExpression.getExtendsBound().getType().accept(this, param)
+                : null;
+
+        final var superBound = wildCardExpression.getSuperBound() != null
+                ? wildCardExpression.getSuperBound().getType().accept(this, param)
+                : null;
+
+        return new IWildcardType(extendsBound, superBound);
     }
 }

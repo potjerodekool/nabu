@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.resolve.Types;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.FieldTypeBuilder;
-import io.github.potjerodekool.nabu.compiler.transform.ClassBuilder;
-import io.github.potjerodekool.nabu.compiler.type.immutable.ImmutableWildcardType;
-import io.github.potjerodekool.nabu.compiler.type.mutable.MutableClassType;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.PackageElementBuilder;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
+import io.github.potjerodekool.nabu.compiler.type.Types;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.mutable.MutableTypeVariable;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,13 +19,13 @@ class FieldTypeBuilderTest {
 
     private AsmClassElementLoader loader;
     private Types types;
-    private FieldTypeBuilder builder;
+    private SignatureParser builder;
 
     @BeforeEach
-    void setup( ){
+    void setup() {
         loader = new AsmClassElementLoader();
         types = loader.getTypes();
-        builder = new FieldTypeBuilder(Opcodes.ASM9, loader);
+        builder = new SignatureParser(Opcodes.ASM9, loader);
     }
 
     @AfterEach
@@ -36,29 +36,32 @@ class FieldTypeBuilderTest {
     private TypeMirror build(final String signature) {
         final var reader = new SignatureReader(signature);
         reader.accept(builder);
-        return builder.getFieldType();
+        return builder.createFieldType();
     }
 
     @Test
     void test1() {
         final var actual = build("Ljava/util/Optional<*>;");
 
-        final var optionalClazz = new ClassBuilder()
-                .name("java.util.Optional")
-                        .build();
+        final var optionalClazz = loader.resolveClass("java.util.Optional");
+
+        final var objectType = loader.resolveClass(Constants.OBJECT).asType();
 
         final var expected = types.getDeclaredType(
                 optionalClazz,
-                new ImmutableWildcardType(null, null)
+                types.getWildcardType(objectType, null)
         );
 
         assertTrue(types.isSameType(expected, actual));
     }
 
+
     @Test
     void test2() {
         final var actual = build("TT;");
-        final var expected = new MutableTypeVariable("T");
+        final var objectType = loader.resolveClass(Constants.OBJECT).asType();
+
+        final var expected = types.getTypeVariable("T", objectType, null);
         assertTrue(types.isSameType(expected, actual));
     }
 
@@ -66,18 +69,24 @@ class FieldTypeBuilderTest {
     void test3() {
         final var actual = build("Ljava/lang/invoke/ClassSpecializer<TT;TK;TS;>.Factory;");
 
-        final var classSpecializerType = (MutableClassType) types.getDeclaredType(new ClassBuilder()
-                .name("java.lang.invoke.ClassSpecializer")
+        var classSpecializerType = (CClassType) types.getDeclaredType(new ClassBuilder()
+                .enclosingElement(PackageElementBuilder.createFromName("java.lang.invoke"))
+                .name("ClassSpecializer")
                 .build());
 
-        classSpecializerType.addParameterType(new MutableTypeVariable("T"));
-        classSpecializerType.addParameterType(new MutableTypeVariable("K"));
-        classSpecializerType.addParameterType(new MutableTypeVariable("S"));
+        final var objectType = loader.resolveClass(Constants.OBJECT).asType();
 
-        var factoryType = (MutableClassType) types.getDeclaredType(new ClassBuilder()
-                .name("java.lang.invoke.ClassSpecializer.Factory")
+        classSpecializerType = classSpecializerType.withTypeArguments(
+                types.getTypeVariable("T", objectType, null),
+                types.getTypeVariable("K", objectType, null),
+                types.getTypeVariable("S", objectType, null)
+        );
+
+        var factoryType = (CClassType) types.getDeclaredType(new ClassBuilder()
+                .enclosingElement(classSpecializerType.asElement())
+                .name("Factory")
+                .outerType(classSpecializerType)
                 .build());
-        factoryType.setOuterType(classSpecializerType);
 
         assertTrue(types.isSameType(
                 factoryType,
@@ -85,17 +94,14 @@ class FieldTypeBuilderTest {
         ));
     }
 
-    // Ljava/util/Map<Ljava/lang/Class<+Ljava/lang/annotation/Annotation;>;Ljava/lang/annotation/Annotation;>;
-
     @Test
     void test4() {
         final var actual = build("Ljava/util/List<Ljava/lang/module/Configuration;>;");
-        final var listClass = new ClassBuilder()
-                .name("java.util.List")
-                .build();
+        final var listClass = loader.resolveClass("java.util.List");
 
         final var configurationClass = new ClassBuilder()
-                .name("java.lang.module.Configuration")
+                .enclosingElement(PackageElementBuilder.createFromName("java.lang.module"))
+                .name("Configuration")
                 .build();
 
         final var expected = types.getDeclaredType(
@@ -112,14 +118,17 @@ class FieldTypeBuilderTest {
     void test5() {
         final var actual = build("[Ljava/lang/reflect/TypeVariable<*>;");
 
-        final var typeVariabeleClass = new ClassBuilder()
-                .name("java.lang.reflect.TypeVariable")
-                .build();
+        final var typeVariabeleClass = loader.resolveClass("java.lang.reflect/TypeVariable");
+
+        final var objectType = loader.resolveClass(Constants.OBJECT).asType();
 
         final var expected = types.getArrayType(
                 types.getDeclaredType(
                         typeVariabeleClass,
-                        new ImmutableWildcardType()
+                        types.getWildcardType(
+                                objectType,
+                                null
+                        )
                 )
         );
 
@@ -128,9 +137,11 @@ class FieldTypeBuilderTest {
 
     @Test
     void test6() {
+        final var objectType = loader.resolveClass(Constants.OBJECT).asType();
+
         final var actual = build("[TT;");
         final var expected = types.getArrayType(
-                new MutableTypeVariable("T")
+                types.getTypeVariable("T", objectType, null)
         );
 
         assertTrue(types.isSameType(expected, actual));

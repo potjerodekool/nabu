@@ -6,9 +6,9 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 
 import java.util.List;
 
-import static io.github.potjerodekool.nabu.compiler.CollectionUtils.headAndTailList;
+import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
 
-public class DynamicCall extends IExpression implements Call {
+public final class DynamicCall extends IExpression implements Call {
 
     private final Name function;
     private final IType returnType;
@@ -25,8 +25,7 @@ public class DynamicCall extends IExpression implements Call {
                        final List<IType> paramTypes,
                        final List<IExpression> args,
                        final DefaultCall lambdaFunctionCall,
-                       final DefaultCall lambdaCall,
-                       final int lineNumber) {
+                       final DefaultCall lambdaCall) {
         this.function = function;
         this.returnType = returnType;
         this.paramTypes = paramTypes;
@@ -34,7 +33,6 @@ public class DynamicCall extends IExpression implements Call {
 
         this.lambdaFunctionCall = lambdaFunctionCall;
         this.lambdaCall = lambdaCall;
-        setLineNumber(lineNumber);
     }
 
     public Name getFunction() {
@@ -79,8 +77,7 @@ public class DynamicCall extends IExpression implements Call {
                 paramTypes,
                 kids,
                 lambdaFunctionCall,
-                lambdaCall,
-                getLineNumber()
+                lambdaCall
         );
     }
 

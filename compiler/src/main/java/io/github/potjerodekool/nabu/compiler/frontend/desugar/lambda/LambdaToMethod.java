@@ -1,13 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.element.CClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.CElement;
-import io.github.potjerodekool.nabu.compiler.tree.element.CFunction;
-import io.github.potjerodekool.nabu.compiler.tree.element.CVariable;
+import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.compiler.tree.element.Element;
+import io.github.potjerodekool.nabu.compiler.tree.element.Function;
+import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatement;
 import io.github.potjerodekool.nabu.compiler.tree.statement.Statement;
@@ -17,14 +19,11 @@ import java.util.ArrayList;
 
 public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
 
-    private final TypeCloner cloner;
-
-    public LambdaToMethod(final ClassElementLoader loader) {
-        this.cloner = new TypeCloner(loader.getTypes());
+    public LambdaToMethod() {
     }
 
     @Override
-    public Object visitClass(final CClassDeclaration classDeclaration,
+    public Object visitClass(final ClassDeclaration classDeclaration,
                              final SimpleScope scope) {
         final var classContext = new LambdaContext();
         final var classScope = new SimpleScope(classDeclaration, classContext);
@@ -39,14 +38,14 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
     }
 
     @Override
-    public Object visitFunction(final CFunction function, final SimpleScope scope) {
+    public Object visitFunction(final Function function, final SimpleScope scope) {
         final var functionScope = scope.childScope(function);
         super.visitFunction(function, functionScope);
         return null;
     }
 
     @Override
-    public Object visitLambdaExpression(final CLambdaExpression lambdaExpression,
+    public Object visitLambdaExpression(final LambdaExpressionTree lambdaExpression,
                                         final SimpleScope scope) {
         final var classDeclaration = scope.getCurrentClassDeclaration();
         final var currentFunction = scope.getCurrentFunctionDeclaration();
@@ -77,62 +76,71 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
         return null;
     }
 
-    private MethodSymbol createLambdaMethod(final SimpleScope scope,
-                                            final CFunction currentFunction,
-                                            final CLambdaExpression lambdaExpression,
-                                            final ClassSymbol classSymbol) {
+    private ExecutableElement createLambdaMethod(final SimpleScope scope,
+                                                 final Function currentFunction,
+                                                 final LambdaExpressionTree lambdaExpression,
+                                                 final TypeElement classSymbol) {
         final var context = scope.getLambdaContext();
 
         final var lambdaFunctionName = context.generateLambdaMethodName(
                 currentFunction.getSimpleName()
         );
 
-        final var lambdaType = (ClassType) lambdaExpression.getType();
-        final var lambdaClass = (ClassSymbol) lambdaType.asElement();
+        final var lambdaType = (DeclaredType) lambdaExpression.getType();
+        final var lambdaClass = (TypeElement) lambdaType.asElement();
 
-        final var method = new MethodSymbol(
-                ElementKind.METHOD,
-                lambdaFunctionName,
-                classSymbol
-        );
-
-        method.addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.SYNTHENTIC);
-
-        method.getMethodType()
-                .setReturnType(cloneType(lambdaClass.findFunctionalMethod().getMethodType().getReturnType()));
+        final var method = new MethodBuilder()
+                .name(lambdaFunctionName)
+                .enclosingElement(classSymbol)
+                .returnType(lambdaClass.findFunctionalMethod().getReturnType())
+                .modifiers(Modifier.PRIVATE, Modifier.STATIC, Modifier.SYNTHENTIC)
+                .build();
 
         addParameters(scope, method);
 
-        lambdaExpression.setLambdaMethodType(method.getMethodType());
+        lambdaExpression.setLambdaMethodType((ExecutableType) method.asType());
 
         return method;
     }
 
     private void addParameters(final Scope scope,
-                               final MethodSymbol method) {
+                               final ExecutableElement executableElement) {
+        final var method = (MethodSymbol) executableElement;
+
         final var locals = scope.locals();
 
         locals.forEach(localName -> {
-            final var originalElement = (VariableElement) scope.resolve(localName);
-            final var typeMirror = cloneType(originalElement.getVariableType());
+            final var originalElement = scope.resolve(localName);
+            final var typeMirror = originalElement.asType();
 
-            final var parameterElement = new VariableElement(ElementKind.PARAMETER, localName, method);
-            parameterElement.setVariableType(typeMirror);
+            final var parameterElement = new VariableBuilder()
+                    .kind(ElementKind.PARAMETER)
+                    .name(localName)
+                    .type(typeMirror)
+                    .enclosingElement(method)
+                    .build();
+
             method.addParameter(parameterElement);
 
-            final var parameter = new CVariable();
-            parameter.kind(CElement.Kind.PARAMETER);
+            final var parameter = new Variable(
+                    -1,
+                    -1
+            );
+            parameter.kind(Element.Kind.PARAMETER);
             parameter.simpleName(originalElement.getSimpleName());
-            parameter.type(createTypeExpression(originalElement.getVariableType()));
-            parameter.getType().setType(originalElement.getVariableType());
+            parameter.type(createTypeExpression(originalElement.asType()));
+            parameter.getType().setType(originalElement.asType());
 
             parameter.setVarSymbol(parameterElement);
         });
     }
 
-    private CFunction createLambdaFunction(final MethodSymbol method,
-                                           final CLambdaExpression lambdaExpression) {
-        final var lambdaFunction = new CFunction();
+    private Function createLambdaFunction(final ExecutableElement method,
+                                          final LambdaExpressionTree lambdaExpression) {
+        final var lambdaFunction = new Function(
+                -1,
+                -1
+        );
         lambdaFunction.simpleName(method.getSimpleName());
 
         addParameters(
@@ -140,7 +148,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
                 lambdaFunction
         );
 
-        lambdaFunction.returnType(createTypeExpression(method.getMethodType().getReturnType()));
+        lambdaFunction.returnType(createTypeExpression(method.getReturnType()));
         lambdaFunction.methodSymbol = method;
 
         final var lambdaBody = asBlockStatement(lambdaExpression.getBody());
@@ -149,25 +157,24 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
         return lambdaFunction;
     }
 
-    private void addParameters(final MethodSymbol method,
-                               final CFunction lambdaFunction) {
+    private void addParameters(final ExecutableElement method,
+                               final Function lambdaFunction) {
         final var methodParameters = method.getParameters();
 
         methodParameters.forEach(parameterElement -> {
 
-            final var parameter = new CVariable();
-            parameter.kind(CElement.Kind.PARAMETER);
+            final var parameter = new Variable(
+                    -1,
+                    -1
+            );
+            parameter.kind(Element.Kind.PARAMETER);
             parameter.simpleName(parameterElement.getSimpleName());
-            parameter.type(createTypeExpression(parameterElement.getVariableType()));
-            parameter.getType().setType(parameterElement.getVariableType());
+            parameter.type(createTypeExpression(parameterElement.asType()));
+            parameter.getType().setType(parameterElement.asType());
 
             parameter.setVarSymbol(parameterElement);
             lambdaFunction.parameter(parameter);
         });
-    }
-
-    private TypeMirror cloneType(final TypeMirror typeMirror) {
-        return typeMirror.accept(cloner, null);
     }
 
     private BlockStatement asBlockStatement(final Statement statement) {
@@ -179,7 +186,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
     }
 
     @Override
-    public Object visitVariable(final CVariable variable,
+    public Object visitVariable(final Variable variable,
                                 final SimpleScope scope) {
         if (scope != null) {
             scope.define(variable.getVarSymbol());
@@ -189,14 +196,14 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
     }
 
     @Override
-    public Object visitIdentifier(final CIdent ident,
+    public Object visitIdentifier(final IdentifierTree identifier,
                                   final SimpleScope scope) {
-        final var name = ident.getName();
+        final var name = identifier.getName();
         scope.resolve(name);
         return null;
     }
 
-    private CExpression createTypeExpression(final TypeMirror typeMirror) {
+    private ExpressionTree createTypeExpression(final TypeMirror typeMirror) {
         final var creator = new TypeExpressionCreator();
         return typeMirror.accept(creator, null);
     }

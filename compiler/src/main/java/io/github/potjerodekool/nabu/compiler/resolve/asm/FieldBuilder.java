@@ -1,16 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.FieldTypeBuilder;
-import io.github.potjerodekool.nabu.compiler.type.TypeUtils;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import org.objectweb.asm.FieldVisitor;
-import org.objectweb.asm.signature.SignatureReader;
+import org.objectweb.asm.Opcodes;
 
 public class FieldBuilder extends FieldVisitor {
-
-    // Ljava/util/List<Ljava/lang/module/Configuration;>;
 
     public FieldBuilder(final int api,
                         final int access,
@@ -18,32 +15,36 @@ public class FieldBuilder extends FieldVisitor {
                         final String descriptor,
                         final String signature,
                         final Object value,
-                        final ClassSymbol clazz,
-                        final AsmTypeResolver asmTypeResolver) {
+                        final TypeElement clazz,
+                        final AsmTypeResolver asmTypeResolver,
+                        final TypeBuilder typeBuilder) {
         super(api);
-        final var type = asmTypeResolver.resolveByDescriptor(descriptor);
-        final var field = new VariableElement(ElementKind.FIELD, name, clazz);
-        field.addModifiers(Modifiers.parse(access));
+        final var elementKind = resolveElementKind(access);
+
+        final TypeMirror type;
 
         if (signature == null) {
-            field.setVariableType(type);
+            type = asmTypeResolver.resolveByDescriptor(descriptor);
         } else {
-            field.setVariableType(type);
-
-            final var reader = new SignatureReader(signature);
-
-            final var signatureBuilder = new FieldTypeBuilder(
-                    api,
-                    asmTypeResolver.getClassElementLoader()
-            );
-            reader.accept(signatureBuilder);
-            final var fieldType = TypeUtils.INSTANCE
-                            .toImmutableType(
-                                    signatureBuilder.getFieldType()
-                            );
-            field.setVariableType(fieldType);
+            type = typeBuilder.parseFieldSignature(signature);
         }
 
+        final var field = new VariableBuilder()
+                .kind(elementKind)
+                .name(name)
+                .enclosingElement(clazz)
+                .modifiers(Modifiers.parse(access))
+                .type(type)
+                .build();
+
         clazz.addEnclosedElement(field);
+    }
+
+    private ElementKind resolveElementKind(final int access) {
+        if ((access & Opcodes.ACC_ENUM) == Opcodes.ACC_ENUM) {
+            return ElementKind.ENUM_CONSTANT;
+        }
+
+        return ElementKind.FIELD;
     }
 }

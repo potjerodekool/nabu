@@ -5,13 +5,17 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 
 import java.util.List;
+import java.util.Objects;
 
 public class Eseq extends IExpression {
 
     private final IStatement stm;
     private final IExpression exp;
 
-    public Eseq(final IStatement s, final IExpression e) {
+    public Eseq(final IStatement s,
+                final IExpression e) {
+        Objects.requireNonNull(s);
+        Objects.requireNonNull(e);
         this.stm = s;
         this.exp = e;
     }

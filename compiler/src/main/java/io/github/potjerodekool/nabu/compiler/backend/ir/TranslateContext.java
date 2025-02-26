@@ -1,13 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.compiler.tree.element.CFunction;
+import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class TranslateContext {
 
-    CFunction function;
+    Function function;
     Frame frame;
 
     private final Map<String, Integer> lambdaCounters;

@@ -400,5 +400,4 @@ public class EmployeePredicatesTest extends AbstractPredicateTest {
         });
     }
 
-
 }

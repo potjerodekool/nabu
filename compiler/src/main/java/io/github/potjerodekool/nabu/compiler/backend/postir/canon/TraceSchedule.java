@@ -66,13 +66,16 @@ public class TraceSchedule {
                 }
             } else {
                 final List<ILabel> targets = last.getJumpTargets();
-                final ILabel target = targets.getFirst();
+
                 if (targets.size() != 1) {
                     program.add(last);
-                } else if (table.containsKey(target)) {
-                    trace(target);
-                } else if (!(target == endLabel && table.isEmpty())) {
-                    program.add(last);
+                } else {
+                    final ILabel target = targets.getFirst();
+                    if (table.containsKey(target)) {
+                        trace(target);
+                    } else if (!(target == endLabel && table.isEmpty())) {
+                        program.add(last);
+                    }
                 }
             }
         }

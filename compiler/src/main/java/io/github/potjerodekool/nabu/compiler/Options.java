@@ -8,6 +8,8 @@ public class Options {
 
     private final List<Path> sourceRoots = new ArrayList<>();
 
+    private Path targetDirectory;
+
     private JavaVersion targetVersion = JavaVersion.V17;
 
     public List<Path> getSourceRoots() {
@@ -31,6 +33,15 @@ public class Options {
     public Options targetVersion(final JavaVersion version) {
         this.targetVersion = version;
         return this;
+    }
+
+    public Options targetDirectory(final Path targetDirectory) {
+        this.targetDirectory = targetDirectory;
+        return this;
+    }
+
+    public Path getTargetDirectory() {
+        return targetDirectory;
     }
 
     public enum JavaVersion {

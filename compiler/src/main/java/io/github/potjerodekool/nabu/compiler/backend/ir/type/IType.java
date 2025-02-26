@@ -2,7 +2,9 @@ package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 
-public sealed abstract class IType permits IPrimitiveType, IReferenceType {
+import java.util.List;
+
+public sealed abstract class IType permits IIntersectionType, IPrimitiveType, IReferenceType, ITypeVariable, IWildcardType {
 
     private final ITypeKind kind;
 
@@ -54,7 +56,7 @@ public sealed abstract class IType permits IPrimitiveType, IReferenceType {
         if (type != null) {
             return type;
         } else if (value instanceof String) {
-            return IReferenceType.create(Constants.STRING);
+            return IReferenceType.create(ITypeKind.CLASS, Constants.STRING, List.of());
         } else if (value instanceof IReferenceType) {
             //TODO class literal ???
             return (IReferenceType) value;
@@ -64,4 +66,7 @@ public sealed abstract class IType permits IPrimitiveType, IReferenceType {
             throw new IllegalArgumentException("" + value);
         }
     }
+
+    public abstract <R, P> R accept(final ITypeVisitor<R, P> visitor,
+                                    final P param);
 }

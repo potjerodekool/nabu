@@ -1,6 +1,10 @@
 package io.github.potjerodekool.nabu.compiler;
 
-import io.github.potjerodekool.nabu.compiler.backend.postir.PostIr;
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.dependencyinjection.ClassPathScanner;
+import io.github.potjerodekool.nabu.compiler.ast.element.StandardElementMetaData;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Translate;
+import io.github.potjerodekool.nabu.compiler.backend.lower.Lower;
 import io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda.LambdaToMethod;
 import io.github.potjerodekool.nabu.compiler.diagnostic.ConsoleDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DelegateDiagnosticListener;
@@ -8,16 +12,14 @@ import io.github.potjerodekool.nabu.compiler.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.enhance.Enhancer;
 import io.github.potjerodekool.nabu.compiler.backend.generate.CodeGenerator;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Translate;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerVisitor;
+import io.github.potjerodekool.nabu.compiler.log.LogLevel;
+import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.resolve.*;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
-import io.github.potjerodekool.nabu.compiler.transform.JpaTransformer;
-import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.compiler.transform.CodeTransformer;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
-import io.github.potjerodekool.nabu.lang.jpa.JpaPredicate;
 
 import java.io.File;
 import java.io.IOException;
@@ -25,21 +27,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
-public class NabuCompiler {
+public class NabuCompiler implements AutoCloseable {
 
-    private final Path targetDirectory = Paths.get("output");
+    private final Logger logger = Logger.getLogger(NabuCompiler.class.getName());
+
+    private Path targetDirectory = Paths.get("output");
 
     private final NabuCompilerParser parser = new NabuCompilerParser();
 
     private final ClassElementLoader classElementLoader = new AsmClassElementLoader();
-
-    private final CompilerContext compilerContext = new CompilerContext(
-            classElementLoader
-    );
 
     private final ErrorCapturer errorCapturer = new ErrorCapturer(
             new ConsoleDiagnosticListener()
@@ -47,22 +45,25 @@ public class NabuCompiler {
 
     private final FileManager fileManager = new FileManager();
 
-    private final Map<String, Class<? extends AbstractTreeVisitor<?, Scope>>> transformers = new HashMap<>();
-
-    public NabuCompiler() {
-        this.transformers.put(
-                JpaPredicate.class.getName(),
-                JpaTransformer.class
-        );
-    }
-
+    private final ApplicationContext applicationContext = new ApplicationContext();
 
     public void addClassPathEntry(final Path path) {
         classElementLoader.addClassPathEntry(path);
     }
 
     public void compile(final Options options) throws IOException {
+        if (options.getTargetDirectory() != null) {
+            this.targetDirectory = options.getTargetDirectory();
+        }
+
         init();
+
+        final var compilerContext = new CompilerContext(
+                classElementLoader,
+                applicationContext
+        );
+
+        applicationContext.registerBean(CompilerContext.class, compilerContext);
 
         final var files = options.getSourceRoots().stream()
                 .flatMap(sourceRoot -> fileManager.listFiles(sourceRoot).stream())
@@ -71,7 +72,7 @@ public class NabuCompiler {
         final var compilationUnits = new ArrayList<CompilationUnit>();
 
         for (final FileObject file : files) {
-            final var units = process(file);
+            final var units = process(file, compilerContext);
             compilationUnits.addAll(units);
         }
 
@@ -103,6 +104,10 @@ public class NabuCompiler {
                 deleteIfExists(path);
                 createDirectories(outputDirectory);
                 Files.write(path, bytecode);
+                logger.log(
+                        LogLevel.INFO,
+                        String.format("Generated %s", path.toAbsolutePath())
+                );
             } catch (final IOException e) {
                 throw new RuntimeException(e);
             }
@@ -111,6 +116,14 @@ public class NabuCompiler {
 
     private void init() {
         classElementLoader.postInit();
+        scanForBeans();
+    }
+
+    private void scanForBeans() {
+        final var scanner = new ClassPathScanner();
+        final var beans = scanner.scan();
+        applicationContext.registerBean(ClassElementLoader.class, classElementLoader);
+        applicationContext.registerBeans(beans);
     }
 
     private void createDirectories(final Path path) throws IOException {
@@ -133,14 +146,21 @@ public class NabuCompiler {
         }
     }
 
-    public List<CompilationUnit> process(final FileObject fileObject) throws IOException {
+    public List<CompilationUnit> process(final FileObject fileObject,
+                                         final CompilerContext compilerContext) throws IOException {
         final var oldErrorCount = errorCapturer.getErrorCount();
 
         var cu = parse(fileObject);
         cu = enchange(cu);
-        resolvePhase1(cu, fileObject);
-        cu = resolvePhase2(cu);
-        cu = check(cu);
+        resolvePhase1(
+                cu,
+                fileObject,
+                compilerContext
+        );
+        cu = resolvePhase2(cu, compilerContext);
+        transform(cu);
+        cu = resolvePhase2(cu, compilerContext);
+        check(cu);
 
         final var newErrorCount = errorCapturer.getErrorCount();
 
@@ -149,11 +169,14 @@ public class NabuCompiler {
         }
 
         cu = lambdaToMethod(cu);
+        cu = lower(cu, compilerContext);
         ir(cu);
         return List.of(cu);
     }
 
     public CompilationUnit parse(final FileObject fileObject) throws IOException {
+        logger.log(LogLevel.INFO, "Parsing " + fileObject.getFileName());
+
         try (var inputStream = fileObject.openInputStream()) {
             final var compilationUnitContext = parser.parse(inputStream);
             final var visitor = new NabuCompilerVisitor(fileObject);
@@ -162,7 +185,8 @@ public class NabuCompiler {
     }
 
     public void resolvePhase1(final CompilationUnit compilationUnit,
-                              final FileObject fileObject) {
+                              final FileObject fileObject,
+                              final CompilerContext compilerContext) {
         final var phase1Resolver = new Phase1Resolver(
                 compilerContext
         );
@@ -171,48 +195,28 @@ public class NabuCompiler {
         compilationUnit.getClasses().stream()
                         .findFirst().ifPresent(classDeclaration -> {
                             final var classSymbol = classDeclaration.classSymbol;
-                            classSymbol.setFileObject(fileObject);
+                            classSymbol.setMetaData(StandardElementMetaData.FILE_OBJECT, fileObject);
                 });
     }
 
-    public CompilationUnit resolvePhase2(final CompilationUnit compilationUnit) {
+    public CompilationUnit resolvePhase2(final CompilationUnit compilationUnit,
+                                         final CompilerContext compilerContext) {
         final var phase2Resolver = new Phase2Resolver(
                 compilerContext
         );
 
         compilationUnit.accept(phase2Resolver, null);
-
-        /*
-        transformers.values().forEach(transformerClass -> {
-            final var transformer = createTransformer(transformerClass);
-            if (transformer != null) {
-                compilationUnit.accept(transformer, null);
-            }
-        });
-        */
-
         return compilationUnit;
     }
 
-    private AbstractTreeVisitor<?, Scope> createTransformer(final Class<? extends AbstractTreeVisitor<?, Scope>> transformerClass) {
-        try {
-            final var constructor = transformerClass.getConstructor(
-                    CompilerContext.class
-            );
-            return constructor.newInstance(compilerContext);
-        } catch (final Exception e) {
-            return null;
-        }
+    private void transform(final CompilationUnit compilationUnit) {
+        final var codeTransformers = applicationContext.getBeansOfType(CodeTransformer.class);
+        codeTransformers.forEach(codeTransformer -> codeTransformer.tranform(compilationUnit));
     }
 
-    private CompilationUnit transform(final CompilationUnit compilationUnit) {
-        return compilationUnit;
-    }
-
-    private CompilationUnit check(final CompilationUnit compilationUnit) {
+    private void check(final CompilationUnit compilationUnit) {
         final var checker = new Checker(errorCapturer);
         compilationUnit.accept(checker, null);
-        return compilationUnit;
     }
 
     public CompilationUnit enchange(final CompilationUnit compilationUnit) {
@@ -221,23 +225,26 @@ public class NabuCompiler {
         return compilationUnit;
     }
 
+    public CompilationUnit lower(final CompilationUnit compilationUnit, final CompilerContext compilerContext) {
+        final var lower = new Lower(compilerContext);
+        compilationUnit.accept(lower, null);
+        return compilationUnit;
+    }
+
     public void ir(final CompilationUnit compilationUnit) {
-        final var toIr = new Translate();
-        compilationUnit.accept(toIr, null);
-        postIr(compilationUnit);
+        final var translate = new Translate();
+        compilationUnit.accept(translate, null);
     }
-
-    private void postIr(final CompilationUnit compilationUnit) {
-        final var postIr = new PostIr();
-        compilationUnit.accept(postIr, null);
-
-    }
-
 
     public CompilationUnit lambdaToMethod(final CompilationUnit compilationUnit) {
-        final var lamdaToMethod = new LambdaToMethod(classElementLoader);
+        final var lamdaToMethod = new LambdaToMethod();
         compilationUnit.accept(lamdaToMethod, null);
         return compilationUnit;
+    }
+
+    @Override
+    public void close() {
+        classElementLoader.close();
     }
 }
 

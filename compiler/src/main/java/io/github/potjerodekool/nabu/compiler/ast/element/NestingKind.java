@@ -4,5 +4,5 @@ public enum NestingKind {
     TOP_LEVEL,
     MEMBER,
     LOCAL,
-    ANONYMOUS;
+    ANONYMOUS
 }

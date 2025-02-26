@@ -1,9 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.tree;
 
 import io.github.potjerodekool.nabu.compiler.FileObject;
-import io.github.potjerodekool.nabu.compiler.ast.element.PackageElement;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
-import io.github.potjerodekool.nabu.compiler.tree.element.CClassDeclaration;
+import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,8 +10,6 @@ import java.util.List;
 public class CompilationUnit extends Tree {
 
     private final List<Tree> definitions = new ArrayList<>();
-
-    private PackageElement packageElement;
 
     private final ImportScope importScope = new ImportScope();
 
@@ -22,24 +19,29 @@ public class CompilationUnit extends Tree {
 
     private boolean isTransformed = false;
 
+    public CompilationUnit(final int line,
+                           final int column) {
+        super(line, column);
+    }
+
     public void add(final Tree element) {
         this.definitions.add(element);
     }
 
-    public List<CClassDeclaration> getClasses() {
+    public List<ClassDeclaration> getClasses() {
         return definitions.stream()
-                .filter(it -> it instanceof CClassDeclaration)
-                .map(it -> (CClassDeclaration) it)
+                .filter(it -> it instanceof ClassDeclaration)
+                .map(it -> (ClassDeclaration) it)
                 .toList();
     }
 
-    public CPackageDeclaration getPackageDeclaration() {
+    public PackageDeclaration getPackageDeclaration() {
         if (definitions.isEmpty()) {
             return null;
         }
 
         final var first = definitions.getFirst();
-        return first instanceof CPackageDeclaration packageDeclaration
+        return first instanceof PackageDeclaration packageDeclaration
                 ? packageDeclaration
                 : null;
     }
@@ -47,14 +49,6 @@ public class CompilationUnit extends Tree {
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
         return visitor.visitCompilationUnit(this, param);
-    }
-
-    public PackageElement getPackageElement() {
-        return packageElement;
-    }
-
-    public void setPackageElement(final PackageElement packageElement) {
-        this.packageElement = packageElement;
     }
 
     public void addImport(final ImportItem importItem) {
@@ -84,4 +78,5 @@ public class CompilationUnit extends Tree {
     public void markTransformed() {
         this.isTransformed = true;
     }
+
 }

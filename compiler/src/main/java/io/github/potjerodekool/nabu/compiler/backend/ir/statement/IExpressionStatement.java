@@ -14,12 +14,6 @@ public class IExpressionStatement extends IStatement {
         this.exp = exp;
     }
 
-    public IExpressionStatement(final IExpression exp,
-                                final int lineNumber) {
-        this.exp = exp;
-        setLineNumber(lineNumber);
-    }
-
     public IExpression getExp() {
         return exp;
     }
@@ -37,7 +31,11 @@ public class IExpressionStatement extends IStatement {
 
     @Override
     public IStatement build(final List<IExpression> kids) {
-        return new IExpressionStatement(kids.getFirst(), getLineNumber());
+        return new IExpressionStatement(kids.getFirst());
     }
 
+    @Override
+    public String toString() {
+        return exp.toString();
+    }
 }

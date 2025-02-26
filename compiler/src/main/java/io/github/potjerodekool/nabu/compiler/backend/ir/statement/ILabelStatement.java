@@ -11,6 +11,11 @@ public class ILabelStatement extends IStatement {
 
     private final ILabel label;
 
+    public ILabelStatement(final int lineNumber) {
+        this();
+        this.setLineNumber(lineNumber);
+    }
+
     public ILabelStatement() {
         this(new ILabel());
     }

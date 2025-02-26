@@ -2,34 +2,37 @@ package io.github.potjerodekool.nabu.compiler.backend.generate;
 
 import io.github.potjerodekool.nabu.compiler.Flags;
 import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
-import io.github.potjerodekool.nabu.compiler.backend.ir.InvocationType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Param;
+import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.StandardElementMetaData;
+import io.github.potjerodekool.nabu.compiler.backend.ir.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.ITypeKind;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.ExpCall;
+import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.MoveCall;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import org.objectweb.asm.*;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceMethodVisitor;
 
 import java.util.*;
 
-import static io.github.potjerodekool.nabu.compiler.backend.generate.AsmUtils.*;
+import static io.github.potjerodekool.nabu.compiler.resolve.ClassUtils.toInternalName;
 
-public class MethodGenerator implements CodeVisitor<Frame> {
+public class MethodGenerator extends AbstractMethodGenerator {
 
     private final ClassWriter classWriter;
     private final String owner;
-    private WithStackMethodVisitor methodWriter;
-    private final Map<String,Label> labelMap = new HashMap<>();
     private final Textifier textifier = new Textifier();
+    private final ToIType toIType = new ToIType();
+
+    private WithStackMethodVisitor methodWriter;
 
     public MethodGenerator(final ClassWriter classWriter,
                            final String owner) {
@@ -37,26 +40,34 @@ public class MethodGenerator implements CodeVisitor<Frame> {
         this.owner = owner;
     }
 
+    protected WithStackMethodVisitor getMethodWriter() {
+        return methodWriter;
+    }
+
     public Textifier getTextifier() {
         return textifier;
     }
 
-    public void generate(final MethodSymbol methodSymbol) {
-        final var procFrag = methodSymbol.getFrag();
+    public void generate(final ExecutableElement methodSymbol) {
+        final var procFrag = methodSymbol.getMetaData(StandardElementMetaData.FRAG, ProcFrag.class);
 
         final var access = calculateAccess(procFrag.getFlags());
 
-        final var paramTypes = procFrag.getParams().stream()
-                .map(Param::type)
+        final var paramLocals = procFrag.getFrame().getLocals().stream()
+                .filter(Local::parameter)
                 .toList();
 
-        final var methodDescriptor = getMethodDescriptor(
-                paramTypes,
+        final var paramLocalTypes = paramLocals.stream()
+                .map(Local::type)
+                .toList();
+
+        final var methodDescriptor = SignatureUtils.getMethodDescriptor(
+                paramLocalTypes,
                 procFrag.getReturnType()
         );
 
-        final var methodSignature = getMethodSignature(
-                paramTypes,
+        final var methodSignature = SignatureUtils.getMethodSignature(
+                paramLocalTypes,
                 procFrag.getReturnType()
         );
 
@@ -67,59 +78,75 @@ public class MethodGenerator implements CodeVisitor<Frame> {
                 methodSignature,
                 null);
 
-        final var trace = true;
-        if (trace) {
-            mv = new TraceMethodVisitor(mv, this.textifier);
+        mv = new TraceMethodVisitor(mv, this.textifier);
+        this.methodWriter = new WithStackMethodVisitor(Opcodes.ASM9, mv);
+        this.methodWriter.visitCode();
+
+        final var frag = IrCleaner.cleanUp(procFrag);
+        final var body = frag.getBody();
+
+        final var frame = new Frame();
+        if (!methodSymbol.isStatic() && !methodSymbol.isAbstract()) {
+            frame.allocateLocal("this", IReferenceType.create(ITypeKind.CLASS, owner, List.of()), false);
         }
 
-        methodWriter = new WithStackMethodVisitor(Opcodes.ASM9, mv);
-        methodWriter.visitCode();
+        methodSymbol.getParameters().forEach(parameter -> {
+            final var type = parameter.asType().accept(toIType, null);
 
-        final var startLabel = new Label();
-        methodWriter.visitLabel(startLabel);
-
-        procFrag.getBody().forEach(stm -> stm.accept(this, procFrag.getFrame()));
-
-        final var endLabel = new Label();
-        methodWriter.visitLabel(endLabel);
-        final var frame = procFrag.getFrame();
-
-        final var labeledLocals = methodWriter.getLabeledLocals();
-
-        frame.getLocals().forEach(local -> {
-            final var localName = local.name();
-            final var localType = toAsmType(local.type());
-            final var localIndex = local.index();
-            final var labeledLocal = labeledLocals.get(localIndex);
-
-            Label fromLabel = startLabel;
-            Label toLabel = endLabel;
-
-            if (labeledLocal != null) {
-                fromLabel = labeledLocal.getStart();
-                toLabel = labeledLocal.getEnd();
-            }
-
-            methodWriter.visitLocalVariable(
-                    localName,
-                    localType.getDescriptor(),
-                    null,
-                    fromLabel,
-                    toLabel,
-                    localIndex
+            frame.allocateLocal(
+                    parameter.getSimpleName(),
+                    type,
+                    true
             );
         });
 
-        methodWriter.visitMaxs(-1, -1);
+        body.forEach(stm -> stm.accept(this, frame));
 
+        frame.getAllLocals().forEach(local -> {
+            final var type = local.type();
+            final var localName = local.name();
+            final var descriptor = SignatureUtils.getDescriptor(type);
+            final var localIndex = local.index();
+
+            final var start = local.getStart();
+            final var end = local.getEnd();
+
+            if (start != null && end != null) {
+                final var fromLabel = getOrCreateLabel(start);
+                final var toLabel = getOrCreateLabel(end);
+                final var signature = hasTypeArgs(type)
+                        ? SignatureUtils.getSignature(local.type())
+                        : null;
+
+                methodWriter.visitLocalVariable(
+                        localName,
+                        descriptor,
+                        signature,
+                        fromLabel,
+                        toLabel,
+                        localIndex
+                );
+            }
+        });
+
+        methodWriter.visitMaxs(-1, -1);
         methodWriter.visitEnd();
+    }
+
+    private boolean hasTypeArgs(final IType type) {
+        if (type instanceof IReferenceType referenceType) {
+            return referenceType.getTypeArguments() != null
+                    && !referenceType.getTypeArguments().isEmpty();
+        } else {
+            return false;
+        }
     }
 
     private int calculateAccess(final int flags) {
         var access = addFlag(flags, Flags.PUBLIC, Opcodes.ACC_PUBLIC);
         access += addFlag(flags, Flags.PRIVATE, Opcodes.ACC_PRIVATE);
         access += addFlag(flags, Flags.STATIC, Opcodes.ACC_STATIC);
-        access += addFlag(flags, Flags.SYNTHENTIC, Opcodes.ACC_SYNTHETIC);
+        access += addFlag(flags, Flags.SYNTHETIC, Opcodes.ACC_SYNTHETIC);
         return access;
     }
 
@@ -140,6 +167,14 @@ public class MethodGenerator implements CodeVisitor<Frame> {
 
         if (value instanceof Boolean b) {
             methodWriter.visitInsn(b ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
+        } else if (value instanceof Long) {
+            methodWriter.visitLdcInsn(value);
+        } else if (isByte(value)) {
+            final var intValue = toInt(value);
+            pushByte(intValue);
+        } else if (isShort(value)) {
+            final var intValue = toInt(value);
+            methodWriter.visitIntInsn(Opcodes.SIPUSH, intValue);
         } else {
             methodWriter.visitLdcInsn(value);
         }
@@ -147,14 +182,161 @@ public class MethodGenerator implements CodeVisitor<Frame> {
         return new Temp(-1);
     }
 
-    @Override
-    public void visitCJump(final CJump cJump, final Frame frame) {
-        throw new TodoException("");
+    private void pushByte(final int intValue) {
+        switch (intValue) {
+            case -1 -> methodWriter.visitInsn(Opcodes.ICONST_M1);
+            case 0 -> methodWriter.visitInsn(Opcodes.ICONST_0);
+            case 1 -> methodWriter.visitInsn(Opcodes.ICONST_1);
+            case 2 -> methodWriter.visitInsn(Opcodes.ICONST_2);
+            case 3 -> methodWriter.visitInsn(Opcodes.ICONST_3);
+            case 4 -> methodWriter.visitInsn(Opcodes.ICONST_4);
+            case 5 -> methodWriter.visitInsn(Opcodes.ICONST_5);
+            default -> methodWriter.visitIntInsn(Opcodes.BIPUSH, intValue);
+        }
+    }
+
+    private int toInt(final Object value) {
+        if (value instanceof Integer integer) {
+            return integer;
+        } else if (value instanceof Byte b) {
+            return b.intValue();
+        } else {
+            throw new TodoException();
+        }
+    }
+
+    private boolean isByte(final Object value) {
+        if (value instanceof Byte) {
+            return true;
+        } else if (value instanceof Integer integer) {
+            return integer >= Byte.MIN_VALUE
+                    && integer <= Byte.MAX_VALUE;
+        } else {
+            return false;
+        }
+    }
+
+    private boolean isShort(final Object value) {
+        if (value instanceof Short) {
+            return true;
+        } else if (value instanceof Integer integer) {
+            return integer >= Short.MIN_VALUE
+                    && integer <= Short.MAX_VALUE;
+        } else {
+            return false;
+        }
     }
 
     @Override
-    public void visitJump(final Jump jump, final Frame frame) {
-        throw new TodoException("");
+    public void visitCJump(final CJump cJump,
+                           final Frame frame) {
+        if (immediate(cJump)) {
+            visitCJumpImmediate(cJump, frame);
+        } else {
+            super.visitCJump(cJump, frame);
+        }
+    }
+
+    private void visitCJumpImmediate(final CJump cJump,
+                                     final Frame frame) {
+        final var left = cJump.getLeft();
+        final var right = cJump.getRight();
+        final Label falseLabel = getOrCreateLabel(cJump.getFalseLabel());
+
+        if (left instanceof Const) {
+            throw new TodoException();
+        }
+
+        if (left instanceof BinOp binOp) {
+            left.accept(this, frame);
+
+            final var tag = binOp.getTag();
+            final var type = getBigestType(methodWriter.peek2());
+
+            if (type == Type.BYTE_TYPE
+                    || type == Type.SHORT_TYPE
+                    || type == Type.INT_TYPE) {
+
+                if (tag == Tag.GT) {
+                    methodWriter.visitJumpInsn(Opcodes.IF_ICMPLE, falseLabel);
+                } else if (tag == Tag.LT) {
+                    methodWriter.visitJumpInsn(Opcodes.IF_ICMPGE, falseLabel);
+                } else if (tag == Tag.LE) {
+                    methodWriter.visitJumpInsn(Opcodes.IF_ICMPGT, falseLabel);
+                } else {
+                    throw new TodoException();
+                }
+                return;
+            } else if (type == Type.LONG_TYPE) {
+                if (tag == Tag.GT) {
+                    methodWriter.visitInsn(Opcodes.LCMP);
+                    methodWriter.visitJumpInsn(Opcodes.IFLE, falseLabel);
+                } else if (tag == Tag.LT) {
+                    methodWriter.visitInsn(Opcodes.LCMP);
+                    methodWriter.visitJumpInsn(Opcodes.IFGE, falseLabel);
+                } else {
+                    throw new TodoException();
+                }
+                return;
+            }
+        }
+
+        if (right instanceof Const c) {
+            final var tag = cJump.getTag();
+
+            left.accept(this, frame);
+
+            final var value = (Integer) c.getValue();
+
+            if (tag == Tag.EQ) {
+                if (value == 1) {
+                    methodWriter.visitJumpInsn(Opcodes.IFEQ, falseLabel);
+                    return;
+                }
+            } else if (tag == Tag.NE) {
+                if (value == 1) {
+                    methodWriter.visitJumpInsn(Opcodes.IFNE, falseLabel);
+                    return;
+                }
+            }
+        }
+
+        throw new TodoException();
+    }
+
+    private Type getBigestType(final Type[] typeArray) {
+        Type biggest = typeArray[0];
+
+        for (int i = 1; i < typeArray.length; i++) {
+            final var type = typeArray[i];
+            if (type.getSize() > biggest.getSize()) {
+                biggest = type;
+            }
+        }
+
+        return biggest;
+    }
+
+    private boolean immediate(final CJump cjump) {
+        final var left = const16(cjump.getLeft());
+        final var right = const16(cjump.getRight());
+
+        if (left == null) {
+            final var value = right.getValue();
+            if (value instanceof Integer integer) {
+                return integer == 0 || integer == 1;
+            }
+        }
+
+
+        return false;
+    }
+
+    @Override
+    public void visitJump(final Jump jump,
+                          final Frame frame) {
+        final Label label = getOrCreateLabel(jump.getJumpTargets().getFirst());
+        this.methodWriter.visitJumpInsn(Opcodes.GOTO, label);
     }
 
     @Override
@@ -163,16 +345,15 @@ public class MethodGenerator implements CodeVisitor<Frame> {
         throw new TodoException("");
     }
 
-    private void visitLine(final IStatement statement) {
-        if (statement.getLineNumber() < 0) {
+    private void visitLine(final INode node) {
+        if (node.getLineNumber() < 0) {
             return;
-            //throw new IllegalStateException();
         }
 
         final var lastLabel = methodWriter.getLastLabel();
 
         methodWriter.visitLineNumber(
-                statement.getLineNumber(),
+                node.getLineNumber(),
                 lastLabel
         );
     }
@@ -196,26 +377,12 @@ public class MethodGenerator implements CodeVisitor<Frame> {
 
             if (dst instanceof TempExpr tempExpr) {
                 final var index = tempExpr.getTemp().getIndex();
-                if (index == frame.rv().getIndex()) {
+                if (index == Frame.V0.getIndex()) {
                     final var top = methodWriter.peek();
                     final int opcode = resolveReturnOpcode(top);
                     methodWriter.visitInsn(opcode);
                 } else {
-                    final var top = methodWriter.peek();
-                    final int opcode = switch (top.getSort()) {
-                        case Type.OBJECT -> Opcodes.ASTORE;
-                        case Type.SHORT,
-                             Type.INT,
-                             Type.BYTE,
-                             Type.BOOLEAN,
-                             Type.CHAR -> Opcodes.ISTORE;
-                        case Type.LONG ->  Opcodes.LSTORE;
-                        case Type.FLOAT -> Opcodes.FSTORE;
-                        case Type.DOUBLE -> Opcodes.DSTORE;
-                        default -> throw new UnsupportedOperationException();
-                    };
-
-                    methodWriter.visitVarInsn(opcode,index);
+                    store(index, frame);
                 }
             } else {
                 dst.accept(this, frame);
@@ -223,6 +390,50 @@ public class MethodGenerator implements CodeVisitor<Frame> {
         } else {
             methodWriter.visitInsn(Opcodes.RETURN);
         }
+    }
+
+    private void store(final int index,
+                       final Frame frame) {
+        final var top = methodWriter.peek();
+
+        final int opcode = switch (top.getSort()) {
+            case Type.OBJECT -> Opcodes.ASTORE;
+            case Type.SHORT,
+                 Type.INT,
+                 Type.BYTE,
+                 Type.BOOLEAN,
+                 Type.CHAR -> Opcodes.ISTORE;
+            case Type.LONG -> Opcodes.LSTORE;
+            case Type.FLOAT -> Opcodes.FSTORE;
+            case Type.DOUBLE -> Opcodes.DSTORE;
+            default -> throw new UnsupportedOperationException();
+        };
+
+        methodWriter.visitVarInsn(opcode, index);
+        visitLabel(new ILabel(), frame);
+    }
+
+    @Override
+    public void visitVariableDeclaratorStatement(final IVariableDeclaratorStatement variableDeclaratorStatement,
+                                                 final Frame frame) {
+        visitLine(variableDeclaratorStatement);
+
+        variableDeclaratorStatement.getInitExpression().accept(this, frame);
+
+        final var index = frame.allocateLocal(
+                variableDeclaratorStatement.getSymbol().getSimpleName(),
+                variableDeclaratorStatement.getType(),
+                false
+        );
+        store(index, frame);
+    }
+
+    @Override
+    public Temp visitCastExpression(final CastExpression castExpression, final Frame param) {
+        castExpression.getExpression().accept(this, param);
+        final var internalName = toInternalName(castExpression.getName());
+        methodWriter.visitTypeInsn(Opcodes.CHECKCAST, internalName);
+        return null;
     }
 
     private int resolveReturnOpcode(final Type type) {
@@ -238,7 +449,7 @@ public class MethodGenerator implements CodeVisitor<Frame> {
                      Type.BYTE,
                      Type.BOOLEAN,
                      Type.CHAR -> Opcodes.IRETURN;
-                case Type.LONG ->  Opcodes.LRETURN;
+                case Type.LONG -> Opcodes.LRETURN;
                 case Type.FLOAT -> Opcodes.FRETURN;
                 case Type.DOUBLE -> Opcodes.DRETURN;
                 default -> throw new UnsupportedOperationException();
@@ -249,10 +460,13 @@ public class MethodGenerator implements CodeVisitor<Frame> {
     }
 
     @Override
-    public Temp visitMem(final Mem mem, final Frame frame) {
-        final var temp = ((TempExpr) mem.getExp()).getTemp();
+    public Temp visitMem(final Mem mem,
+                         final Frame frame) {
+        final var tempExp = ((TempExpr) mem.getExp());
+
+        final var temp = tempExp.getTemp();
         final var index = temp.getIndex();
-        final var type = frame.get(index).type();
+        final var type = tempExp.getFrame().get(index).type();
 
         if (type instanceof IReferenceType) {
             methodWriter.visitVarInsn(Opcodes.ALOAD, index);
@@ -270,14 +484,14 @@ public class MethodGenerator implements CodeVisitor<Frame> {
         final var index = temp.getIndex();
 
         if (index > -1) {
-            final var type = frame.get(index).type();
+            final var type = tempExpr.getFrame().get(index).type();
             Objects.requireNonNull(type);
 
             final var opcode = switch (type.getKind()) {
-                case DECLARED -> Opcodes.ALOAD;
+                case CLASS, INTERFACE -> Opcodes.ALOAD;
                 case INT, BYTE, CHAR, BOOLEAN, SHORT -> Opcodes.ILOAD;
                 case LONG -> Opcodes.LLOAD;
-                case FLOAT ->  Opcodes.FLOAD;
+                case FLOAT -> Opcodes.FLOAD;
                 case DOUBLE -> Opcodes.DLOAD;
                 case ARRAY -> Opcodes.AALOAD;
                 default -> throw new UnsupportedOperationException();
@@ -289,7 +503,8 @@ public class MethodGenerator implements CodeVisitor<Frame> {
     }
 
     @Override
-    public Temp visitCall(final Call call, final Frame frame) {
+    public Temp visitCall(final Call call,
+                          final Frame frame) {
         if (call instanceof DefaultCall defaultCall) {
             return visitDefaultCall(defaultCall, frame);
         } else if (call instanceof DynamicCall dynamicCall) {
@@ -311,14 +526,14 @@ public class MethodGenerator implements CodeVisitor<Frame> {
             name = "<init>";
         }
 
-        final var methodDescriptor = getMethodDescriptor(
+        final var methodDescriptor = SignatureUtils.getMethodDescriptor(
                 call.getParamTypes(),
                 call.getReturnType()
         );
 
         call.getArgs().forEach(arg -> {
             if (arg instanceof Unop unop
-                && unop.getOperator() == Unop.Oper.NOT) {
+                    && unop.getTag() == Tag.NOT) {
                 unop.getExpression().accept(this, frame);
                 final var trueLabel = new Label();
                 methodWriter.visitJumpInsn(
@@ -354,15 +569,16 @@ public class MethodGenerator implements CodeVisitor<Frame> {
         return null;
     }
 
-    private Temp visitDynamicCall(final DynamicCall dynamicCall, final Frame frame) {
+    private Temp visitDynamicCall(final DynamicCall dynamicCall,
+                                  final Frame frame) {
         dynamicCall.getArgs().forEach(arg -> arg.accept(this, frame));
-        final var descriptor = getMethodDescriptor(dynamicCall.getParamTypes(), dynamicCall.getReturnType());
+        final var descriptor = SignatureUtils.getMethodDescriptor(dynamicCall.getParamTypes(), dynamicCall.getReturnType());
         final var invokeDynamicDescriptor =
                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;";
 
         final var lambdaFunctionCall = dynamicCall.getLambdaFunctionCall();
 
-        final var lambdaFunctionDescriptor = getMethodDescriptor(
+        final var lambdaFunctionDescriptor = SignatureUtils.getMethodDescriptor(
                 lambdaFunctionCall.getParamTypes(),
                 lambdaFunctionCall.getReturnType()
         );
@@ -370,7 +586,7 @@ public class MethodGenerator implements CodeVisitor<Frame> {
         final var lambdaCall = dynamicCall.getLambdaCall();
         final var lambdaMethodName = lambdaCall.getFunction().getLabel().getName();
 
-        final var lambdaDescriptor = getMethodDescriptor(
+        final var lambdaDescriptor = SignatureUtils.getMethodDescriptor(
                 lambdaCall.getParamTypes(),
                 lambdaCall.getReturnType()
         );
@@ -423,15 +639,49 @@ public class MethodGenerator implements CodeVisitor<Frame> {
 
     @Override
     public Temp visitBinop(final BinOp binOp, final Frame frame) {
-        binOp.getLeft().accept(this, frame);
-        binOp.getRight().accept(this, frame);
-        throw new TodoException();
+        visitLine(binOp);
+
+        final var tag = binOp.getTag();
+
+        if (tag == Tag.ADD_ASSIGN) {
+            final var left = (TempExpr) binOp.getLeft();
+            final var index = left.getTemp().getIndex();
+            final var right = binOp.getRight();
+
+            if (right instanceof Const c) {
+                final var increment = (Integer) c.getValue();
+                methodWriter.visitIincInsn(index, increment);
+            } else {
+                left.accept(this, frame);
+                right.accept(this, frame);
+                methodWriter.visitInsn(Opcodes.IADD);
+                store(index, frame);
+            }
+        } else {
+            binOp.getLeft().accept(this, frame);
+            binOp.getRight().accept(this, frame);
+        }
+
+        return new Temp(-1);
     }
 
     @Override
-    public void visitLabelStatement(final ILabelStatement labelStatement, final Frame param) {
-        final Label l = getOrCreateLabel(labelStatement.getLabel());
-        methodWriter.visitLabel(l);
+    public void visitLabelStatement(final ILabelStatement labelStatement, final Frame frame) {
+        visitLabel(labelStatement.getLabel(), frame);
+        visitLine(labelStatement);
+    }
+
+    private void visitLabel(final ILabel label,
+                            final Frame frame) {
+        final var asmLabel = getOrCreateLabel(label);
+        methodWriter.visitLabel(asmLabel);
+
+        frame.getLocals().forEach(local -> {
+            if (local.getStart() == null) {
+                local.setStart(label);
+            }
+            local.setEnd(label);
+        });
     }
 
     @Override
@@ -451,179 +701,46 @@ public class MethodGenerator implements CodeVisitor<Frame> {
 
     @Override
     public Temp visitUnop(final Unop unop, final Frame param) {
-        throw new TodoException();
+        final var tag = unop.getTag();
+
+        if (tag == Tag.POST_INC) {
+            final var temp = (TempExpr) unop.getExpression();
+            methodWriter.visitIincInsn(temp.getTemp().getIndex(), 1);
+        } else if (tag == Tag.POST_DEC) {
+            final var temp = (TempExpr) unop.getExpression();
+            methodWriter.visitIincInsn(temp.getTemp().getIndex(), -1);
+        } else {
+            throw new TodoException();
+        }
+
+        return new Temp();
     }
 
-    private Label getOrCreateLabel(final ILabel label) {
-        return this.labelMap.computeIfAbsent(
-                label.getName(),
-                key -> new Label()
+    @Override
+    public Temp visitFieldAccess(final IFieldAccess fieldAccess, final Frame param) {
+        final var opcode = fieldAccess.isStatic()
+                ? Opcodes.GETSTATIC
+                : Opcodes.GETFIELD;
+
+        final var owner = ClassUtils.toInternalName(fieldAccess.getOwner());
+        final var descriptor = SignatureUtils.getDescriptor(fieldAccess.getFieldType());
+
+        methodWriter.visitFieldInsn(
+                opcode,
+                owner,
+                fieldAccess.getName(),
+                descriptor
         );
-    }
-}
 
-class WithStackMethodVisitor extends MethodVisitor {
-
-    private final Type OBJECT_TYPE = Type.getType(Object.class);
-    private final List<Type> stack = new ArrayList<>();
-    private Label lastLabel;
-    private final Map<Integer, LabeledLocal> locals = new HashMap<>();
-    private final Set<LabeledLocal> activeLocals = new HashSet<>();
-
-    protected WithStackMethodVisitor(final int api,
-                                     final MethodVisitor methodVisitor) {
-        super(api, methodVisitor);
-    }
-
-    public Map<Integer, LabeledLocal> getLabeledLocals() {
-        return locals;
+        return new Temp();
     }
 
     @Override
-    public void visitLabel(final Label label) {
-        super.visitLabel(label);
-        this.lastLabel = label;
+    public void visitBlockStatement(final IBlockStatement blockStatement, final Frame frame) {
+        final var subFrame = frame.subFrame();
 
-        if (!activeLocals.isEmpty()) {
-            activeLocals.forEach(local -> local.setEnd(label));
-            activeLocals.clear();
-        }
+        visitLabel(new ILabel(), subFrame);
+        blockStatement.getStatements().forEach(stm -> stm.accept(this, subFrame));
+        visitLabel(new ILabel(), subFrame);
     }
-
-    @Override
-    public void visitVarInsn(final int opcode, final int varIndex) {
-        super.visitVarInsn(opcode, varIndex);
-
-        switch (opcode) {
-            case Opcodes.ILOAD -> push(Type.INT_TYPE);
-            case Opcodes.FLOAD -> push(Type.FLOAT_TYPE);
-            case Opcodes.DLOAD -> push(Type.DOUBLE_TYPE);
-            case Opcodes.ALOAD -> push(OBJECT_TYPE);
-            case
-                 Opcodes.ISTORE,
-                 Opcodes.LSTORE,
-                 Opcodes.FSTORE,
-                 Opcodes.DSTORE,
-                 Opcodes.ASTORE -> pop();
-        }
-
-        final var local = this.locals.computeIfAbsent(varIndex, (key) -> new LabeledLocal(key, lastLabel));
-        activeLocals.add(local);
-    }
-
-    @Override
-    public void visitMethodInsn(final int opcode, final String owner, final String name, final String descriptor, final boolean isInterface) {
-        super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
-
-        if (opcode != Opcodes.INVOKESTATIC) {
-            pop();
-        }
-
-        final var methodType = Type.getMethodType(descriptor);
-        final var argumentTypes = methodType.getArgumentTypes();
-        final var returnType = methodType.getReturnType();
-
-        pop(argumentTypes.length);
-
-        if (returnType.getSort() != Type.VOID) {
-            push(returnType);
-        }
-    }
-
-    @Override
-    public void visitInvokeDynamicInsn(final String name, final String descriptor, final Handle bootstrapMethodHandle, final Object... bootstrapMethodArguments) {
-        super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
-
-        final var methodType = Type.getMethodType(descriptor);
-        final var argumentTypes = methodType.getArgumentTypes();
-        final var returnType = methodType.getReturnType();
-
-        pop(argumentTypes.length);
-
-        if (returnType.getSort() != Type.VOID) {
-            push(returnType);
-        }
-    }
-
-    @Override
-    public void visitLdcInsn(final Object value) {
-        super.visitLdcInsn(value);
-        push(Type.getType(value.getClass()));
-    }
-
-    private void push(final Type type) {
-        this.stack.add(type);
-    }
-
-    private void pop() {
-        if (stack.isEmpty()) {
-            throw new EmptyStackException();
-        }
-        stack.removeLast();
-    }
-
-    private void pop(final int count) {
-        for (int i = 0; i < count; i++) {
-            pop();
-        }
-    }
-
-    public Type peek() {
-        return this.stack.isEmpty()
-                ? null
-                : this.stack.getLast();
-    }
-
-    @Override
-    public void visitInsn(final int opcode) {
-        super.visitInsn(opcode);
-
-        if (opcode >= Opcodes.ICONST_M1
-                && opcode <= Opcodes.ICONST_5) {
-            push(Type.INT_TYPE);
-        } else if (opcode == Opcodes.LCONST_0
-                || opcode == Opcodes.LCONST_1) {
-            push(Type.LONG_TYPE);
-        } else if (opcode == Opcodes.FCONST_0
-                || opcode == Opcodes.FCONST_1
-                || opcode == Opcodes.FCONST_2) {
-            push(Type.FLOAT_TYPE);
-        } else if (opcode == Opcodes.DCONST_0
-                || opcode == Opcodes.DCONST_1) {
-            push(Type.DOUBLE_TYPE);
-        }
-    }
-
-    public Label getLastLabel() {
-        return lastLabel;
-    }
-}
-
-class LabeledLocal {
-    private final int index;
-    private final Label start;
-    private Label end;
-
-    LabeledLocal(final int index,
-          final Label start) {
-        this.index = index;
-        this.start = start;
-    }
-
-    public int getIndex() {
-        return index;
-    }
-
-    public Label getStart() {
-        return start;
-    }
-
-    public Label getEnd() {
-        return end;
-    }
-
-    public void setEnd(final Label end) {
-        this.end = end;
-    }
-
 }

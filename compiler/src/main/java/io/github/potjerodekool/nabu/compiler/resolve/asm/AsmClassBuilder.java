@@ -1,15 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.type.mutable.MutableClassType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 class AsmClassBuilder extends ClassVisitor {
 
@@ -19,9 +22,11 @@ class AsmClassBuilder extends ClassVisitor {
 
     private final AsmTypeResolver asmTypeResolver;
 
+    private final TypeBuilder typeBuilder;
+
     private ClassSymbol clazz;
 
-    public ClassSymbol getClazz() {
+    public TypeElement getClazz() {
         return clazz;
     }
 
@@ -31,6 +36,7 @@ class AsmClassBuilder extends ClassVisitor {
         this.symbolTable = symbolTable;
         this.classElementLoader = classElementLoader;
         this.asmTypeResolver = new AsmTypeResolver(classElementLoader);
+        this.typeBuilder = new TypeBuilder(asmTypeResolver);
     }
 
     @Override
@@ -45,7 +51,7 @@ class AsmClassBuilder extends ClassVisitor {
         final NestingKind nestingKind;
 
         final String simpleName;
-        final AbstractSymbol enclosingElement;
+        final Element enclosingElement;
 
         if (name.contains("$")) {
             nestingKind = NestingKind.MEMBER;
@@ -69,26 +75,36 @@ class AsmClassBuilder extends ClassVisitor {
             simpleName = qualifiedName.substring(packageEnd + 1);
         }
 
-        clazz = new ClassSymbol(kind, nestingKind, simpleName, enclosingElement);
+        clazz = new ClassSymbol(kind, nestingKind, Set.of(), simpleName, enclosingElement);
 
         if (enclosingElement != null) {
             enclosingElement.addEnclosedElement(clazz);
         }
 
-        final var type = new MutableClassType(clazz);
-        clazz.setType(type);
         this.symbolTable.addClassSymbol(name, clazz);
 
-        if (superName != null) {
-            final var superType = classElementLoader.resolveType(superName);
-            clazz.setSuperType(superType);
-        }
+        if (signature != null) {
+            typeBuilder.parseClassSignature(signature, clazz);
+        } else {
+            final var type = new CClassType(
+                    null,
+                    clazz,
+                    List.of()
+            );
+            clazz.setType(type);
 
-        if (interfaces != null) {
-            Arrays.stream(interfaces)
-                    .map(classElementLoader::resolveType)
-                    .filter(Objects::nonNull)
-                    .forEach(interfaceType -> clazz.addInterface(interfaceType));
+            if (superName != null) {
+                final var superType = classElementLoader.resolveClass(superName).asType();
+                clazz.setSuperClass(superType);
+            }
+
+            if (interfaces != null) {
+                Arrays.stream(interfaces)
+                        .map(classElementLoader::resolveClass)
+                        .map(Element::asType)
+                        .filter(Objects::nonNull)
+                        .forEach(interfaceType -> clazz.addInterface(interfaceType));
+            }
         }
     }
 
@@ -124,7 +140,7 @@ class AsmClassBuilder extends ClassVisitor {
             return null;
         }
 
-        return new MethodBuilder(
+        return new AsmMethodBuilder(
                 this.api,
                 access,
                 name,
@@ -132,7 +148,8 @@ class AsmClassBuilder extends ClassVisitor {
                 signature,
                 exceptions,
                 clazz,
-                asmTypeResolver
+                asmTypeResolver,
+                typeBuilder
         );
     }
 
@@ -146,27 +163,9 @@ class AsmClassBuilder extends ClassVisitor {
                 signature,
                 value,
                 clazz,
-                asmTypeResolver
+                asmTypeResolver,
+                typeBuilder
         );
     }
 
-    @Override
-    public void visitInnerClass(final String name, final String outerName, final String innerName, final int access) {
-        super.visitInnerClass(name, outerName, innerName, access);
-
-        /*
-        if (innerName != null && outerName != null) {
-            final var stop = outerName.endsWith("outerName");
-
-            final var innerClass = classElementLoader.resolveClass(name);
-            final var outerClass = classElementLoader.resolveClass(outerName);
-
-            if (!(outerClass instanceof ClassSymbol)) {
-                throw new IllegalStateException();
-            }
-
-            outerClass.addEnclosedElement(innerClass);
-        }
-        */
-    }
 }

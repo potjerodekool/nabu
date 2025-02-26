@@ -25,7 +25,7 @@ public class DirScanner implements FileScanner, FileVisitor<Path> {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
     }
 
     @Override

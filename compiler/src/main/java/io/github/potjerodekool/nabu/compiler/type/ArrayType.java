@@ -1,5 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.type;
 
-public interface ArrayType extends TypeMirror {
+import java.util.List;
+
+public interface ArrayType extends ReferenceType {
     TypeMirror getComponentType();
+
+    @Override
+    default List<? extends TypeMirror> getAllParameters() {
+        return getComponentType().getAllParameters();
+    }
+
+    @Override
+    default boolean isParameterized() {
+        return getComponentType().isParameterized();
+    }
 }

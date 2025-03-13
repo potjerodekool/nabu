@@ -7,47 +7,94 @@ import io.github.potjerodekool.nabu.compiler.backend.postir.canon.ExpCall;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.MoveCall;
 
 public interface CodeVisitor<P> {
-    Temp visitConst(Const aConst, P param);
 
-    void visitCJump(CJump cJump, P param);
+    Temp visitUnknown(INode node, P parm);
 
-    void visitJump(Jump jump, P param);
+    default Temp visitConst(Const cnst, P param) {
+        return visitUnknown(cnst, param);
+    }
 
-    Temp visitName(Name name, P param);
+    default void visitCJump(CJump cJump, P param) {
+        visitUnknown(cJump, param);
+    }
 
-    void visitExpressionStatement(IExpressionStatement expressionStatement, P param);
+    default void visitJump(Jump jump, P param) {
+        visitUnknown(jump, param);
+    }
 
-    void visitMove(Move move, P param);
+    default Temp visitName(Name name, P param) {
+        return visitUnknown(name, param);
+    }
 
-    Temp visitMem(Mem mem, P param);
+    default void visitExpressionStatement(IExpressionStatement expressionStatement, P param) {
+        visitUnknown(expressionStatement, param);
+    }
 
-    Temp visitTemp(TempExpr tempExpr, P param);
+    default void visitMove(Move move, P param) {
+        visitUnknown(move, param);
+    }
 
-    Temp visitCall(Call call, P param);
+    default Temp visitMem(Mem mem, P param) {
+        return visitUnknown(mem, param);
+    }
 
-    Temp visitEseq(Eseq eseq, P param);
+    default Temp visitTemp(TempExpr tempExpr, P param) {
+        return visitUnknown(tempExpr, param);
+    }
 
-    void visitSeq(Seq seq, P param);
+    default Temp visitCall(Call call, P param) {
+        return visitUnknown(call, param);
+    }
 
-    Temp visitExpList(ExpList expList, P param);
+    default Temp visitEseq(Eseq eseq, P param) {
+        return visitUnknown(eseq, param);
+    }
 
-    Temp visitBinop(BinOp binOp, P param);
+    default void visitSeq(Seq seq, P param) {
+        visitUnknown(seq, param);
+    }
 
-    void visitLabelStatement(ILabelStatement labelStatement, P param);
+    default Temp visitExpList(ExpList expList, P param) {
+        return visitUnknown(expList, param);
+    }
 
-    void visitMoveCall(MoveCall moveCall, P param);
+    default Temp visitBinop(BinOp binOp, P param) {
+        return visitUnknown(binOp, param);
+    }
 
-    void visitExpCall(ExpCall expCall, P param);
+    default void visitLabelStatement(ILabelStatement labelStatement, P param) {
+        visitUnknown(labelStatement, param);
+    }
 
-    void visitThrowStatement(IThrowStatement throwStatement, P param);
+    default void visitMoveCall(MoveCall moveCall, P param) {
+        visitUnknown(moveCall, param);
+    }
 
-    Temp visitUnop(Unop unop, P param);
+    default void visitExpCall(ExpCall expCall, P param) {
+        visitUnknown(expCall, param);
+    }
 
-    Temp visitFieldAccess(IFieldAccess fieldAccess, P param);
+    default void visitThrowStatement(IThrowStatement throwStatement, P param) {
+        visitUnknown(throwStatement, param);
+    }
 
-    void visitBlockStatement(IBlockStatement blockStatement, P param);
+    default Temp visitUnop(Unop unop, P param) {
+        return visitUnknown(unop, param);
+    }
 
-    void visitVariableDeclaratorStatement(IVariableDeclaratorStatement variableDeclaratorStatement, P param);
+    default Temp visitFieldAccess(IFieldAccess fieldAccess, P param) {
+        return visitUnknown(fieldAccess, param);
+    }
 
-    Temp visitCastExpression(CastExpression castExpression, P param);
+    default void visitBlockStatement(IBlockStatement blockStatement, P param) {
+        visitUnknown(blockStatement, param);
+    }
+
+    default void visitVariableDeclaratorStatement(IVariableDeclaratorStatement variableDeclaratorStatement, P param) {
+        visitUnknown(variableDeclaratorStatement, param);
+    }
+
+    default Temp visitCastExpression(CastExpression castExpression, P param) {
+        return visitUnknown(castExpression, param);
+    }
 }

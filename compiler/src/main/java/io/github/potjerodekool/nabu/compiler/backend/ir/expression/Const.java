@@ -1,12 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.expression;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 
 public class Const extends IExpression {
 
@@ -40,19 +38,4 @@ public class Const extends IExpression {
         return this;
     }
 
-    public static boolean isNop(final Const c) {
-        return Objects.equals(c.getValue(), 1) || Objects.equals(c.getValue(), 0);
-    }
-
-    public static IExpression constExp(final Object value) {
-        return new Const(value);
-    }
-
-    public Const negate() {
-        if (value instanceof Integer) {
-            return new Const(-(Integer)value);
-        } else {
-            throw new TodoException("" + value.getClass());
-        }
-    }
 }

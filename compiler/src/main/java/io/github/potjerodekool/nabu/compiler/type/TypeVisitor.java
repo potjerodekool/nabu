@@ -10,9 +10,9 @@ public interface TypeVisitor<R, P> {
         return visitUnknownType(arrayType, param);
     }
 
-    default R visitDeclaredType(DeclaredType classType,
+    default R visitDeclaredType(DeclaredType declaredType,
                         P param) {
-        return visitUnknownType(classType, param);
+        return visitUnknownType(declaredType, param);
     }
 
     default R visitMethodType(ExecutableType methodType,

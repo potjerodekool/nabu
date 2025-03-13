@@ -1,23 +1,25 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
+import io.github.potjerodekool.nabu.compiler.type.BoundKind;
+
 public final class IWildcardType extends IType {
 
-    private final IType extendsBound;
-    private final IType superBound;
+    private final BoundKind boundKind;
+    private final IType bound;
 
-    public IWildcardType(final IType extendsBound,
-                         final IType superBound) {
+    public IWildcardType(final BoundKind boundKind,
+                         final IType bound) {
         super(ITypeKind.WILDCARD);
-        this.extendsBound = extendsBound;
-        this.superBound = superBound;
+        this.boundKind = boundKind;
+        this.bound = bound;
     }
 
-    public IType getExtendsBound() {
-        return extendsBound;
+    public IType getBound() {
+        return bound;
     }
 
-    public IType getSuperBound() {
-        return superBound;
+    public BoundKind getBoundKind() {
+        return boundKind;
     }
 
     @Override

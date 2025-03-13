@@ -112,4 +112,30 @@ class IrCleanerTest {
         IrCleaner.doCleanUp(frag);
         System.out.println(frag);
     }
+
+    @Test
+    void testCleanUp() {
+        final var frame = new Frame();
+        final var body = new ArrayList<IStatement>();
+
+        body.add(new Move(
+                new Const(10),
+                new TempExpr(1, frame)
+        ));
+        body.add(new Move(
+                new TempExpr(),
+                new TempExpr(Frame.RV, frame)
+        ));
+
+        var frag = new ProcFrag(
+                0,
+                "empty",
+                IPrimitiveType.VOID,
+                frame,
+                body
+        );
+
+        frag = IrCleaner.basicBlocks(frag);
+        IrCleaner.doCleanUp(frag);
+    }
 }

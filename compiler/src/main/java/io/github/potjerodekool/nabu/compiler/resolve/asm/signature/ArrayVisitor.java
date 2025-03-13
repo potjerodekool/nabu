@@ -20,7 +20,7 @@ public class ArrayVisitor extends AbstractVisitor {
 
     @Override
     public void visitClassType(final String name) {
-        type = new MutableClassType(loader.resolveClass(name));
+        type = new MutableClassType(loader.loadClass(name));
         arrayType.setComponentType(type);
     }
 
@@ -32,9 +32,8 @@ public class ArrayVisitor extends AbstractVisitor {
     @Override
     public void visitTypeArgument() {
         final var classType = (MutableClassType) this.type;
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
         classType.addTypeArgument(new MutableWildcardType(
-                objectType,
+                null,
                 null
         ));
     }
@@ -64,7 +63,7 @@ public class ArrayVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
         type = new MutableTypeVariable(name, objectType, null);
         arrayType.setComponentType(type);
     }

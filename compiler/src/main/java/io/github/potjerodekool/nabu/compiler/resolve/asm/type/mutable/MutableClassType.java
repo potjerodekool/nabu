@@ -9,7 +9,6 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 public class MutableClassType extends MutableType {
 
@@ -23,7 +22,6 @@ public class MutableClassType extends MutableType {
 
     public MutableClassType(final TypeElement element,
                             final MutableClassType outerType) {
-        Objects.requireNonNull(element);
         this.element = element;
         this.outerType = outerType;
     }

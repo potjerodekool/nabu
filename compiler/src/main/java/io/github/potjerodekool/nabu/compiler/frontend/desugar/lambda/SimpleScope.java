@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
 import io.github.potjerodekool.nabu.compiler.resolve.scope.AbstractScope;
+import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Element;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 
 import java.util.LinkedHashSet;
@@ -10,16 +10,16 @@ import java.util.Set;
 
 public class SimpleScope extends AbstractScope {
 
-    private final Element<?> owner;
+    private final Tree owner;
     private final LambdaContext lambdaContext;
 
-    public SimpleScope(final Element<?> owner,
+    public SimpleScope(final Tree owner,
                        final LambdaContext lambdaContext) {
         this(null, owner, lambdaContext);
     }
 
     public SimpleScope(final SimpleScope parentScope,
-                       final Element<?> owner,
+                       final Tree owner,
                        final LambdaContext lambdaContext) {
         super(parentScope);
         this.lambdaContext = lambdaContext;
@@ -60,7 +60,11 @@ public class SimpleScope extends AbstractScope {
         return lambdaContext;
     }
 
-    public SimpleScope childScope(final Element<?> owner) {
+    public Tree getOwner() {
+        return owner;
+    }
+
+    public SimpleScope childScope(final Tree owner) {
         return new SimpleScope(
                 this,
                 owner,

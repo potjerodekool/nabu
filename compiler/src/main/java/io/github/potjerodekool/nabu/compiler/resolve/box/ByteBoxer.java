@@ -11,6 +11,6 @@ public class ByteBoxer extends AbstractBoxer {
 
     @Override
     protected ExpressionTree unbox(final ExpressionTree expressionTree) {
-        return expressionTree;
+        return unbox(expressionTree, "byteValue");
     }
 }

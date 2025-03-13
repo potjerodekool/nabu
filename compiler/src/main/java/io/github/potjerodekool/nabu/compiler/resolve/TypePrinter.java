@@ -16,13 +16,13 @@ public class TypePrinter implements TypeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitDeclaredType(final DeclaredType classType, final Object param) {
-        final var clazz = (TypeElement) classType.asElement();
+    public Object visitDeclaredType(final DeclaredType declaredType, final Object param) {
+        final var clazz = (TypeElement) declaredType.asElement();
         print(clazz.getQualifiedName());
 
-        if (!classType.getTypeArguments().isEmpty()) {
+        if (!declaredType.getTypeArguments().isEmpty()) {
             print("<");
-            printList(classType.getTypeArguments());
+            printList(declaredType.getTypeArguments());
             print(">");
         }
 

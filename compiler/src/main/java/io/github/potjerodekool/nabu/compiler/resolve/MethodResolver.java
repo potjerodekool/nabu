@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressioTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
@@ -22,27 +22,46 @@ public class MethodResolver {
         this.types = types;
     }
 
-    public ExecutableType resolveMethod(final MethodInvocationTree methodInvocation) {
-        return resolveMethod(methodInvocation, true);
+    public ExecutableType resolveMethod(final MethodInvocationTree methodInvocation,
+                                        final Element currentElement) {
+        return resolveMethod(methodInvocation, currentElement, true);
     }
 
     private ExecutableType resolveMethod(final MethodInvocationTree methodInvocation,
+                                         final Element currentElement,
                                          final boolean resolveDescriptor) {
-        final var target = methodInvocation.getTarget();
-        final var targetSymbol = target.getSymbol();
+        /*
+         * TODO rename to onlyStaticCalls.
+         * If true then only resolve static calls else both static and non static calls.
+         */
         final boolean isStaticCall;
+        final var target = methodInvocation.getTarget();
 
         final DeclaredType targetType;
 
-        if (targetSymbol instanceof VariableElement variableElement) {
-            targetType = asClassType(variableElement.asType());
-            isStaticCall = false;
-        } else if (targetSymbol instanceof TypeElement) {
-            targetType = asClassType(targetSymbol.asType());
-            isStaticCall = true;
+        if (target == null) {
+            if (currentElement instanceof ExecutableElement executableElement) {
+                isStaticCall = executableElement.isStatic();
+                final var clazz = (TypeElement) executableElement.getEnclosingElement();
+                targetType = (DeclaredType) clazz.asType();
+            } else {
+                isStaticCall = false;
+                final var clazz = (TypeElement) currentElement;
+                targetType = (DeclaredType) clazz.asType();
+            }
         } else {
-            targetType = asClassType(target.getType());
-            isStaticCall = false;
+            final var targetSymbol = target.getSymbol();
+
+            if (targetSymbol instanceof VariableElement variableElement) {
+                targetType = asClassType(variableElement.asType());
+                isStaticCall = false;
+            } else if (targetSymbol instanceof TypeElement) {
+                targetType = asClassType(targetSymbol.asType());
+                isStaticCall = true;
+            } else {
+                targetType = asClassType(target.getType());
+                isStaticCall = false;
+            }
         }
 
         final var name = (IdentifierTree) methodInvocation.getName();
@@ -64,7 +83,7 @@ public class MethodResolver {
 
         if (methodType == null && resolveDescriptor) {
             resolveMethodDescriptor(methodInvocation);
-            resolveMethod(methodInvocation, false);
+            resolveMethod(methodInvocation, null, false);
         }
 
         return methodType;
@@ -98,7 +117,7 @@ public class MethodResolver {
     }
 
     private TypeMirror resolveType(final ExpressionTree expression) {
-        if (expression instanceof FieldAccessExpressioTree fieldAccessExpression) {
+        if (expression instanceof FieldAccessExpressionTree fieldAccessExpression) {
             return resolveType(fieldAccessExpression.getField());
         } else if (expression instanceof MethodInvocationTree methodInvocationTree) {
             return methodInvocationTree.getMethodType().getReturnType();
@@ -162,7 +181,6 @@ public class MethodResolver {
 
         final var methodTypes = methods
                 .map(method -> (ExecutableType) types.asMemberOf(type, method))
-                //.map(mt -> applyTypeArguments(typeArguments, argumentTypes, mt))
                 .map(mt -> transform(mt, typeArguments, argumentTypes))
                 .filter(method -> match(method, argumentTypes))
                 .toList();
@@ -273,12 +291,12 @@ class Filler2 implements TypeVisitor<Void, TypeMirror> {
     }
 
     @Override
-    public Void visitDeclaredType(final DeclaredType classType, final TypeMirror typeMirror) {
-        final var typeArgs = classType.getTypeArguments();
+    public Void visitDeclaredType(final DeclaredType declaredType, final TypeMirror otherType) {
+        final var typeArgs = declaredType.getTypeArguments();
 
-        switch (typeMirror) {
-            case DeclaredType declaredType -> {
-                final var typeArgs2 = declaredType.getTypeArguments();
+        switch (otherType) {
+            case DeclaredType otherDeclaredType -> {
+                final var typeArgs2 = otherDeclaredType.getTypeArguments();
                 if (typeArgs2 != null && typeArgs2.size() == typeArgs.size()) {
                     for (var i = 0; i < typeArgs.size(); i++) {
                         final var typeArg = typeArgs.get(i);
@@ -289,14 +307,14 @@ class Filler2 implements TypeVisitor<Void, TypeMirror> {
             }
             case WildcardType wildcardType -> {
                 if (wildcardType.getExtendsBound() != null) {
-                    classType.accept(this, wildcardType.getExtendsBound());
+                    declaredType.accept(this, wildcardType.getExtendsBound());
                 } else if (wildcardType.getSuperBound() != null) {
-                    classType.accept(this, wildcardType.getSuperBound());
+                    declaredType.accept(this, wildcardType.getSuperBound());
                 }
             }
             case TypeVariable typeVariable -> {
                 final var name = typeVariable.asElement().getSimpleName();
-                map.putIfAbsent(name, classType);
+                map.putIfAbsent(name, declaredType);
             }
             default -> {
                 //Nothing todo
@@ -328,13 +346,13 @@ class Filer3 implements TypeVisitor<TypeMirror, Map<String, TypeMirror>> {
     }
 
     @Override
-    public TypeMirror visitDeclaredType(final DeclaredType classType, final Map<String, TypeMirror> map) {
-        final var typeArguments = classType.getTypeArguments().stream()
+    public TypeMirror visitDeclaredType(final DeclaredType declaredType, final Map<String, TypeMirror> map) {
+        final var typeArguments = declaredType.getTypeArguments().stream()
                 .map(it -> it.accept(this, map))
                 .toArray(TypeMirror[]::new);
 
         return types.getDeclaredType(
-                (TypeElement) classType.asElement(),
+                (TypeElement) declaredType.asElement(),
                 typeArguments
         );
     }

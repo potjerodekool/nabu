@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.types.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
@@ -86,7 +87,7 @@ public class TypesImpl implements Types {
             throw new IllegalArgumentException("Not a primitive type " + p.getKind());
         }
 
-        return symbolTable.getClassSymbol(ClassUtils.toInternalName(className));
+        return symbolTable.getClassSymbol(ClassUtils.getInternalName(className));
     }
 
     @Override
@@ -250,7 +251,7 @@ public class TypesImpl implements Types {
         }
 
         return (DeclaredType) new ClassBuilder()
-                .enclosingElement(enclosingElement)
+                .enclosingElement((Symbol) enclosingElement)
                 .kind(ElementKind.CLASS)
                 .name(simpleName)
                 .nestingKind(NestingKind.TOP_LEVEL)

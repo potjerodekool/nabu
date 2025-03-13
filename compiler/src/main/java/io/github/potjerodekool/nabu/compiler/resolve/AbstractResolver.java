@@ -1,18 +1,25 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
+import io.github.potjerodekool.nabu.compiler.Flags;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.Modifier;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.ClassScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.LocalScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.element.Element;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
+import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+
+import java.util.HashSet;
+import java.util.Set;
 
 import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.resolveType;
 
@@ -37,35 +44,79 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     }
 
     @Override
-    public Object visitVariableDeclaratorStatement(final CVariableDeclaratorStatement variableDeclaratorStatement,
+    public Object visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement,
                                                    final Scope scope) {
-        final var result = super.visitVariableDeclaratorStatement(variableDeclaratorStatement, scope);
+        super.visitVariableDeclaratorStatement(variableDeclaratorStatement, scope);
 
         var type = variableDeclaratorStatement.getType().getType();
-        final var identifier = variableDeclaratorStatement.getIdent();
 
         if (type instanceof VariableType) {
             if (variableDeclaratorStatement.getValue() == null) {
-                throw new TodoException();
+                type = types.getErrorType("error");
+            } else {
+                final var interferedType = resolveType(variableDeclaratorStatement.getValue());
+                type = types.getVariableType(interferedType);
             }
-
-            final var interferedType = resolveType(variableDeclaratorStatement.getValue());
-            type = types.getVariableType(interferedType);
             variableDeclaratorStatement.getType().setType(type);
         }
 
-        final var varElement = new VariableBuilder()
-                .kind(ElementKind.VARIABLE)
+        return null;
+    }
+
+    protected VariableSymbol createVariable(final VariableDeclarator variableDeclaratorStatement) {
+        final var identifier = variableDeclaratorStatement.getName();
+        var type = variableDeclaratorStatement.getType().getType();
+        final var modifiers = toModifiers(variableDeclaratorStatement.getFlags());
+
+        if (type instanceof VariableType) {
+            if (variableDeclaratorStatement.getValue() == null) {
+                type = types.getErrorType("error");
+            } else {
+                final var interferedType = resolveType(variableDeclaratorStatement.getValue());
+                type = types.getVariableType(interferedType);
+            }
+            variableDeclaratorStatement.getType().setType(type);
+        }
+
+        return (VariableSymbol) new VariableBuilder()
+                .kind(toElementKind(variableDeclaratorStatement.getKind()))
                 .name(identifier.getName())
                 .type(type)
+                .modifiers(modifiers)
                 .build();
-
-        scope.define(varElement);
-
-        identifier.setSymbol(varElement);
-
-        return result;
     }
+
+    Set<Modifier> toModifiers(final long flags) {
+        final var modifiers = new HashSet<Modifier>();
+        if (hasFlag(flags, Flags.ABSTRACT)) {
+            modifiers.add(Modifier.ABSTRACT);
+        }
+        if (hasFlag(flags, Flags.PUBLIC)) {
+            modifiers.add(Modifier.PUBLIC);
+        }
+        if (hasFlag(flags, Flags.PROTECTED)) {
+            modifiers.add(Modifier.PROTECTED);
+        }
+        if (hasFlag(flags, Flags.PRIVATE)) {
+            modifiers.add(Modifier.PRIVATE);
+        }
+        if (hasFlag(flags, Flags.STATIC)) {
+            modifiers.add(Modifier.STATIC);
+        }
+        if (hasFlag(flags, Flags.FINAL)) {
+            modifiers.add(Modifier.FINAL);
+        }
+        if (hasFlag(flags, Flags.SYNTHETIC)) {
+            modifiers.add(Modifier.SYNTHETIC);
+        }
+        return modifiers;
+    }
+
+    private boolean hasFlag(final long flags,
+                            final int flag) {
+        return (flags & flag) != 0;
+    }
+
 
     @Override
     public Object visitCastExpression(final CastExpressionTree castExpressionTree,
@@ -90,6 +141,12 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             final var resolvedClass = resolver.resolveClass(identifier.getName());
             if (resolvedClass != null) {
                 identifier.setType(resolvedClass.asType());
+            } else {
+                final var type = scope.resolveType(identifier.getName());
+
+                if (type != null) {
+                    identifier.setType(type);
+                }
             }
         }
 
@@ -97,15 +154,15 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     }
 
     @Override
-    public Object visitWildCardExpression(final WildCardExpressionTree wildCardExpression, final Scope scope) {
-        if (wildCardExpression.getExtendsBound() != null
-                || wildCardExpression.getSuperBound() != null) {
+    public Object visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final Scope scope) {
+        if (wildCardExpression.getBoundKind() == BoundKind.UNBOUND) {
+            final var type = types.getWildcardType(null, null);
+            wildCardExpression.setType(type);
+            return wildCardExpression;
+        } else {
+            wildCardExpression.getBound().accept(this, scope);
             throw new TodoException();
         }
-
-        final var type = types.getWildcardType(null, null);
-        wildCardExpression.setType(type);
-        return wildCardExpression;
     }
 
 
@@ -195,31 +252,8 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         return enhancedForStatement;
     }
 
-    @Override
-    public Object visitVariable(final Variable variable, final Scope scope) {
-        variable.getType().accept(this, scope);
-        final var resolvedType = variable.getType().getType();
-
-        final var varElement = new VariableBuilder()
-                .kind(toElementKind(variable.getKind()))
-                .name(variable.getSimpleName())
-                .type(resolvedType)
-                .build();
-
-        variable.setVarSymbol(varElement);
-
-        scope.define(varElement);
-
-        return super.visitVariable(variable, scope);
-    }
-
-    protected ElementKind toElementKind(final Element.Kind kind) {
-        return switch (kind) {
-            case PARAMETER -> ElementKind.PARAMETER;
-            case LOCAL_VARIABLE -> ElementKind.VARIABLE;
-            case CONSTRUCTOR -> ElementKind.CONSTRUCTOR;
-            case METHOD -> ElementKind.METHOD;
-        };
+    protected ElementKind toElementKind(final Kind kind) {
+        return ElementKind.valueOf(kind.name());
     }
 
     @Override
@@ -272,5 +306,44 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     public Object visitDoWhileStatement(final DoWhileStatement doWhileStatement, final Scope scope) {
         super.visitDoWhileStatement(doWhileStatement, scope);
         return doWhileStatement;
+    }
+
+    @Override
+    public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
+                                             final Scope scope) {
+        final var target = fieldAccessExpression.getTarget();
+        target.accept(this, scope);
+
+        final var varElement = TreeUtils.getSymbol(target);
+
+        if (varElement != null) {
+            final var varType = varElement.asType();
+            final DeclaredType declaredType = asDeclaredType(varType);
+            final var symbolScope = new SymbolScope(
+                    declaredType,
+                    scope.getGlobalScope()
+            );
+            fieldAccessExpression.getField().accept(this, symbolScope);
+        } else if (target.getType() != null) {
+            final DeclaredType declaredType = asDeclaredType(target.getType());
+            final var classScope = new ClassScope(
+                    declaredType,
+                    null,
+                    scope.getCompilationUnit(),
+                    loader
+            );
+            fieldAccessExpression.getField().accept(this, classScope);
+        }
+
+        return null;
+    }
+
+    private DeclaredType asDeclaredType(final TypeMirror typeMirror) {
+        if (typeMirror instanceof DeclaredType declaredType) {
+            return declaredType;
+        } else {
+            final var variableType = (VariableType) typeMirror;
+            return (DeclaredType) variableType.getInterferedType();
+        }
     }
 }

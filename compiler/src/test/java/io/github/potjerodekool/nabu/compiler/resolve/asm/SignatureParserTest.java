@@ -2,14 +2,10 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.PackageElementBuilder;
+import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.resolve.TypesImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
@@ -19,7 +15,6 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.signature.SignatureReader;
 import org.objectweb.asm.signature.SignatureVisitor;
 
-import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -103,14 +98,26 @@ class SignatureParserTest {
 
         final var actual = printer.getText();
 
-        assertEquals(signature, actual);
+        final var typeParams = formalTypeParameters.stream()
+                .map(it -> (TypeParameterElement) it.asElement())
+                .toList();
+
+        final var actual2 = SignatureGenerator.getClassSignature(typeParams, superType, interfaceTypes);
+
+        //assertEquals(signature, actual);
+        // <T:Ljava/lang/Object;>Ljava/lang/Object;Ljava/io/Serializable;Ljava/lang/reflect/GenericDeclaration;Ljava/lang/reflect/Type;Ljava/lang/reflect/AnnotatedElement;Ljava/lang/invoke/TypeDescriptor$OfField<Ljava/lang/Class<*>;>;Ljava/lang/constant/Constable;
+        // <T:Ljava/lang/Object;>Ljava/lang/Object;:Ljava/io/Serializable;:Ljava/lang/reflect/GenericDeclaration;:Ljava/lang/reflect/Type;:Ljava/lang/reflect/AnnotatedElement;:Ljava/lang/invoke/TypeDescriptor$OfField<Ljava/lang/Class<*>;>;:Ljava/lang/constant/Constable;
+        assertEquals(signature, actual2);
     }
 
     private void parseAndAssertFieldSignature(final String signature) {
         final var fieldType = parseSignature(signature).createFieldType();
-        final var printer = new Printer();
-        printer.process(fieldType);
-        assertEquals(signature, printer.getText());
+        //final var printer = new DefaultSignaturePrinter();
+
+        final var actual = SignatureGenerator.getFieldSignature(fieldType);
+
+        //final var actual = fieldType.accept(printer, null);
+        assertEquals(signature, actual);
     }
 
     private void parseAndAssertMethodSignature(final String signature) {
@@ -124,11 +131,17 @@ class SignatureParserTest {
         );
         final var printer = new Printer();
         printer.process(methodType);
+
+        final var actual = SignatureGenerator.getMethodSignature(methodType);
+
         assertEquals(signature, printer.getText());
+        assertEquals(signature, actual);
     }
 
     protected SignatureParser parseSignature(final String signature) {
-        final var loader = new TestElementLoader();
+        //final var loader = new TestElementLoader();
+        final var loader = new TestElementLoader(new SymbolTable());
+        loader.postInit();
         final var reader = new SignatureReader(signature);
 
         final var signatureBuilder = new SignatureParser(
@@ -163,20 +176,20 @@ class Printer implements TypeVisitor<Object, PrinterContext> {
     }
 
     @Override
-    public Object visitDeclaredType(final DeclaredType classType, final PrinterContext param) {
-        if (classType.getEnclosingType() != null) {
-            classType.getEnclosingType().accept(this, param);
+    public Object visitDeclaredType(final DeclaredType declaredType, final PrinterContext param) {
+        if (declaredType.getEnclosingType() != null) {
+            declaredType.getEnclosingType().accept(this, param);
             print("$");
         }
 
-        final var clazz = (TypeElement) classType.asElement();
+        final var clazz = (TypeElement) declaredType.asElement();
         print("L");
         print(clazz.getQualifiedName().replace('.', '/'));
 
-        if (classType.getTypeArguments() != null && !classType.getTypeArguments().isEmpty()) {
+        if (declaredType.getTypeArguments() != null && !declaredType.getTypeArguments().isEmpty()) {
             print("<");
 
-            final var typeArgs = classType.getTypeArguments();
+            final var typeArgs = declaredType.getTypeArguments();
 
             typeArgs.forEach(typeArg -> typeArg.accept(this, param));
 
@@ -213,7 +226,7 @@ class Printer implements TypeVisitor<Object, PrinterContext> {
     }
 
     @Override
-    public Object visitPrimitiveType(final io.github.potjerodekool.nabu.compiler.type.PrimitiveType primitiveType, final PrinterContext param) {
+    public Object visitPrimitiveType(final PrimitiveType primitiveType, final PrinterContext param) {
         final var descriptor = switch (primitiveType.getKind()) {
             case TypeKind.BYTE -> "B";
             case TypeKind.CHAR -> "C";
@@ -230,7 +243,7 @@ class Printer implements TypeVisitor<Object, PrinterContext> {
     }
 
     @Override
-    public Object visitWildcardType(final io.github.potjerodekool.nabu.compiler.type.WildcardType wildcardType, final PrinterContext param) {
+    public Object visitWildcardType(final WildcardType wildcardType, final PrinterContext param) {
         if (wildcardType.getExtendsBound() != null) {
             if (isObjectType(wildcardType.getExtendsBound())) {
                 print("*");

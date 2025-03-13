@@ -1,16 +1,25 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CDoWhileStatement;
 
-public class DoWhileStatementBuilder extends StatementBuilder<DoWhileStatement> {
+public class DoWhileStatementBuilder extends StatementBuilder<DoWhileStatement, DoWhileStatementBuilder> {
 
-    protected Statement body;
-    protected ExpressionTree condition;
+    private Statement body;
+    private ExpressionTree condition;
 
-    protected DoWhileStatementBuilder(final DoWhileStatement original) {
+    public DoWhileStatementBuilder(final DoWhileStatement original) {
         super(original);
-        this.body = original.body;
-        this.condition = original.condition;
+        this.body = original.getBody();
+        this.condition = original.getCondition();
+    }
+
+    public Statement getBody() {
+        return body;
+    }
+
+    public ExpressionTree getCondition() {
+        return condition;
     }
 
     @Override
@@ -30,6 +39,6 @@ public class DoWhileStatementBuilder extends StatementBuilder<DoWhileStatement> 
 
     @Override
     public DoWhileStatement build() {
-        return new DoWhileStatement(this);
+        return new CDoWhileStatement(this);
     }
 }

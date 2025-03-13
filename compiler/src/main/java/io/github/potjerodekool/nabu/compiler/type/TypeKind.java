@@ -1,24 +1,34 @@
 package io.github.potjerodekool.nabu.compiler.type;
 
 public enum TypeKind {
-    VOID,
-    BOOLEAN,
-    CHAR,
-    BYTE,
-    SHORT,
-    INT,
-    FLOAT,
-    LONG,
-    DOUBLE,
-    ARRAY,
-    DECLARED,
-    EXECUTABLE,
-    NULL,
-    WILDCARD,
-    INTERSECTION,
-    NONE,
-    TYPEVAR,
-    PACKAGE,
-    MODULE,
-    ERROR
+    VOID(false),
+    BOOLEAN(true),
+    CHAR(true),
+    BYTE(true),
+    SHORT(true),
+    INT(true),
+    FLOAT(true),
+    LONG(true),
+    DOUBLE(true),
+    ARRAY(false),
+    DECLARED(false),
+    EXECUTABLE(false),
+    NULL(false),
+    WILDCARD(false),
+    INTERSECTION(false),
+    NONE(false),
+    TYPEVAR(false),
+    PACKAGE(false),
+    MODULE(false),
+    ERROR(false);
+
+    final boolean isPrimitive;
+
+    TypeKind(final boolean isPrimitive) {
+        this.isPrimitive = isPrimitive;
+    }
+
+    public boolean isPrimitive() {
+        return isPrimitive;
+    }
 }

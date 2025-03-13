@@ -5,8 +5,8 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.Types;
 import org.junit.jupiter.api.Assertions;
@@ -23,12 +23,18 @@ class CasterTest {
     @Test
     void visitPrimitiveType() {
         final var intType = types.getPrimitiveType(TypeKind.INT);
-        final var methodInvocationTree = new MethodInvocationTree();
-        methodInvocationTree.name(new IdentifierTree("get"));
+        final var methodInvocationTree = TreeMaker.methodInvocationTree(
+                null,
+                IdentifierTree.create("get"),
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
 
-        final var objectType = loader.resolveClass(Constants.OBJECT).asType();
+        final var objectType = loader.loadClass(Constants.OBJECT).asType();
 
-        final var integerType = loader.resolveClass(Constants.INTEGER).asType();
+        final var integerType = loader.loadClass(Constants.INTEGER).asType();
 
         final var method = new MethodBuilder()
                 .returnType(types.getTypeVariable("E", objectType, null))

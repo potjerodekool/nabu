@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
@@ -9,7 +9,7 @@ class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object> {
 
     @Override
     public ExpressionTree visitUnknownType(final TypeMirror typeMirror, final Object param) {
-        throw new TodoException();
+        throw new UnsupportedOperationException(typeMirror.getClass().getName());
     }
 
     @Override
@@ -21,9 +21,11 @@ class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object> {
                 .toList()
                 : null;
 
-        final var typeIdentifier = new TypeApplyTree(
-                new IdentifierTree(clazz.getQualifiedName()),
-                paramTypes
+        final var typeIdentifier = TreeMaker.typeApplyTree(
+                IdentifierTree.create(clazz.getQualifiedName()),
+                paramTypes,
+                -1,
+                -1
         );
 
         typeIdentifier.setType(declaredType);
@@ -41,22 +43,30 @@ class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object> {
             case FLOAT -> PrimitiveTypeTree.Kind.FLOAT;
             case LONG -> PrimitiveTypeTree.Kind.LONG;
             case DOUBLE -> PrimitiveTypeTree.Kind.DOUBLE;
-            default -> throw new TodoException("" + primitiveType.getKind());
+            default -> throw new IllegalArgumentException("Invalid primitive kind" + primitiveType.getKind());
         };
 
-        return new PrimitiveTypeTree(kind);
+        return TreeMaker.primitiveTypeTree(kind, -1, -1);
     }
 
     @Override
     public ExpressionTree visitWildcardType(final WildcardType wildcardType, final Object param) {
-        if (wildcardType.getExtendsBound() != null
-                || wildcardType.getSuperBound() != null) {
-            throw new TodoException();
-        }
+        final var bound = wildcardType.getBound() != null
+                ? wildcardType.getBound().accept(this, param)
+                : null;
 
-        return new WildCardExpressionTree(
-                null,
-                null
+        return TreeMaker.wildcardExpressionTree(
+                wildcardType.getBoundKind(),
+                bound,
+                -1,
+                -1
         );
+    }
+
+    @Override
+    public ExpressionTree visitVariableType(final VariableType variableType, final Object param) {
+        final var variableTypeTree = TreeMaker.variableTypeTree(-1, -1);
+        variableTypeTree.setType(variableType);
+        return variableTypeTree;
     }
 }

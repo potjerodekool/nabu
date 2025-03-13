@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
@@ -140,5 +141,16 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     public void replaceLastParameterType(final MutableType type) {
         throw new TodoException(getClass().getName());
+    }
+
+    protected MutableClassType createMutableClass(final TypeElement typeElement) {
+        final var enclosingType = typeElement.asType().getEnclosingType();
+
+        if (enclosingType == null) {
+            return new MutableClassType(typeElement);
+        } else {
+            final var mutableEnclosingType = createMutableClass(enclosingType.getTypeElement());
+            return new MutableClassType(typeElement, mutableEnclosingType);
+        }
     }
 }

@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.ast.element.builder;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CErrorType;
@@ -19,7 +20,7 @@ public class ClassBuilder extends AbstractElementBuilder<ClassBuilder> {
     private TypeMirror superclass;
     private final List<TypeParameterElement> typeParameters = new ArrayList<>();
 
-    private final List<Element> enclosedElements = new ArrayList<>();
+    private final List<Symbol> enclosedElements = new ArrayList<>();
 
     public ClassBuilder() {
         kind = ElementKind.CLASS;
@@ -57,9 +58,11 @@ public class ClassBuilder extends AbstractElementBuilder<ClassBuilder> {
         final var clazz = new ClassSymbol(
                 kind,
                 nestingKind,
-                modifiers,
+                getFlags(),
                 name,
-                enclosing);
+                enclosing,
+                annotations
+        );
 
         enclosedElements.forEach(element -> {
             element.setEnclosingElement(clazz);
@@ -98,8 +101,6 @@ public class ClassBuilder extends AbstractElementBuilder<ClassBuilder> {
     }
 
     public ClassBuilder typeParameter(final TypeParameterElement typeParameter) {
-        Objects.requireNonNull(typeParameter);
-
         this.typeParameters.add(typeParameter);
         return this;
     }
@@ -110,7 +111,7 @@ public class ClassBuilder extends AbstractElementBuilder<ClassBuilder> {
         return this;
     }
 
-    public ClassBuilder enclosedElement(final Element element) {
+    public ClassBuilder enclosedElement(final Symbol element) {
         this.enclosedElements.add(element);
         return this;
     }

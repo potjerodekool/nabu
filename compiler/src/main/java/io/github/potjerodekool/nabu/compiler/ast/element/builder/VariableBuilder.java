@@ -9,8 +9,10 @@ public class VariableBuilder extends AbstractElementBuilder<VariableBuilder> {
 
     private TypeMirror type;
 
+    private Object constantValue;
+
     public VariableBuilder() {
-        kind = ElementKind.VARIABLE;
+        kind = ElementKind.LOCAL_VARIABLE;
     }
 
     public VariableBuilder type(final TypeMirror type) {
@@ -18,12 +20,18 @@ public class VariableBuilder extends AbstractElementBuilder<VariableBuilder> {
         return this;
     }
 
+    public VariableBuilder constantValue(final Object constantValue) {
+        this.constantValue = constantValue;
+        return this;
+    }
+
     public VariableElement build() {
         final var variable = new VariableSymbol(
                 kind,
-                modifiers,
+                getFlags(),
                 name,
-                null
+                enclosing,
+                constantValue
         );
         variable.setType(type);
         return variable;

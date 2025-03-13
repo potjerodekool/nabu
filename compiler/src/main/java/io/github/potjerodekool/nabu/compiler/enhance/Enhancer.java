@@ -1,52 +1,161 @@
 package io.github.potjerodekool.nabu.compiler.enhance;
 
+import io.github.potjerodekool.nabu.compiler.Flags;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Tree;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Element;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.PrimitiveTypeTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatement;
-import io.github.potjerodekool.nabu.compiler.tree.statement.ReturnStatement;
+import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.Statement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.ExpressionStatement;
+import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class Enhancer extends AbstractTreeVisitor<Object, Object> {
 
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration, final Object param) {
-        if (!hasConstructor(classDeclaration)) {
-            final var name = classDeclaration.getSimpleName();
-
-            final var constructor = new Function(
-                    -1,
-                    -1
-            )
-                    .simpleName(name)
-                    .kind(Element.Kind.CONSTRUCTOR)
-                    .returnType(new PrimitiveTypeTree(PrimitiveTypeTree.Kind.VOID));
-
-            final var body = new BlockStatement();
-
-            final var superCall = new MethodInvocationTree()
-                    .target(new IdentifierTree("this"))
-                    .name(new IdentifierTree("super"));
-            superCall.setLineNumber(classDeclaration.getLineNumber());
-            superCall.setColumnNumber(classDeclaration.getColumnNumber());
-
-            body.statement(superCall);
-            body.statement(new ReturnStatement());
-
-            constructor.body(body);
-
-            classDeclaration.enclosedElement(constructor, 0);
-        }
-
+        conditionalGenerateConstructor(classDeclaration);
+        conditionalInvokeSuper(classDeclaration);
         return super.visitClass(classDeclaration, param);
     }
 
+    private void conditionalGenerateConstructor(final ClassDeclaration classDeclaration) {
+        if (!hasConstructor(classDeclaration)) {
+            final var statements = new ArrayList<Statement>();
+
+            final var superCall = TreeMaker.methodInvocationTree(
+                    IdentifierTree.create(Constants.THIS),
+                    IdentifierTree.create(Constants.SUPER),
+                    List.of(),
+                    List.of(),
+                    classDeclaration.getLineNumber(),
+                    classDeclaration.getColumnNumber()
+            );
+
+            statements.add(TreeMaker.expressionStatement(superCall, superCall.getLineNumber(), superCall.getColumnNumber()));
+            statements.add(TreeMaker.returnStatement(null, -1, -1));
+
+            final var accessFlag = classDeclaration.getKind() == Kind.ENUM
+                    ? Flags.PRIVATE
+                    : Flags.PUBLIC;
+
+            final var body = TreeMaker.blockStatement(
+                    statements,
+                    -1,
+                    -1
+            );
+
+            final var constructor = new FunctionBuilder()
+                    .simpleName(Constants.INIT)
+                    .kind(Kind.CONSTRUCTOR)
+                    .returnType(TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.VOID, -1, -1))
+                    .modifiers(new CModifiers(List.of(), accessFlag))
+                    .body(body)
+                    .build();
+
+            classDeclaration.enclosedElement(constructor, 0);
+        }
+    }
+
+    private void conditionalInvokeSuper(final ClassDeclaration classDeclaration) {
+        final var newEnclosingElements = new ArrayList<Tree>();
+
+        classDeclaration.getEnclosedElements().forEach(enclosingElement -> {
+            if (enclosingElement instanceof Function constructor
+                    && constructor.getKind() == Kind.CONSTRUCTOR) {
+                newEnclosingElements.add(conditionalInvokeSuper(constructor));
+            } else {
+                newEnclosingElements.add(enclosingElement);
+            }
+        });
+
+        classDeclaration.enclosedElements(newEnclosingElements);
+    }
+
+    private Function conditionalInvokeSuper(final Function constructor) {
+        final var body = constructor.getBody();
+        final var newStatements = new ArrayList<Statement>();
+        boolean hasConstructorInvocation = false;
+
+        for (final var statement : body.getStatements()) {
+            if (hasConstructorInvocation) {
+                newStatements.add(statement);
+            } else {
+                if (!isConstructorInvocation(statement)) {
+                    final var constructorInvocation = TreeMaker.methodInvocationTree(
+                            null,
+                            IdentifierTree.create(Constants.SUPER),
+                            List.of(),
+                            List.of(),
+                            -1,
+                            -1
+                    );
+
+                    newStatements.add(TreeMaker.expressionStatement(constructorInvocation, -1, -1));
+
+                }
+                hasConstructorInvocation = true;
+                newStatements.add(statement);
+            }
+        }
+
+        if (newStatements.size() > body.getStatements().size()) {
+            final var newBody = body.builder()
+                    .statements(newStatements)
+                    .build();
+            return constructor.builder()
+                    .body(newBody)
+                    .build();
+        } else {
+            return constructor;
+        }
+    }
+
+    private boolean isConstructorInvocation(final Statement statement) {
+        return statement instanceof ExpressionStatement expressionStatement
+                && expressionStatement.getExpression() instanceof MethodInvocationTree methodInvocationTree
+                && isThisOrSuper(methodInvocationTree.getName());
+    }
+
+    private boolean isThisOrSuper(final ExpressionTree expressionTree) {
+        if (expressionTree instanceof IdentifierTree identifierTree) {
+            return Constants.THIS.equals(identifierTree.getName())
+                    || Constants.SUPER.equals(identifierTree.getName());
+        } else if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            final var target = fieldAccessExpressionTree.getTarget();
+
+            if (!(target instanceof IdentifierTree identifierTree)) {
+                return false;
+            }
+
+            if (!Constants.THIS.equals(identifierTree.getName())) {
+                return false;
+            }
+
+            if (!(fieldAccessExpressionTree.getField() instanceof IdentifierTree field)) {
+                return false;
+            }
+
+            return Constants.SUPER.equals(field.getName());
+        }
+
+        return false;
+    }
+
+
     private boolean hasConstructor(final ClassDeclaration classDeclaration) {
         return classDeclaration.getEnclosedElements().stream()
-                .anyMatch(e -> e.getKind() == Element.Kind.CONSTRUCTOR);
+                .flatMap(CollectionUtils.mapOnly(Function.class))
+                .anyMatch(e -> e.getKind() == Kind.CONSTRUCTOR);
     }
+
 
 }

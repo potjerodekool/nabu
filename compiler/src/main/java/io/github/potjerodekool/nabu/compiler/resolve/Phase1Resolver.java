@@ -1,31 +1,31 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
+import io.github.potjerodekool.nabu.compiler.Flags;
+import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
-import io.github.potjerodekool.nabu.compiler.tree.element.Element;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclarator;
 import io.github.potjerodekool.nabu.compiler.tree.statement.EnhancedForStatement;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.VariableType;
+import io.github.potjerodekool.nabu.compiler.util.Pair;
 
 import java.util.HashSet;
-import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 public class Phase1Resolver extends AbstractResolver {
 
     private final ClassElementLoader classElementLoader;
-    private final Set<CModifier> accessModifiers = Set.of(CModifier.PUBLIC, CModifier.PROTECTED, CModifier.PRIVATE);
 
     public Phase1Resolver(final CompilerContext compilerContext) {
         super(compilerContext);
@@ -55,7 +55,7 @@ public class Phase1Resolver extends AbstractResolver {
                                   final Scope scope) {
         if (importItem instanceof SingleImportItem singleImportItem) {
             final var className = singleImportItem.getClassName();
-            final var resolvedClass = classElementLoader.resolveClass(className);
+            final var resolvedClass = classElementLoader.loadClass(className);
 
             if (resolvedClass != null) {
                 scope.getCompilationUnit().getImportScope().define(resolvedClass);
@@ -69,7 +69,6 @@ public class Phase1Resolver extends AbstractResolver {
     public Object visitPackageDeclaration(final PackageDeclaration packageDeclaration,
                                           final Scope scope) {
         final var packageElement = classElementLoader.findOrCreatePackage(packageDeclaration.getPackageName());
-        packageDeclaration.setPackageElement(packageElement);
         scope.setPackageElement(packageElement);
         return null;
     }
@@ -77,7 +76,12 @@ public class Phase1Resolver extends AbstractResolver {
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Scope scope) {
-        final var superType = classElementLoader.resolveClass(Constants.OBJECT).asType();
+
+        final var annotations = classDeclaration.getModifiers().getAnnotations().stream()
+                .map(annotationTree -> (AnnotationMirror) annotationTree.accept(this, scope))
+                .toList();
+
+        final var superType = classElementLoader.loadClass(Constants.OBJECT).asType();
 
         final var typeParameters = classDeclaration.getTypeParameters().stream()
                 .map(it -> (TypeParameterElement) it.accept(this, scope))
@@ -86,39 +90,45 @@ public class Phase1Resolver extends AbstractResolver {
         final var clazz = new ClassBuilder()
                 .kind(ElementKind.CLASS)
                 .nestingKind(NestingKind.TOP_LEVEL)
+                .modifiers(Flags.createModifiers(classDeclaration.getModifiers().getFlags()))
                 .name(classDeclaration.getSimpleName())
                 .enclosingElement(scope.getPackageElement())
                 .superclass(superType)
                 .typeParameters(typeParameters)
+                .annotations(annotations)
                 .build();
 
-        classDeclaration.classSymbol = clazz;
+        classDeclaration.setClassSymbol(clazz);
 
-        final var classScope = new ClassScope(clazz.asType(), scope);
+        final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
         return super.visitClass(classDeclaration, classScope);
     }
 
     @Override
     public Object visitFunction(final Function function,
                                 final Scope scope) {
-        final var clazz = getClassSymbol(function);
-
-        Objects.requireNonNull(function.getReturnType());
+        final var clazz = (ClassSymbol) scope.getCurrentClass();
 
         function.getReturnType().accept(this, new FunctionScope(scope, null));
 
         final TypeMirror returnType;
 
-        if (function.getKind() == Element.Kind.CONSTRUCTOR) {
+        if (function.getKind() == Kind.CONSTRUCTOR) {
             returnType = clazz.asType();
         } else {
             returnType = function.getReturnType().getType();
         }
 
-        final var modifiers = new HashSet<>(toModifiers(function.getModifiers()));
-        if (!hasAccessModifier(function)) {
+        final var modifiers = new HashSet<>(Flags.createModifiers(function.getModifiers().getFlags()));
+
+        if (!function.getModifiers()
+                .hasAccessModifier()) {
             modifiers.add(Modifier.PUBLIC);
         }
+
+        final var annotations = function.getModifiers().getAnnotations().stream()
+                .map(it -> (AnnotationMirror) it.accept(this, scope))
+                .toList();
 
         final var method = (MethodSymbol) new MethodBuilder()
                 .kind(toElementKind(function))
@@ -126,14 +136,15 @@ public class Phase1Resolver extends AbstractResolver {
                 .enclosingElement(clazz)
                 .returnType(returnType)
                 .modifiers(modifiers)
+                .annotations(annotations)
                 .build();
 
         clazz.addEnclosedElement(method);
 
-        function.methodSymbol = method;
+        function.setMethodSymbol(method);
 
         final var functionScope = new FunctionScope(scope,
-                !function.hasModifier(CModifier.STATIC)
+                !function.hasFlag(Flags.STATIC)
                         ? method
                         : null
         );
@@ -141,38 +152,30 @@ public class Phase1Resolver extends AbstractResolver {
         function.getParameters().forEach(it -> it.accept(this, functionScope));
 
         function.getParameters().stream()
-                .map(Variable::getVarSymbol)
+                .map(param -> (VariableElement) param.getName().getSymbol())
                 .forEach(method::addParameter);
 
-        //return result;
         return null;
     }
 
-    private Set<Modifier> toModifiers(final Set<CModifier> modifiers) {
-        return modifiers.stream()
-                .map(this::toModifier)
-                .collect(Collectors.toSet());
-    }
+    @Override
+    public Object visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final Scope scope) {
+        super.visitVariableDeclaratorStatement(variableDeclaratorStatement, scope);
 
-    private Modifier toModifier(final CModifier modifier) {
-        return switch (modifier) {
-            case ABSTRACT -> Modifier.ABSTRACT;
-            case PUBLIC -> Modifier.PUBLIC;
-            case PROTECTED -> Modifier.PROTECTED;
-            case PRIVATE -> Modifier.PRIVATE;
-            case STATIC -> Modifier.STATIC;
-            case FINAL -> Modifier.FINAL;
-        };
-    }
+        if (variableDeclaratorStatement.getKind() == Kind.FIELD
+                || variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
+            final var clazz = (ClassSymbol) scope.getCurrentClass();
+            final var symbol = createVariable(variableDeclaratorStatement);
+            variableDeclaratorStatement.getName().setSymbol(symbol);
 
-    private boolean hasAccessModifier(final Function function) {
-        return function.getModifiers().stream()
-                .anyMatch(accessModifiers::contains);
-    }
+            if (variableDeclaratorStatement.getKind() == Kind.FIELD) {
+                clazz.addEnclosedElement(symbol);
+            } else {
+                scope.define(symbol);
+            }
+        }
 
-    private TypeElement getClassSymbol(final Function function) {
-        final var enclosingTree = (ClassDeclaration) function.getEnclosingElement();
-        return enclosingTree.classSymbol;
+        return null;
     }
 
     private ElementKind toElementKind(final Function function) {
@@ -181,43 +184,6 @@ public class Phase1Resolver extends AbstractResolver {
             case METHOD -> ElementKind.METHOD;
             default -> null;
         };
-    }
-
-    @Override
-    public Object visitFieldAccessExpression(final FieldAccessExpressioTree fieldAccessExpression,
-                                             final Scope scope) {
-        final var target = fieldAccessExpression.getTarget();
-        target.accept(this, scope);
-
-        final var varElement = getVariableElement(target);
-
-        if (varElement != null) {
-            final var varType = varElement.asType();
-            final DeclaredType classType;
-
-            if (varType instanceof DeclaredType ct) {
-                classType = ct;
-            } else {
-                final var variableType = (VariableType) varType;
-                classType = (DeclaredType) variableType.getInterferedType();
-            }
-
-            final var symbolScope = new ClassScope(
-                    classType,
-                    scope.getGlobalScope()
-            );
-            fieldAccessExpression.getField().accept(this, symbolScope);
-        }
-
-        return null;
-    }
-
-    private VariableElement getVariableElement(final ExpressionTree expression) {
-        if (expression instanceof FieldAccessExpressioTree fieldAccessExpression) {
-            return getVariableElement(fieldAccessExpression.getField());
-        }
-
-        return (VariableElement) expression.getSymbol();
     }
 
     @Override
@@ -244,7 +210,7 @@ public class Phase1Resolver extends AbstractResolver {
             case CHAR -> TypeKind.CHAR;
             case FLOAT -> TypeKind.FLOAT;
             case DOUBLE -> TypeKind.DOUBLE;
-            case VOID ->  TypeKind.VOID;
+            case VOID -> TypeKind.VOID;
         };
     }
 
@@ -286,7 +252,7 @@ public class Phase1Resolver extends AbstractResolver {
                 .toList();
 
         final var upperBound = switch (typeBound.size()) {
-            case 0 -> loader.resolveClass(Constants.OBJECT).asType();
+            case 0 -> loader.loadClass(Constants.OBJECT).asType();
             case 1 -> typeBound.getFirst();
             default -> types.getIntersectionType(typeBound);
         };
@@ -297,5 +263,69 @@ public class Phase1Resolver extends AbstractResolver {
                 null
         ).asElement();
     }
-}
 
+    @Override
+    public Object visitAnnotation(final AnnotationTree annotationTree, final Scope scope) {
+        annotationTree.getName().accept(this, scope);
+        final var annotationType = (DeclaredType) annotationTree.getName().getType();
+
+        final var values = annotationTree.getArguments().stream()
+                .map(it -> (Pair<ExecutableElement, AnnotationValue>) it.accept(this, scope))
+                .collect(Collectors.toMap(
+                        Pair::first,
+                        Pair::second
+                ));
+
+        return AnnotationBuilder.createAnnotation(
+                annotationType,
+                values
+        );
+    }
+
+    @Override
+    public Object visitAssignment(final AssignmentExpression assignmentExpression, final Scope scope) {
+        final var identifier = (IdentifierTree) assignmentExpression.getLeft();
+        final var name = identifier.getName();
+        assignmentExpression.getRight().accept(this, scope);
+        final AnnotationValue annotationValue = toAnnotationValue(assignmentExpression.getRight());
+
+        final var executableElement = new MethodBuilder()
+                .name(name)
+                .build();
+
+        return new Pair<>(
+                executableElement,
+                annotationValue
+        );
+    }
+
+    private AnnotationValue toAnnotationValue(final ExpressionTree expressionTree) {
+        return switch (expressionTree) {
+            case LiteralExpressionTree literalExpressionTree ->
+                    AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
+            case FieldAccessExpressionTree fieldAccessExpressionTree -> {
+                final var type = (DeclaredType) fieldAccessExpressionTree.getTarget().getType();
+                final var value = (VariableElement) fieldAccessExpressionTree.getField().getSymbol();
+                yield AnnotationBuilder.createEnumValue(
+                        type,
+                        value
+                );
+            }
+            case NewArrayExpression newArrayExpression -> {
+                final var type = newArrayExpression.getType();
+                final var values = newArrayExpression.getElements().stream()
+                        .map(this::toAnnotationValue)
+                        .toList();
+
+                yield AnnotationBuilder.createArrayValue(type, values);
+            }
+            default -> throw new TodoException();
+        };
+    }
+
+    @Override
+    public Object visitNewArray(final NewArrayExpression newArrayExpression, final Scope scope) {
+        newArrayExpression.getElements().forEach(e -> e.accept(this, scope));
+        return null;
+    }
+}

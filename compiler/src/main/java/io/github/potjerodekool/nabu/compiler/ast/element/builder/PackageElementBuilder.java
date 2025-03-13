@@ -10,8 +10,8 @@ public final class PackageElementBuilder {
     private PackageElementBuilder() {
     }
 
-    public static PackageElement create(final PackageElement parentPackage,
-                                        final String packageName) {
+    public static PackageSymbol create(final PackageSymbol parentPackage,
+                                       final String packageName) {
         return new PackageSymbol(parentPackage, packageName);
     }
 

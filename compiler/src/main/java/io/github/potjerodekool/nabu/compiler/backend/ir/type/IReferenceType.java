@@ -1,25 +1,49 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
+import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
+
 import java.util.List;
 import java.util.Objects;
 
 public final class IReferenceType extends IType {
 
     public static final IType NULL = new IReferenceType(
+            ITypeKind.NULL, null,
             null,
-            ITypeKind.NULL,
             null);
 
+    private final IReferenceType enclosingType;
     private final String name;
     private final List<IType> typeArguments;
 
-    IReferenceType(final String name,
-                   final ITypeKind typeKind,
-                   final List<IType> typeArguments) {
+    public static IReferenceType createClassType(final IReferenceType enclosingType,
+                                                 final String name,
+                                                 final List<IType> typeArguments) {
+        return new IReferenceType(
+                ITypeKind.CLASS,
+                enclosingType,
+                name,
+                typeArguments
+        );
+    }
+
+    public static IReferenceType createInterfaceType(final IReferenceType enclosingType,
+                                                     final String name,
+                                                     final List<IType> typeArguments) {
+        return new IReferenceType(
+                ITypeKind.INTERFACE,
+                enclosingType,
+                name,
+                typeArguments
+        );
+    }
+
+    private IReferenceType(final ITypeKind typeKind,
+                           final IReferenceType enclosingType,
+                           final String name,
+                           final List<IType> typeArguments) {
         super(typeKind);
-        if (name == null && ITypeKind.NULL != typeKind) {
-            throw new NullPointerException();
-        }
+        this.enclosingType = enclosingType;
 
         if (typeArguments != null) {
             for (final IType typeArgument : typeArguments) {
@@ -39,14 +63,12 @@ public final class IReferenceType extends IType {
         this.typeArguments = typeArguments;
     }
 
-    public static IReferenceType create(final ITypeKind kind,
-                                        final String name,
-                                        final List<IType> typeArguments) {
-        return new IReferenceType(name, kind, typeArguments);
-    }
-
     public String getName() {
         return name;
+    }
+
+    public IReferenceType getEnclosingType() {
+        return enclosingType;
     }
 
     public List<IType> getTypeArguments() {
@@ -71,15 +93,30 @@ public final class IReferenceType extends IType {
             return false;
         }
         final IReferenceType that = (IReferenceType) o;
-        return getKind() != that.getKind()
-                || Objects.equals(name, that.name);
+
+        return getKind() == that.getKind()
+                && Objects.equals(enclosingType, that.enclosingType)
+                && Objects.equals(name, that.name)
+                && equalsTypeArgs(that.typeArguments);
+    }
+
+    private boolean equalsTypeArgs(final List<IType> typeArgs) {
+        if (this.typeArguments.size() != typeArgs.size()) {
+            return false;
+        } else {
+            return CollectionUtils.pairStream(this.typeArguments, typeArgs)
+                    .allMatch(pair -> pair.first().equals(pair.second()));
+        }
     }
 
     @Override
     public int hashCode() {
-        int result = super.hashCode();
-        result = 31 * result + (name != null ? name.hashCode() : 0);
-        return result;
+        return Objects.hash(
+                getKind(),
+                enclosingType,
+                name,
+                typeArguments
+        );
     }
 
     @Override

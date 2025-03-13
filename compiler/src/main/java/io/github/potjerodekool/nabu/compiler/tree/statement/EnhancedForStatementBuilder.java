@@ -1,18 +1,31 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CEnhancedForStatement;
 
-public class EnhancedForStatementBuilder extends StatementBuilder<EnhancedForStatement> {
+public class EnhancedForStatementBuilder extends StatementBuilder<EnhancedForStatement, EnhancedForStatementBuilder> {
 
-    CVariableDeclaratorStatement localVariable;
-    ExpressionTree expression;
-    Statement statement;
+    private VariableDeclarator localVariable;
+    private ExpressionTree expression;
+    private Statement statement;
 
     public EnhancedForStatementBuilder(final EnhancedForStatement enhancedForStatement) {
         super(enhancedForStatement);
-        this.localVariable = enhancedForStatement.localVariable;
-        this.expression = enhancedForStatement.expression;
-        this.statement = enhancedForStatement.statement;
+        this.localVariable = enhancedForStatement.getLocalVariable();
+        this.expression = enhancedForStatement.getExpression();
+        this.statement = enhancedForStatement.getStatement();
+    }
+
+    public VariableDeclarator getLocalVariable() {
+        return localVariable;
+    }
+
+    public ExpressionTree getExpression() {
+        return expression;
+    }
+
+    public Statement getStatement() {
+        return statement;
     }
 
     @Override
@@ -20,7 +33,7 @@ public class EnhancedForStatementBuilder extends StatementBuilder<EnhancedForSta
         return null;
     }
 
-    public EnhancedForStatementBuilder localVariable(final CVariableDeclaratorStatement localVariable) {
+    public EnhancedForStatementBuilder localVariable(final VariableDeclarator localVariable) {
         this.localVariable = localVariable;
         return this;
     }
@@ -37,6 +50,6 @@ public class EnhancedForStatementBuilder extends StatementBuilder<EnhancedForSta
 
     @Override
     public EnhancedForStatement build() {
-        return new EnhancedForStatement(this);
+        return new CEnhancedForStatement(this);
     }
 }

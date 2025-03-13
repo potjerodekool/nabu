@@ -16,7 +16,7 @@ public class InterfaceVisitor extends AbstractVisitor {
 
     @Override
     public void visitClassType(final String name) {
-        type = new MutableClassType(loader.resolveClass(name));
+        type = new MutableClassType(loader.loadClass(name));
         parent.addInterfaceType(type);
     }
 

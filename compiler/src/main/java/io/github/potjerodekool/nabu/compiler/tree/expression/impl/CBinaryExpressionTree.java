@@ -1,0 +1,62 @@
+package io.github.potjerodekool.nabu.compiler.tree.expression.impl;
+
+import io.github.potjerodekool.nabu.compiler.tree.Tag;
+import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
+import io.github.potjerodekool.nabu.compiler.tree.expression.BinaryExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.BinaryExpressionBuilder;
+
+public class CBinaryExpressionTree extends CExpressionTree implements BinaryExpressionTree {
+
+    private final ExpressionTree left;
+    private final Tag tag;
+    private final ExpressionTree right;
+
+    public CBinaryExpressionTree(final ExpressionTree left,
+                                 final Tag tag,
+                                 final ExpressionTree right,
+                                 final int lineNumber,
+                                 final int charPositionInLine) {
+        super(lineNumber, charPositionInLine);
+        this.left = left;
+        this.tag = tag;
+        this.right = right;
+    }
+
+    public CBinaryExpressionTree(final BinaryExpressionBuilder builder) {
+        super(builder);
+        this.left = builder.getLeft();
+        this.tag = builder.getTag();
+        this.right = builder.getRight();
+    }
+
+    public ExpressionTree getLeft() {
+        return left;
+    }
+
+    public ExpressionTree getRight() {
+        return right;
+    }
+
+    public Tag getTag() {
+        return tag;
+    }
+
+    @Override
+    public <R, P> R accept(final TreeVisitor<R,P> visitor, final P param) {
+        return visitor.visitBinaryExpression(this, param);
+    }
+
+    @Override
+    public String toString() {
+        final var leftStr = left.toString();
+        final var rightStr = right.toString();
+        return String.format("%s %s %s", leftStr, tag, rightStr);
+    }
+
+    @Override
+    public BinaryExpressionBuilder builder() {
+        return new BinaryExpressionBuilder(this);
+    }
+
+}

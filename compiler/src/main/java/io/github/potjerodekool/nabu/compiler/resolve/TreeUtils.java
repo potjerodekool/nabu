@@ -15,7 +15,7 @@ public final class TreeUtils {
 
     public static TypeMirror resolveType(final Tree tree) {
         return switch (tree) {
-            case FieldAccessExpressioTree fieldAccessExpression -> resolveType(fieldAccessExpression.getField());
+            case FieldAccessExpressionTree fieldAccessExpression -> resolveType(fieldAccessExpression.getField());
             case IdentifierTree ident -> {
                 if (ident.getType() != null) {
                     yield ident.getType();
@@ -60,7 +60,7 @@ public final class TreeUtils {
     public static Element getSymbol(final ExpressionTree expression) {
         return switch (expression) {
             case IdentifierTree ignored -> expression.getSymbol();
-            case FieldAccessExpressioTree fieldAccessExpressioTree -> getSymbol(fieldAccessExpressioTree.getField());
+            case FieldAccessExpressionTree fieldAccessExpressionTree -> getSymbol(fieldAccessExpressionTree.getField());
             case MethodInvocationTree methodInvocationTree -> getSymbol(methodInvocationTree.getTarget());
             default -> throw new TodoException();
         };

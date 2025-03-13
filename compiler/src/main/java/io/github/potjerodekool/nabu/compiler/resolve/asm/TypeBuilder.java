@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignature;
@@ -8,6 +9,8 @@ import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.signature.SignatureReader;
+
+import java.util.List;
 
 
 public class TypeBuilder {
@@ -41,6 +44,18 @@ public class TypeBuilder {
 
     public void parseClassSignature(final String signature,
                                     final ClassSymbol classSymbol) {
+        final var enclosingElement = classSymbol.getEnclosingElement();
+        final var outerType = enclosingElement instanceof TypeElement enclosingTypeElement
+                ? enclosingTypeElement.asType()
+                : null;
+
+        var type = new CClassType(
+                outerType,
+                classSymbol,
+                List.of()
+        );
+        classSymbol.setType(type);
+
         final var reader = new SignatureReader(signature);
         final var signatureBuilder =
                 new SignatureParser(Opcodes.ASM9, asmTypeResolver.getClassElementLoader());
@@ -57,12 +72,11 @@ public class TypeBuilder {
         classSymbol.setSuperClass(superType);
         interfaceTypes.forEach(classSymbol::addInterface);
 
-        final var type = new CClassType(
-                null,
+        type = new CClassType(
+                outerType,
                 classSymbol,
                 formalTypeParameters
         );
-
         classSymbol.setType(type);
     }
 

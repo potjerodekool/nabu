@@ -1,9 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressioTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +16,7 @@ class UsedVarsCollector extends AbstractTreeVisitor<Object, TranslateContext> {
     }
 
     @Override
-    public Object visitFieldAccessExpression(final FieldAccessExpressioTree fieldAccessExpression, final TranslateContext context) {
+    public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final TranslateContext context) {
         fieldAccessExpression.getTarget().accept(this, context);
         return null;
     }
@@ -30,11 +29,6 @@ class UsedVarsCollector extends AbstractTreeVisitor<Object, TranslateContext> {
             usedIdentifiers.add(identifier);
         }
 
-        return null;
-    }
-
-    @Override
-    public Object visitVariable(final Variable variable, final TranslateContext context) {
         return null;
     }
 

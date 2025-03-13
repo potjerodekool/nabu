@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.element;
 
-public interface AnnotationValue {
+public sealed interface AnnotationValue permits Attribute {
 
     Object getValue();
 

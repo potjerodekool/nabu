@@ -4,10 +4,12 @@ import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.Types;
@@ -36,10 +38,9 @@ class MethodResolverTest {
 
     @Test
     void resolveMethod() {
-        final var methodInvocationTree = new MethodInvocationTree();
-        final var target = new IdentifierTree("list");
-        final var listClass = loader.resolveClass("java.util.List");
-        final var stringClass = loader.resolveClass("java.lang.String");
+        final var target = IdentifierTree.create("list");
+        final var listClass = loader.loadClass("java.util.List");
+        final var stringClass = loader.loadClass("java.lang.String");
         final var stringListType = types.getDeclaredType(
                 listClass,
                 stringClass.asType()
@@ -49,31 +50,37 @@ class MethodResolverTest {
 
 
         final var listVariable = new VariableBuilder()
-                .kind(ElementKind.VARIABLE)
+                .kind(ElementKind.LOCAL_VARIABLE)
                 .name("list")
                 .type(stringListType)
                 .build();
 
         target.setSymbol(listVariable);
 
-        methodInvocationTree.target(target);
-        methodInvocationTree.name(new IdentifierTree("add"));
 
-        final var indexArg = new LiteralExpressionTree(0);
+        final var indexArg = TreeMaker.literalExpressionTree(0, -1, -1);
         indexArg.setType(intType);
 
-        final var elementArg = new IdentifierTree("value");
+        final var elementArg = IdentifierTree.create("value");
         final var variable = new VariableBuilder()
-                .kind(ElementKind.VARIABLE)
+                .kind(ElementKind.LOCAL_VARIABLE)
                 .name("value")
                 .type(stringClass.asType())
                 .build();
 
         elementArg.setSymbol(variable);
 
-        methodInvocationTree.arguments(List.of(indexArg, elementArg));
 
-        final var methodType = methodResolver.resolveMethod(methodInvocationTree);
+        final var methodInvocationTree = TreeMaker.methodInvocationTree(
+                target,
+                IdentifierTree.create("add"),
+                List.of(),
+                List.of(indexArg, elementArg),
+                -1,
+                -1
+        );
+
+        final var methodType = methodResolver.resolveMethod(methodInvocationTree, null);
         assertNotNull(methodType);
 
         final var printer = new TypePrinter();
@@ -87,10 +94,8 @@ class MethodResolverTest {
 
     @Test
     void resolveMethod2() {
-        final var methodInvocationTree = new MethodInvocationTree();
-
-        final var stringClass = loader.resolveClass("java.lang.String");
-        final var localDateClass = loader.resolveClass("java.time.LocalDate");
+        final var stringClass = loader.loadClass("java.lang.String");
+        final var localDateClass = loader.loadClass("java.time.LocalDate");
 
         final var objectType = new ClassBuilder()
                 .name("Object")
@@ -100,7 +105,7 @@ class MethodResolverTest {
         final var typeVar = types.getTypeVariable("Y", objectType, null);
 
 
-        final var pathClass = new ClassBuilder()
+        final var pathClass = (ClassSymbol) new ClassBuilder()
                 .name("Path")
                 .typeParameter((TypeParameterElement) types.getTypeVariable("X", objectType, null).asElement())
                 .build();
@@ -108,7 +113,7 @@ class MethodResolverTest {
         final var personClass = new ClassBuilder()
                 .name("Person")
                 .enclosedElement(
-                        new VariableBuilder()
+                        (Symbol) new VariableBuilder()
                                 .kind(ElementKind.FIELD)
                                 .name("birthDay")
                                 .type(localDateClass.asType())
@@ -120,7 +125,7 @@ class MethodResolverTest {
                 typeVar
         );
 
-        final var getMethod = new MethodBuilder()
+        final var getMethod = (MethodSymbol) new MethodBuilder()
                 .enclosingElement(pathClass)
                 .returnType(returnType)
                 .typeParameter((TypeParameterElement) typeVar.asElement())
@@ -134,14 +139,14 @@ class MethodResolverTest {
 
         pathClass.addEnclosedElement(getMethod);
 
-        final var target = new IdentifierTree("e");
+        final var target = IdentifierTree.create("e");
         target.setType(types.getDeclaredType(
                 pathClass,
                 personClass.asType()
         ));
 
         final var pathVariable = new VariableBuilder()
-                .kind(ElementKind.VARIABLE)
+                .kind(ElementKind.LOCAL_VARIABLE)
                 .name("list")
                 .type(types.getDeclaredType(
                         pathClass,
@@ -151,20 +156,23 @@ class MethodResolverTest {
 
         target.setSymbol(pathVariable);
 
-        methodInvocationTree.target(target);
-        methodInvocationTree.name(new IdentifierTree("get"));
 
-        final var typeArg = new IdentifierTree("LocalDate");
+        final var typeArg = IdentifierTree.create("LocalDate");
         typeArg.setType(localDateClass.asType());
 
-        methodInvocationTree.typeArguments(typeArg);
-
-        final var literal = new LiteralExpressionTree("birthDay");
+        final var literal = TreeMaker.literalExpressionTree("birthDay", -1,-1);
         literal.setType(stringClass.asType());
 
-        methodInvocationTree.arguments(List.of(literal));
+        final var methodInvocationTree = TreeMaker.methodInvocationTree(
+                target,
+                IdentifierTree.create("get"),
+                List.of(typeArg),
+                List.of(literal),
+                -1,
+                -1
+        );
 
-        final var methodType = methodResolver.resolveMethod(methodInvocationTree);
+        final var methodType = methodResolver.resolveMethod(methodInvocationTree, null);
         assertNotNull(methodType);
 
         final var printer = new TypePrinter();
@@ -177,7 +185,7 @@ class MethodResolverTest {
 
     @Test
     void test() {
-        final var comparableClass = loader.resolveClass("java.lang.Comparable");
+        final var comparableClass = loader.loadClass("java.lang.Comparable");
 
         final var objectType = new ClassBuilder()
                 .name("Object")
@@ -227,7 +235,7 @@ class MethodResolverTest {
                 List.of()
         );
 
-        final var localDateClass = loader.resolveClass("java.time.LocalDate");
+        final var localDateClass = loader.loadClass("java.time.LocalDate");
 
         final var pathClass = new ClassBuilder()
                 .name("Path")

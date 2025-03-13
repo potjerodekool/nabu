@@ -21,13 +21,13 @@ public class TypeArgumentVisitor extends AbstractVisitor {
     }
 
     public void visitClassType(final String name) {
-        type = new MutableClassType(loader.resolveClass(name));
+        type = new MutableClassType(loader.loadClass(name));
         parent.addTypeArgument(type);
     }
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
         final var type = new MutableTypeVariable(name, objectType, null);
         final var classType = (MutableClassType) parent.getType();
         classType.addTypeArgument(process(type));
@@ -77,7 +77,7 @@ public class TypeArgumentVisitor extends AbstractVisitor {
     public void visitInnerClassType(final String name) {
         final var classType = (MutableClassType) this.type;
         final var innerName = classType.getClassName() + "$" + name;
-        final var element = loader.resolveClass(innerName);
+        final var element = loader.loadClass(innerName);
         this.type = new MutableClassType(element, classType);
     }
 }

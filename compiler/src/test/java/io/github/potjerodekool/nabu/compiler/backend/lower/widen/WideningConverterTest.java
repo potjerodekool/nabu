@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,7 +24,7 @@ class WideningConverterTest {
     }
 
     private LiteralExpressionTree createLiteral(final Object literal) {
-        final var literalExpression = new LiteralExpressionTree(literal);
+        final var literalExpression = TreeMaker.literalExpressionTree(literal, -1, -1);
         final var type = switch (literalExpression.getLiteralKind()) {
             case BOOLEAN -> types.getPrimitiveType(TypeKind.BOOLEAN);
             case BYTE -> types.getPrimitiveType(TypeKind.BYTE);

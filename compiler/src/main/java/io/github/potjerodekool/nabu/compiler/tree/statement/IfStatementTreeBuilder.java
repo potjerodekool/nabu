@@ -1,18 +1,31 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CIfStatementTree;
 
-public class IfStatementTreeBuilder extends StatementBuilder<IfStatementTree> {
+public class IfStatementTreeBuilder extends StatementBuilder<IfStatementTree, IfStatementTreeBuilder> {
 
-    ExpressionTree expression;
-    Statement thenStatement;
-    Statement elseStatement;
+    private ExpressionTree expression;
+    private Statement thenStatement;
+    private Statement elseStatement;
 
-    protected IfStatementTreeBuilder(final IfStatementTree original) {
+    public IfStatementTreeBuilder(final IfStatementTree original) {
         super(original);
         expression = original.getExpression();
         this.thenStatement = original.getThenStatement();
         this.elseStatement = original.getElseStatement();
+    }
+
+    public ExpressionTree getExpression() {
+        return expression;
+    }
+
+    public Statement getThenStatement() {
+        return thenStatement;
+    }
+
+    public Statement getElseStatement() {
+        return elseStatement;
     }
 
     @Override
@@ -37,6 +50,6 @@ public class IfStatementTreeBuilder extends StatementBuilder<IfStatementTree> {
 
     @Override
     public IfStatementTree build() {
-        return new IfStatementTree(this);
+        return new CIfStatementTree(this);
     }
 }

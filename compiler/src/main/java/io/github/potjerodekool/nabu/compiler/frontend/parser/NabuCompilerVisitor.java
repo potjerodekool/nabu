@@ -4,11 +4,17 @@ import io.github.potjerodekool.nabu.NabuLexer;
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.NabuParserBaseVisitor;
 import io.github.potjerodekool.nabu.compiler.FileObject;
+import io.github.potjerodekool.nabu.compiler.Flags;
 import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
+import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.ArrayAccessExpressionBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.IntersectionTypeTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
+import io.github.potjerodekool.nabu.compiler.type.BoundKind;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -16,7 +22,6 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
@@ -34,46 +39,49 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final var startToken = ctx.getStart();
 
-        final var cu = new CompilationUnit(
+        final var declarations = new ArrayList<Tree>();
+
+        if (ctx.packageDeclaration() != null) {
+            declarations.add((Tree) ctx.packageDeclaration().accept(this));
+        }
+
+        final var importItems = ctx.importDeclaration().stream()
+                .map(importDeclaration -> ((ImportItem) importDeclaration.accept(this)))
+                .toList();
+
+        if (!ctx.topLevelClassOrInterfaceDeclaration().isEmpty()) {
+            declarations.addAll(ctx.topLevelClassOrInterfaceDeclaration()
+                    .stream()
+                    .map(it -> (Tree) it.accept(this))
+                    .toList());
+        } else {
+            final var functions = ctx.functionDeclaration()
+                    .stream()
+                    .map(it -> (Tree) it.accept(this))
+                    .toList();
+
+            final var clazz = TreeMaker.classDeclaration(
+                    Kind.CLASS,
+                    new CModifiers(List.of(), Flags.PUBLIC),
+                    name,
+                    functions,
+                    List.of(),
+                    List.of(),
+                    null,
+                    startToken.getLine(),
+                    startToken.getCharPositionInLine()
+            );
+
+            declarations.add(clazz);
+        }
+
+        return TreeMaker.compilationUnit(
+                fileObject,
+                importItems,
+                declarations,
                 ctx.start.getLine(),
                 ctx.start.getCharPositionInLine()
         );
-        cu.setFileObject(fileObject);
-
-        if (ctx.packageDeclaration() != null) {
-            final PackageDeclaration packageDeclaration = (PackageDeclaration)
-                    ctx.packageDeclaration().accept(this);
-            cu.add(packageDeclaration);
-        }
-
-        ctx.importDeclaration().stream()
-                .map(importDeclaration -> ((ImportItem) importDeclaration.accept(this)))
-                .forEach(cu::addImport);
-
-        if (!ctx.topLevelClassOrInterfaceDeclaration().isEmpty()) {
-            final var declarations = ctx.topLevelClassOrInterfaceDeclaration()
-                    .stream()
-                    .map(it -> (Element<?>) it.accept(this))
-                            .toList();
-            declarations.forEach(cu::add);
-        } else {
-            final var clazz = new ClassDeclaration.ClassDeclarationBuilder()
-                    .lineNumber(startToken.getLine())
-                    .columnNumber(startToken.getCharPositionInLine())
-                    .modifier(CModifier.PUBLIC)
-                    .simpleName(name)
-                    .build();
-
-            final var declarations = ctx.functionDeclaration()
-                    .stream()
-                    .map(it -> (Element<?>) it.accept(this))
-                    .toList();
-            declarations
-                    .forEach(clazz::enclosedElement);
-            cu.add(clazz);
-        }
-
-        return cu;
     }
 
     @Override
@@ -84,10 +92,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final var packageName = ctx.identifier().stream()
                 .map(it -> (IdentifierTree) it.accept(this))
-                .reduce((left, right) -> new IdentifierTree(left.getName() + "." + right.getName()))
+                .reduce((left, right) -> TreeMaker.identifier(
+                                left.getName() + "." + right.getName(),
+                                left.getLineNumber(),
+                                left.getColumnNumber()
+                        )
+                )
                 .orElse(null);
 
-        return new PackageDeclaration(
+        return TreeMaker.packageDeclaration(
                 annotations,
                 packageName.getName(),
                 ctx.getStart().getLine(),
@@ -98,8 +111,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Tree visitSingleTypeImportDeclaration(final NabuParser.SingleTypeImportDeclarationContext ctx) {
         final var typeName = (IdentifierTree) ctx.typeName().accept(this);
-
-        return new SingleImportItem(typeName.getName());
+        return TreeMaker.singleImportItem(typeName.getName(), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
     @Override
@@ -110,10 +122,12 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return pckName;
         } else {
             final IdentifierTree identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
-            return new IdentifierTree(
+            return TreeMaker.identifier(
                     pckName.getName()
                             + "."
-                            + identifier.getName()
+                            + identifier.getName(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         }
     }
@@ -124,99 +138,156 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var packageOrTypeName = (Identifier) accept(ctx.packageOrTypeName());
 
         if (packageOrTypeName == null) {
-            return new IdentifierTree(ident.getName());
+            return TreeMaker.identifier(
+                    ident.getName(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         } else {
-            return new IdentifierTree(
+            return TreeMaker.identifier(
                     packageOrTypeName.getName()
                             + "."
-                            + ident.getName()
+                            + ident.getName(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         }
     }
 
     @Override
     public Object visitFunctionDeclaration(final NabuParser.FunctionDeclarationContext ctx) {
-        final var function = new Function(
-                ctx.getStart().getLine(),
-                ctx.getStart().getCharPositionInLine()
-        );
-
-        final var modifiers = ctx.functionModifier().stream()
-                .map(it -> (CModifier) it.accept(this))
-                .toList();
-        function.modifiers(modifiers);
+        var modifiers = parseModifiers(ctx.functionModifier());
 
         final var functionHeader = (FunctionHeader) ctx.functionHeader().accept(this);
-        //TODO
-
+        final var receiverParameter = functionHeader.functionDeclarator().receiverParameter();
         final var functionName = functionHeader.functionDeclarator().name();
         final var returnType = functionHeader.result();
-        function.returnType(returnType);
+        final var exceptions = functionHeader.exceptions();
+        final List<VariableDeclarator> params = functionHeader.functionDeclarator().parameters();
 
-        final List<Variable> params = functionHeader.functionDeclarator().parameters();
-        function.simpleName(functionName);
-        params.forEach(function::parameter);
-
-        if (ctx.methodBody() != null) {
-            final BlockStatement body = (BlockStatement) ctx.methodBody().accept(this);
-            function.body(body);
+        if (!functionHeader.annotations().isEmpty()) {
+            final var annotations = new ArrayList<>(modifiers.getAnnotations());
+            annotations.addAll(functionHeader.annotations());
+            modifiers = new CModifiers(
+                    annotations,
+                    modifiers.getFlags()
+            );
         }
 
-        return function;
+        final BlockStatement body = accept(ctx.functionBody());
+
+        return new FunctionBuilder()
+                .lineNumber(ctx.getStart().getLine())
+                .columnNumber(ctx.getStart().getCharPositionInLine())
+                .kind(Kind.METHOD)
+                .modifiers(modifiers)
+                .typeParameters(functionHeader.typeParameters())
+                .returnType(returnType)
+                .simpleName(functionName)
+                .receiver(receiverParameter)
+                .parameters(params)
+                .thrownTypes(exceptions)
+                .body(body)
+                .build();
+    }
+
+    private CModifiers parseModifiers(final List<? extends ParserRuleContext> modifierList) {
+        final List<AnnotationTree> annotations = new ArrayList<>();
+        long flags = 0L;
+
+        for (final var modifier : modifierList) {
+            final var result = modifier.accept(this);
+
+            if (result instanceof AnnotationTree annotationTree) {
+                annotations.add(annotationTree);
+            } else if (result instanceof Integer flag) {
+                flags += flag;
+            }
+        }
+
+        return new CModifiers(annotations, flags);
     }
 
     @Override
     public Object visitFunctionHeader(final NabuParser.FunctionHeaderContext ctx) {
-        if (ctx.typeParameters() != null) {
-            throw new TodoException();
-        }
+        final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
 
         final var annotations = ctx.annotation().stream()
-                .map(it -> it.accept(this))
+                .map(it -> (AnnotationTree) it.accept(this))
                 .toList();
-
-        if (!annotations.isEmpty()) {
-            throw new TodoException();
-        }
 
         final var result = (ExpressionTree) ctx.result().accept(this);
         final var functionDeclarator = (FunctionDeclarator) ctx.functionDeclarator().accept(this);
 
-        if (ctx.throwsT() != null) {
-            throw new TodoException();
-        }
+        final List<Tree> exceptions = acceptList(ctx.throwsT());
 
         return new FunctionHeader(
+                typeParameters,
+                annotations,
                 functionDeclarator,
-                result
+                result,
+                exceptions
         );
+    }
+
+    @Override
+    public Object visitThrowsT(final NabuParser.ThrowsTContext ctx) {
+        return ctx.exceptionTypeList().accept(this);
+    }
+
+    @Override
+    public Object visitExceptionTypeList(final NabuParser.ExceptionTypeListContext ctx) {
+        return ctx.exceptionType().stream()
+                .map(exceptionType -> exceptionType.accept(this))
+                .toList();
     }
 
     @Override
     public Object visitFunctionDeclarator(final NabuParser.FunctionDeclaratorContext ctx) {
         final var name = (IdentifierTree) ctx.identifier().accept(this);
 
-        if (ctx.receiverParameter() != null) {
-            throw new TodoException();
-        }
+        final VariableDeclarator receiverParameter = accept(ctx.receiverParameter());
 
-        // CVariable
-        final List<Variable> parameters =acceptList(ctx.formalParameterList());
+        final List<VariableDeclarator> parameters = acceptList(ctx.formalParameterList());
 
         return new FunctionDeclarator(
+                receiverParameter,
                 name.getName(),
                 parameters
         );
     }
 
     @Override
-    public Object visitFunctionModifier(final NabuParser.FunctionModifierContext ctx) {
-        if (ctx.annotation() != null) {
-            return ctx.annotation().accept(this);
+    public Object visitReceiverParameter(final NabuParser.ReceiverParameterContext ctx) {
+        final List<AnnotationTree> annotations = acceptList(ctx.annotation());
+        final ExpressionTree type = (ExpressionTree) ctx.unannType().accept(this);
+        final ExpressionTree identifier = accept(ctx.identifier());
+        final ExpressionTree nameExpression;
+
+        if (identifier != null) {
+            nameExpression = TreeMaker.fieldAccessExpressionTree(
+                    identifier,
+                    IdentifierTree.create(Constants.THIS),
+                    identifier.getLineNumber(),
+                    identifier.getColumnNumber()
+            );
         } else {
-            final var text = ctx.getText();
-            return CModifier.parse(text);
+            nameExpression = IdentifierTree.create(Constants.THIS);
         }
+
+        return TreeMaker.variableDeclarator(
+                Kind.PARAMETER,
+                new CModifiers(
+                        annotations,
+                        0L
+                ),
+                type,
+                IdentifierTree.create(Constants.THIS),
+                nameExpression,
+                null,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -228,56 +299,55 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitFormalParameter(final NabuParser.FormalParameterContext ctx) {
-        if (!ctx.variableModifier().isEmpty()) {
-            throw new TodoException();
-        }
+        final var modifiers = parseModifiers(ctx.variableModifier());
 
         final var name = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
         final var type = (ExpressionTree) ctx.unannType().accept(this);
 
-        final var parameter =new Variable(
+        return TreeMaker.variableDeclarator(
+                Kind.PARAMETER,
+                modifiers,
+                type,
+                TreeMaker.identifier(
+                        name.getName(),
+                        name.getLineNumber(),
+                        name.getColumnNumber()
+                ),
+                null,
+                null,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
-
-        parameter.kind(Element.Kind.PARAMETER);
-        parameter.simpleName(name.getName());
-        parameter.type(type);
-
-        return parameter;
     }
 
     @Override
     public Tree visitReturnStatement(final NabuParser.ReturnStatementContext ctx) {
         final ExpressionTree expression = accept(ctx.expression());
-        final var returnStm = new ReturnStatement(expression);
-        returnStm.setLineNumber(ctx.getStart().getLine());
-        returnStm.setColumnNumber(ctx.getStart().getCharPositionInLine());
-        return returnStm;
+        return TreeMaker.returnStatement(
+                expression,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Tree visitLambdaExpression(final NabuParser.LambdaExpressionContext ctx) {
-        final var lambda = new LambdaExpressionTree.LambdaExpressionTreeBuilder()
-                .lineNumber(ctx.start.getLine())
-                .columnNumber(ctx.start.getCharPositionInLine())
-                .build();
-
-        if (ctx.lambdaParameters() != null) {
-            final var list = (List<Variable>) ctx.lambdaParameters().accept(this);
-            list.forEach(lambda::variable);
-        }
-
+        final List<VariableDeclarator> parameters = acceptList(ctx.lambdaParameters());
         final var body = ctx.lambdaBody().accept(this);
-
-        if (body instanceof ExpressionTree expressionBody) {
-            lambda.body(expressionBody);
-        } else {
-            final var statement = (Statement) body;
-            lambda.body(statement);
-        }
-
-        return lambda;
+        final Statement bodyStatement =
+                body instanceof ExpressionTree expression
+                        ? TreeMaker.expressionStatement(
+                        expression,
+                        expression.getLineNumber(),
+                        expression.getColumnNumber()
+                )
+                        : (Statement) body;
+        return TreeMaker.lambdaExpressionTree(
+                parameters,
+                bodyStatement,
+                ctx.start.getLine(),
+                ctx.start.getCharPositionInLine()
+        );
     }
 
     @Override
@@ -285,7 +355,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (ctx.lambdaParameterList() != null) {
             return acceptList(ctx.lambdaParameterList());
         } else {
-            throw new TodoException();
+            return ctx.identifier().accept(this);
         }
     }
 
@@ -307,16 +377,20 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var name = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
         final var type = (ExpressionTree) ctx.lambdaParameterType().accept(this);
 
-        final var variable = new Variable(
+        return TreeMaker.variableDeclarator(
+                Kind.PARAMETER,
+                new CModifiers(),
+                type,
+                TreeMaker.identifier(
+                        name.getName(),
+                        name.getLineNumber(),
+                        name.getColumnNumber()
+                ),
+                null,
+                null,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
-        variable.kind(Element.Kind.PARAMETER);
-
-        variable.simpleName(name.getName());
-        variable.type(type);
-
-        return variable;
     }
 
     @Override
@@ -326,14 +400,13 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (ctx.equalityExpression() != null) {
             final ExpressionTree left = (ExpressionTree) ctx.equalityExpression().accept(this);
             final var operatorText = ctx.oper.getText();
-            final var binExpr = new BinaryExpressionTree(
+            return TreeMaker.binaryExpressionTree(
                     left,
                     Tag.fromText(operatorText),
-                    right
+                    right,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
-            binExpr.setLineNumber(ctx.getStart().getLine());
-            binExpr.setColumnNumber(ctx.getStart().getCharPositionInLine());
-            return binExpr;
         } else {
             return right;
         }
@@ -346,22 +419,22 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final ExpressionTree referenceType = accept(ctx.referenceType());
 
         if (referenceType != null) {
-            return new InstanceOfExpression(
+            return TreeMaker.instanceOfExpression(
                     relationalExpression,
-                    referenceType
+                    referenceType,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         } else if (relationalExpression != null) {
             final var tag = Tag.fromText(ctx.oper.getText());
 
-            final var binExpr = new BinaryExpressionTree(
+            return TreeMaker.binaryExpressionTree(
                     relationalExpression,
                     tag,
-                    shiftExpression
+                    shiftExpression,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
-
-            binExpr.setLineNumber(ctx.getStart().getLine());
-            binExpr.setColumnNumber(ctx.getStart().getCharPositionInLine());
-            return binExpr;
         } else {
             return shiftExpression;
         }
@@ -374,7 +447,57 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitAdditiveExpression(final NabuParser.AdditiveExpressionContext ctx) {
-        return ctx.multiplicativeExpression().accept(this);
+        final var multiplicativeExpression = (ExpressionTree) ctx.multiplicativeExpression().accept(this);
+        final var additiveExpression = (ExpressionTree) accept(ctx.additiveExpression());
+
+        if (additiveExpression == null) {
+            return multiplicativeExpression;
+        } else {
+            //If one of them is a String literal and the other isn't a null literal then merge them.
+            if (isStringLiteral(additiveExpression)) {
+                final var left = (LiteralExpressionTree) additiveExpression;
+
+                if (multiplicativeExpression instanceof LiteralExpressionTree right
+                        && right.getLiteralKind() != LiteralExpressionTree.Kind.NULL) {
+                    return mergeLiterals(left, right);
+                }
+            } else if (isStringLiteral(multiplicativeExpression)) {
+                final var right = (LiteralExpressionTree) multiplicativeExpression;
+
+                if (additiveExpression instanceof LiteralExpressionTree left
+                        && left.getLiteralKind() != LiteralExpressionTree.Kind.NULL) {
+                    return mergeLiterals(left, right);
+                }
+            }
+
+            final var tag = "+".equals(ctx.oper.getText())
+                    ? Tag.ADD
+                    : Tag.SUB;
+
+            return TreeMaker.binaryExpressionTree(
+                    additiveExpression,
+                    tag,
+                    multiplicativeExpression,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+    }
+
+    private boolean isStringLiteral(final ExpressionTree expressionTree) {
+        return expressionTree instanceof LiteralExpressionTree literalExpressionTree
+                && literalExpressionTree.getLiteralKind() == LiteralExpressionTree.Kind.STRING;
+    }
+
+    private LiteralExpressionTree mergeLiterals(final LiteralExpressionTree left,
+                                                final LiteralExpressionTree right) {
+        final var leftValue = left.getLiteral().toString();
+        final var rightValue = right.getLiteral().toString();
+        return TreeMaker.literalExpressionTree(
+                leftValue + rightValue,
+                left.getLineNumber(),
+                left.getColumnNumber()
+        );
     }
 
     @Override
@@ -394,9 +517,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             final var tag = "-".equals(prefix) ? Tag.SUB : Tag.ADD;
 
-            return new UnaryExpressionTree(
+            return TreeMaker.unaryExpressionTree(
                     tag,
-                    expr
+                    expr,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         } else {
             return ctx.unaryExpressionNotPlusMinus().accept(this);
@@ -411,25 +536,40 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return ctx.castExpression().accept(this);
         } else {
             final var expression = (ExpressionTree) ctx.unaryExpression().accept(this);
-            return addLineInfo(new UnaryExpressionTree(
+            return TreeMaker.unaryExpressionTree(
                     Tag.NOT,
-                    expression
-            ), ctx.getStart());
+                    expression,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         }
     }
 
     @Override
     public Object visitCastExpression(final NabuParser.CastExpressionContext ctx) {
         final ExpressionTree expressionTree;
-        final ExpressionTree type;
+        ExpressionTree type;
 
         if (ctx.primitiveType() != null) {
-            throw new TodoException();
+            type = (ExpressionTree) ctx.primitiveType().accept(this);
+            expressionTree = (ExpressionTree) ctx.unaryExpression().accept(this);
         } else {
             type = (ExpressionTree) ctx.referenceType().accept(this);
 
             if (!ctx.additionalBound().isEmpty()) {
-                throw new TodoException();
+                final var bounds = new ArrayList<Tree>();
+                bounds.add(type);
+
+                for (final var additionalBoundContext : ctx.additionalBound()) {
+                    final var bound = (Tree) additionalBoundContext.accept(this);
+                    bounds.add(bound);
+                }
+
+                type = new IntersectionTypeTreeBuilder()
+                        .bounds(bounds)
+                        .lineNumber(type.getLineNumber())
+                        .columnNumber(type.getColumnNumber())
+                        .build();
             }
 
             if (ctx.unaryExpressionNotPlusMinus() != null) {
@@ -439,9 +579,12 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             }
         }
 
-        return new CastExpressionTree()
-                .targetType(type)
-                .expression(expressionTree);
+        return TreeMaker.castExpressionTree(
+                type,
+                expressionTree,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -451,33 +594,79 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitPrimaryNoNewArray(final NabuParser.PrimaryNoNewArrayContext ctx) {
-        if (ctx.literal() != null) {
-            return ctx.literal().accept(this);
-        } else if (ctx.THIS() != null) {
-            final var thisExpression = new IdentifierTree("this");
+        final ExpressionTree expression;
 
-            if (ctx.pNNA() == null) {
+        final ExpressionTree pnna = accept(ctx.pNNA());
+
+        if (ctx.literal() != null) {
+            expression = (ExpressionTree) ctx.literal().accept(this);
+        } else if (ctx.classLiteral() != null) {
+            expression = (ExpressionTree) ctx.classLiteral().accept(this);
+        } else if (ctx.THIS() != null) {
+            final var thisExpression = TreeMaker.identifier(
+                    Constants.THIS,
+                    ctx.THIS().getSymbol().getLine(),
+                    ctx.THIS().getSymbol().getCharPositionInLine()
+            );
+
+            if (pnna == null) {
                 return thisExpression;
             } else {
-                final var expression = (ExpressionTree) ctx.pNNA().accept(this);
-                return new FieldAccessExpressioTree(
+                if (pnna instanceof MethodInvocationTree methodInvocationTree) {
+                    return methodInvocationTree.builder()
+                            .target(thisExpression)
+                            .build();
+                }
+
+                return TreeMaker.fieldAccessExpressionTree(
                         thisExpression,
-                        expression
+                        pnna,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
                 );
             }
+        } else if (ctx.functionName() != null) {
+            final var functionName = (IdentifierTree) ctx.functionName().accept(this);
+            final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
+
+            if (pnna != null) {
+                throw new TodoException();
+            } else {
+                return TreeMaker.methodInvocationTree(
+                        null,
+                        functionName,
+                        List.of(),
+                        arguments,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                );
+            }
+
         } else {
-            // typeName '.' typeArguments? identifier '(' argumentList? ')' pNNA?
             final var typeName = (ExpressionTree) ctx.typeName().accept(this);
             final var identifier = (ExpressionTree) ctx.identifier().accept(this);
-            final List<ExpressionTree> arguments =
-                    ctx.argumentList() != null
-                            ? (List<ExpressionTree>) ctx.argumentList().accept(this)
-                            : List.of();
+            final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
 
-            return new MethodInvocationTree()
-                    .target(typeName)
-                    .name(identifier)
-                    .arguments(arguments);
+            return TreeMaker.methodInvocationTree(
+                    typeName,
+                    identifier,
+                    List.of(),
+                    arguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        if (pnna != null) {
+            if (pnna instanceof MethodInvocationTree methodInvocationTree) {
+                return methodInvocationTree.builder()
+                        .target(expression)
+                        .build();
+            } else {
+                throw new TodoException();
+            }
+        } else {
+            return expression;
         }
     }
 
@@ -487,9 +676,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         if (ctx.ambiguousName() != null) {
             final var ambiguousName = (ExpressionTree) ctx.ambiguousName().accept(this);
-            return new FieldAccessExpressioTree(
+            return TreeMaker.fieldAccessExpressionTree(
                     ambiguousName,
-                    identifier
+                    identifier,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         } else {
             return identifier;
@@ -499,15 +690,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Tree visitAmbiguousName(final NabuParser.AmbiguousNameContext ctx) {
         final var identifier = ctx.identifier();
-        final var identifierTree = (ExpressionTree) identifier.accept(this);
-        identifierTree.setLineNumber(identifier.getStart().getLine());
-        identifierTree.setColumnNumber(identifier.getStart().getCharPositionInLine());
+        final var identifierTree = (IdentifierTree) identifier.accept(this);
 
         if (ctx.ambiguousName() != null) {
             final var ambiguousName = (ExpressionTree) ctx.ambiguousName().accept(this);
-            return new FieldAccessExpressioTree(
+            return TreeMaker.fieldAccessExpressionTree(
                     identifierTree,
-                    ambiguousName
+                    ambiguousName,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         } else {
             return identifierTree;
@@ -522,9 +713,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (ctx.primary() != null) {
             target = (ExpressionTree) ctx.primary().accept(this);
 
-            return new FieldAccessExpressioTree(
+            return TreeMaker.fieldAccessExpressionTree(
                     target,
-                    identifier
+                    identifier,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         } else {
             throw new TodoException();
@@ -532,28 +725,38 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     }
 
     private IdentifierTree identifier(final Token token) {
-        final var identifier = new IdentifierTree(token.getText());
-        identifier.setLineNumber(token.getLine());
-        identifier.setColumnNumber(token.getCharPositionInLine() + 1);
-        return identifier;
+        return TreeMaker.identifier(
+                token.getText(),
+                token.getLine(),
+                token.getCharPositionInLine() + 1);
     }
 
     @Override
-    public Tree visitTerminal(final TerminalNode node) {
+    public Object visitTerminal(final TerminalNode node) {
         final var type = node.getSymbol().getType();
-        node.getSymbol().getLine();
+        final var line = node.getSymbol().getLine();
+        final var charPositionInLine = node.getSymbol().getCharPositionInLine();
 
         return switch (type) {
             case NabuLexer.Identifier,
                  NabuLexer.DOT -> identifier(node.getSymbol());
-            case NabuLexer.INT -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.INT);
-            case NabuLexer.BYTE -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.BYTE);
-            case NabuLexer.SHORT -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.SHORT);
-            case NabuLexer.LONG -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.LONG);
-            case NabuLexer.CHAR -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.CHAR);
-            case NabuLexer.FLOAT -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.FLOAT);
-            case NabuLexer.DOUBLE -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.DOUBLE);
-            case NabuLexer.BOOLEAN -> new PrimitiveTypeTree(PrimitiveTypeTree.Kind.BOOLEAN);
+            case NabuLexer.INT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.INT, line, charPositionInLine);
+            case NabuLexer.BYTE -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BYTE, line, charPositionInLine);
+            case NabuLexer.SHORT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.SHORT, line, charPositionInLine);
+            case NabuLexer.LONG -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.LONG, line, charPositionInLine);
+            case NabuLexer.CHAR -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.CHAR, line, charPositionInLine);
+            case NabuLexer.FLOAT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.FLOAT, line, charPositionInLine);
+            case NabuLexer.DOUBLE ->
+                    TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.DOUBLE, line, charPositionInLine);
+            case NabuLexer.BOOLEAN ->
+                    TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BOOLEAN, line, charPositionInLine);
+            case NabuLexer.ABSTRACT -> Flags.ABSTRACT;
+            case NabuLexer.FINAL -> Flags.FINAL;
+            case NabuLexer.PRIVATE -> Flags.PRIVATE;
+            case NabuLexer.PROTECTED -> Flags.PROTECTED;
+            case NabuLexer.PUBLIC -> Flags.PUBLIC;
+            case NabuLexer.STATIC -> Flags.STATIC;
+            case NabuLexer.NATIVE -> Flags.NATIVE;
             default -> throw new UnsupportedOperationException("" + type);
         };
     }
@@ -563,7 +766,9 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (ctx.numericType() != null) {
             return ctx.numericType().accept(this);
         } else {
-            return new PrimitiveTypeTree(PrimitiveTypeTree.Kind.BOOLEAN);
+            final var line = ctx.getStart().getLine();
+            final var charPositionsInLine = ctx.getStart().getCharPositionInLine();
+            return TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BOOLEAN, line, charPositionsInLine);
         }
     }
 
@@ -571,19 +776,18 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     public Tree visitUnannClassOrInterfaceType(final NabuParser.UnannClassOrInterfaceTypeContext ctx) {
         final TypeApplyTree packageName = accept(ctx.packageName());
         final var type = (ExpressionTree) ctx.typeIdentifier().accept(this);
-        final var typeArguments = (List<ExpressionTree>) accept(ctx.typeArguments());
+        final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
 
         if (packageName == null) {
             if (typeArguments != null) {
-                final var ident = (IdentifierTree) type;
+                final var identifier = (IdentifierTree) type;
 
-                final var typeApply = new TypeApplyTree(
-                        ident
+                return TreeMaker.typeApplyTree(
+                        identifier,
+                        typeArguments,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
                 );
-                typeArguments.forEach(
-                        typeApply::addTypeParameter
-                );
-                return typeApply;
             } else {
                 return type;
             }
@@ -592,21 +796,26 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             if (typeArguments == null) {
 
-                return new IdentifierTree(
+                return TreeMaker.identifier(
                         packageName.getName()
                                 + "."
-                                + ident.getName()
+                                + ident.getName(),
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
                 );
             }
 
-
-            return new TypeApplyTree(
-                    new IdentifierTree(
+            return TreeMaker.typeApplyTree(
+                    TreeMaker.identifier(
                             packageName.getName()
                                     + "."
-                                    + ident.getName()
+                                    + ident.getName(),
+                            packageName.getLineNumber(),
+                            packageName.getColumnNumber()
                     ),
-                    typeArguments
+                    typeArguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         }
     }
@@ -625,30 +834,23 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             throw new TodoException();
         }
 
-        final var ident = (IdentifierTree) ctx.typeIdentifier().accept(this);
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
 
-        final List<ExpressionTree> typeArguments;
-
-        if (ctx.typeArguments() != null) {
-            typeArguments = (List<ExpressionTree>) ctx.typeArguments().accept(this);
-        } else {
-            typeArguments = List.of();
-        }
+        final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
 
         if (ctx.coit() != null) {
             throw new TodoException();
         }
 
         if (typeArguments.isEmpty()) {
-            return ident;
+            return identifier;
         } else {
-            final var typeApply = new TypeApplyTree(
-                    ident
+            return TreeMaker.typeApplyTree(
+                    identifier,
+                    typeArguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
-            typeArguments.forEach(
-                    typeApply::addTypeParameter
-            );
-            return typeApply;
         }
     }
 
@@ -670,44 +872,60 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final IdentifierTree packageName = accept(ctx.packageName());
 
         if (packageName == null) {
-            return new IdentifierTree(identifier.getName());
+            return TreeMaker.identifier(
+                    identifier.getName(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         } else {
             final var first = identifier.getName();
             final var second = packageName.getName();
-            return new IdentifierTree(first + "." + second);
+            return TreeMaker.identifier(
+                    first + "." + second,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         }
     }
 
     @Override
     public Tree visitTypeIdentifier(final NabuParser.TypeIdentifierContext ctx) {
         final var name = ctx.Identifier().getText();
-        return new IdentifierTree(name);
+        return TreeMaker.identifier(
+                name,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Tree visitLocalVariableDeclaration(final NabuParser.LocalVariableDeclarationContext ctx) {
-        final var modifiers = ctx.variableModifier().stream()
-                .map(it -> it.accept(this))
-                .toList();
+        final var modifiers = parseModifiers(ctx.variableModifier());
 
         final ExpressionTree type = (ExpressionTree) ctx.localVariableType().accept(this);
 
-        final var variableDeclarators = ctx.variableDeclaratorList().accept(this);
+        final List<VariableDeclarator> variableDeclarators = acceptList(ctx.variableDeclaratorList());
 
-        if (variableDeclarators instanceof VariableDeclarator(IdentifierTree id,
-                                                              ExpressionTree initializer)) {
-            final var statement = new CVariableDeclaratorStatement(
-                    type,
-                    id,
-                    initializer
-            );
+        if (variableDeclarators.size() == 1) {
+            return variableDeclarators.getFirst()
+                    .builder()
+                    .kind(Kind.LOCAL_VARIABLE)
+                    .modifiers(modifiers)
+                    .type(type)
+                    .lineNumber(ctx.getStart().getLine())
+                    .columnNumber(ctx.getStart().getCharPositionInLine())
+                    .build();
 
-            statement.setLineNumber(ctx.getStart().getLine());
-            statement.setColumnNumber(ctx.getStart().getCharPositionInLine());
-            return statement;
         }
 
         throw new TodoException();
+    }
+
+    @Override
+    public Object visitVariableDeclaratorList(final NabuParser.VariableDeclaratorListContext ctx) {
+        return ctx.variableDeclarator().stream()
+                .map(varDecl -> varDecl.accept(this))
+                .toList();
     }
 
     @Override
@@ -715,9 +933,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var variableDeclaratorId = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
         final var init = (ExpressionTree) accept(ctx.variableInitializer());
 
-        return new VariableDeclarator(
+        return TreeMaker.variableDeclarator(
+                null,
+                new CModifiers(),
+                null,
                 variableDeclaratorId,
-                init
+                null,
+                init,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
@@ -726,7 +950,10 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (ctx.unannType() != null) {
             return ctx.unannType().accept(this);
         } else {
-            return new VariableTypeTree();
+            return TreeMaker.variableTypeTree(
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         }
     }
 
@@ -759,14 +986,14 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         } else if (ctx.NullLiteral() != null) {
             node = ctx.NullLiteral();
             value = null;
+        } else if (ctx.CharacterLiteral() != null) {
+            node = ctx.CharacterLiteral();
+            value = ctx.CharacterLiteral().getText().charAt(1);
         } else {
             return null;
         }
 
-        final var literalExpression = new LiteralExpressionTree(value);
-        literalExpression.setLineNumber(node.getSymbol().getLine());
-        literalExpression.setColumnNumber(node.getSymbol().getCharPositionInLine());
-        return literalExpression;
+        return TreeMaker.literalExpressionTree(value, node.getSymbol().getLine(), node.getSymbol().getCharPositionInLine());
     }
 
     private <T> T accept(final ParserRuleContext parserRuleContext) {
@@ -774,6 +1001,16 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return null;
         } else {
             return (T) parserRuleContext.accept(this);
+        }
+    }
+
+    private <E> List<E> acceptList(final List<? extends ParserRuleContext> contextList) {
+        if (contextList == null) {
+            return List.of();
+        } else {
+            return contextList.stream()
+                    .map(it -> (E) accept(it))
+                    .toList();
         }
     }
 
@@ -788,7 +1025,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Tree visitExpressionStatement(final NabuParser.ExpressionStatementContext ctx) {
         final var expression = (ExpressionTree) ctx.statementExpression().accept(this);
-        return addLineInfo(new StatementExpression(expression), ctx.getStart());
+        return TreeMaker.expressionStatement(
+                expression,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -810,18 +1051,13 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var leftHandSide = (ExpressionTree) ctx.leftHandSide().accept(this);
         final var assignmentOperator = (Tag) ctx.assignmentOperator().accept(this);
         final var expression = (ExpressionTree) ctx.expression().accept(this);
-        return addLineInfo(new BinaryExpressionTree(
+        return TreeMaker.binaryExpressionTree(
                 leftHandSide,
                 assignmentOperator,
-                expression
-        ), ctx.getStart());
-    }
-
-    private <E extends Tree> E addLineInfo(final E e,
-                                           final Token token) {
-        e.setLineNumber(token.getLine());
-        e.setColumnNumber(token.getCharPositionInLine());
-        return e;
+                expression,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -842,15 +1078,13 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return andExpression;
         } else {
             final var orExpression = (ExpressionTree) ctx.conditionalOrExpression().accept(this);
-            final var binExpr = new BinaryExpressionTree(
+            return TreeMaker.binaryExpressionTree(
                     orExpression,
                     Tag.OR,
-                    andExpression
+                    andExpression,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
-
-            binExpr.setLineNumber(ctx.getStart().getLine());
-            binExpr.setColumnNumber(ctx.getStart().getCharPositionInLine());
-            return binExpr;
         }
     }
 
@@ -864,15 +1098,13 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final var andExpression = (ExpressionTree) ctx.conditionalAndExpression().accept(this);
 
-        final var binExpr = new BinaryExpressionTree(
+        return TreeMaker.binaryExpressionTree(
                 andExpression,
                 Tag.AND,
-                inclusiveOrExpression
+                inclusiveOrExpression,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
-
-        binExpr.setLineNumber(ctx.getStart().getLine());
-        binExpr.setColumnNumber(ctx.getStart().getCharPositionInLine());
-        return binExpr;
     }
 
     @Override
@@ -895,7 +1127,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (ctx.numericType() != null) {
             return ctx.numericType().accept(this);
         } else {
-            return new PrimitiveTypeTree(PrimitiveTypeTree.Kind.BOOLEAN);
+            return TreeMaker.primitiveTypeTree(
+                    PrimitiveTypeTree.Kind.BOOLEAN,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         }
     }
 
@@ -909,15 +1145,29 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             throw new TodoException();
         }
 
+        final WildcardBound wildcardBound;
+
         if (ctx.wildcardBounds() != null) {
-            final var bounds = ctx.accept(this);
-            throw new TodoException();
+            wildcardBound = (WildcardBound) ctx.accept(this);
+        } else {
+            wildcardBound = new WildcardBound(BoundKind.UNBOUND, null);
         }
 
-        return new WildCardExpressionTree(
-                null,
-                null
+        return TreeMaker.wildcardExpressionTree(
+                wildcardBound.kind(),
+                wildcardBound.expression(),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
+    }
+
+    @Override
+    public Object visitWildcardBounds(final NabuParser.WildcardBoundsContext ctx) {
+        final var boundKind = NabuLexer.EXTENDS == ctx.kind.getType()
+                ? BoundKind.EXTENDS
+                : BoundKind.SUPER;
+        final var type = (ExpressionTree) ctx.referenceType().accept(this);
+        return new WildcardBound(boundKind, type);
     }
 
     @Override
@@ -925,27 +1175,23 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var thenStatement = (Statement) ctx.statementNoShortIf().accept(this);
         final var elseStatement = (Statement) ctx.statement().accept(this);
-        return new IfStatementTree(expression, thenStatement, elseStatement);
+        return TreeMaker.ifStatementTree(
+                expression,
+                thenStatement,
+                elseStatement,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitBlock(final NabuParser.BlockContext ctx) {
-        final List<Statement> statements;
-
-        if (ctx.blockStatements() != null) {
-            final var result = ctx.blockStatements().accept(this);
-
-            if (result instanceof List<?>) {
-                statements = (List<Statement>) result;
-            } else {
-                statements = List.of((Statement) result);
-            }
-        } else {
-            statements = List.of();
-        }
-
-        return new BlockStatement()
-                .statement(statements);
+        final List<Statement> statements = acceptList(ctx.blockStatements());
+        return TreeMaker.blockStatement(
+                statements,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -961,16 +1207,21 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitEmptyStatement_(final NabuParser.EmptyStatement_Context ctx) {
-        return new EmptyStatementTree();
+        return TreeMaker.emptyStatementTree(
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitPostIncrementExpression(final NabuParser.PostIncrementExpressionContext ctx) {
         final var expression = (ExpressionTree) ctx.postfixExpression().accept(this);
-        return addLineInfo(new UnaryExpressionTree(
+        return TreeMaker.unaryExpressionTree(
                 Tag.POST_INC,
-                expression
-        ), ctx.start);
+                expression,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -980,61 +1231,48 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var forUpdate = (ExpressionTree) accept(ctx.forUpdate());
         final var statement = (Statement) ctx.statement().accept(this);
 
-        final var forStatement = new ForStatement(
+        return TreeMaker.forStatement(
                 forInit,
                 expression,
                 forUpdate,
-                statement
+                statement,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
-
-        forStatement.setLineNumber(ctx.getStart().getLine());
-        forStatement.setColumnNumber(ctx.getStart().getCharPositionInLine());
-
-        return forStatement;
     }
 
     @Override
     public Object visitNormalClassDeclaration(final NabuParser.NormalClassDeclarationContext ctx) {
-        final var builder = new ClassDeclaration.ClassDeclarationBuilder();
+        var classModifiers = parseModifiers(ctx.classModifier());
 
-        final var modifiers = ctx.classModifier().stream()
-                .map(m -> (CModifier) m.accept(this))
-                .collect(Collectors.toList());
-
-        if (modifiers.stream()
-                .noneMatch(CModifier::isAccessModifier)) {
-            modifiers.add(CModifier.PUBLIC);
+        if (!classModifiers.hasAccessModifier()) {
+            classModifiers = classModifiers.with(Flags.PUBLIC);
         }
 
-        builder.modifiers(modifiers);
+        final var simpleName = ((IdentifierTree) ctx.typeIdentifier().accept(this)).getName();
 
-        final var name = (IdentifierTree) ctx.typeIdentifier().accept(this);
-        builder.simpleName(name.getName());
-
-        if (ctx.typeParameters() != null) {
-            final List<TypeParameterTree> typeParameters = accept(ctx.typeParameters());
-            builder.typeParameters(typeParameters);
-        }
-
-        if (ctx.classExtends() != null) {
-            final ExpressionTree extendion = accept(ctx.classExtends());
-            builder.extendion(extendion);
-        }
-
-        if (ctx.classImplements() != null) {
-            final List<ExpressionTree> classImplements = accept(ctx.classImplements());
-            builder.implementing(classImplements);
-        }
+        final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
+        final ExpressionTree extendion = accept(ctx.classExtends());
+        final List<ExpressionTree> implementions = acceptList(ctx.classImplements());
 
         if (ctx.classPermits() != null) {
             ctx.classPermits().accept(this);
             throw new TodoException();
         }
 
-        final var body = (List<Element<?>>) ctx.classBody().accept(this);
+        final List<Tree> enclosedElements = accept(ctx.classBody());
 
-        builder.enclosedElements(body);
-        return builder.build();
+        return TreeMaker.classDeclaration(
+                Kind.CLASS,
+                classModifiers,
+                simpleName,
+                enclosedElements,
+                typeParameters,
+                implementions,
+                extendion,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -1080,16 +1318,23 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
 
         if (prefix != null) {
-            identifier = new IdentifierTree(prefix.getName() + "." + identifier.getName());
+            identifier = TreeMaker.identifier(
+                    prefix.getName() + "." +
+                            identifier.getName(),
+                    prefix.getLineNumber(),
+                    prefix.getColumnNumber()
+            );
         }
 
         if (annotations.isEmpty()) {
             return identifier;
         } else {
-            return new AnnotatedTypeTree(
+            return TreeMaker.annotatedTypeTree(
                     annotations,
                     identifier,
-                    List.of()
+                    List.of(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
             );
         }
     }
@@ -1097,7 +1342,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitTypeParameterList(final NabuParser.TypeParameterListContext ctx) {
         return ctx.typeParameter().stream()
-                .map(it -> it .accept(this))
+                .map(it -> it.accept(this))
                 .toList();
     }
 
@@ -1109,36 +1354,10 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitClassModifier(final NabuParser.ClassModifierContext ctx) {
-        if (ctx.annotation() != null) {
-            throw new TodoException();
-        } else {
-            final var text = ctx.getChild(0).getText();
-            return CModifier.parse(text);
-        }
-    }
-
-    @Override
-    public Object visitConstructorModifier(final NabuParser.ConstructorModifierContext ctx) {
-        if (ctx.annotation() != null) {
-            throw new TodoException();
-        } else {
-            final var text = ctx.getChild(0).getText();
-            return CModifier.parse(text);
-        }
-    }
-
-    @Override
     public Object visitConstructorDeclarator(final NabuParser.ConstructorDeclaratorContext ctx) {
-        final var builder = new Function.CFunctionBuilder();
-        builder.kind(Element.Kind.CONSTRUCTOR);
-        builder.returnType(new PrimitiveTypeTree(PrimitiveTypeTree.Kind.VOID));
-
         if (ctx.typeParameters() != null) {
             throw new TodoException();
         }
-
-        final var name = (IdentifierTree) ctx.simpleTypeName().accept(this);
 
         if (ctx.receiverParameter() != null) {
             throw new TodoException();
@@ -1148,33 +1367,49 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             throw new TodoException();
         }
 
-        builder.simpleName(name.getName());
-
-        return builder.build();
+        return TreeMaker.function(
+                Constants.INIT,
+                Kind.CONSTRUCTOR,
+                new CModifiers(),
+                List.of(),
+                null,
+                List.of(),
+                TreeMaker.primitiveTypeTree(
+                        PrimitiveTypeTree.Kind.VOID,
+                        -1,
+                        -1
+                ),
+                List.of(),
+                null,
+                null,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitConstructorBody(final NabuParser.ConstructorBodyContext ctx) {
-        final var body = new BlockStatement();
+        final var statements = new ArrayList<Statement>();
 
         if (ctx.explicitConstructorInvocation() != null) {
             final var statement = (Statement) ctx.explicitConstructorInvocation().accept(this);
-            body.statement(statement);
+            statements.add(statement);
         }
 
         if (ctx.blockStatements() != null) {
-            final var blockStatements = (List<Statement>) ctx.blockStatements().accept(this);
-            body.statement(blockStatements);
+            statements.addAll(acceptList(ctx.blockStatements()));
         }
 
-        return body;
+        return TreeMaker.blockStatement(
+                statements,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitConstructorDeclaration(final NabuParser.ConstructorDeclarationContext ctx) {
-        final var modifiers = ctx.constructorModifier().stream()
-                .map(it -> (CModifier) it.accept(this))
-                .toList();
+        final var modifiers = parseModifiers(ctx.constructorModifier());
 
         final var constructor = (Function) ctx.constructorDeclarator().accept(this);
 
@@ -1184,10 +1419,10 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final var body = (BlockStatement) ctx.constructorBody().accept(this);
 
-        constructor.modifiers(modifiers);
-        constructor.body(body);
-
-        return constructor;
+        return constructor.builder()
+                .modifiers(modifiers)
+                .body(body)
+                .build();
     }
 
     @Override
@@ -1197,14 +1432,16 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitEnhancedForStatement(final NabuParser.EnhancedForStatementContext ctx) {
-        final var localVariableDeclaration = (CVariableDeclaratorStatement) ctx.localVariableDeclaration().accept(this);
-        final var expression =  (ExpressionTree) ctx.expression().accept(this);
+        final var localVariableDeclaration = (VariableDeclarator) ctx.localVariableDeclaration().accept(this);
+        final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var statement = (Statement) ctx.statement().accept(this);
 
-        return new EnhancedForStatement(
+        return TreeMaker.enhancedForStatement(
                 localVariableDeclaration,
                 expression,
-                statement
+                statement,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
@@ -1214,37 +1451,10 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitVariableModifier(final NabuParser.VariableModifierContext ctx) {
-        if (ctx.annotation() != null) {
-            return ctx.annotation().accept(this);
-        } else {
-            final var type = ctx.getStart().getType();
-
-            if (type == NabuParser.VAR) {
-                return new VariableTypeTree();
-            } else {
-                return CModifier.FINAL;
-            }
-        }
-    }
-
-    @Override
     public Object visitExplicitConstructorInvocation(final NabuParser.ExplicitConstructorInvocationContext ctx) {
-        final List<IdentifierTree> typeArguments;
-        final List<ExpressionTree> arguments;
+        final List<IdentifierTree> typeArguments = acceptList(ctx.typeArguments());
+        final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
         ExpressionTree target = null;
-
-        if (ctx.typeArguments() != null) {
-            typeArguments = (List<IdentifierTree>) ctx.typeArguments().accept(this);
-        } else {
-            typeArguments = List.of();
-        }
-
-        if (ctx.argumentList() != null) {
-            arguments = (List<ExpressionTree>) ctx.argumentList().accept(this);
-        } else {
-            arguments = List.of();
-        }
 
         if (ctx.expressionName() != null) {
             target = (ExpressionTree) ctx.expressionName().accept(this);
@@ -1252,18 +1462,30 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             target = (ExpressionTree) ctx.primary().accept(this);
         }
 
-        final var methodName = new IdentifierTree(ctx.name.getText());
+        final var methodName = TreeMaker.identifier(
+                ctx.name.getText(),
+                ctx.name.getLine(),
+                ctx.name.getCharPositionInLine()
+        );
 
-        return new StatementExpression(new MethodInvocationTree()
-                .typeArguments(typeArguments)
-                .target(target)
-                .name(methodName)
-                .arguments(arguments));
+        return TreeMaker.expressionStatement(
+                TreeMaker.methodInvocationTree(
+                        target,
+                        methodName,
+                        typeArguments,
+                        arguments,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                ),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitArgumentList(final NabuParser.ArgumentListContext ctx) {
         return ctx.expression().stream()
+                .filter(it -> !(it instanceof TerminalNode))
                 .map(it -> it.accept(this))
                 .toList();
     }
@@ -1271,7 +1493,12 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitMarkerAnnotation(final NabuParser.MarkerAnnotationContext ctx) {
         final var typeName = (IdentifierTree) ctx.typeName().accept(this);
-        return new AnnotationTree(typeName);
+        return TreeMaker.annotationTree(
+                typeName,
+                List.of(),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -1279,23 +1506,28 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var typeArgs = acceptList(ctx.typeArguments());
 
         if (!typeArgs.isEmpty()) {
-           throw new TodoException();
+            throw new TodoException();
         }
 
         final var clazz = (ExpressionTree) ctx.classOrInterfaceTypeToInstantiate().accept(this);
         final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
         final List<Statement> classBody = accept(ctx.classBody());
 
-        return new NewClassExpression(
+        return TreeMaker.newClassExpression(
                 clazz,
                 arguments,
-                classBody
+                TreeMaker.blockStatement(
+                        classBody,
+                        -1,
+                        -1
+                ),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
     @Override
     public Object visitClassOrInterfaceTypeToInstantiate(final NabuParser.ClassOrInterfaceTypeToInstantiateContext ctx) {
-        // AnnotatedTypeTree
         ExpressionTree expressionTree = null;
 
         for (final var child : ctx.children) {
@@ -1305,9 +1537,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 expressionTree = (ExpressionTree) expr;
             } else if (expr instanceof List<?>) {
                 final var typeParameters = (List<ExpressionTree>) expr;
-                expressionTree = new TypeApplyTree(
+                expressionTree = TreeMaker.typeApplyTree(
                         expressionTree,
-                        typeParameters
+                        typeParameters,
+                        expressionTree.getLineNumber(),
+                        expressionTree.getColumnNumber()
                 );
             }
         }
@@ -1320,9 +1554,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var body = (Statement) ctx.statement().accept(this);
 
-        return new WhileStatement(
+        return TreeMaker.whileStatement(
                 expression,
-                body
+                body,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
@@ -1331,47 +1567,166 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var body = (Statement) ctx.statementNoShortIf().accept(this);
 
-        return new WhileStatement(
+        return TreeMaker.whileStatement(
                 expression,
-                body
+                body,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
     @Override
-    public Object visitMethodInvocation(final NabuParser.MethodInvocationContext ctx) {
+    public Object visitFunctionInvocation(final NabuParser.FunctionInvocationContext ctx) {
         final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
         final List<IdentifierTree> typeArguments = acceptList(ctx.typeArguments());
+        final ExpressionTree target;
+        final IdentifierTree identifier;
 
-        if (ctx.methodName() != null) {
-            final var methodName = (IdentifierTree) ctx.methodName().accept(this);
-            return new MethodInvocationTree()
-                    .name(methodName)
-                    .arguments(arguments);
-        } else if (ctx.typeName() != null) {
-            final var typeName = (IdentifierTree) ctx.typeName().accept(this);
-            final var identifier = (ExpressionTree) ctx.identifier().accept(this);
-
-            return new MethodInvocationTree()
-                    .target(typeName)
-                    .typeArguments(typeArguments)
-                    .name(identifier)
-                    .arguments(arguments);
-        } else if (ctx.expressionName() != null) {
-            final var expressionName = (ExpressionTree) ctx.expressionName().accept(this);
-            final var identifier = ctx.identifier().accept(this);
-            throw new TodoException();
-        } else if (ctx.primary() != null) {
-            final var primary = (ExpressionTree) ctx.primary().accept(this);
-            final var identifier = ctx.identifier().accept(this);
-            throw new TodoException();
+        if (ctx.functionName() != null) {
+            final var functionName = (IdentifierTree) ctx.functionName().accept(this);
+            return TreeMaker.methodInvocationTree(
+                    null,
+                    functionName,
+                    List.of(),
+                    arguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         } else {
-            throw new TodoException();
+            identifier = (IdentifierTree) ctx.identifier().accept(this);
+
+            if (ctx.typeName() != null) {
+                final var typeName = (IdentifierTree) ctx.typeName().accept(this);
+
+                if (ctx.super_ != null) {
+                    target = TreeMaker.fieldAccessExpressionTree(typeName, TreeMaker.identifier(
+                                    Constants.SUPER,
+                                    ctx.super_.getLine(),
+                                    ctx.super_.getCharPositionInLine()
+                            ),
+                            ctx.getStart().getLine(),
+                            ctx.getStart().getCharPositionInLine()
+                    );
+                } else {
+                    target = typeName;
+                }
+            } else if (ctx.expressionName() != null) {
+                target = (ExpressionTree) ctx.expressionName().accept(this);
+            } else if (ctx.primary() != null) {
+                target = (ExpressionTree) ctx.primary().accept(this);
+            } else if (ctx.super_ != null) {
+                target = TreeMaker.identifier(
+                        Constants.SUPER,
+                        ctx.super_.getLine(),
+                        ctx.super_.getCharPositionInLine()
+                );
+            } else {
+                throw new TodoException();
+            }
         }
+
+        return TreeMaker.methodInvocationTree(
+                target,
+                identifier,
+                typeArguments,
+                arguments,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitPNNA(final NabuParser.PNNAContext ctx) {
-        final ExpressionTree pnna = accept(ctx.pNNA());
+        return visitPNNANew(ctx);
+    }
+
+    private Object visitPNNANew(final NabuParser.PNNAContext ctx) {
+        if (ctx.unqualifiedClassInstanceCreationExpression() != null) {
+            final var expression = (ExpressionTree) ctx.unqualifiedClassInstanceCreationExpression().accept(this);
+
+            if (ctx.pNNA() != null) {
+                throw new TodoException();
+            }
+
+            return expression;
+        }
+
+        final var firstToken = ctx.getChild(0).getText();
+        final var typeArguments = new ArrayList<IdentifierTree>();
+        final var arguments = new ArrayList<ExpressionTree>();
+        ExpressionTree identifier = null;
+        ExpressionTree indexExpression = null;
+        var isMethodCall = false;
+        ExpressionTree pnna = null;
+
+        for (int c = 1; c < ctx.getChildCount(); c++) {
+            final var child = ctx.getChild(c);
+
+            if (child instanceof TerminalNode) {
+                if ("(".equals(child.getText())) {
+                    isMethodCall = true;
+                }
+            } else if (child instanceof NabuParser.TypeArgumentsContext) {
+                typeArguments.addAll((List) child.accept(this));
+            } else if (child instanceof NabuParser.IdentifierContext) {
+                identifier = (ExpressionTree) child.accept(this);
+            } else if (child instanceof NabuParser.ExpressionContext) {
+                indexExpression = (ExpressionTree) child.accept(this);
+            } else if (child instanceof NabuParser.ArgumentListContext) {
+                arguments.addAll((List)child.accept(this));
+            } else if (child instanceof NabuParser.PNNAContext) {
+                pnna = (ExpressionTree) child.accept(this);
+            }
+        }
+
+        if (isMethodCall) {
+            return TreeMaker.methodInvocationTree(
+                    null,
+                    identifier,
+                    typeArguments,
+                    arguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        } else {
+            if (".".equals(firstToken)) {
+                final var fieldAccess = TreeMaker.fieldAccessExpressionTree(
+                        null,
+                        identifier,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                );
+
+                if (pnna == null) {
+                    return fieldAccess;
+                }
+
+                var pnnaFieldAccess = (FieldAccessExpressionTree) pnna;
+                return pnnaFieldAccess.builder()
+                        .target(fieldAccess)
+                        .build();
+            } else if ("[".equals(firstToken)) {
+                final var arrayAccess = new ArrayAccessExpressionBuilder()
+                        .index(indexExpression)
+                        .build();
+
+                if (pnna == null) {
+                    return arrayAccess;
+                } else if (pnna instanceof ArrayAccessExpression arrayAccessExpression) {
+                    return fillExpression(
+                            arrayAccessExpression,
+                            arrayAccess
+                    );
+                } else {
+                    throw new TodoException();
+                }
+            }
+
+            throw new TodoException();
+        }
+    }
+
+    private Object visitPNNAClassic(final NabuParser.PNNAContext ctx) {
         final List<IdentifierTree> typeArguments = acceptList(ctx.typeArguments());
         final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
 
@@ -1379,25 +1734,74 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return ctx.unqualifiedClassInstanceCreationExpression().accept(this);
         } else if (ctx.identifier() != null) {
             final var identifier = (ExpressionTree) ctx.identifier().accept(this);
+            final ExpressionTree pnna = accept(ctx.pNNA());
 
             if (ctx.argumentList() != null) {
-                return new MethodInvocationTree()
-                        .typeArguments(typeArguments)
-                        .name(identifier)
-                        .arguments(arguments);
-            } else if (pnna != null) {
-                return new FieldAccessExpressioTree(
+                return TreeMaker.methodInvocationTree(
+                        null,
                         identifier,
-                        pnna
+                        typeArguments,
+                        arguments,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
                 );
+            } else if (pnna != null) {
+                return combinePNNA(pnna, identifier, ctx.getStart());
             } else {
                 return identifier;
             }
         } else if (ctx.expression() != null) {
-            throw new TodoException();
+            final var index = (ExpressionTree) ctx.expression().accept(this);
+            final var arrayAccess = new ArrayAccessExpressionBuilder()
+                    .index(index)
+                    .build();
+
+            if (ctx.pNNA() == null) {
+                return arrayAccess;
+            }
+
+            final var pnna = (ArrayAccessExpression) ctx.pNNA().accept(this);
+
+            return fillExpression(
+                    pnna,
+                    arrayAccess
+            );
         }
 
         throw new TodoException();
+    }
+
+    private ExpressionTree combinePNNA(final ExpressionTree pnna,
+                                       final ExpressionTree expressionTree, final Token start) {
+        final var line = start.getLine();
+        final var charPositionInLine = start.getCharPositionInLine();
+
+        if (pnna instanceof ArrayAccessExpression arrayAccessExpression) {
+            return fillExpression(arrayAccessExpression, expressionTree);
+        } else {
+            return TreeMaker.fieldAccessExpressionTree(
+                    expressionTree,
+                    pnna,
+                    line,
+                    charPositionInLine
+            );
+        }
+    }
+
+    private ArrayAccessExpression fillExpression(final ArrayAccessExpression arrayAccessExpression,
+                                                 final ExpressionTree expressionTree) {
+        if (arrayAccessExpression.getExpression() == null) {
+            return arrayAccessExpression.builder()
+                    .expression(expressionTree)
+                    .build();
+        } else if (arrayAccessExpression.getExpression() instanceof ArrayAccessExpression other) {
+            final var newArray = fillExpression(other, expressionTree);
+            return arrayAccessExpression.builder()
+                    .expression(newArray)
+                    .build();
+        } else {
+            return arrayAccessExpression;
+        }
     }
 
     @Override
@@ -1405,9 +1809,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var body = (Statement) ctx.statement().accept(this);
         final var condition = (ExpressionTree) ctx.expression().accept(this);
 
-        return new DoWhileStatement(
+        return TreeMaker.doWhileStatement(
                 body,
-                condition
+                condition,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
@@ -1416,9 +1822,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var typeName = (IdentifierTree) ctx.typeName().accept(this);
         final List<ExpressionTree> arguments = acceptList(ctx.elementValuePairList());
 
-        return new AnnotationTree(
+        return TreeMaker.annotationTree(
                 typeName,
-                arguments
+                arguments,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
@@ -1434,10 +1842,12 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var identifier = (IdentifierTree) ctx.identifier().accept(this);
         final var elementValue = (ExpressionTree) ctx.elementValue().accept(this);
 
-        return new Function.CFunctionBuilder()
-                .simpleName(identifier.getName())
-                .defaultValue(elementValue)
-                .build();
+        return TreeMaker.assignmentExpression(
+                identifier,
+                elementValue,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -1445,9 +1855,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var typeName = (IdentifierTree) ctx.typeName().accept(this);
         final var elementValue = (ExpressionTree) ctx.elementValue().accept(this);
 
-        return new AnnotationTree(
+        return TreeMaker.annotationTree(
                 typeName,
-                List.of(elementValue)
+                List.of(elementValue),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
@@ -1461,10 +1873,12 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final List<ExpressionTree> typeBound = acceptList(ctx.typeBound());
 
-        return new TypeParameterTree(
+        return TreeMaker.typeParameterTree(
                 annotations,
                 identifier,
-                typeBound
+                typeBound,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
     }
 
@@ -1497,22 +1911,221 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitPostDecrementExpression(final NabuParser.PostDecrementExpressionContext ctx) {
         final var expression = (ExpressionTree) ctx.postfixExpression().accept(this);
-        return new UnaryExpressionTree(
+        return TreeMaker.unaryExpressionTree(
                 Tag.POST_DEC,
-                expression
+                expression,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
         );
+    }
+
+    @Override
+    public Object visitTypeVariable(final NabuParser.TypeVariableContext ctx) {
+        final List<AnnotationTree> annotations = acceptList(ctx.annotation());
+
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
+
+        return TreeMaker.typeVariableTree(
+                annotations,
+                identifier,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitArrayType(final NabuParser.ArrayTypeContext ctx) {
+        final Tree typeTree;
+
+        if (ctx.primitiveType() != null) {
+            typeTree = (Tree) ctx.primitiveType().accept(this);
+        } else if (ctx.classType() != null) {
+            typeTree = (Tree) ctx.classType().accept(this);
+        } else {
+            typeTree = (Tree) ctx.typeVariable().accept(this);
+        }
+
+        final List<Dimension> dimensions = acceptList(ctx.dims());
+
+        return dimensions.stream()
+                .map(dimension -> {
+                    final var arrayType = TreeMaker.arrayTypeTree(
+                            typeTree,
+                            ctx.getStart().getLine(),
+                            ctx.getStart().getCharPositionInLine()
+                    );
+
+                    if (dimension.annotations().isEmpty()) {
+                        return arrayType;
+                    } else {
+                        return TreeMaker.annotatedTypeTree(
+                                dimension.annotations(),
+                                arrayType,
+                                List.of(),
+                                ctx.getStart().getLine(),
+                                ctx.getStart().getCharPositionInLine()
+                        );
+                    }
+                })
+                .reduce((first, second) -> {
+                    if (second instanceof AnnotatedTypeTree annotatedTypeTree) {
+                        return annotatedTypeTree.builder()
+                                .clazz(TreeMaker.arrayTypeTree(first, first.getLineNumber(), first.getColumnNumber()))
+                                .build();
+                    } else if (first instanceof AnnotatedTypeTree annotatedTypeTree) {
+                        return annotatedTypeTree.builder()
+                                .clazz(TreeMaker.arrayTypeTree(second, second.getLineNumber(), second.getColumnNumber()))
+                                .build();
+                    } else {
+                        return TreeMaker.arrayTypeTree(second, second.getLineNumber(), second.getColumnNumber());
+                    }
+                })
+                .orElseGet(() -> TreeMaker.errorTree(
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                ));
+    }
+
+    @Override
+    public Object visitDims(final NabuParser.DimsContext ctx) {
+        final var dimensions = new ArrayList<Dimension>();
+
+        var annotations = new ArrayList<AnnotationTree>();
+
+        for (final var child : ctx.children) {
+            if (child instanceof TerminalNode terminalNode) {
+                if ("]".equals(terminalNode.getText())) {
+                    dimensions.add(new Dimension(annotations));
+                    annotations = new ArrayList<>();
+                }
+            } else {
+                final var annotation = (AnnotationTree) child.accept(this);
+                annotations.add(annotation);
+            }
+        }
+
+        return dimensions;
+    }
+
+    @Override
+    public Object visitResult(final NabuParser.ResultContext ctx) {
+        if (ctx.unannType() != null) {
+            return ctx.unannType().accept(this);
+        } else {
+            return TreeMaker.primitiveTypeTree(
+                    PrimitiveTypeTree.Kind.VOID,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+    }
+
+    @Override
+    public Object visitArrayInitializer(final NabuParser.ArrayInitializerContext ctx) {
+        final List<ExpressionTree> elements = acceptList(ctx.variableInitializerList());
+        return TreeMaker.newArrayExpression(
+                elements,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitClassLiteral(final NabuParser.ClassLiteralContext ctx) {
+        ExpressionTree type = null;
+
+        for (final var child : ctx.children) {
+            if (child instanceof TerminalNode terminalNode) {
+                if ("]".equals(terminalNode.getText())) {
+                    type = TreeMaker.arrayTypeTree(
+                            type,
+                            type.getLineNumber(),
+                            type.getColumnNumber()
+                    );
+                } else if (Constants.PRIMITIVE_BOOLEAN.equals(terminalNode.getText())) {
+                    type = TreeMaker.primitiveTypeTree(
+                            PrimitiveTypeTree.Kind.BOOLEAN,
+                            terminalNode.getSymbol().getLine(),
+                            terminalNode.getSymbol().getCharPositionInLine()
+                    );
+                } else if (Constants.VOID.equals(terminalNode.getText())) {
+                    type = TreeMaker.primitiveTypeTree(
+                            PrimitiveTypeTree.Kind.VOID,
+                            terminalNode.getSymbol().getLine(),
+                            terminalNode.getSymbol().getCharPositionInLine()
+                    );
+                }
+            } else {
+                type = (ExpressionTree) child.accept(this);
+            }
+        }
+
+        return TreeMaker.fieldAccessExpressionTree(
+                type,
+                TreeMaker.identifier(
+                        "class",
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                ),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitFieldDeclaration(final NabuParser.FieldDeclarationContext ctx) {
+        final var fieldModifiers = parseModifiers(ctx.fieldModifier());
+        final var type = (ExpressionTree) ctx.unannType().accept(this);
+        final List<VariableDeclarator> variableDeclarators = acceptList(ctx.variableDeclaratorList());
+
+        if (variableDeclarators.size() == 1) {
+            return variableDeclarators.getFirst()
+                    .builder()
+                    .kind(Kind.FIELD)
+                    .modifiers(fieldModifiers)
+                    .type(type)
+                    .build();
+        }
+
+        throw new TodoException();
+    }
+
+    @Override
+    public Object visitPostfixExpression(final NabuParser.PostfixExpressionContext ctx) {
+        final ExpressionTree expressionTree;
+
+        if (ctx.primary() != null) {
+            expressionTree = (ExpressionTree) ctx.primary().accept(this);
+        } else {
+            expressionTree = (ExpressionTree) ctx.expressionName().accept(this);
+        }
+
+        final var pfe = accept(ctx.pfE());
+
+        if (pfe != null) {
+            throw new TodoException();
+        }
+
+        return expressionTree;
     }
 }
 
-record VariableDeclarator(IdentifierTree id,
-                          ExpressionTree initializer) {
+
+record FunctionDeclarator(VariableDeclarator receiverParameter,
+                          String name,
+                          List<VariableDeclarator> parameters) {
+}
+
+record FunctionHeader(List<TypeParameterTree> typeParameters,
+                      List<AnnotationTree> annotations,
+                      FunctionDeclarator functionDeclarator,
+                      ExpressionTree result, List<Tree> exceptions) {
+}
+
+record WildcardBound(BoundKind kind, ExpressionTree expression) {
 
 }
 
-record FunctionDeclarator(String name, List<Variable> parameters) {
-
-}
-
-record FunctionHeader(FunctionDeclarator functionDeclarator, ExpressionTree result) {
+record Dimension(List<AnnotationTree> annotations) {
 
 }

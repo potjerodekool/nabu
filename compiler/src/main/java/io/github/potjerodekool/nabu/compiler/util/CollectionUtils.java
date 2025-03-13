@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Spliterator;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -52,15 +53,15 @@ public final class CollectionUtils {
     }
 
     /**
-     * @param first A List
+     * @param first  A List
      * @param second Another List
+     * @param <E>    Some type.
+     *               <p>
+     *               Will throw an IllegalArgumentException if the size of the lists don't match.
      * @return Returns a Stream of pairs where
      * every pair contains a value from the first list and a value from the second list.
-     * @param <E> Some type.
-     *
-     * Will throw an IllegalArgumentException if the size of the lists don't match.
      */
-    public static <E> Stream<Pair<E>> pairStream(final List<? extends E> first,
+    public static <E> Stream<Pair<E, E>> pairStream(final List<? extends E> first,
                                                  final List<? extends E> second) {
         if (first.size() != second.size()) {
             throw new IllegalArgumentException("Cannot create pair Stream");
@@ -68,9 +69,25 @@ public final class CollectionUtils {
 
         return StreamSupport.stream(new PairSpliterator<>(first, second), false);
     }
+
+    /**
+     * @param resultClass
+     * @return
+     * @param <T>
+     * @param <R>
+     */
+    public static <T, R> Function<T, Stream<R>> mapOnly(final Class<R> resultClass) {
+        return t -> {
+            if (resultClass.isAssignableFrom(t.getClass())) {
+                return Stream.of(resultClass.cast(t));
+            }
+
+            return Stream.empty();
+        };
+    }
 }
 
-class PairSpliterator<E> implements Spliterator<Pair<E>> {
+class PairSpliterator<E> implements Spliterator<Pair<E,E>> {
 
     private final List<? extends E> left;
     private final List<? extends E> right;
@@ -83,8 +100,12 @@ class PairSpliterator<E> implements Spliterator<Pair<E>> {
     }
 
     @Override
-    public boolean tryAdvance(final Consumer<? super Pair<E>> action) {
-        final var pair = new Pair<>(
+    public boolean tryAdvance(final Consumer<? super Pair<E,E>> action) {
+        if (pos == 0 && left.isEmpty()) {
+            return false;
+        }
+
+        final var pair = new Pair<E,E>(
                 left.get(pos),
                 right.get(pos)
         );
@@ -94,7 +115,7 @@ class PairSpliterator<E> implements Spliterator<Pair<E>> {
     }
 
     @Override
-    public Spliterator<Pair<E>> trySplit() {
+    public Spliterator<Pair<E,E>> trySplit() {
         return null;
     }
 

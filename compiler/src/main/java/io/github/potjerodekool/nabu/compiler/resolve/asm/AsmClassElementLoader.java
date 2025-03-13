@@ -26,8 +26,8 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
     }
 
     @Override
-    public TypeElement resolveClass(final String name) {
-        final var internalName = ClassUtils.toInternalName(name);
+    public TypeElement loadClass(final String name) {
+        final var internalName = ClassUtils.getInternalName(name);
 
         var element = this.symbolTable.getClassSymbol(internalName);
 
@@ -61,14 +61,14 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
     }
 
     private void loadBoxes() {
-        resolveClass(Constants.BOOLEAN);
-        resolveClass(Constants.BYTE);
-        resolveClass(Constants.SHORT);
-        resolveClass(Constants.INTEGER);
-        resolveClass(Constants.LONG);
-        resolveClass(Constants.CHARACTER);
-        resolveClass(Constants.FLOAT);
-        resolveClass(Constants.DOUBLE);
+        loadClass(Constants.BOOLEAN);
+        loadClass(Constants.BYTE);
+        loadClass(Constants.SHORT);
+        loadClass(Constants.INTEGER);
+        loadClass(Constants.LONG);
+        loadClass(Constants.CHARACTER);
+        loadClass(Constants.FLOAT);
+        loadClass(Constants.DOUBLE);
     }
 
     @Override

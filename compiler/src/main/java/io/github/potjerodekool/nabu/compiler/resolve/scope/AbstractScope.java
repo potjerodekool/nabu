@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 public abstract class AbstractScope implements Scope {
@@ -19,7 +18,6 @@ public abstract class AbstractScope implements Scope {
 
     @Override
     public void define(final Element element) {
-        Objects.requireNonNull(element);
         locals.put(element.getSimpleName(), element);
     }
 

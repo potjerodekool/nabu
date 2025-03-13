@@ -15,6 +15,7 @@ public class MethodBuilder extends AbstractElementBuilder<MethodBuilder> {
     private final List<TypeParameterElement> typeParameters = new ArrayList<>();
     private final List<TypeMirror> argumentTypes = new ArrayList<>();
     private final List<TypeMirror> thrownTypes = new ArrayList<>();
+    private boolean isVarArgs;
 
     public MethodBuilder() {
         kind = ElementKind.METHOD;
@@ -68,16 +69,24 @@ public class MethodBuilder extends AbstractElementBuilder<MethodBuilder> {
         return this;
     }
 
+    public MethodBuilder varArgs(final boolean isVarArgs) {
+        this.isVarArgs = isVarArgs;
+        return this;
+    }
+
     public ExecutableElement build() {
         return new MethodSymbol(
                 kind,
-                modifiers,
+                getFlags(),
                 name,
                 enclosing,
                 typeParameters,
                 returnType,
                 argumentTypes,
-                List.of()
+                thrownTypes,
+                parameters,
+                isVarArgs,
+                annotations
         );
     }
 

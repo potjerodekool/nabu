@@ -6,9 +6,9 @@ import io.github.potjerodekool.nabu.compiler.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.resolve.access.StandardAccessChecker;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.ClassScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
@@ -16,7 +16,9 @@ import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.TypeApplyTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.ErrorType;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
@@ -31,6 +33,11 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     }
 
     @Override
+    public Object visitUnknown(final Tree tree, final Scope Param) {
+        return null;
+    }
+
+    @Override
     public Object visitCompilationUnit(final CompilationUnit compilationUnit,
                                        final Scope scope) {
         return super.visitCompilationUnit(compilationUnit, new GlobalScope(compilationUnit, null));
@@ -39,8 +46,8 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Scope scope) {
-        final var classScope = new ClassScope(
-                classDeclaration.classSymbol.asType(),
+        final var classScope = new SymbolScope(
+                (DeclaredType) classDeclaration.getClassSymbol().asType(),
                 scope
         );
         return super.visitClass(classDeclaration, classScope);
@@ -75,7 +82,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         final var symbol = identifier.getSymbol();
         final var type = identifier.getType();
 
-        if (symbol == null && type == null) {
+        if (symbol == null && isNullOrErrorType(type)) {
             final var linInfo = formatLineInfo(identifier);
             listener.report(new DefaultDiagnostic(
                     Diagnostic.Kind.ERROR,
@@ -127,15 +134,17 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
-        var type = typeIdentifier.getType();
-
-        if (type instanceof ErrorType errorType) {
+        if (isNullOrErrorType(typeIdentifier.getType())) {
             listener.report(new DefaultDiagnostic(
                     Diagnostic.Kind.ERROR,
-                    "Failed to resolve " + errorType.getClassName(),
+                    "Failed to resolve " + typeIdentifier.getName(),
                     getCompilationUnit(scope).getFileObject()));
         }
 
         return super.visitTypeIdentifier(typeIdentifier, scope);
+    }
+
+    private boolean isNullOrErrorType(final TypeMirror typeMirror) {
+        return typeMirror == null || typeMirror instanceof ErrorType;
     }
 }

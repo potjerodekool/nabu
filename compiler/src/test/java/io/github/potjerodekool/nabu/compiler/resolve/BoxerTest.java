@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.Types;
@@ -56,8 +57,8 @@ class BoxerTest {
 
     private IdentifierTree createIdentifier(final String name,
                                             final String className) {
-        final var type = loader.resolveClass(className).asType();
-        final var identifier = new IdentifierTree(name);
+        final var type = loader.loadClass(className).asType();
+        final var identifier = IdentifierTree.create(name);
         identifier.setType(type);
         return identifier;
     }

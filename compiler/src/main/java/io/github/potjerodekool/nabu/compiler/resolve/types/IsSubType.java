@@ -1,4 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
+import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.type.*;
@@ -107,6 +108,12 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
             if (otherTypeVariable.getUpperBound() != null) {
                 return declaredType.accept(this, otherTypeVariable.getUpperBound());
             }
+        } else if (otherType instanceof WildcardType otherWildCardType) {
+            return switch (otherWildCardType.getBoundKind()) {
+                case UNBOUND -> true;
+                case EXTENDS -> declaredType.accept(this, otherWildCardType.getBound());
+                case SUPER -> throw new TodoException();
+            };
         }
 
         return false;
@@ -178,7 +185,8 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
     }
 
     @Override
-    public Boolean visitWildcardType(final WildcardType wildcardType, final TypeMirror otherType) {
+    public Boolean visitWildcardType(final WildcardType wildcardType,
+                                     final TypeMirror otherType) {
         if (otherType instanceof WildcardType otherWildcardType) {
             if (wildcardType.getExtendsBound() != null) {
                 return wildcardType.getExtendsBound().accept(this, otherWildcardType.getExtendsBound());
@@ -210,6 +218,21 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
             } else if (typeVariable.getLowerBound() != null) {
                 return typeVariable.getLowerBound().accept(this, declaredType);
             }
+        } else if (otherType instanceof WildcardType wildcardType) {
+            //TODO add tests
+            isSubType = switch (wildcardType.getBoundKind()) {
+                case UNBOUND -> true;
+                case EXTENDS -> {
+                    if (typeVariable.getUpperBound() != null) {
+                        yield typeVariable.getUpperBound().accept(this, wildcardType.getBound());
+                    } else if (typeVariable.getLowerBound() != null) {
+                        yield typeVariable.getLowerBound().accept(this, wildcardType.getBound());
+                    } else {
+                        yield false;
+                    }
+                }
+                case SUPER -> throw new TodoException();
+            };
         }
         return isSubType;
     }

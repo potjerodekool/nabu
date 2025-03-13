@@ -60,7 +60,7 @@ class LivenessAnaliserTest {
     @Test
     void test() {
         final var frame = new Frame();
-        frame.allocateLocal("this", IReferenceType.create(ITypeKind.CLASS, "MyClass", List.of()), false);
+        frame.allocateLocal("this", IReferenceType.createClassType( null, "MyClass", List.of()), false);
 
         frame.allocateLocal(
                 "times",
@@ -144,7 +144,7 @@ class LivenessAnaliserTest {
                         return statements.indexOf(sucStatement);
                     }).map(Object::toString)
                     .collect(Collectors.joining(","));
-            System.out.println(statement + " ::: " + Integer.toString(i) + " TO " + success);
+            System.out.println(statement + " ::: " + i + " TO " + success);
             System.out.println("*******");
         }
 

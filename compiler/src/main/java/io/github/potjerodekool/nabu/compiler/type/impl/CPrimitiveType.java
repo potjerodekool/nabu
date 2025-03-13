@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
@@ -10,6 +9,9 @@ public class CPrimitiveType extends AbstractType implements PrimitiveType {
     private final TypeKind kind;
 
     public CPrimitiveType(final TypeKind kind) {
+        if (kind == null || !kind.isPrimitive()) {
+            throw new IllegalArgumentException("Not a primitive kind " + kind);
+        }
         this.kind = kind;
     }
 
@@ -35,7 +37,7 @@ public class CPrimitiveType extends AbstractType implements PrimitiveType {
             case FLOAT -> "float";
             case LONG -> "long";
             case DOUBLE -> "double";
-            default -> throw new TodoException("");
+            default -> "";
         };
     }
 

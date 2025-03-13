@@ -1,5 +1,22 @@
 package io.github.potjerodekool.nabu.example;
 
+@Deprecated(since = "1.5")
 public class Box<E> {
+
+    private static int b = 10;
+    private Class<String> stringType = String.class;
+
+    @Deprecated
+    fun clear(): void {
+    }
+
+    fun sayHi(): String {
+        String message = "Hi " + this.getName();
+        return message;
+    }
+
+    fun getName(): String {
+        return "Evert";
+    }
 
 }

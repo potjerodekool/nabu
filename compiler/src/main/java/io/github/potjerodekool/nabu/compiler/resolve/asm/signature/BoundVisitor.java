@@ -19,7 +19,7 @@ public class BoundVisitor extends AbstractVisitor {
 
     @Override
     public void visitClassType(final String name) {
-        type = new MutableClassType(loader.resolveClass(name));
+        type = createMutableClass(loader.loadClass(name));
         final var parentType = (MutableTypeVariable) parent.getType();
         parentType.setUpperBound(type);
     }
@@ -32,9 +32,8 @@ public class BoundVisitor extends AbstractVisitor {
     @Override
     public void visitTypeArgument() {
         final var classType = (MutableClassType) this.type;
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
         classType.addTypeArgument(new MutableWildcardType(
-                objectType,
+                null,
                 null
         ));
     }
@@ -43,7 +42,7 @@ public class BoundVisitor extends AbstractVisitor {
     public void visitInnerClassType(final String name) {
         final var classType = (MutableClassType) this.type;
         final var innerName = classType.getClassName() + "$" + name;
-        final var element = loader.resolveClass(innerName);
+        final var element = loader.loadClass(innerName);
         this.type = new MutableClassType(element, classType);
     }
 
@@ -55,7 +54,7 @@ public class BoundVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
         this.type = new MutableTypeVariable(name, objectType, null);
         final var parentType = (MutableTypeVariable) parent.getType();
         parentType.setUpperBound(type);

@@ -11,6 +11,6 @@ public final class IntBoxer extends AbstractBoxer {
 
     @Override
     protected ExpressionTree unbox(final ExpressionTree expressionTree) {
-        return null;
+        return unbox(expressionTree, "intValue");
     }
 }

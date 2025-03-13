@@ -1,11 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatement;
+
 import java.util.ArrayList;
 import java.util.List;
 
-public class BlockStatementBuilder extends StatementBuilder<BlockStatement> {
+public class BlockStatementBuilder extends StatementBuilder<BlockStatement, BlockStatementBuilder> {
 
-    final List<Statement> statements = new ArrayList<>();
+    private final List<Statement> statements = new ArrayList<>();
 
     public BlockStatementBuilder(final BlockStatement original) {
         super(original);
@@ -21,8 +23,12 @@ public class BlockStatementBuilder extends StatementBuilder<BlockStatement> {
         return this;
     }
 
+    public List<Statement> getStatements() {
+        return statements;
+    }
+
     @Override
     public BlockStatement build() {
-        return new BlockStatement(this);
+        return new CBlockStatement(this);
     }
 }

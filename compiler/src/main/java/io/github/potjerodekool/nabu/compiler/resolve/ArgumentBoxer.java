@@ -33,7 +33,7 @@ public class ArgumentBoxer{
         );
 
         methodInvocation.getArguments().clear();
-        newArgs.forEach(methodInvocation::argument);
+        methodInvocation.setArguments(newArgs);
     }
 }
 

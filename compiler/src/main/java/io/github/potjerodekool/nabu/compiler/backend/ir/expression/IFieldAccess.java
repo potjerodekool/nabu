@@ -10,16 +10,15 @@ public class IFieldAccess extends IExpression {
 
     private final String owner;
     private final String name;
-    private final IType fieldType;
     private final boolean isStatic;
 
-    public IFieldAccess(final String ownner,
+    public IFieldAccess(final String owner,
                         final String name,
                         final IType fieldType,
                         final boolean isStatic) {
-        this.owner = ownner;
+        this.owner = owner;
         this.name = name;
-        this.fieldType = fieldType;
+        setType(fieldType);
         this.isStatic = isStatic;
     }
 
@@ -36,7 +35,7 @@ public class IFieldAccess extends IExpression {
     }
 
     public IType getFieldType() {
-        return fieldType;
+        return getType();
     }
 
     @Override
@@ -54,7 +53,7 @@ public class IFieldAccess extends IExpression {
         return new IFieldAccess(
                 owner,
                 name,
-                fieldType,
+                getType(),
                 isStatic
         );
     }

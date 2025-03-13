@@ -2,11 +2,15 @@ package io.github.potjerodekool.nabu.compiler.tree;
 
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 
 public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
+
+    @Override
+    public R visitUnknown(final Tree tree, final P Param) {
+        return null;
+    }
 
     @Override
     public R visitCompilationUnit(final CompilationUnit compilationUnit,
@@ -47,11 +51,6 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     }
 
     @Override
-    public R visitVariable(final Variable variable, final P param) {
-        return null;
-    }
-
-    @Override
     public R visitBlockStatement(final BlockStatement blockStatement, final P param) {
         blockStatement.getStatements().forEach(s -> s.accept(this, param));
         return null;
@@ -68,10 +67,6 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         }
     }
 
-    @Override
-    public R visitIdentifier(final IdentifierTree identifier, final P param) {
-        return null;
-    }
 
     @Override
     public R visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final P param) {
@@ -88,7 +83,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     }
 
     @Override
-    public R visitFieldAccessExpression(final FieldAccessExpressioTree fieldAccessExpression, final P param) {
+    public R visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final P param) {
         fieldAccessExpression.getTarget().accept(this, param);
         fieldAccessExpression.getField().accept(this, param);
         return null;
@@ -97,11 +92,6 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     @Override
     public R visitClass(final ClassDeclaration classDeclaration, final P param) {
         classDeclaration.getEnclosedElements().forEach(e -> e.accept(this, param));
-        return null;
-    }
-
-    @Override
-    public R visitTypeIdentifier(final TypeApplyTree typeIdentifier, final P param) {
         return null;
     }
 
@@ -117,30 +107,21 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     }
 
     @Override
-    public R visitLiteralExpression(final LiteralExpressionTree literalExpression, final P param) {
-        return null;
-    }
-
-    @Override
-    public R visitStatementExpression(final StatementExpression statementExpression, final P param) {
-        return statementExpression.getExpression().accept(this, param);
+    public R visiExpressionStatement(final ExpressionStatement expressionStatement, final P param) {
+        return expressionStatement.getExpression().accept(this, param);
     }
 
     @Override
     public R visitAnnotatedType(final AnnotatedTypeTree annotatedType, final P param) {
+        annotatedType.getAnnotations().forEach(a -> a.accept(this, param));
         annotatedType.getClazz().accept(this, param);
         annotatedType.getArguments().forEach(a -> a.accept(this, param));
         return null;
     }
 
     @Override
-    public R visitTypeNameExpression(final TypeNameExpressioTree typeNameExpression, final P param) {
-        return null;
-    }
-
-    @Override
-    public R visitVariableDeclaratorStatement(final CVariableDeclaratorStatement variableDeclaratorStatement, final P param) {
-        variableDeclaratorStatement.getIdent().accept(this, param);
+    public R visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final P param) {
+        variableDeclaratorStatement.getName().accept(this, param);
 
         if (variableDeclaratorStatement.getValue() != null) {
             variableDeclaratorStatement.getValue().accept(this, param);
@@ -152,41 +133,16 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     }
 
     @Override
-    public R visitPackageDeclaration(final PackageDeclaration packageDeclaration, final P param) {
-        return null;
-    }
-
-    @Override
-    public R visitPrimitiveType(final PrimitiveTypeTree primitiveType, final P param) {
-        return null;
-    }
-
-    @Override
     public R visitUnaryExpression(final UnaryExpressionTree unaryExpression, final P param) {
         unaryExpression.getExpression().accept(this, param);
         return null;
     }
 
     @Override
-    public R visitVariableType(final VariableTypeTree variableType, final P param) {
-        return null;
-    }
-
-    @Override
-    public R visitCastExpression(final CastExpressionTree castExpressionTree, final P param) {
-        return null;
-    }
-
-    @Override
-    public R visitWildCardExpression(final WildCardExpressionTree wildCardExpression, final P param) {
-        if (wildCardExpression.getExtendsBound() != null) {
-            wildCardExpression.getExtendsBound().accept(this, param);
+    public R visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final P param) {
+        if (wildCardExpression.getBound() != null) {
+            wildCardExpression.getBound().accept(this, param);
         }
-
-        if (wildCardExpression.getSuperBound() != null) {
-            wildCardExpression.getSuperBound().accept(this, param);
-        }
-
         return null;
     }
 
@@ -199,11 +155,6 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
             ifStatementTree.getElseStatement().accept(this, param);
         }
 
-        return null;
-    }
-
-    @Override
-    public R visitEmptyStatement(final EmptyStatementTree emptyStatementTree, final P param) {
         return null;
     }
 
@@ -221,16 +172,6 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         enhancedForStatement.getExpression().accept(this, param);
         enhancedForStatement.getLocalVariable().accept(this, param);
         enhancedForStatement.getStatement().accept(this, param);
-        return null;
-    }
-
-    @Override
-    public R visitAnnotation(final AnnotationTree annotationTree, final P param) {
-        return null;
-    }
-
-    @Override
-    public R visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final P param) {
         return null;
     }
 
@@ -263,7 +204,16 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     }
 
     @Override
-    public R visitTypeParameter(final TypeParameterTree typeParameterTree, final P param) {
+    public R visitAnnotation(final AnnotationTree annotationTree, final P param) {
+        annotationTree.getName().accept(this, param);
+        annotationTree.getArguments().forEach(arg -> arg.accept(this, param));
+        return null;
+    }
+
+    @Override
+    public R visitAssignment(final AssignmentExpression assignmentExpression, final P param) {
+        assignmentExpression.getLeft().accept(this, param);
+        assignmentExpression.getRight().accept(this, param);
         return null;
     }
 }

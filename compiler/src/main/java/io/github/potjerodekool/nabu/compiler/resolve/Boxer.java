@@ -5,11 +5,13 @@ import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.box.LongBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.box.ShortBoxer;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
+
+import java.util.List;
 
 public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
@@ -35,21 +37,21 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
 
     @Override
-    public ExpressionTree visitDeclaredType(final DeclaredType classType, final ExpressionTree expressionTree) {
+    public ExpressionTree visitDeclaredType(final DeclaredType declaredType, final ExpressionTree expressionTree) {
         if (expressionTree instanceof LiteralExpressionTree literalExpression) {
-            return boxIfNeeded(literalExpression, classType, literalExpression.getType());
+            return boxIfNeeded(literalExpression, declaredType, literalExpression.getType());
         } else if (expressionTree instanceof IdentifierTree identifier) {
             final var symbol = identifier.getSymbol();
             final var varType = symbol.asType();
-            return boxIfNeeded(identifier, classType, varType);
+            return boxIfNeeded(identifier, declaredType, varType);
         } else {
             return expressionTree;
         }
     }
 
     public ExpressionTree boxIfNeeded(final ExpressionTree expressionTree, final TypeMirror leftType, final TypeMirror rightType) {
-        if (leftType instanceof DeclaredType classType) {
-            return visitDeclaredType(expressionTree, classType, rightType);
+        if (leftType instanceof DeclaredType declaredType) {
+            return visitDeclaredType(expressionTree, declaredType, rightType);
         } else if (leftType instanceof PrimitiveType primitiveType) {
             return visitPrimitiveType(expressionTree, primitiveType, rightType);
         } else {
@@ -97,13 +99,19 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
     private ExpressionTree box(final ExpressionTree expression,
                                final String className) {
-        final var methodInvocation = new MethodInvocationTree();
-        final var target = new IdentifierTree(className);
-        target.setSymbol(loader.resolveClass(className));
+        final var target = IdentifierTree.create(className);
+        target.setSymbol(loader.loadClass(className));
 
-        methodInvocation.target(target).name(new IdentifierTree("valueOf")).argument(expression);
+        final var methodInvocation = TreeMaker.methodInvocationTree(
+                target,
+                IdentifierTree.create("valueOf"),
+                List.of(),
+                List.of(expression),
+                -1,
+                -1
+        );
 
-        final var methodType = methodResolver.resolveMethod(methodInvocation);
+        final var methodType = methodResolver.resolveMethod(methodInvocation, null);
         methodInvocation.setMethodType(methodType);
 
         return methodInvocation;
@@ -134,10 +142,16 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
                                               final DeclaredType dt) {
         final var clazz = (TypeElement) dt.asElement();
         if (Constants.INTEGER.equals(clazz.getQualifiedName())) {
-            final var methodInvocation = new MethodInvocationTree()
-                    .target(expression)
-                    .name(new IdentifierTree("intValue"));
-            final var methodType = methodResolver.resolveMethod(methodInvocation);
+            final var methodInvocation = TreeMaker.methodInvocationTree(
+                    expression,
+                    IdentifierTree.create("intValue"),
+                    List.of(),
+                    List.of(),
+                    -1,
+                    -1
+            );
+
+            final var methodType = methodResolver.resolveMethod(methodInvocation, null);
             methodInvocation.setMethodType(methodType);
             return methodInvocation;
         } else {
@@ -187,10 +201,27 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
     public ExpressionTree unbox(final ExpressionTree expressionTree,
                                 final String methodName) {
-        final var methodInvocation = new MethodInvocationTree()
-                .target(expressionTree)
-                .name(new IdentifierTree(methodName));
-        methodInvocation.setMethodType(methodResolver.resolveMethod(methodInvocation));
+        var methodInvocation = TreeMaker.methodInvocationTree(
+                expressionTree,
+                IdentifierTree.create(methodName),
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
+
+        final var methodType = methodResolver.resolveMethod(methodInvocation, null);
+
+        methodInvocation = TreeMaker.methodInvocationTree(
+                expressionTree,
+                IdentifierTree.create(methodName),
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
+        methodInvocation.setMethodType(methodType);
+
         return methodInvocation;
     }
 

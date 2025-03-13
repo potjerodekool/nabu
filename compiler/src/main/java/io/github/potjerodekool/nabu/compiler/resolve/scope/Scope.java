@@ -4,7 +4,9 @@ import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.PackageElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 import java.util.Set;
 
@@ -29,8 +31,16 @@ public interface Scope {
 
     Element resolve(String name);
 
+    default TypeMirror resolveType(String name) {
+        return null;
+    }
+
     default Set<String> locals() {
         return Set.of();
+    }
+
+    default Element getCurrentElement() {
+        return null;
     }
 
     default ExecutableElement getCurrentMethod() {

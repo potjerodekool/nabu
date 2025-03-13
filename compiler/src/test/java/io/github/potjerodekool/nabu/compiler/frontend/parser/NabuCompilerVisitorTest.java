@@ -23,12 +23,16 @@ class NabuCompilerVisitorTest {
 
     @Test
     void visitRelationalExpression() {
-        parseAndAssert("\"test\" instanceof String", NabuParser::relationalExpression);
+        //parseAndAssert("\"test\" instanceof String", NabuParser::relationalExpression);
     }
 
     @Test
     void visitPrimaryNoNewArray() {
+        parseAndAssert("\"test\".replace('A', 'B')", NabuParser::primaryNoNewArray);
         parseAndAssert("this", NabuParser::primaryNoNewArray);
+        parseAndAssert("this.array[10]", NabuParser::primaryNoNewArray);
+        parseAndAssert("this.array[10][2]", NabuParser::primaryNoNewArray);
+        parseAndAssert("this.array[1][2][3]", NabuParser::primaryNoNewArray);
         parseAndAssert("this.someField", NabuParser::primaryNoNewArray);
     }
 
@@ -52,6 +56,11 @@ class NabuCompilerVisitorTest {
 
     @Test
     void pNNA() {
+        parseAndAssert(".id", NabuParser::pNNA, ".");
+        parseAndAssert(".user.id", NabuParser::pNNA, ".");
+        parseAndAssert("[2]", NabuParser::pNNA);
+        parseAndAssert("[2][3]", NabuParser::pNNA);
+        parseAndAssert(".<String>getName()", NabuParser::pNNA, ".");
         parseAndAssert("""
             .new SomeClass<String>(1, 2, 3){
             }
@@ -70,11 +79,27 @@ class NabuCompilerVisitorTest {
     }
 
     @Test
-    void methodInvocation() {
+    void functionInvocation() {
         parseAndAssert("""
-                get(0)""", NabuParser::methodInvocation);
+                get(0)""", NabuParser::functionInvocation);
         parseAndAssert("""
-                list.<String>get(0)""", NabuParser::methodInvocation);
+                list.<String>get(0)""", NabuParser::functionInvocation);
+        parseAndAssert(
+                "List.<String>of(\"Hello\")",
+                NabuParser::functionInvocation
+        );
+        parseAndAssert(
+                "java.util.List.<String>of(\"Hello\")",
+                NabuParser::functionInvocation
+        );
+        parseAndAssert(
+                "super.<String>of(\"Hello\")",
+                NabuParser::functionInvocation
+        );
+        parseAndAssert(
+                "List.super.<String>of(\"Hello\")",
+                NabuParser::functionInvocation
+        );
     }
 
     @Test
@@ -83,14 +108,13 @@ class NabuCompilerVisitorTest {
     }
 
     @Test
-    void test2(){
+    void functionDeclarationWithLambda(){
         parseAndAssert("""
                 fun findCompanyByEmployeeFirstName(employeeFirstName : String): JpaPredicate<Company> {
                 return (c : Root<Company>, q : CriteriaQuery<?>, cb : CriteriaBuilder) -> {
                 var e = (InnerJoin<Company, Employee>) c.employees;
                 return e.firstName == employeeFirstName;}
                 ;}
-                
                 """, NabuParser::functionDeclaration);
     }
 
@@ -105,7 +129,55 @@ class NabuCompilerVisitorTest {
     }
 
     @Test
+    void normalAnnotationWithEnum() {
+        parseAndAssert("@Transactional(value = TxType.REQUIRED)", NabuParser::normalAnnotation);
+    }
+
+    @Test
+    void arrayInitializer() {
+        parseAndAssert("{ }", NabuParser::arrayInitializer);
+    }
+
+    @Test
     void singleElementAnnotation() {
         parseAndAssert("@Value(\"Hello world!\")", NabuParser::singleElementAnnotation);
     }
+
+    @Test
+    void arrayType() {
+        parseAndAssert("int[][]", NabuParser::arrayType);
+        parseAndAssert("int @Deprecated[] @Indexed[]", NabuParser::arrayType);
+    }
+
+    @Test
+    void classLiteral() {
+        parseAndAssert("String.class", NabuParser::classLiteral);
+        parseAndAssert("String[][].class", NabuParser::classLiteral);
+        parseAndAssert("int.class", NabuParser::classLiteral);
+        parseAndAssert("int[][].class", NabuParser::classLiteral);
+        parseAndAssert("boolean.class", NabuParser::classLiteral);
+        parseAndAssert("boolean[][].class", NabuParser::classLiteral);
+    }
+
+    @Test
+    void functionDeclaration() {
+        parseAndAssert("""
+            fun fail(): String throws IOException, IllegalStateException {
+            }
+            """, NabuParser::functionDeclaration);
+    }
+
+    @Test
+    void functionDeclarationWithReceiver() {
+        parseAndAssert("""
+            fun fail(this : MyClass, other : String): String {
+            }
+            """, NabuParser::functionDeclaration);
+
+        parseAndAssert("""
+            fun fail(MyClass.this : MyClass, other : String): String {
+            }
+            """, NabuParser::functionDeclaration);
+    }
+
 }

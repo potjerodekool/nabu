@@ -1,12 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.ast.element;
 
+import io.github.potjerodekool.nabu.compiler.Flags;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.Types;
 
 import java.util.List;
 import java.util.Set;
 
-public interface Element {
+public interface Element extends AnnotatedConstruct {
 
     String getSimpleName();
 
@@ -14,11 +15,7 @@ public interface Element {
 
     Element getEnclosingElement();
 
-    List<Element> getEnclosedElements();
-
-    void setEnclosingElement(Element abstractSymbol);
-
-    void addEnclosedElement(Element enclosedElement);
+    List<? extends Element> getEnclosedElements();
 
     TypeMirror asType();
 
@@ -26,24 +23,36 @@ public interface Element {
 
     Set<Modifier> getModifiers();
 
+    default boolean hasFlag(final int flag) {
+        return false;
+    }
+
     default boolean isPublic() {
-        return getModifiers().contains(Modifier.PUBLIC);
+        return hasFlag(Flags.PUBLIC);
     }
 
     default boolean isPrivate() {
-        return getModifiers().contains(Modifier.PRIVATE);
+        return hasFlag(Flags.PRIVATE);
     }
 
     default boolean isStatic() {
-        return getModifiers().contains(Modifier.STATIC);
+        return hasFlag(Flags.STATIC);
+    }
+
+    default boolean isFinal() {
+        return hasFlag(Flags.FINAL);
     }
 
     default boolean isSynthentic() {
-        return getModifiers().contains(Modifier.SYNTHENTIC);
+        return hasFlag(Flags.SYNTHETIC);
     }
 
     default boolean isAbstract() {
         return getModifiers().contains(Modifier.ABSTRACT);
+    }
+
+    default boolean isNative() {
+        return getModifiers().contains(Modifier.NATIVE);
     }
 
     <T> T getMetaData(ElementMetaData elementMetaData, Class<T> returnType);

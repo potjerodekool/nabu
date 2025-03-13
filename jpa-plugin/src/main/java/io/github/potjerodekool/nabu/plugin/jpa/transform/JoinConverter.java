@@ -4,15 +4,15 @@ import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.ClassScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
-import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressioTree;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
+import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.Types;
 import io.github.potjerodekool.nabu.compiler.type.VariableType;
 
@@ -36,7 +36,7 @@ public class JoinConverter extends AbstractJpaTransformer {
     }
 
     @Override
-    public Object visitFieldAccessExpression(final FieldAccessExpressioTree fieldAccessExpression,
+    public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Scope scope) {
         final var target = (IdentifierTree) fieldAccessExpression.getTarget();
         final var field = (IdentifierTree) fieldAccessExpression.getField();
@@ -47,8 +47,12 @@ public class JoinConverter extends AbstractJpaTransformer {
 
         field.accept(this, targetScope);
 
-        final var literalExpression = new LiteralExpressionTree(field.getName());
-        final var stringType = loader.resolveClass(Constants.STRING).asType();
+        final var literalExpression = TreeMaker.literalExpressionTree(
+                field.getName(),
+                -1,
+                -1
+        );
+        final var stringType = loader.loadClass(ClassNames.STRING_CLASS_NAME).asType();
         literalExpression.setType(stringType);
 
         final var targetType = (DeclaredType) resolveType(target);
@@ -64,19 +68,21 @@ public class JoinConverter extends AbstractJpaTransformer {
             toType = types.getErrorType("error");
         }
 
-        final var joinTypeType = (DeclaredType) loader.resolveClass("jakarta.persistence.criteria.JoinType").asType();
-        final var joinTypeIdentifier = new IdentifierTree("jakarta.persistence.criteria.JoinType");
+        final var joinTypeType = (DeclaredType) loader.loadClass("jakarta.persistence.criteria.JoinType").asType();
+        final var joinTypeIdentifier = IdentifierTree.create("jakarta.persistence.criteria.JoinType");
         joinTypeIdentifier.setType(joinTypeType);
 
-        final var innerIdentifier = new IdentifierTree(joinType);
+        final var innerIdentifier = IdentifierTree.create(joinType);
         innerIdentifier.setSymbol(
                 ElementFilter.enumConstantByName((TypeElement) joinTypeType.asElement(), joinType)
                         .orElse(null)
         );
 
-        final var joinTypeArg = new FieldAccessExpressioTree(
+        final var joinTypeArg = TreeMaker.fieldAccessExpressionTree(
                 joinTypeIdentifier,
-                innerIdentifier
+                innerIdentifier,
+                -1,
+                -1
         );
 
         final var typeArguments = List.of(
@@ -114,46 +120,45 @@ public class JoinConverter extends AbstractJpaTransformer {
 
     private IdentifierTree createTypeArgument(final DeclaredType declaredType) {
         final var typeElement = (TypeElement) declaredType.asElement();
-        final var identifier = new IdentifierTree(typeElement.getQualifiedName());
+        final var identifier = IdentifierTree.create(typeElement.getQualifiedName());
         identifier.setType(declaredType);
         return identifier;
     }
 
-    private ClassScope visitFieldAccessExpressionTarget(final FieldAccessExpressioTree fieldAccessExpression,
-                                                        final Scope scope) {
+    private Scope visitFieldAccessExpressionTarget(final FieldAccessExpressionTree fieldAccessExpression,
+                                                   final Scope scope) {
         final var target = fieldAccessExpression.getTarget();
         target.accept(this, scope);
 
         final var symbol = getSymbol(fieldAccessExpression.getTarget());
-        DeclaredType classType;
+        DeclaredType declaredType;
 
         if (symbol instanceof VariableElement variableElement) {
-            final var varType = variableElement.asType();
-            if (varType instanceof DeclaredType ct) {
-                classType = ct;
-            } else {
-                classType = (DeclaredType) ((VariableType)varType).getInterferedType();
-            }
-
-            if (classType == null) {
-                throw new TodoException();
-            }
+            declaredType = asDeclaredType(variableElement.asType());
 
             final var pathType = resolvePathType();
 
 
-            if (types.isSubType(classType, pathType)) {
-                classType = (DeclaredType) classType.getTypeArguments().getFirst();
+            if (types.isSubType(declaredType, pathType)) {
+                declaredType = (DeclaredType) declaredType.getTypeArguments().getFirst();
             }
         } else if (symbol instanceof TypeElement cs) {
-            classType = (DeclaredType) cs.asType();
+            declaredType = (DeclaredType) cs.asType();
         } else {
             throw new TodoException();
         }
 
-        return new ClassScope(
-                classType,
+        return new SymbolScope(
+                declaredType,
                 scope.getGlobalScope()
         );
+    }
+
+    private DeclaredType asDeclaredType(final TypeMirror typeMirror) {
+        if (typeMirror instanceof DeclaredType dt) {
+            return dt;
+        } else {
+            return (DeclaredType) ((VariableType) typeMirror).getInterferedType();
+        }
     }
 }

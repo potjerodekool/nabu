@@ -2,77 +2,171 @@ package io.github.potjerodekool.nabu.compiler.tree;
 
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 
 public interface TreeVisitor<R, P> {
 
-    R visitCompilationUnit(CompilationUnit compilationUnit, P param);
+    R visitUnknown(Tree tree, P Param);
 
-    R visitFunction(Function function, P param);
+    default R visitCompilationUnit(CompilationUnit compilationUnit, P param) {
+        return visitUnknown(compilationUnit, param);
+    }
 
-    R visitVariable(Variable variable, P param);
+    default R visitFunction(Function function, P param) {
+        return visitUnknown(function, param);
+    }
 
-    R visitBlockStatement(BlockStatement blockStatement, P param);
+    default R visitBlockStatement(BlockStatement blockStatement, P param) {
+        return visitUnknown(blockStatement, param);
+    }
 
-    R visitReturnStatement(ReturnStatement returnStatement, P param);
+    default R visitReturnStatement(ReturnStatement returnStatement, P param) {
+        return visitUnknown(returnStatement, param);
+    }
 
-    R visitIdentifier(IdentifierTree identifier, P param);
+    default R visitIdentifier(IdentifierTree identifier, P param) {
+        return visitUnknown(identifier, param);
+    }
 
-    R visitLambdaExpression(LambdaExpressionTree lambdaExpression, P param);
+    default R visitLambdaExpression(LambdaExpressionTree lambdaExpression, P param) {
+        return visitUnknown(lambdaExpression, param);
+    }
 
-    R visitBinaryExpression(BinaryExpressionTree binaryExpression, P param);
+    default R visitBinaryExpression(BinaryExpressionTree binaryExpression, P param) {
+        return visitUnknown(binaryExpression, param);
+    }
 
-    R visitFieldAccessExpression(FieldAccessExpressioTree fieldAccessExpression, P param);
+    default R visitFieldAccessExpression(FieldAccessExpressionTree fieldAccessExpression, P param) {
+        return visitUnknown(fieldAccessExpression, param);
+    }
 
-    R visitClass(ClassDeclaration classDeclaration, P param);
+    default R visitClass(ClassDeclaration classDeclaration, P param) {
+        return visitUnknown(classDeclaration, param);
+    }
 
-    R visitMethodInvocation(MethodInvocationTree methodInvocation, P param);
+    default R visitMethodInvocation(MethodInvocationTree methodInvocation, P param) {
+        return visitUnknown(methodInvocation, param);
+    }
 
-    R visitLiteralExpression(LiteralExpressionTree literalExpression, P param);
+    default R visitLiteralExpression(LiteralExpressionTree literalExpression, P param) {
+        return visitUnknown(literalExpression, param);
+    }
 
-    R visitStatementExpression(StatementExpression statementExpression, P param);
+    default R visiExpressionStatement(ExpressionStatement expressionStatement, P param) {
+        return visitUnknown(expressionStatement, param);
+    }
 
-    R visitVariableDeclaratorStatement(CVariableDeclaratorStatement variableDeclaratorStatement, P param);
+    default R visitVariableDeclaratorStatement(VariableDeclarator variableDeclaratorStatement, P param) {
+        return visitUnknown(variableDeclaratorStatement, param);
+    }
 
-    R visitPackageDeclaration(PackageDeclaration packageDeclaration, P param);
+    default R visitPackageDeclaration(PackageDeclaration packageDeclaration, P param) {
+        return visitUnknown(packageDeclaration, param);
+    }
 
-    R visitImportItem(ImportItem importItem, P param);
+    default R visitImportItem(ImportItem importItem, P param) {
+        return visitUnknown(importItem, param);
+    }
 
-    R visitPrimitiveType(PrimitiveTypeTree primitiveType, P param);
+    default R visitPrimitiveType(PrimitiveTypeTree primitiveType, P param) {
+        return visitUnknown(primitiveType, param);
+    }
 
-    R visitUnaryExpression(UnaryExpressionTree unaryExpression, P param);
+    default R visitUnaryExpression(UnaryExpressionTree unaryExpression, P param) {
+        return visitUnknown(unaryExpression, param);
+    }
 
-    R visitTypeIdentifier(TypeApplyTree typeIdentifier, P param);
+    default R visitTypeIdentifier(TypeApplyTree typeIdentifier, P param) {
+        return visitUnknown(typeIdentifier, param);
+    }
 
-    R visitAnnotatedType(AnnotatedTypeTree annotatedType, P param);
+    default R visitAnnotatedType(AnnotatedTypeTree annotatedType, P param) {
+        return visitUnknown(annotatedType, param);
+    }
 
-    R visitTypeNameExpression(TypeNameExpressioTree typeNameExpression, P param);
+    default R visitTypeNameExpression(TypeNameExpressionTree typeNameExpression, P param) {
+        return visitUnknown(typeNameExpression, param);
+    }
 
-    R visitVariableType(VariableTypeTree variableType, P param);
+    default R visitVariableType(VariableTypeTree variableType, P param) {
+        return visitUnknown(variableType, param);
+    }
 
-    R visitCastExpression(CastExpressionTree castExpressionTree, P param);
+    default R visitCastExpression(CastExpressionTree castExpressionTree, P param) {
+        return visitUnknown(castExpressionTree, param);
+    }
 
-    R visitWildCardExpression(WildCardExpressionTree wildCardExpression, P param);
+    default R visitWildCardExpression(WildcardExpressionTree wildCardExpression, P param) {
+        return visitUnknown(wildCardExpression, param);
+    }
 
-    R visitIfStatement(IfStatementTree ifStatementTree, P param);
+    default R visitIfStatement(IfStatementTree ifStatementTree, P param) {
+        return visitUnknown(ifStatementTree, param);
+    }
 
-    R visitEmptyStatement(EmptyStatementTree emptyStatementTree, P param);
+    default R visitEmptyStatement(EmptyStatementTree emptyStatementTree, P param) {
+        return visitUnknown(emptyStatementTree, param);
+    }
 
-    R visitForStatement(ForStatement forStatement, P param);
+    default R visitForStatement(ForStatement forStatement, P param) {
+        return visitUnknown(forStatement, param);
+    }
 
-    R visitEnhancedForStatement(EnhancedForStatement enhancedForStatement, P param);
+    default R visitEnhancedForStatement(EnhancedForStatement enhancedForStatement, P param) {
+        return visitUnknown(enhancedForStatement, param);
+    }
 
-    R visitAnnotation(AnnotationTree annotationTree, P param);
+    default R visitAnnotation(AnnotationTree annotationTree, P param) {
+        return visitUnknown(annotationTree, param);
+    }
 
-    R visitInstanceOfExpression(InstanceOfExpression instanceOfExpression, P param);
+    default R visitInstanceOfExpression(InstanceOfExpression instanceOfExpression, P param) {
+        return visitUnknown(instanceOfExpression, param);
+    }
 
-    R visitNewClass(NewClassExpression newClassExpression, P param);
+    default R visitNewClass(NewClassExpression newClassExpression, P param) {
+        return visitUnknown(newClassExpression, param);
+    }
 
-    R visitWhileStatement(WhileStatement whileStatement, P param);
+    default R visitWhileStatement(WhileStatement whileStatement, P param) {
+        return visitUnknown(whileStatement, param);
+    }
 
-    R visitDoWhileStatement(DoWhileStatement doWhileStatement, P param);
+    default R visitDoWhileStatement(DoWhileStatement doWhileStatement, P param) {
+        return visitUnknown(doWhileStatement, param);
+    }
 
-    R visitTypeParameter(TypeParameterTree typeParameterTree, P param);
+    default R visitTypeParameter(TypeParameterTree typeParameterTree, P param) {
+        return visitUnknown(typeParameterTree, param);
+    }
+
+    default R visitTypeVariable(TypeVariableTree typeVariableTree, P param) {
+        return visitUnknown(typeVariableTree, param);
+    }
+
+    default R visitArrayType(ArrayTypeTree arrayTypeTree, P param) {
+        return visitUnknown(arrayTypeTree, param);
+    }
+
+    default R visitAssignment(AssignmentExpression assignmentExpression, P param) {
+        return visitUnknown(assignmentExpression, param);
+    }
+
+    default R visitNewArray(NewArrayExpression newArrayExpression, P param) {
+        return visitUnknown(newArrayExpression, param);
+    }
+
+    default R visitErroneous(ErrorTree errorTree, P param) {
+        return visitUnknown(errorTree, param);
+    }
+
+    default R visitIntersectionType(IntersectionTypeTree intersectionTypeTree, P param) {
+        return visitUnknown(intersectionTypeTree, param);
+    }
+
+    default R visitArrayAccess(ArrayAccessExpression arrayAccessExpression, P param) {
+        return visitUnknown(arrayAccessExpression, param);
+    }
+
 }

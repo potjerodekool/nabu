@@ -9,8 +9,8 @@ public class StandardSymbolResolver implements SymbolResolver {
     @Override
     public Element resolve(final String name,
                            final TypeMirror searchType) {
-        if (searchType instanceof DeclaredType classType) {
-            final var classSymbol = (TypeElement) classType.asElement();
+        if (searchType instanceof DeclaredType declaredType) {
+            final var classSymbol = (TypeElement) declaredType.asElement();
 
             return ElementFilter.fields(classSymbol).stream()
                     .filter(elem -> elem.getSimpleName().equals(name))

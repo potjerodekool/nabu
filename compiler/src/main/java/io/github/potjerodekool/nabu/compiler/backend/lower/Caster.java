@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.tree.expression.CastExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
@@ -27,12 +27,15 @@ public class Caster implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
                 if (methodReturnType instanceof TypeVariable) {
                     final var className = ((TypeElement) ((DeclaredType) methodTypeReturnType).asElement()).getQualifiedName();
-                    final var identifier = new IdentifierTree(className);
+                    final var identifier = IdentifierTree.create(className);
                     identifier.setType(methodTypeReturnType);
 
-                    final var castExpression = new CastExpressionTree()
-                            .expression(expressionTree)
-                            .targetType(identifier);
+                    final var castExpression = TreeMaker.castExpressionTree(
+                            identifier,
+                            expressionTree,
+                            -1,
+                            -1
+                    );
                     castExpression.setType(methodTypeReturnType);
                     return castExpression;
                 }

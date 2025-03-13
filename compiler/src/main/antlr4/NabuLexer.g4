@@ -47,7 +47,7 @@ RBRACE      : '}';
 LBRACK      : '[';
 RBRACK      : ']';
 
-SEMI_COLOR  : ';';
+SEMI_COLON  : ';';
 DOT         : '.';
 COMMA       : ',';
 ELLIPSIS   : '...';

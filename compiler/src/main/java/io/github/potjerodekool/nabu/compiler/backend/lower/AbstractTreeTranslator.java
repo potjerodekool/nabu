@@ -1,16 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Element;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 
 public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope> {
+
+    @Override
+    public Tree visitUnknown(final Tree tree, final Scope Param) {
+        return null;
+    }
 
     @Override
     public Tree visitCompilationUnit(final CompilationUnit compilationUnit, final Scope scope) {
@@ -31,11 +33,6 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
         }
 
         return function;
-    }
-
-    @Override
-    public Tree visitVariable(final Variable variable, final Scope scope) {
-        return variable;
     }
 
     @Override
@@ -75,7 +72,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     @Override
     public Tree visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final Scope scope) {
         final var variables = lambdaExpression.getVariables().stream()
-                .map(it -> (Variable) it.accept(this, scope))
+                .map(it -> (VariableDeclarator) it.accept(this, scope))
                 .toList();
 
         final var body = (Statement) lambdaExpression.getBody().accept(this, scope);
@@ -87,13 +84,14 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
-        throw new TodoException();
+    public Tree visitBinaryExpression(final BinaryExpressionTree binaryExpression,
+                                      final Scope scope) {
+        return binaryExpression;
     }
 
     @Override
-    public Tree visitFieldAccessExpression(final FieldAccessExpressioTree fieldAccessExpression, final Scope scope) {
-        throw new TodoException();
+    public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final Scope scope) {
+        return fieldAccessExpression;
     }
 
     @Override
@@ -102,7 +100,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
 
         for (int i = 0; i < enclosedElements.size(); i++) {
             var enclosedElement = enclosedElements.get(i);
-            enclosedElement = (Element<? extends Element<?>>) enclosedElement.accept(this, scope);
+            enclosedElement = enclosedElement.accept(this, scope);
             enclosedElements.set(i, enclosedElement);
         }
         return classDeclaration;
@@ -119,37 +117,37 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitStatementExpression(final StatementExpression statementExpression, final Scope scope) {
-        final var expression = statementExpression.getExpression();
+    public Tree visiExpressionStatement(final ExpressionStatement expressionStatement, final Scope scope) {
+        final var expression = expressionStatement.getExpression();
         final var newExpression = (ExpressionTree) expression.accept(this, scope);
 
         if (newExpression != expression) {
-            return statementExpression.builder()
+            return expressionStatement.builder()
                     .expression(newExpression)
                     .build();
         } else {
-            return statementExpression;
+            return expressionStatement;
         }
     }
 
     @Override
-    public Tree visitVariableDeclaratorStatement(final CVariableDeclaratorStatement variableDeclaratorStatement, final Scope scope) {
+    public Tree visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final Scope scope) {
         return variableDeclaratorStatement;
     }
 
     @Override
     public Tree visitPackageDeclaration(final PackageDeclaration packageDeclaration, final Scope scope) {
-        throw new TodoException();
+        return packageDeclaration;
     }
 
     @Override
     public Tree visitImportItem(final ImportItem importItem, final Scope scope) {
-        throw new TodoException();
+        return importItem;
     }
 
     @Override
     public Tree visitPrimitiveType(final PrimitiveTypeTree primitiveType, final Scope scope) {
-        throw new TodoException();
+        return primitiveType;
     }
 
     @Override
@@ -159,32 +157,32 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
 
     @Override
     public Tree visitTypeIdentifier(final TypeApplyTree typeIdentifier, final Scope scope) {
-        throw new TodoException();
+        return typeIdentifier;
     }
 
     @Override
     public Tree visitAnnotatedType(final AnnotatedTypeTree annotatedType, final Scope scope) {
-        throw new TodoException();
+        return annotatedType;
     }
 
     @Override
-    public Tree visitTypeNameExpression(final TypeNameExpressioTree typeNameExpression, final Scope scope) {
-        throw new TodoException();
+    public Tree visitTypeNameExpression(final TypeNameExpressionTree typeNameExpression, final Scope scope) {
+        return typeNameExpression;
     }
 
     @Override
     public Tree visitVariableType(final VariableTypeTree variableType, final Scope scope) {
-        throw new TodoException();
+        return variableType;
     }
 
     @Override
     public Tree visitCastExpression(final CastExpressionTree castExpressionTree, final Scope scope) {
-        throw new TodoException();
+        return castExpressionTree;
     }
 
     @Override
-    public Tree visitWildCardExpression(final WildCardExpressionTree wildCardExpression, final Scope scope) {
-        throw new TodoException();
+    public Tree visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final Scope scope) {
+        return wildCardExpression;
     }
 
     @Override
@@ -202,7 +200,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
 
     @Override
     public Tree visitEmptyStatement(final EmptyStatementTree emptyStatementTree, final Scope scope) {
-        throw new TodoException();
+        return emptyStatementTree;
     }
 
     protected <T extends Tree> T accept(final T tree,
@@ -231,7 +229,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     @Override
     public Tree visitEnhancedForStatement(final EnhancedForStatement enhancedForStatement, final Scope scope) {
         final var newExpression = (ExpressionTree) enhancedForStatement.getExpression().accept(this, scope);
-        final var newLocalVariable = (CVariableDeclaratorStatement) enhancedForStatement.getLocalVariable().accept(this, scope);
+        final var newLocalVariable = (VariableDeclarator) enhancedForStatement.getLocalVariable().accept(this, scope);
         final var newStatement = (Statement) enhancedForStatement.getStatement().accept(this, scope);
 
         return enhancedForStatement.builder()

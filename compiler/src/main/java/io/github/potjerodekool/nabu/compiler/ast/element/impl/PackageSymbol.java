@@ -1,9 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.element.impl;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-
-import java.util.Set;
 
 public class PackageSymbol extends TypeSymbol implements PackageElement {
 
@@ -14,9 +11,9 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     private String qualifiedName;
 
-    public PackageSymbol(final PackageElement parentPackage,
+    public PackageSymbol(final PackageSymbol parentPackage,
                          final String packageName) {
-        super(ElementKind.PACKAGE, Set.of(), packageName, parentPackage);
+        super(ElementKind.PACKAGE, 0, packageName, parentPackage);
         if (packageName.contains(".")) {
             throw new IllegalArgumentException();
         }
@@ -41,7 +38,12 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     @Override
     public <R, P> R accept(final ElementVisitor<R, P> v, final P p) {
-        throw new TodoException();
+        return v.visitPackage(this, p);
+    }
+
+    @Override
+    public <R, P> R accept(final SymbolVisitor<R, P> v, final P p) {
+        return v.visitPackage(this, p);
     }
 
     @Override

@@ -9,7 +9,6 @@ public class CWildcardType extends AbstractType implements WildcardType {
 
     public CWildcardType(final TypeMirror extendsBound,
                          final TypeMirror superBound) {
-
         if (extendsBound != null) {
             this.bound = extendsBound;
             this.boundKind = BoundKind.EXTENDS;

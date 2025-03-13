@@ -14,7 +14,7 @@ public class ReturnTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitClassType(final String name) {
-        returnType = new MutableClassType(loader.resolveClass(name));
+        returnType = new MutableClassType(loader.loadClass(name));
         parent.setReturnType(returnType);
     }
 
@@ -26,7 +26,7 @@ public class ReturnTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectElement = loader.resolveClass(Constants.OBJECT);
+        final var objectElement = loader.loadClass(Constants.OBJECT);
         final var objectType = new MutableClassType(objectElement);
         returnType = new MutableTypeVariable(name, objectType, null);
         parent.setReturnType(returnType);
@@ -51,9 +51,8 @@ public class ReturnTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeArgument() {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
         addTypeArgument(new MutableWildcardType(
-                objectType,
+                null,
                 null
         ));
     }
@@ -61,7 +60,7 @@ public class ReturnTypeVisitor extends AbstractVisitor {
     @Override
     public void visitInnerClassType(final String name) {
         final var innerName = ((MutableClassType)parent.getReturnType()).getClassName() + "$" + name;
-        final var element = loader.resolveClass(innerName);
+        final var element = loader.loadClass(innerName);
         parent.setReturnType(new MutableClassType(element));
     }
 }

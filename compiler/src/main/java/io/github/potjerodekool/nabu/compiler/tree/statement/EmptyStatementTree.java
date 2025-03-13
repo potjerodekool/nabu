@@ -1,10 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
-import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
+public interface EmptyStatementTree extends Statement {
 
-public class EmptyStatementTree extends Statement {
-    @Override
-    public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
-        return visitor.visitEmptyStatement(this, param);
-    }
 }

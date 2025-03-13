@@ -8,7 +8,7 @@ import io.github.potjerodekool.nabu.compiler.type.Types;
 import java.nio.file.Path;
 
 public interface ClassElementLoader {
-    TypeElement resolveClass(String name);
+    TypeElement loadClass(String name);
 
     Types getTypes();
 

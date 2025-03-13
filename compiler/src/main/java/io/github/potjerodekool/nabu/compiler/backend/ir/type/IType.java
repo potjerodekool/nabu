@@ -56,7 +56,7 @@ public sealed abstract class IType permits IIntersectionType, IPrimitiveType, IR
         if (type != null) {
             return type;
         } else if (value instanceof String) {
-            return IReferenceType.create(ITypeKind.CLASS, Constants.STRING, List.of());
+            return IReferenceType.createClassType(null, Constants.STRING, List.of());
         } else if (value instanceof IReferenceType) {
             //TODO class literal ???
             return (IReferenceType) value;

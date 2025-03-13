@@ -23,14 +23,14 @@ public class SignatureParser extends AbstractVisitor {
     private final List<MutableType> exceptionTypes = new ArrayList<>();
     private MutableType returnType;
 
-    public SignatureParser(final Integer api,
+    public SignatureParser(final int api,
                            final ClassElementLoader loader) {
         super(api, loader, null);
     }
 
     @Override
     public void visitFormalTypeParameter(final String name) {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
         formalTypeParameters.add(new MutableTypeVariable(name, objectType, null));
     }
 

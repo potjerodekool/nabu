@@ -1,8 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.Opcodes;
@@ -15,7 +16,7 @@ public class FieldBuilder extends FieldVisitor {
                         final String descriptor,
                         final String signature,
                         final Object value,
-                        final TypeElement clazz,
+                        final ClassSymbol clazz,
                         final AsmTypeResolver asmTypeResolver,
                         final TypeBuilder typeBuilder) {
         super(api);
@@ -29,14 +30,14 @@ public class FieldBuilder extends FieldVisitor {
             type = typeBuilder.parseFieldSignature(signature);
         }
 
-        final var field = new VariableBuilder()
+        final var field = (VariableSymbol) new VariableBuilder()
                 .kind(elementKind)
                 .name(name)
                 .enclosingElement(clazz)
-                .modifiers(Modifiers.parse(access))
+                .modifiers(AccessUtils.parseModifiers(access))
                 .type(type)
+                .constantValue(value)
                 .build();
-
         clazz.addEnclosedElement(field);
     }
 

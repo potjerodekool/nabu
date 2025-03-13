@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.demo;
 
-import io.github.potjerodekool.nabu.lang.jpa.JpaPredicate;
+import io.github.potjerodekool.nabu.lang.jpa.support.JpaPredicate;
 import io.github.potjerodekool.employee.Employee;
 
 public class EmployeeRepository {

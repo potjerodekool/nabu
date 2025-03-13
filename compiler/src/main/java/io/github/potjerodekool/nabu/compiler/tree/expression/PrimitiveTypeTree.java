@@ -1,25 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression;
 
-import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
+public interface PrimitiveTypeTree extends ExpressionTree {
 
-public class PrimitiveTypeTree extends ExpressionTree {
+    Kind getKind();
 
-    private final Kind kind;
-
-    public PrimitiveTypeTree(final Kind kind) {
-        this.kind = kind;
-    }
-
-    public Kind getKind() {
-        return kind;
-    }
-
-    @Override
-    public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
-        return visitor.visitPrimitiveType(this, param);
-    }
-
-    public enum Kind {
+    enum Kind {
         BOOLEAN,
         INT,
         BYTE,

@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
+import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 
@@ -23,25 +23,38 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
+    public Object visitUnknown(final Tree tree, final Object Param) {
+        throw new TodoException();
+    }
+
+    @Override
     public Object visitFunction(final Function function, final Object param) {
         if (function.getDefaultValue() == null) {
             write("fun ").write(function.getSimpleName());
             write("(");
+
+            if (function.getReceiverParameter() != null) {
+                function.getReceiverParameter().accept(this, param);
+                write(", ");
+            }
 
             writeList(function.getParameters(), param);
             write("): ");
 
             if (function.getReturnType() != null) {
                 function.getReturnType().accept(this, param);
+                write(" ");
             }
 
-            write(" ");
+            if (!function.getThrownTypes().isEmpty()) {
+                write("throws ");
+                writeList(function.getThrownTypes(), param, ", ");
+                write(" ");
+            }
 
             if (function.getBody() != null) {
                 function.getBody().accept(this, param);
             }
-
-            newLine();
         } else {
             write(function.getSimpleName());
             write(" = ");
@@ -52,15 +65,8 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitVariable(final Variable variable, final Object param) {
-        write(variable.getSimpleName()).write(" : ");
-        variable.getType().accept(this, param);
-        return null;
-    }
-
-    @Override
     public Object visitBlockStatement(final BlockStatement blockStatement,
-                                        final Object param) {
+                                      final Object param) {
         writeLine("{");
         blockStatement.getStatements().forEach(statement -> statement.accept(this, param));
         writeLine("}");
@@ -70,7 +76,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     @Override
     public Object visitReturnStatement(final ReturnStatement returnStatement,
-                                         final Object param) {
+                                       final Object param) {
         write("return ");
         returnStatement.getExpression().accept(this, param);
         write(";");
@@ -87,7 +93,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final Object param) {
         write("(");
-        writeList(lambdaExpression.getVariables(),param);
+        writeList(lambdaExpression.getVariables(), param);
         write(")");
         write(" -> ");
 
@@ -97,7 +103,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     @Override
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression,
-                                          final Object param) {
+                                        final Object param) {
         binaryExpression.getLeft().accept(this, param);
         write(" ");
 
@@ -110,9 +116,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitFieldAccessExpression(final FieldAccessExpressioTree fieldAccessExpression, final Object param) {
-        fieldAccessExpression.getTarget().accept(this, param);
-        write(".");
+    public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final Object param) {
+        if (fieldAccessExpression.getTarget() != null) {
+            fieldAccessExpression.getTarget().accept(this, param);
+            write(".");
+        }
         fieldAccessExpression.getField().accept(this, param);
         return null;
     }
@@ -196,17 +204,16 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
         switch (literalExpression.getLiteralKind()) {
             case STRING -> write("\"" + literal + "\"");
-            case INTEGER -> write(literal.toString());
             case NULL -> write("null");
-            case BOOLEAN -> write(literal.toString());
-            default -> throw new TodoException();
+            case CHAR -> write("'" + literal + "'");
+            default -> write(literal.toString());
         }
         return null;
     }
 
     @Override
-    public Object visitStatementExpression(final StatementExpression statementExpression, final Object param) {
-        statementExpression.getExpression().accept(this, param);
+    public Object visiExpressionStatement(final ExpressionStatement expressionStatement, final Object param) {
+        expressionStatement.getExpression().accept(this, param);
         write(";");
         return null;
     }
@@ -279,10 +286,23 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitVariableDeclaratorStatement(final CVariableDeclaratorStatement variableDeclaratorStatement, final Object param) {
+    public Object visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final Object param) {
+        if (variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
+            if (variableDeclaratorStatement.getNameExpression() == null) {
+                write(variableDeclaratorStatement.getName().getName()).write(" : ");
+            } else {
+                variableDeclaratorStatement.getNameExpression().accept(this, param);
+                write(" : ");
+            }
+
+
+            variableDeclaratorStatement.getType().accept(this, param);
+            return null;
+        }
+
         variableDeclaratorStatement.getType().accept(this, param);
         write(" ");
-        variableDeclaratorStatement.getIdent().accept(this, param);
+        variableDeclaratorStatement.getName().accept(this, param);
 
         if (variableDeclaratorStatement.getValue() != null) {
             write(" = ");
@@ -331,13 +351,19 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitWildCardExpression(final WildCardExpressionTree wildCardExpression, final Object param) {
-        if (wildCardExpression.getExtendsBound() != null) {
-            throw new TodoException();
-        } else if (wildCardExpression.getSuperBound() != null) {
-            throw new TodoException();
-        } else {
-            write("?");
+    public Object visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final Object param) {
+        final var bound = wildCardExpression.getBound();
+
+        switch (wildCardExpression.getBoundKind()) {
+            case EXTENDS -> {
+                write("? extends ");
+                bound.accept(this, param);
+            }
+            case SUPER -> {
+                write("? super ");
+                bound.accept(this, param);
+            }
+            case UNBOUND -> write("?");
         }
         return null;
     }
@@ -376,7 +402,115 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             writeList(typeParameterTree.getTypeBound(), param, " & ");
         }
 
+        return null;
+    }
 
+    @Override
+    public Object visitAnnotatedType(final AnnotatedTypeTree annotatedType, final Object param) {
+        /*
+        if (annotatedType.getClazz() instanceof ArrayTypeTree arrayTypeTree) {
+            final var componentType = arrayTypeTree.getComponentType();
+            componentType.accept(this, param);
+            writeList(annotatedType.getAnnotations(), param, " ");
+            write("[]");
+            //printArrayTypeComponent(arrayTypeTree, param);
+            //printArrayTypeAnnotations(annotatedType, param);
+            //writeList(annotatedType.getAnnotations(), param, " ");
+            //writeList(annotatedType.getArguments(), param, " ");
+            return null;
+        } else if (annotatedType.getClazz() instanceof AnnotatedTypeTree) {
+            annotatedType.getClazz().accept(this, param);
+
+            return null;
+        } else {
+            return super.visitAnnotatedType(annotatedType, param);
+        }
+         */
+        if (annotatedType.getClazz() instanceof ArrayTypeTree arrayTypeTree) {
+            arrayTypeTree.getComponentType().accept(this, param);
+
+            if (!annotatedType.getAnnotations().isEmpty()) {
+                write(" ");
+                writeList(annotatedType.getAnnotations(), param, " ");
+            }
+
+
+            write("[]");
+            return null;
+        } else {
+            return super.visitAnnotatedType(annotatedType, param);
+        }
+    }
+
+    private void printArrayTypeComponent(final ArrayTypeTree arrayTypeTree,
+                                         final Object param) {
+        final var componentType = arrayTypeTree.getComponentType();
+
+        if (!(componentType instanceof ArrayTypeTree)) {
+            componentType.accept(this, param);
+        }
+    }
+
+    private void printArrayTypeAnnotations(final Tree tree,
+                                           final Object param) {
+        if (tree instanceof AnnotatedTypeTree annotatedType) {
+            writeList(annotatedType.getAnnotations(), param, " ");
+            printArrayTypeAnnotations(annotatedType.getClazz(), param);
+        } else if (tree instanceof ArrayTypeTree arrayTypeTree) {
+            //printArrayTypeAnnotations(arrayTypeTree.getComponentType(), param);
+        }
+    }
+
+    @Override
+    public Object visitArrayType(final ArrayTypeTree arrayTypeTree, final Object param) {
+        final var componentType = arrayTypeTree.getComponentType();
+        componentType.accept(this, param);
+        write("[]");
+        return null;
+    }
+
+    @Override
+    public Object visitPrimitiveType(final PrimitiveTypeTree primitiveType, final Object param) {
+        switch (primitiveType.getKind()) {
+            case BOOLEAN -> write("boolean");
+            case INT -> write("int");
+            case BYTE -> write("byte");
+            case SHORT -> write("short");
+            case LONG -> write("long");
+            case CHAR -> write("char");
+            case FLOAT -> write("float");
+            case DOUBLE -> write("double");
+            case VOID -> write("void");
+        }
+
+        return null;
+    }
+
+    @Override
+    public Object visitAssignment(final AssignmentExpression assignmentExpression, final Object param) {
+        assignmentExpression.getLeft().accept(this, param);
+        write(" = ");
+        assignmentExpression.getRight().accept(this, param);
+        return null;
+    }
+
+    @Override
+    public Object visitNewArray(final NewArrayExpression newArrayExpression,
+                                final Object param) {
+        write("{ ");
+        writeList(newArrayExpression.getElements(), param, ", ");
+        write("}");
+        return null;
+    }
+
+    @Override
+    public Object visitArrayAccess(final ArrayAccessExpression arrayAccessExpression, final Object param) {
+        if (arrayAccessExpression.getExpression() != null) {
+            arrayAccessExpression.getExpression().accept(this, param);
+        }
+        write("[");
+        arrayAccessExpression.getIndex().accept(this, param);
+        write("]");
         return null;
     }
 

@@ -15,13 +15,13 @@ public class SuperClassVisitor extends AbstractVisitor {
 
     @Override
     public void visitClassType(final String name) {
-        final var type = new MutableClassType(loader.resolveClass(name));
+        final var type = new MutableClassType(loader.loadClass(name));
         parent.setSuperType(type);
     }
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
         final var type = new MutableTypeVariable(name, objectType, null);
         parent.setSuperType(type);
     }
@@ -33,9 +33,8 @@ public class SuperClassVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeArgument() {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
         addTypeArgument(new MutableWildcardType(
-                objectType,
+                null,
                 null
         ));
     }
@@ -55,7 +54,7 @@ public class SuperClassVisitor extends AbstractVisitor {
     @Override
     public void visitInnerClassType(final String name) {
         final var innerName = ((MutableClassType)parent.getSuperType()).getClassName() + "$" + name;
-        final var element = loader.resolveClass(innerName);
+        final var element = loader.loadClass(innerName);
         parent.setSuperType(new MutableClassType(element));
     }
 

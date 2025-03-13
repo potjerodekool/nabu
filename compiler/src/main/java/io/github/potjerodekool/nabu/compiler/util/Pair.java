@@ -1,4 +1,4 @@
 package io.github.potjerodekool.nabu.compiler.util;
 
-public record Pair<E>(E first, E second) {
+public record Pair<A,B>(A first, B second) {
 }

@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.ElementFilter;
@@ -41,24 +40,18 @@ public class JpaSymbolResolver implements SymbolResolver {
         final var classSymbol = (TypeElement) parameterType.asElement();
         return ElementFilter.fields(classSymbol).stream()
                 .filter(elem -> elem.getSimpleName().equals(name))
-                .map(elem -> toPathElement(classType, elem))
                 .findFirst()
                 .orElse(null);
     }
 
-    private boolean isJoinType(final DeclaredType classType) {
-        final var classSymbol = (TypeElement) classType.asElement();
+    private boolean isJoinType(final DeclaredType declaredType) {
+        final var classSymbol = (TypeElement) declaredType.asElement();
         return JOIN_CLASS.equals(classSymbol.getQualifiedName());
-    }
-
-    private VariableElement toPathElement(final DeclaredType classType,
-                                          final VariableElement variableElement) {
-        return variableElement;
     }
 
     private TypeMirror getPathType() {
         if (pathType == null) {
-            pathType = (DeclaredType) loader.resolveClass(PATH_CLASS).asType();
+            pathType = (DeclaredType) loader.loadClass(PATH_CLASS).asType();
         }
         return pathType;
     }

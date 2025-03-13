@@ -19,9 +19,9 @@ class MemberOfVisitorTest {
     @Test
     void visitDeclaredType() {
         final var visitor = new MemberOfVisitor(types);
-        final var listSymbol = loader.resolveClass("java.util.List");
+        final var listSymbol = loader.loadClass("java.util.List");
 
-        final var stringSymbol = loader.resolveClass(Constants.STRING);
+        final var stringSymbol = loader.loadClass(Constants.STRING);
 
         final var stringType = types.getDeclaredType(
                 stringSymbol
@@ -40,7 +40,7 @@ class MemberOfVisitorTest {
                 .name("SomeClass")
                 .build();
 
-        final var objectType = loader.resolveClass(Constants.OBJECT).asType();
+        final var objectType = loader.loadClass(Constants.OBJECT).asType();
 
         final var typeVar = types.getTypeVariable(
                 "T",

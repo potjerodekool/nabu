@@ -10,12 +10,18 @@ import io.github.potjerodekool.nabu.compiler.resolve.Boxer;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
+import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
 import io.github.potjerodekool.nabu.compiler.type.Types;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.resolveType;
 
@@ -61,7 +67,7 @@ public class Lower extends AbstractTreeTranslator {
         right = unboxIfNeeded(right, left);
 
         if (left != binaryExpression.getLeft()
-            || right != binaryExpression.getRight()) {
+                || right != binaryExpression.getRight()) {
             return binaryExpression.builder()
                     .left(left)
                     .right(right)
@@ -74,98 +80,130 @@ public class Lower extends AbstractTreeTranslator {
     @Override
     public Tree visitEnhancedForStatement(final EnhancedForStatement enhancedForStatement, final Scope scope) {
         final var expression = (ExpressionTree) enhancedForStatement.getExpression().accept(this, scope);
-        final var localVariable = (CVariableDeclaratorStatement) enhancedForStatement.getLocalVariable().accept(this, scope);
+        final var localVariable = (VariableDeclarator) enhancedForStatement.getLocalVariable().accept(this, scope);
         final var statement = (Statement) enhancedForStatement.getStatement().accept(this, scope);
 
-        final var methodInvocation = new MethodInvocationTree()
-                .target(expression)
-                .name(new IdentifierTree("iterator"));
+        var methodInvocation = TreeMaker.methodInvocationTree(
+                expression,
+                IdentifierTree.create("iterator"),
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
 
-        methodInvocation.setMethodType(methodResolver.resolveMethod(methodInvocation));
+        methodInvocation.setMethodType(methodResolver.resolveMethod(methodInvocation, null));
 
         final var localVariableType = (DeclaredType) localVariable.getType().getType();
         final var iteratorName = generateVariableName();
-        final var iteratorClassElement = loader.resolveClass("java.util.Iterator");
+        final var iteratorClassElement = loader.loadClass("java.util.Iterator");
 
         final var iteratorType = types.getDeclaredType(iteratorClassElement, localVariableType);
 
         final var localVariableElement = new VariableBuilder()
-                .kind(ElementKind.VARIABLE)
+                .kind(ElementKind.LOCAL_VARIABLE)
                 .name(iteratorName)
                 .type(iteratorType)
                 .build();
 
-        final var iteratorTypeTree = new TypeApplyTree(
-                new IdentifierTree("java.util.Iterator"),
-                null
+        final var iteratorTypeTree = TreeMaker.typeApplyTree(
+                IdentifierTree.create("java.util.Iterator"),
+                List.of(),
+                -1,
+                -1
         );
+
         iteratorTypeTree.setType(iteratorType);
 
-        final var forInit = new CVariableDeclaratorStatement(
-                iteratorTypeTree,
-                createIdentifier(iteratorName, localVariableElement),
-                methodInvocation
-        );
+        final var forInit = new VariableDeclaratorBuilder()
+                .kind(Kind.LOCAL_VARIABLE)
+                .modifiers(new CModifiers())
+                .type(iteratorTypeTree)
+                .name(createIdentifier(iteratorName, localVariableElement))
+                .value(methodInvocation)
+                .build();
 
-        final var check = new MethodInvocationTree()
-                .target(createIdentifier(
+        final var check = TreeMaker.methodInvocationTree(
+                createIdentifier(
                         iteratorName,
                         localVariableElement
-                ))
-                .name(new IdentifierTree("hasNext"));
+                ),
+                IdentifierTree.create(
+                        "hasNext"
+                ),
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
 
-        check.setMethodType(methodResolver.resolveMethod(check));
+        check.setMethodType(methodResolver.resolveMethod(check, null));
 
         final var typeTree = createIdentifier(localVariableType);
 
-        final var nextInvocation = new MethodInvocationTree()
-                .target(createIdentifier(iteratorName, localVariableElement))
-                .name(new IdentifierTree("next"));
+        final var nextInvocation = TreeMaker.methodInvocationTree(
+                createIdentifier(iteratorName, localVariableElement),
+                IdentifierTree.create("next"),
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
 
-        nextInvocation.setMethodType(methodResolver.resolveMethod(nextInvocation));
+        nextInvocation.setMethodType(methodResolver.resolveMethod(nextInvocation, null));
 
-        final var castTypeTree = new IdentifierTree(typeTree.getName());
+        final var castTypeTree = IdentifierTree.create(typeTree.getName());
 
         castTypeTree.setType(iteratorType);
 
-        final var cast = new CastExpressionTree()
-                .expression(nextInvocation)
-                        .targetType(castTypeTree);
+        final var cast = TreeMaker.castExpressionTree(
+                castTypeTree,
+                nextInvocation,
+                -1,
+                -1
+        );
 
         cast.setType(localVariableType);
 
-        final var newBody = new BlockStatement();
-        newBody.statement(localVariable.builder()
-                        .type(typeTree)
+        final var statements = new ArrayList<Statement>();
+        statements.add(localVariable.builder()
+                .type(typeTree)
                 .value(cast)
                 .build());
 
         if (statement instanceof BlockStatement blockStatement) {
-            newBody.statement(blockStatement.getStatements());
+            statements.addAll(blockStatement.getStatements());
         } else {
-            newBody.statement(statement);
+            statements.add(statement);
         }
 
-        return new ForStatement(
+        final var newBody = TreeMaker.blockStatement(
+                statements,
+                -1,
+                -1
+        );
+
+        return TreeMaker.forStatement(
                 forInit,
                 check,
                 null,
-                newBody
+                newBody,
+                -1,
+                -1
         );
     }
 
     private IdentifierTree createIdentifier(final DeclaredType declaredType) {
         final var classSymbol = (TypeElement) declaredType.asElement();
         final var className = classSymbol.getQualifiedName();
-
-        final var identifier = new IdentifierTree(className);
+        final var identifier = IdentifierTree.create(className);
         identifier.setType(declaredType);
         return identifier;
     }
 
     private IdentifierTree createIdentifier(final String name,
                                             final Element element) {
-        final var identifier = new IdentifierTree(name);
+        final var identifier = IdentifierTree.create(name);
         identifier.setSymbol(element);
         return identifier;
     }

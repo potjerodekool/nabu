@@ -16,7 +16,7 @@ public class ParameterTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitClassType(final String name) {
-        parameterType = new MutableClassType(loader.resolveClass(name));
+        parameterType = new MutableClassType(loader.loadClass(name));
         parent.addParameterType(parameterType);
     }
 
@@ -28,7 +28,7 @@ public class ParameterTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
         parameterType = new MutableTypeVariable(name, objectType, null);
         parent.addParameterType(parameterType);
     }
@@ -52,9 +52,8 @@ public class ParameterTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeArgument() {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
         addTypeArgument(new MutableWildcardType(
-                objectType,
+                null,
                 null
         ));
     }
@@ -62,7 +61,7 @@ public class ParameterTypeVisitor extends AbstractVisitor {
     @Override
     public void visitInnerClassType(final String name) {
         final var innerName = ((MutableClassType)parent.getLastParameterType()).getClassName() + "$" + name;
-        final var element = loader.resolveClass(innerName);
+        final var element = loader.loadClass(innerName);
         parent.replaceLastParameterType(new MutableClassType(element));
     }
 }

@@ -1,10 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementVisitor;
-import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeParameterElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
 import java.util.ArrayList;
@@ -25,8 +22,13 @@ class TypeArgApplyer implements ElementVisitor<TypeMirror, Map<String, TypeMirro
     }
 
     @Override
-    public TypeMirror visitExecutableElement(final ExecutableElement methodSymbol,
-                                             final Map<String, TypeMirror> typeArgMap) {
+    public TypeMirror visitUnknown(final Element e, final Map<String, TypeMirror> map) {
+        return null;
+    }
+
+    @Override
+    public TypeMirror visitExecutable(final ExecutableElement methodSymbol,
+                                      final Map<String, TypeMirror> typeArgMap) {
         final var methodType = (ExecutableType) methodSymbol.asType();
         final var returnType = methodType.getReturnType().accept(this, typeArgMap);
         final var argumentTypes = methodType.getParameterTypes().stream()
@@ -45,7 +47,7 @@ class TypeArgApplyer implements ElementVisitor<TypeMirror, Map<String, TypeMirro
     }
 
     @Override
-    public TypeMirror visitTypeParameterElement(final TypeParameterElement typeParameterElement, final Map<String, TypeMirror> map) {
+    public TypeMirror visitTypeParameter(final TypeParameterElement typeParameterElement, final Map<String, TypeMirror> map) {
         throw new TodoException();
     }
 
@@ -56,13 +58,13 @@ class TypeArgApplyer implements ElementVisitor<TypeMirror, Map<String, TypeMirro
     }
 
     @Override
-    public TypeMirror visitDeclaredType(final DeclaredType classType, final Map<String, TypeMirror> typeArgMap) {
-        final var typeArgs = classType.getTypeArguments().stream()
+    public TypeMirror visitDeclaredType(final DeclaredType declaredType, final Map<String, TypeMirror> typeArgMap) {
+        final var typeArgs = declaredType.getTypeArguments().stream()
                 .map(it -> it.accept(this, typeArgMap))
                 .toArray(TypeMirror[]::new);
 
         return types.getDeclaredType(
-                (TypeElement) classType.asElement(),
+                (TypeElement) declaredType.asElement(),
                 typeArgs
         );
     }

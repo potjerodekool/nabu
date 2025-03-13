@@ -18,14 +18,14 @@ public class ExceptionTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.resolveClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
         exceptionType = new MutableTypeVariable(name, objectType, null);
         parent.addExceptionType(exceptionType);
     }
 
     @Override
     public void visitClassType(final String name) {
-        exceptionType = new MutableClassType(loader.resolveClass(name));
+        exceptionType = new MutableClassType(loader.loadClass(name));
         parent.addExceptionType(exceptionType);
     }
 }

@@ -2,32 +2,27 @@ package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.Flags;
 import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.StandardElementMetaData;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IBlockStatement;
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IExpressionStatement;
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IVariableDeclaratorStatement;
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Move;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.ITypeKind;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
-import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Element;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
+import io.github.potjerodekool.nabu.compiler.tree.*;
+import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CReturnStatement;
 import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import static io.github.potjerodekool.nabu.compiler.backend.ir.expression.Eseq.eseq;
 
@@ -35,10 +30,33 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     private final TypeResolver typeResolver = new TypeResolver();
     private final ToIType toIType = new ToIType();
+    private final Types types;
+
+    public Translate(final Types types) {
+        this.types = types;
+    }
+
+    @Override
+    public Exp visitUnknown(final Tree tree, final TranslateContext Param) {
+        return null;
+    }
 
     @Override
     public Exp visitCompilationUnit(final CompilationUnit compilationUnit, final TranslateContext context) {
         return super.visitCompilationUnit(compilationUnit, new TranslateContext());
+    }
+
+    @Override
+    public Exp visitClass(final ClassDeclaration classDeclaration, final TranslateContext context) {
+        final var parentClass = context.classDeclaration;
+        context.classDeclaration = classDeclaration;
+        final var result = super.visitClass(classDeclaration, context);
+        final var clientInitOptional = generateClientInit(classDeclaration);
+
+        clientInitOptional.ifPresent(clientInit -> clientInit.accept(this, context));
+
+        context.classDeclaration = parentClass;
+        return result;
     }
 
     @Override
@@ -47,12 +65,14 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         context.function = function;
         context.frame = frame;
 
-        final var clazz = (ClassDeclaration) function.getEnclosingElement();
-        final var className = clazz.getQualifiedName();
-        final var method = function.methodSymbol;
+        final var clazz = context.classDeclaration;
+        final var className = clazz.getClassSymbol().getQualifiedName();
+        final var method = (MethodSymbol) function.getMethodSymbol();
 
-        if (!method.isStatic() && !method.isAbstract()) {
-            frame.allocateLocal("this", IReferenceType.create(ITypeKind.CLASS, className, List.of()), false);
+        if (!method.isStatic()
+                && !method.isAbstract()
+            && !method.isNative()) {
+            frame.allocateLocal(Constants.THIS, IReferenceType.createClassType( null, className, List.of()), false);
         }
 
         function.getParameters().forEach(p -> p.accept(this, context));
@@ -60,9 +80,16 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         Exp exp;
 
         if (function.getBody() != null) {
-            exp = function.getBody().accept(this, context);
+            final var body = function.getBody();
+
+            if (body.getStatements().isEmpty()) {
+                body.addStatement(new ReturnStatementBuilder()
+                        .build()
+                );
+            }
+            exp = body.accept(this, context);
         } else {
-            exp = new Nx(null);
+            exp = new Nx(new Move(new TempExpr(), new TempExpr(Frame.RV, frame, null)));
         }
 
         var bodyStm = exp.unNx();
@@ -78,12 +105,10 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                 : null;
 
 
-        final var name = function.getKind() == Element.Kind.CONSTRUCTOR
-                ? "<init>"
-                : function.getSimpleName();
+        final var name = function.getSimpleName();
 
         final var procFrag = new ProcFrag(
-                Flags.parse(method.getModifiers()),
+                method.getFlags(),
                 name,
                 retType,
                 frame,
@@ -94,20 +119,103 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         return null;
     }
 
-    @Override
-    public Exp visitVariable(final Variable variable, final TranslateContext context) {
-        if (variable.getKind() == Element.Kind.LOCAL_VARIABLE
-                || variable.getKind() == Element.Kind.PARAMETER) {
-            final var variableType = variable.getVarSymbol().asType();
-            final var type = variableType.accept(typeResolver, context);
-            final var frame = context.frame;
-            frame.allocateLocal(
-                    variable.getSimpleName(),
-                    type,
-                    variable.getKind() == Element.Kind.PARAMETER);
+    private Optional<Function> generateClientInit(final ClassDeclaration classDeclaration) {
+        final var className = classDeclaration.getClassSymbol().getQualifiedName();
+
+        final var fields = TreeFilter.fields(classDeclaration).stream()
+                .filter(field -> field.hasFlag(Flags.STATIC))
+                .filter(field -> field.getValue() != null)
+                .toList();
+
+        Function clientInit = null;
+
+        for (final var field : fields) {
+            final var fieldValue = (ExpressionTree) field.getValue();
+
+            if (field.hasFlag(Flags.FINAL) != (fieldValue instanceof LiteralExpressionTree)) {
+                if (clientInit == null) {
+                    clientInit = findOrCreateClientInit(classDeclaration);
+                }
+
+                final var body = clientInit.getBody();
+
+                final var expressionTree = TreeMaker.binaryExpressionTree(
+                        TreeMaker.fieldAccessExpressionTree(
+                                IdentifierTree.create(
+                                        className
+                                ),
+                                field.getName(),
+                                -1,
+                                -1
+                        ),
+                        Tag.ASSIGN,
+                        fieldValue,
+                        -1,
+                        -1
+                );
+
+                body.addStatement(
+                        TreeMaker.expressionStatement(
+                                expressionTree,
+                                -1,
+                                -1
+                        )
+                );
+            }
         }
 
-        return super.visitVariable(variable, context);
+        if (clientInit != null) {
+            clientInit.getBody().addStatement(
+                    new ReturnStatementBuilder()
+                            .build()
+            );
+        }
+
+        return Optional.ofNullable(clientInit);
+    }
+
+    private Function findOrCreateClientInit(final ClassDeclaration classDeclaration) {
+        return classDeclaration.getEnclosedElements().stream()
+                .flatMap(CollectionUtils.mapOnly(Function.class))
+                .filter(function -> Constants.CLINIT.equals(function.getSimpleName()))
+                .findFirst()
+                .orElseGet(() -> {
+                    final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
+
+                    final var method = (MethodSymbol) new MethodBuilder()
+                            .kind(ElementKind.STATIC_INIT)
+                            .modifiers(Modifier.STATIC)
+                            .name(Constants.CLINIT)
+                            .returnType(types.getNoType(TypeKind.VOID))
+                            .build();
+
+
+                    final var function = TreeMaker.function(
+                            Constants.CLINIT,
+                            Kind.STATIC_INIT,
+                            new CModifiers(
+                                    List.of(),
+                                    Flags.STATIC
+                            ),
+                            List.of(),
+                            null,
+                            List.of(),
+                            TreeMaker.primitiveTypeTree(
+                                    PrimitiveTypeTree.Kind.VOID,
+                                    -1,
+                                    -1
+                            ),
+                            List.of(),
+                            TreeMaker.blockStatement(List.of(), -1, -1),
+                            null,
+                            -1,
+                            -1
+                    );
+                    function.setMethodSymbol(method);
+                    clazz.addEnclosedElement(method);
+
+                    return function;
+                });
     }
 
     @Override
@@ -118,8 +226,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitTypeNameExpression(final TypeNameExpressioTree cTypeNameExpression, final TranslateContext context) {
-        throw new TodoException("");
+    public Exp visitTypeNameExpression(final TypeNameExpressionTree cTypeNameExpression, final TranslateContext context) {
+        throw new TodoException();
     }
 
     @Override
@@ -192,7 +300,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                 .map(this::toIType)
                 .toList();
 
-        final var call = new DefaultCall(
+        final var call = new Call(
                 invocationType,
                 new Name(owner),
                 new Name(name),
@@ -254,7 +362,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         Frame parentFrame = context.frame;
         context.frame = parentFrame.subFrame();
 
-        final var irBlockStatement = new IBlockStatement();
+        final var iStatements = new ArrayList<IStatement>();
 
         final var statements = blockStatement.getStatements().iterator();
 
@@ -263,12 +371,12 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         while (statements.hasNext()) {
             final var next = statements.next();
             exp = next.accept(this, context);
-            irBlockStatement.addStatement(exp.unNx());
+            iStatements.add(exp.unNx());
         }
 
         context.frame = parentFrame;
 
-        return new Nx(irBlockStatement);
+        return new Nx(new IBlockStatement(iStatements));
     }
 
     @Override
@@ -310,7 +418,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         final var lambdaFunctionType = (ExecutableType) lambdaFunction.asType();
 
-        final var lambdaFunctionCall = new DefaultCall(
+        final var lambdaFunctionCall = new Call(
                 InvocationType.STATIC,
                 null,
                 new Name(lambdaFunction.getSimpleName()),
@@ -324,17 +432,17 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         final var lambdaReturnType = toIType(lambdaMethodType.getReturnType());
 
         return new Ex(
-                new DynamicCall(
+                new Call(
                         new Name(name),
-                        IReferenceType.create(
-                                ITypeKind.CLASS,
+                        IReferenceType.createClassType(
+                                null,
                                 lambdaClass.getQualifiedName(),
                                 List.of()
                         ),
                         paramTypes,
                         arguments,
                         lambdaFunctionCall,
-                        new DefaultCall(
+                        new Call(
                                 InvocationType.STATIC,
                                 null,
                                 new Name(lambdaFunctionName),
@@ -394,10 +502,22 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitVariableDeclaratorStatement(final CVariableDeclaratorStatement variableDeclaratorStatement, final TranslateContext context) {
+    public Exp visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement,
+                                                final TranslateContext context) {
+        if (variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
+            final var variableType = variableDeclaratorStatement.getName().getSymbol().asType();
+            final var type = variableType.accept(typeResolver, context);
+            final var frame = context.frame;
+            frame.allocateLocal(
+                    variableDeclaratorStatement.getName().getName(),
+                    type,
+                    variableDeclaratorStatement.getKind() == Kind.PARAMETER);
+            return null;
+        }
+
         if (variableDeclaratorStatement.getValue() != null) {
             final var value = variableDeclaratorStatement.getValue().accept(this, context);
-            final var identifier = variableDeclaratorStatement.getIdent();
+            final var identifier = variableDeclaratorStatement.getName();
             final var varType = toIType(variableDeclaratorStatement.getType().getType());
 
             var src = value.unEx();
@@ -465,7 +585,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitFieldAccessExpression(final FieldAccessExpressioTree fieldAccessExpression, final TranslateContext context) {
+    public Exp visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final TranslateContext context) {
         final var target = (IdentifierTree) fieldAccessExpression.getTarget();
         final var field = (IdentifierTree) fieldAccessExpression.getField();
         final var fieldType = toIType(TreeUtils.resolveType(field));
@@ -502,10 +622,10 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitStatementExpression(final StatementExpression statementExpression, final TranslateContext context) {
-        final var expr = statementExpression.getExpression().accept(this, context).unEx();
+    public Exp visiExpressionStatement(final ExpressionStatement expressionStatement, final TranslateContext context) {
+        final var expr = expressionStatement.getExpression().accept(this, context).unEx();
         final var es = new IExpressionStatement(expr);
-        es.setLineNumber(statementExpression.getLineNumber());
+        es.setLineNumber(expressionStatement.getLineNumber());
         return new Nx(es);
     }
 

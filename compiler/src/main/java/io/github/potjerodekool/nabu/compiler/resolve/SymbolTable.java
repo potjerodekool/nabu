@@ -3,6 +3,8 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 import io.github.potjerodekool.nabu.compiler.ast.element.PackageElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.PackageElementBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -10,7 +12,7 @@ import java.util.Map;
 public class SymbolTable {
 
     private final Map<String, TypeElement> classes = new HashMap<>();
-    private final Map<String, PackageElement> packages = new HashMap<>();
+    private final Map<String, PackageSymbol> packages = new HashMap<>();
 
 
     public TypeElement getClassSymbol(final String internalName) {
@@ -22,7 +24,7 @@ public class SymbolTable {
         this.classes.put(internalName, type);
     }
 
-    public PackageElement findPackage(final String packageName) {
+    public PackageSymbol findPackage(final String packageName) {
         return packages.get(packageName);
     }
 
@@ -42,7 +44,7 @@ public class SymbolTable {
         return packageElement;
     }
 
-    private PackageElement doFindOrCreatePackage(final PackageElement parentPackage,
+    private PackageSymbol doFindOrCreatePackage(final PackageSymbol parentPackage,
                                                  final String packageName) {
         var packageElement = packages.get(packageName);
 

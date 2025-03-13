@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
@@ -33,18 +33,26 @@ public abstract class AbstractJpaTransformer extends AbstractResolver {
             final var methodName = "equal".equals(operatorMethodName)
                     ? "isNull"
                     : "isNotNull";
-            builderCall = new MethodInvocationTree()
-                    .target(builderIdentifier)
-                    .name(new IdentifierTree(methodName))
-                    .arguments(arguments[0]);
-        } else {
-            builderCall = new MethodInvocationTree()
-                    .target(builderIdentifier)
-                    .name(new IdentifierTree(operatorMethodName))
-                    .arguments(arguments);
-        }
+            builderCall = TreeMaker.methodInvocationTree(
+                    builderIdentifier,
+                    IdentifierTree.create(methodName),
+                    typeArguments,
+                    List.of(arguments[0]),
+                    -1,
+                    -1
+            );
 
-        builderCall.typeArguments(typeArguments);
+        } else {
+            builderCall = TreeMaker
+                    .methodInvocationTree(
+                            builderIdentifier,
+                            IdentifierTree.create(operatorMethodName),
+                            typeArguments,
+                            List.of(arguments),
+                            -1,
+                            -1
+                    );
+        }
 
         resolveMethodCall(builderCall);
 
@@ -74,17 +82,12 @@ public abstract class AbstractJpaTransformer extends AbstractResolver {
     }
 
     private void resolveMethodCall(final MethodInvocationTree methodInvocation) {
-        final var resolvedMethodType = this.compilerContext.getMethodResolver().resolveMethod(methodInvocation);
-
-        if (resolvedMethodType == null) {
-            throw new TodoException();
-        } else {
-            methodInvocation.setMethodType(resolvedMethodType);
-        }
+        final var resolvedMethodType = this.compilerContext.getMethodResolver().resolveMethod(methodInvocation, null);
+        methodInvocation.setMethodType(resolvedMethodType);
     }
 
     protected TypeMirror resolvePathType() {
-        return loader.resolveClass(PATH_CLASS).asType();
+        return loader.loadClass(PATH_CLASS).asType();
     }
 
     @Override

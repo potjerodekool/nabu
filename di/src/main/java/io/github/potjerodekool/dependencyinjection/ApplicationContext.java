@@ -1,10 +1,10 @@
 package io.github.potjerodekool.dependencyinjection;
 
+import io.github.potjerodekool.dependency.Conditional;
 import io.github.potjerodekool.dependencyinjection.bean.BeanDefinition;
 import io.github.potjerodekool.dependencyinjection.scope.*;
 import io.github.potjerodekool.dependencyinjection.test.ConditionalTest;
 
-import java.beans.ConstructorProperties;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Executable;
 import java.util.*;
@@ -32,7 +32,7 @@ public class ApplicationContext {
     }
 
     private boolean isCondition(final Class<? extends Annotation> annotation) {
-        return annotation.getAnnotation(ConstructorProperties.class) != null;
+        return annotation.getAnnotation(Conditional.class) != null;
     }
 
     private boolean testConditions(final BeanDefinition<?> beanDefinition) {
@@ -75,7 +75,7 @@ public class ApplicationContext {
         try {
             final var instance = beanDefinition.getAutoConfigInstance();
             final var method = beanDefinition.getBeanMethod();
-            return (T) method.invoke(instance, arguments);
+            return beanDefinition.getBeanType().cast(method.invoke(instance, arguments));
         } catch (final Exception e) {
             throw new RuntimeException(e);
         }

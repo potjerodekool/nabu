@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler;
 import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.dependencyinjection.ClassPathScanner;
 import io.github.potjerodekool.nabu.compiler.ast.element.StandardElementMetaData;
+import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Translate;
 import io.github.potjerodekool.nabu.compiler.backend.lower.Lower;
 import io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda.LambdaToMethod;
@@ -11,7 +12,7 @@ import io.github.potjerodekool.nabu.compiler.diagnostic.DelegateDiagnosticListen
 import io.github.potjerodekool.nabu.compiler.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.enhance.Enhancer;
-import io.github.potjerodekool.nabu.compiler.backend.generate.CodeGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
@@ -77,7 +78,7 @@ public class NabuCompiler implements AutoCloseable {
         }
 
         compilationUnits.forEach(compilationUnit -> {
-            final var generator = new CodeGenerator();
+            final ByteCodeGenerator generator = new AsmByteCodeGenerator();
 
             final var packageDeclaration = compilationUnit.getPackageDeclaration();
 
@@ -86,13 +87,13 @@ public class NabuCompiler implements AutoCloseable {
             final var bytecode = generator.getBytecode();
 
             final var name = clazz.getSimpleName();
-            final var outputPath  = Path.of(name + ".class");
+            final var outputPath = Path.of(name + ".class");
 
             Path outputDirectory;
 
             if (packageDeclaration != null) {
                 final var packagePath = Paths.get(packageDeclaration.getPackageName()
-                                .replace('.', File.separatorChar));
+                        .replace('.', File.separatorChar));
                 outputDirectory = targetDirectory.resolve(packagePath);
             } else {
                 outputDirectory = targetDirectory;
@@ -193,9 +194,9 @@ public class NabuCompiler implements AutoCloseable {
         compilationUnit.accept(phase1Resolver, null);
 
         compilationUnit.getClasses().stream()
-                        .findFirst().ifPresent(classDeclaration -> {
-                            final var classSymbol = classDeclaration.classSymbol;
-                            classSymbol.setMetaData(StandardElementMetaData.FILE_OBJECT, fileObject);
+                .findFirst().ifPresent(classDeclaration -> {
+                    final var classSymbol = classDeclaration.getClassSymbol();
+                    classSymbol.setMetaData(StandardElementMetaData.FILE_OBJECT, fileObject);
                 });
     }
 
@@ -232,7 +233,7 @@ public class NabuCompiler implements AutoCloseable {
     }
 
     public void ir(final CompilationUnit compilationUnit) {
-        final var translate = new Translate();
+        final var translate = new Translate(classElementLoader.getTypes());
         compilationUnit.accept(translate, null);
     }
 

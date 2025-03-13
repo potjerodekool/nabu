@@ -38,9 +38,7 @@ public class ContainsType extends TypeRelation {
     public TypeMirror getUpperBound(final TypeMirror type) {
         if (type instanceof WildcardType wildcardType) {
             if (wildcardType.isSuperBound()) {
-                return wildcardType.getBound() != null
-                        ? null
-                        : null;
+                return wildcardType.getBound();
             } else {
                 return getUpperBound(wildcardType.getBound());
             }

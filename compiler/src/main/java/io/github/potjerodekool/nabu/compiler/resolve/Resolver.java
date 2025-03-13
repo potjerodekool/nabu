@@ -16,7 +16,7 @@ public class Resolver {
     }
 
     public Element resolveClass(final String name) {
-        var clazz = classElementLoader.resolveClass(name);
+        var clazz = classElementLoader.loadClass(name);
 
         if (clazz == null) {
             return resolveInImportScope(name);

@@ -7,13 +7,13 @@ import java.util.List;
 
 public class ProcFrag {
 
-    private final int flags;
+    private final long flags;
     private final String name;
     private final IType returnType;
     private final Frame frame;
     private final List<IStatement> body;
 
-    public ProcFrag(final int flags,
+    public ProcFrag(final long flags,
                     final String name,
                     final IType returnType,
                     final Frame frame,
@@ -21,7 +21,7 @@ public class ProcFrag {
         this(flags, name, returnType, frame, List.of(body));
     }
 
-    public ProcFrag(final int flags,
+    public ProcFrag(final long flags,
                     final String name,
                     final IType returnType,
                     final Frame frame,
@@ -33,7 +33,7 @@ public class ProcFrag {
         this.body = body;
     }
 
-    public int getFlags() {
+    public long getFlags() {
         return flags;
     }
 

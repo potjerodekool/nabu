@@ -20,9 +20,10 @@ public class MemberOfVisitor implements TypeVisitor<TypeMirror, Element> {
     }
 
     @Override
-    public TypeMirror visitDeclaredType(final DeclaredType classType, final Element element) {
-        final var typeArguments = classType.getTypeArguments();
-        final var clazz = (TypeElement) classType.asElement();
+    public TypeMirror visitDeclaredType(final DeclaredType declaredType,
+                                        final Element element) {
+        final var typeArguments = declaredType.getTypeArguments();
+        final var clazz = (TypeElement) declaredType.asElement();
         final var typeParameters = clazz.getTypeParameters();
 
         final var typeArgMap = new HashMap<String, TypeMirror>();

@@ -9,8 +9,8 @@ public abstract class AbstractTypeVisitor<R,P> implements TypeVisitor<R, P> {
     }
 
     @Override
-    public R visitDeclaredType(final DeclaredType classType, final P param) {
-        return visitType(classType, param);
+    public R visitDeclaredType(final DeclaredType declaredType, final P param) {
+        return visitType(declaredType, param);
     }
 
     @Override

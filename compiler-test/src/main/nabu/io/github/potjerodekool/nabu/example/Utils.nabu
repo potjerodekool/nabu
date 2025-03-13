@@ -2,11 +2,6 @@ package io.github.potjerodekool.nabu.example;
 
 public class Utils {
 
-private Utils() {
-    this.super();
-    return;
-}
-
 static fun isTrue(b: boolean): boolean {
     if (b) {
         return true;

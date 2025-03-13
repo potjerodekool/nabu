@@ -1,16 +1,25 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CWhileStatement;
 
-public class WhileStatementBuilder extends StatementBuilder<WhileStatement> {
+public class WhileStatementBuilder extends StatementBuilder<WhileStatement, WhileStatementBuilder> {
 
-    ExpressionTree condition;
-    Statement body;
+    private ExpressionTree condition;
+    private Statement body;
 
-    protected WhileStatementBuilder(final WhileStatement original) {
+    public WhileStatementBuilder(final WhileStatement original) {
         super(original);
-        this.condition = original.condition;
-        this.body = original.body;
+        this.condition = original.getCondition();
+        this.body = original.getBody();
+    }
+
+    public ExpressionTree getCondition() {
+        return condition;
+    }
+
+    public Statement getBody() {
+        return body;
     }
 
     @Override
@@ -30,6 +39,6 @@ public class WhileStatementBuilder extends StatementBuilder<WhileStatement> {
 
     @Override
     public WhileStatement build() {
-        return new WhileStatement(this);
+        return new CWhileStatement(this);
     }
 }

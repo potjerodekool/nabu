@@ -50,11 +50,11 @@ public class WideningConverter implements ExpressionConverter {
     }
 
     private ExpressionTree visitDeclaredType(final ExpressionTree expressionTree,
-                                             final DeclaredType classType,
+                                             final DeclaredType declaredType,
                                              final TypeMirror otherType) {
-        if (types.isBoxType(classType)) {
+        if (types.isBoxType(declaredType)) {
             if (otherType instanceof PrimitiveType otherPrimitiveType) {
-                final var primitiveKind = types.unboxedType(classType).getKind();
+                final var primitiveKind = types.unboxedType(declaredType).getKind();
                 final var otherPrimitiveKind = otherPrimitiveType.getKind();
 
                 if (primitiveKind == otherPrimitiveKind) {

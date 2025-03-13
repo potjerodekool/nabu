@@ -25,9 +25,9 @@ typeIdentifier
     | contextualKeywordMinusForTypeIdentifier
     ;
 
-unqualifiedMethodIdentifier
+unqualifiedFunctionIdentifier
     : Identifier
-    | contextualKeywordMinusForUnqualifiedMethodIdentifier
+    | contextualKeywordMinusForUnqualifiedFunctionIdentifier
     ;
 
 // 3.9 Keywords
@@ -71,7 +71,7 @@ contextualKeywordMinusForTypeIdentifier
     ;
 
 
-contextualKeywordMinusForUnqualifiedMethodIdentifier
+contextualKeywordMinusForUnqualifiedFunctionIdentifier
     : 'exports'
     | 'module'
     | 'non-sealed'
@@ -230,8 +230,8 @@ wildcard
     ;
 
 wildcardBounds
-    : 'extends' referenceType
-    | 'super' referenceType
+    : kind='extends' referenceType
+    | kind='super' referenceType
     ;
 
 // Paragraph 6.5
@@ -260,8 +260,8 @@ expressionName
     : (ambiguousName '.')? identifier
     ;
 
-methodName
-    : unqualifiedMethodIdentifier
+functionName
+    : unqualifiedFunctionIdentifier
     ;
 
 ambiguousName
@@ -511,7 +511,7 @@ unannArrayType
 // -------------
 
 functionDeclaration
-    : functionModifier* functionHeader methodBody
+    : functionModifier* functionHeader functionBody
     ;
 
 functionModifier
@@ -541,7 +541,8 @@ functionDeclarator
     ;
 
 receiverParameter
-    : annotation* unannType (identifier '.')? 'this'
+    //: annotation* unannType (identifier '.')? 'this'
+    : (identifier '.')? 'this' ':' annotation* unannType
     ;
 
 formalParameterList
@@ -575,7 +576,7 @@ exceptionType
     | typeVariable
     ;
 
-methodBody
+functionBody
     : block
     | ';'
     ;
@@ -733,7 +734,7 @@ interfaceBody
 
 interfaceMemberDeclaration
     : constantDeclaration
-    | interfaceMethodDeclaration
+    | interfaceFunctionDeclaration
     | classDeclaration
     | interfaceDeclaration
     | ';'
@@ -756,11 +757,11 @@ constantModifier
 // Paragraph 9.4
 // -------------
 
-interfaceMethodDeclaration
-    : interfaceMethodModifier* functionHeader methodBody
+interfaceFunctionDeclaration
+    : interfaceFunctionModifier* functionHeader functionBody
     ;
 
-interfaceMethodModifier
+interfaceFunctionModifier
     : annotation
     | 'public'
     | 'private'
@@ -966,7 +967,7 @@ statementExpression
     | preDecrementExpression
     | postIncrementExpression
     | postDecrementExpression
-    | methodInvocation
+    | functionInvocation
     | classInstanceCreationExpression
     ;
 
@@ -1202,70 +1203,6 @@ primary
     | arrayCreationExpression
     ;
 
-// Replace classInstanceCreationExpression, fieldAccess, arrayAccess, methodInvocation, and
-// methodReference in primaryNoNewArray.
-// Replace in these two rules primary by primaryNoNewArray.
-
-// primaryNoNewArray
-//         : literal
-//         | classLiteral
-//         | 'this'
-//         | typeName '.' 'this'
-//         | '(' expression ')'
-//         | classInstanceCreationExpression
-//         | fieldAccess
-//         | arrayAccess
-//         | methodInvocation
-//         | methodReference
-//         ;
-//
-
-// primaryNoNewArray
-//         : literal
-//         | classLiteral
-//         | 'this'
-//         | typeName '.' 'this'
-//         | '(' expression ')'
-//         |                                  unqualifiedClassInstanceCreationExpression
-//         | expressionName              '.'  unqualifiedClassInstanceCreationExpression
-//
-//         | primaryNoNewArray           '.'  unqualifiedClassInstanceCreationExpression
-//         | arrayCreationExpression     '.'  unqualifiedClassInstanceCreationExpression
-//
-//         | primaryNoNewArray           '.'  Identifier
-//         | arrayCreationExpression     '.'  Identifier
-//
-//         | 'super'  '.'                     Identifier
-//         | typeName '.' 'super'        '.'  Identifier
-//
-//         | expressionName                         '[' expression ']'
-//         | primaryNoNewArray                      '[' expression ']'
-//         | arrayCreationExpressionWithInitializer '[' expression ']'
-//
-//         | methodName                                                 '(' argumentList? ')'
-//         | typeName                    '.'  typeArguments? Identifier '(' argumentList? ')'
-//         | expressionName              '.'  typeArguments? Identifier '(' argumentList? ')'
-//
-//         | primaryNoNewArray           '.'  typeArguments? Identifier '(' argumentList? ')'
-//         | arrayCreationExpression     '.'  typeArguments? Identifier '(' argumentList? ')'
-//
-//         | 'super'                     '.'  typeArguments? Identifier '(' argumentList? ')'
-//         | typeName       '.' 'super'  '.'  typeArguments? Identifier '(' argumentList? ')'
-//
-//         | expressionName              '::' typeArguments? Identifier
-//
-//         | primaryNoNewArray           '::' typeArguments? Identifier
-//         | arrayCreationExpression     '::' typeArguments? Identifier
-//
-//
-//         | referenceType               '::' typeArguments? Identifier
-//         | 'super'                     '::' typeArguments? Identifier
-//         | typeName '.' 'super'        '::' typeArguments? Identifier
-//         | classType                   '::' typeArguments? 'new'
-//         | arrayType                   '::'                'new'
-//         ;
-//
-
 primaryNoNewArray
     : literal pNNA?
     | classLiteral pNNA?
@@ -1280,7 +1217,7 @@ primaryNoNewArray
     | typeName '.' 'super' '.' identifier pNNA?
     | expressionName '[' expression ']' pNNA?
     | arrayCreationExpressionWithInitializer '[' expression ']' pNNA?
-    | methodName '(' argumentList? ')' pNNA?
+    | functionName '(' argumentList? ')' pNNA?
     | typeName '.' typeArguments? identifier '(' argumentList? ')' pNNA?
     | expressionName '.' typeArguments? identifier '(' argumentList? ')' pNNA?
     | arrayCreationExpression '.' typeArguments? identifier '(' argumentList? ')' pNNA?
@@ -1376,13 +1313,13 @@ fieldAccess
 // Paragraph 15.12
 // ---------------
 
-methodInvocation
-    : methodName '(' argumentList? ')'
+functionInvocation
+    : functionName '(' argumentList? ')'
     | typeName '.' typeArguments? identifier '(' argumentList? ')'
     | expressionName '.' typeArguments? identifier '(' argumentList? ')'
     | primary '.' typeArguments? identifier '(' argumentList? ')'
-    | 'super' '.' typeArguments? identifier '(' argumentList? ')'
-    | typeName '.' 'super' '.' typeArguments? identifier '(' argumentList? ')'
+    | super='super' '.' typeArguments? identifier '(' argumentList? ')'
+    | typeName '.' super='super' '.' typeArguments? identifier '(' argumentList? ')'
     ;
 
 argumentList
@@ -1392,7 +1329,7 @@ argumentList
 // Paragraph 15.13
 // ---------------
 
-methodReference
+functionReference
     : expressionName '::' typeArguments? identifier
     | primary '::' typeArguments? identifier
     | referenceType '::' typeArguments? identifier
@@ -1497,8 +1434,8 @@ multiplicativeExpression
 
 additiveExpression
     : multiplicativeExpression
-    | additiveExpression '+' multiplicativeExpression
-    | additiveExpression '-' multiplicativeExpression
+    | additiveExpression oper='+' multiplicativeExpression
+    | additiveExpression oper='-' multiplicativeExpression
     ;
 
 // Paragraph 15.19

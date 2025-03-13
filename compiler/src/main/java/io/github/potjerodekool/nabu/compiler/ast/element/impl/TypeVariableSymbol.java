@@ -6,14 +6,13 @@ import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
 
 import java.util.List;
-import java.util.Set;
 
 public class TypeVariableSymbol extends TypeSymbol implements TypeParameterElement {
 
     public TypeVariableSymbol(final String name,
-                              final Element owner,
+                              final Symbol owner,
                               final TypeVariable type) {
-        super(ElementKind.TYPE_PARAMETER, Set.of(), name, owner);
+        super(ElementKind.TYPE_PARAMETER, 0, name, owner);
         setType(type);
     }
 
@@ -38,6 +37,11 @@ public class TypeVariableSymbol extends TypeSymbol implements TypeParameterEleme
 
     @Override
     public <R, P> R accept(final ElementVisitor<R, P> v, final P p) {
-        return v.visitTypeParameterElement(this, p);
+        return v.visitTypeParameter(this, p);
+    }
+
+    @Override
+    public <R, P> R accept(final SymbolVisitor<R, P> v, final P p) {
+        return v.visitTypeVariable(this, p);
     }
 }

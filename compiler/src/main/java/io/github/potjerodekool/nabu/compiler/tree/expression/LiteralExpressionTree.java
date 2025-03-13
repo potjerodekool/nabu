@@ -1,70 +1,24 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CLiteralExpressionTree;
 
 import java.util.Arrays;
-import java.util.Objects;
 
-public class LiteralExpressionTree extends ExpressionTree {
+public interface LiteralExpressionTree extends ExpressionTree {
 
-    private Object literal;
-    private Kind literalKind;
+    Kind getLiteralKind();
 
-    public LiteralExpressionTree(final Object literal) {
-        this(literal, Kind.resolveKind(literal));
-    }
+    void setLiteralKind(Kind kind);
 
-    public LiteralExpressionTree(final LiteralExpressionTreeBuilder builder) {
-        super(builder);
-        this.literal = builder.literal;
-        this.literalKind = Kind.resolveKind(literal);
-    }
+    Object getLiteral();
 
-    public LiteralExpressionTree(final Object literal,
-                                 final Kind kind) {
-        this.literal = literal;
-        this.literalKind = kind;
-    }
+    void setLiteral(Object literal);
 
-    public Kind getLiteralKind() {
-        return literalKind;
-    }
+    LiteralExpressionTree negate();
 
-    public void setLiteralKind(final Kind literalKind) {
-        this.literalKind = literalKind;
-    }
+    CLiteralExpressionTree.LiteralExpressionTreeBuilder builder();
 
-    public Object getLiteral() {
-        return literal;
-    }
-
-    public void setLiteral(final Object literal) {
-        this.literal = literal;
-    }
-
-    @Override
-    public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
-        return visitor.visitLiteralExpression(this, param);
-    }
-
-    public LiteralExpressionTree negate() {
-        if (literal instanceof Integer integer) {
-            final var negated = -integer;
-            return builder()
-                    .literal(negated)
-                    .build();
-        } else if (literal instanceof Long longValue) {
-            final var negated = -longValue;
-            return builder()
-                    .literal(negated)
-                    .build();
-        } else {
-            throw new TodoException();
-        }
-    }
-
-    public enum Kind {
+    enum Kind {
         INTEGER(Integer.class),
         LONG(Long.class),
         BOOLEAN(Boolean.class),
@@ -96,41 +50,4 @@ public class LiteralExpressionTree extends ExpressionTree {
         }
     }
 
-    @Override
-    public String toString() {
-        if (getLiteralKind() == Kind.STRING) {
-            return "\"" + literal + "\"";
-        } else {
-            return Objects.toString(literal);
-        }
-    }
-
-    public LiteralExpressionTreeBuilder builder() {
-        return new LiteralExpressionTreeBuilder(this);
-    }
-
-    public static class LiteralExpressionTreeBuilder extends CExpressionBuilder<LiteralExpressionTree> {
-
-        private Object literal;
-
-        public LiteralExpressionTreeBuilder(final LiteralExpressionTree literalExpressionTree) {
-            super(literalExpressionTree);
-            this.literal = literalExpressionTree.getLiteral();
-        }
-
-        @Override
-        public CExpressionBuilder<LiteralExpressionTree> self() {
-            return this;
-        }
-
-        public LiteralExpressionTreeBuilder literal(final Object literal) {
-            this.literal = literal;
-            return this;
-        }
-
-        @Override
-        public LiteralExpressionTree build() {
-            return new LiteralExpressionTree(this);
-        }
-    }
 }

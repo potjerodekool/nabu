@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.statement;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.IExpression;
@@ -49,11 +48,11 @@ public class IVariableDeclaratorStatement extends IStatement {
 
     @Override
     public List<IExpression> kids() {
-        throw new TodoException();
+        return List.of();
     }
 
     @Override
     public IStatement build(final List<IExpression> kids) {
-        throw new TodoException();
+        return this;
     }
 }

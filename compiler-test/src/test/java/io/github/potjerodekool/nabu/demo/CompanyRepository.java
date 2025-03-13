@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.demo;
 
-import io.github.potjerodekool.nabu.lang.jpa.JpaPredicate;
+import io.github.potjerodekool.nabu.lang.jpa.support.JpaPredicate;
 import io.github.potjerodekool.employee.Company;
 import io.github.potjerodekool.employee.Employee;
 import jakarta.persistence.criteria.Join;

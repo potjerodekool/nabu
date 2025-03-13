@@ -3,19 +3,22 @@ package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Element;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Variable;
+import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
+import io.github.potjerodekool.nabu.compiler.tree.element.*;
+import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclarator;
 import io.github.potjerodekool.nabu.compiler.tree.statement.Statement;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
 
@@ -49,15 +52,15 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
                                         final SimpleScope scope) {
         final var classDeclaration = scope.getCurrentClassDeclaration();
         final var currentFunction = scope.getCurrentFunctionDeclaration();
-        final var classSymbol = classDeclaration.classSymbol;
+        final var classSymbol = (ClassSymbol) classDeclaration.getClassSymbol();
 
         lambdaExpression.getVariables().forEach(
                 variable -> variable.accept(this, scope)
         );
 
-        lambdaExpression.getBody().accept(this, scope);
+        lambdaExpression.getBody().accept(this, new ImmutableScope(scope));
 
-        final var method = createLambdaMethod(
+        final var method = (MethodSymbol) createLambdaMethod(
                 scope,
                 currentFunction,
                 lambdaExpression,
@@ -70,7 +73,6 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
                 method,
                 lambdaExpression
         );
-
 
         classDeclaration.enclosedElement(lambdaFunction);
         return null;
@@ -93,7 +95,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
                 .name(lambdaFunctionName)
                 .enclosingElement(classSymbol)
                 .returnType(lambdaClass.findFunctionalMethod().getReturnType())
-                .modifiers(Modifier.PRIVATE, Modifier.STATIC, Modifier.SYNTHENTIC)
+                .modifiers(Modifier.PRIVATE, Modifier.STATIC, Modifier.SYNTHETIC)
                 .build();
 
         addParameters(scope, method);
@@ -122,74 +124,75 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
 
             method.addParameter(parameterElement);
 
-            final var parameter = new Variable(
+            final var param = TreeMaker.variableDeclarator(
+                    Kind.PARAMETER,
+                    new CModifiers(),
+                    createTypeExpression(originalElement.asType()),
+                    IdentifierTree.create(originalElement.getSimpleName()),
+                    null,
+                    null,
                     -1,
                     -1
             );
-            parameter.kind(Element.Kind.PARAMETER);
-            parameter.simpleName(originalElement.getSimpleName());
-            parameter.type(createTypeExpression(originalElement.asType()));
-            parameter.getType().setType(originalElement.asType());
 
-            parameter.setVarSymbol(parameterElement);
+            param.getName().setSymbol(parameterElement);
+            param.getType().setType(originalElement.asType());
         });
     }
 
     private Function createLambdaFunction(final ExecutableElement method,
                                           final LambdaExpressionTree lambdaExpression) {
-        final var lambdaFunction = new Function(
-                -1,
-                -1
+        final var parameters = createParameters(
+                method
         );
-        lambdaFunction.simpleName(method.getSimpleName());
-
-        addParameters(
-                method,
-                lambdaFunction
-        );
-
-        lambdaFunction.returnType(createTypeExpression(method.getReturnType()));
-        lambdaFunction.methodSymbol = method;
 
         final var lambdaBody = asBlockStatement(lambdaExpression.getBody());
-        lambdaFunction.body(lambdaBody);
 
-        return lambdaFunction;
+        return new FunctionBuilder()
+                .kind(Kind.METHOD)
+                .simpleName(method.getSimpleName())
+                .parameters(parameters)
+                .returnType(createTypeExpression(method.getReturnType()))
+                .method(method)
+                .body(lambdaBody)
+                .build();
     }
 
-    private void addParameters(final ExecutableElement method,
-                               final Function lambdaFunction) {
+    private List<VariableDeclarator> createParameters(final ExecutableElement method) {
         final var methodParameters = method.getParameters();
+        return methodParameters.stream()
+                .map(parameterElement -> {
+                    final var parameter = TreeMaker.variableDeclarator(
+                            Kind.PARAMETER,
+                            new CModifiers(),
+                            createTypeExpression(parameterElement.asType()),
+                            IdentifierTree.create(parameterElement.getSimpleName()),
+                            null,
+                            null,
+                            -1,
+                            -1
+                    );
 
-        methodParameters.forEach(parameterElement -> {
-
-            final var parameter = new Variable(
-                    -1,
-                    -1
-            );
-            parameter.kind(Element.Kind.PARAMETER);
-            parameter.simpleName(parameterElement.getSimpleName());
-            parameter.type(createTypeExpression(parameterElement.asType()));
-            parameter.getType().setType(parameterElement.asType());
-
-            parameter.setVarSymbol(parameterElement);
-            lambdaFunction.parameter(parameter);
-        });
+                    parameter.getType().setType(parameterElement.asType());
+                    parameter.getName().setSymbol(parameterElement);
+                    return parameter;
+                })
+                .toList();
     }
 
     private BlockStatement asBlockStatement(final Statement statement) {
         if (statement instanceof BlockStatement blockStatement) {
             return blockStatement;
         } else {
-            return new BlockStatement().statement(statement);
+            return TreeMaker.blockStatement(List.of(statement), -1, -1);
         }
     }
 
     @Override
-    public Object visitVariable(final Variable variable,
-                                final SimpleScope scope) {
+    public Object visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement,
+                                                   final SimpleScope scope) {
         if (scope != null) {
-            scope.define(variable.getVarSymbol());
+            scope.define(variableDeclaratorStatement.getName().getSymbol());
         }
 
         return null;
@@ -209,3 +212,14 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, SimpleScope> {
     }
 }
 
+
+class ImmutableScope extends SimpleScope {
+
+    public ImmutableScope(final SimpleScope parentScope) {
+        super(parentScope, parentScope.getOwner(), parentScope.getLambdaContext());
+    }
+
+    @Override
+    public void define(final Element element) {
+    }
+}

@@ -1,14 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CExpressionStatement;
 
-public class StatementExpressionBuilder extends StatementBuilder<StatementExpression> {
+public class StatementExpressionBuilder extends StatementBuilder<ExpressionStatement, StatementExpressionBuilder> {
 
-    ExpressionTree expression;
+    private ExpressionTree expression;
 
-    public StatementExpressionBuilder(final StatementExpression statementExpression) {
-        super(statementExpression);
-        this.expression = statementExpression.expression;
+    public StatementExpressionBuilder(final ExpressionStatement expressionStatement) {
+        super(expressionStatement);
+        this.expression = expressionStatement.getExpression();
     }
 
     @Override
@@ -21,8 +22,12 @@ public class StatementExpressionBuilder extends StatementBuilder<StatementExpres
         return this;
     }
 
-    public StatementExpression build() {
-        return new StatementExpression(this);
+    public ExpressionTree getExpression() {
+        return expression;
+    }
+
+    public ExpressionStatement build() {
+        return new CExpressionStatement(this);
     }
 
 }

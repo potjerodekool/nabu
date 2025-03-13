@@ -1,20 +1,37 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CForStatement;
 
-public class ForStatementBuilder extends StatementBuilder<ForStatement> {
+public class ForStatementBuilder extends StatementBuilder<ForStatement, ForStatementBuilder> {
 
-    Statement forInit;
-    ExpressionTree expression;
-    ExpressionTree forUpdate;
-    Statement statement;
+    private Statement forInit;
+    private ExpressionTree expression;
+    private ExpressionTree forUpdate;
+    private Statement statement;
 
-    protected ForStatementBuilder(final ForStatement original) {
+    public ForStatementBuilder(final ForStatement original) {
         super(original);
         this.forInit = original.getForInit();
         this.expression = original.getExpression();
         this.forUpdate = original.getForUpdate();
         this.statement = original.getStatement();
+    }
+
+    public Statement getForInit() {
+        return forInit;
+    }
+
+    public ExpressionTree getExpression() {
+        return expression;
+    }
+
+    public ExpressionTree getForUpdate() {
+        return forUpdate;
+    }
+
+    public Statement getStatement() {
+        return statement;
     }
 
     @Override
@@ -24,7 +41,7 @@ public class ForStatementBuilder extends StatementBuilder<ForStatement> {
 
     @Override
     public ForStatement build() {
-        return new ForStatement(this);
+        return new CForStatement(this);
     }
 
     public ForStatementBuilder forInit(final Statement forInit) {

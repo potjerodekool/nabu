@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.element;
 
-import io.github.potjerodekool.nabu.compiler.Flags;
+import io.github.potjerodekool.nabu.compiler.internal.Flags;
 
 public enum Modifier {
     PUBLIC(Flags.PUBLIC),
@@ -14,13 +14,13 @@ public enum Modifier {
     SYNTHETIC(Flags.SYNTHETIC),
     NATIVE(Flags.NATIVE);
 
-    private int flag;
+    private final long flag;
 
-    Modifier(final int flag) {
+    Modifier(final long flag) {
         this.flag = flag;
     }
 
-    public int getFlag() {
+    public long getFlag() {
         return flag;
     }
 }

@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
@@ -12,7 +11,7 @@ public class TypePrinter implements TypeVisitor<Object, Object> {
 
     @Override
     public Object visitUnknownType(final TypeMirror typeMirror, final Object param) {
-        throw new TodoException();
+        return null;
     }
 
     @Override

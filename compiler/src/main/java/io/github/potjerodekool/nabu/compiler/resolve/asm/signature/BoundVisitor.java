@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
@@ -13,13 +15,14 @@ public class BoundVisitor extends AbstractVisitor {
 
     protected BoundVisitor(final int api,
                            final ClassElementLoader loader,
-                           final AbstractVisitor parent) {
-        super(api, loader, parent);
+                           final AbstractVisitor parent,
+                           final ModuleSymbol moduleSymbol) {
+        super(api, loader, parent, moduleSymbol);
     }
 
     @Override
     public void visitClassType(final String name) {
-        type = createMutableClass(loader.loadClass(name));
+        type = createMutableClass(loadClass(Symbol.createFlatName(name)));
         final var parentType = (MutableTypeVariable) parent.getType();
         parentType.setUpperBound(type);
     }
@@ -42,7 +45,7 @@ public class BoundVisitor extends AbstractVisitor {
     public void visitInnerClassType(final String name) {
         final var classType = (MutableClassType) this.type;
         final var innerName = classType.getClassName() + "$" + name;
-        final var element = loader.loadClass(innerName);
+        final var element = loadClass(innerName);
         this.type = new MutableClassType(element, classType);
     }
 
@@ -54,7 +57,7 @@ public class BoundVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loadClass(Constants.OBJECT));
         this.type = new MutableTypeVariable(name, objectType, null);
         final var parentType = (MutableTypeVariable) parent.getType();
         parentType.setUpperBound(type);

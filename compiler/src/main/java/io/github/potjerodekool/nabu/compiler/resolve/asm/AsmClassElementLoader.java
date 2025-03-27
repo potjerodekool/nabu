@@ -1,104 +1,115 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.resolve.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
-import io.github.potjerodekool.nabu.compiler.type.Types;
+import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 
-import java.nio.file.Path;
-
-public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable {
-
-    private final ClassPath classPath = new ClassPath();
+public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
 
     private final SymbolTable symbolTable;
 
-    private final Types types;
-
-    public AsmClassElementLoader() {
-        this(new SymbolTable());
-    }
+    private final TypesImpl types;
 
     public AsmClassElementLoader(final SymbolTable symbolTable) {
         this.symbolTable = symbolTable;
-        types = new TypesImpl(this, symbolTable);
+        this.types = new TypesImpl(symbolTable);
     }
 
     @Override
-    public TypeElement loadClass(final String name) {
-        final var internalName = ClassUtils.getInternalName(name);
+    public TypeElement loadClass(final ModuleElement moduleElement,
+                                 final String name) {
+        final var flatName = Symbol.createFlatName(name);
+        final var module = moduleElement != null
+                ? (ModuleSymbol) moduleElement
+                : symbolTable.getJavaBase();
 
-        var element = this.symbolTable.getClassSymbol(internalName);
+        final var packageName = resolvePackagePart(flatName);
 
-        if (element != null) {
-            return element;
+        if (packageName == null) {
+            return null;
         }
 
-        final var matchResultOptional = this.classPath.find(internalName);
+        final var packageSymbol = symbolTable.lookupPackage(
+                module,
+                packageName
+        );
+        final var packageModule = packageSymbol.getModuleSymbol();
 
-        if (matchResultOptional.isPresent()) {
-            final var bytecode = matchResultOptional.get().data();
-            element = readClass(bytecode);
+        if (flatName.contains("$")) {
+            var previous = (TypeSymbol) packageSymbol;
+            var symbol = previous;
+
+            final var className = resolveShortPart(flatName);
+            final var names = className.split("\\$");
+
+            for (final String subName : names) {
+                symbol = symbolTable.enterClass(
+                        packageModule,
+                        subName,
+                        previous
+                );
+                previous = symbol;
+            }
+
+            return (TypeElement) symbol;
+        } else {
+            final var shortName = resolveShortPart(flatName);
+            return symbolTable.enterClass(
+                    packageModule,
+                    shortName,
+                    packageSymbol
+            );
         }
-
-        return element;
     }
 
+    private String resolvePackagePart(final String name) {
+        final var sep = name.lastIndexOf('.');
 
-    private TypeElement readClass(final byte[] bytecode) {
-        return ClazzReader.read(bytecode, symbolTable, this);
+        if (sep == -1) {
+            return null;
+        } else {
+            return name.substring(0, sep);
+        }
     }
 
-    @Override
-    public void postInit() {
-        loadJavaLang();
-        loadBoxes();
-    }
+    private String resolveShortPart(final String name) {
+        final var sep = name.lastIndexOf('.') + 1;
 
-    private void loadJavaLang() {
-        classPath.loadJavaLang(fileMatchResult -> readClass(fileMatchResult.data()));
-    }
-
-    private void loadBoxes() {
-        loadClass(Constants.BOOLEAN);
-        loadClass(Constants.BYTE);
-        loadClass(Constants.SHORT);
-        loadClass(Constants.INTEGER);
-        loadClass(Constants.LONG);
-        loadClass(Constants.CHARACTER);
-        loadClass(Constants.FLOAT);
-        loadClass(Constants.DOUBLE);
+        if (sep == 0) {
+            return name;
+        } else {
+            return name.substring(sep);
+        }
     }
 
     @Override
-    public void addClassPathEntry(final Path path) {
-        classPath.addClassPathEntry(path);
-    }
-
-    @Override
-    public Types getTypes() {
+    public TypesImpl getTypes() {
         return types;
     }
 
     @Override
-    public PackageElement findOrCreatePackage(final String packageName) {
-        return symbolTable.findOrCreatePackage(packageName);
+    public PackageElement findOrCreatePackage(final ModuleElement moduleElement,
+                                              final String packageName) {
+        return symbolTable.lookupPackage((ModuleSymbol) moduleElement, packageName);
     }
 
     @Override
     public void importJavaLang(final ImportScope importScope) {
-        final var javaLangPackage = symbolTable.findPackage("java.lang");
+        final var javaLangPackage = symbolTable.lookupPackage(symbolTable.getUnnamedModule(), "java.lang");
+        ElementFilter.typesIn(javaLangPackage.getMembers().elements())
+                .forEach(importScope::define);
+    }
 
-        javaLangPackage.getEnclosedElements().stream()
-                .filter(it -> switch (it.getKind()) {
-                    case CLASS, INTERFACE, ANNOTATION, RECORD, ENUM -> true;
-                    default -> false;
-                }).forEach(importScope::define);
+    @Override
+    public SymbolTable getSymbolTable() {
+        return symbolTable;
     }
 
     @Override
     public void close() {
-        classPath.close();
     }
 }

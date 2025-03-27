@@ -1,10 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.annotation;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValue;
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import org.junit.jupiter.api.Test;
@@ -23,14 +24,15 @@ class AsmAnnotationGeneratorTest {
 
     @Test
     void generateAnnotationWithLiteral() {
-        final var deprecatedClass = new ClassBuilder()
+        final var deprecatedClass = new ClassSymbolBuilder()
+                .kind(ElementKind.ANNOTATION_TYPE)
                 .name("Deprecated")
                 .build();
 
         final var annotation = AnnotationBuilder.createAnnotation(
                 (DeclaredType) deprecatedClass.asType(),
                 Map.of(
-                        new MethodBuilder()
+                        new MethodSymbolBuilderImpl()
                                 .name("since")
                                 .build(),
                         AnnotationBuilder.createConstantValue("0.2")
@@ -63,11 +65,13 @@ class AsmAnnotationGeneratorTest {
 
     @Test
     void generateAnnotationEnumValue() {
-        final var transactionalClass = new ClassBuilder()
+        final var transactionalClass = new ClassSymbolBuilder()
+                .kind(ElementKind.ANNOTATION_TYPE)
                 .name("Transactional")
                 .build();
 
-        final var txTypeType = new ClassBuilder()
+        final var txTypeType = new ClassSymbolBuilder()
+                .kind(ElementKind.ENUM)
                 .name("TxType")
                 .build()
                 .asType();
@@ -75,15 +79,15 @@ class AsmAnnotationGeneratorTest {
         final var annotation = AnnotationBuilder.createAnnotation(
                 (DeclaredType) transactionalClass.asType(),
                 Map.of(
-                        new MethodBuilder()
+                        new MethodSymbolBuilderImpl()
                                 .name("value")
                                 .build(),
                         AnnotationBuilder.createEnumValue(
                                 (DeclaredType) txTypeType,
-                                new VariableBuilder()
+                                SymbolBuilders.variableSymbolBuilder()
                                         .name("REQUIRED")
                                         .type(transactionalClass.asType())
-                                        .enclosingElement(txTypeType.getTypeElement())
+                                        .enclosingElement(txTypeType.asTypeElement())
                                         .build()
                         )
                 )
@@ -115,11 +119,13 @@ class AsmAnnotationGeneratorTest {
 
     @Test
     void generateAnnotationArrayValue() {
-        final var suppressWarningsClass = new ClassBuilder()
+        final var suppressWarningsClass = new ClassSymbolBuilder()
+                .kind(ElementKind.ANNOTATION_TYPE)
                 .name("SuppressWarnings")
                 .build();
 
-        final var stringClazz = new ClassBuilder()
+        final var stringClazz = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .name("String")
                 .build();
 
@@ -134,7 +140,7 @@ class AsmAnnotationGeneratorTest {
         final var annotation = AnnotationBuilder.createAnnotation(
                 (DeclaredType) suppressWarningsClass.asType(),
                 Map.of(
-                        new MethodBuilder()
+                        new MethodSymbolBuilderImpl()
                                 .name("value")
                                 .build(),
                         arrayValue
@@ -167,11 +173,13 @@ class AsmAnnotationGeneratorTest {
 
     @Test
     void generateAnnotationWithAnnotation() {
-        final var parentClass = new ClassBuilder()
+        final var parentClass = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .name("Parent")
                 .build();
 
-        final var childClass = new ClassBuilder()
+        final var childClass = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .name("Child")
                 .build();
 
@@ -183,7 +191,7 @@ class AsmAnnotationGeneratorTest {
         final var annotation = AnnotationBuilder.createAnnotation(
                 (DeclaredType) parentClass.asType(),
                 Map.of(
-                        new MethodBuilder()
+                        new MethodSymbolBuilderImpl()
                                 .name("child")
                                 .build(),
                         childAnnotation

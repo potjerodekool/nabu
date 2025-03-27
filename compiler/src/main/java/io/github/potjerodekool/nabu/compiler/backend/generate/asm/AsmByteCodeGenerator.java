@@ -1,22 +1,27 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
-import io.github.potjerodekool.nabu.compiler.FileObject;
-import io.github.potjerodekool.nabu.compiler.Options;
+import io.github.potjerodekool.nabu.compiler.CompilerOptions;
+import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
-import java.util.Set;
+import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator.toAsmType;
+import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.ClassUtils.getInternalName;
-
-public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Void, Options> {
+public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Void, CompilerOptions> {
 
     private final ClassWriter classWriter = new ClassWriter(
             ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
@@ -24,31 +29,31 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
 
     private String internalName;
 
+    private final ToIType toIType = new ToIType();
+
     @Override
     public void generate(final ClassDeclaration clazz,
-                         final Options options) {
+                         final CompilerOptions options) {
         final var symbol = (Symbol) clazz.getClassSymbol();
         symbol.accept(this, options);
     }
 
-    private int resolveAccess(final Set<Modifier> modifiers) {
-        int access = 0;
-        access += addOpcode(modifiers, Modifier.ABSTRACT, Opcodes.ACC_ABSTRACT);
-        access += addOpcode(modifiers, Modifier.PUBLIC, Opcodes.ACC_PUBLIC);
-        access += addOpcode(modifiers, Modifier.PRIVATE, Opcodes.ACC_PRIVATE);
-        access += addOpcode(modifiers, Modifier.PROTECTED, Opcodes.ACC_PROTECTED);
-        access += addOpcode(modifiers, Modifier.STATIC, Opcodes.ACC_STATIC);
-        access += addOpcode(modifiers, Modifier.FINAL, Opcodes.ACC_FINAL);
-        access += addOpcode(modifiers, Modifier.SYNTHETIC, Opcodes.ACC_SYNTHETIC);
-        return access;
+    @Override
+    public void generate(final ModuleDeclaration moduleDeclaration,
+                         final CompilerOptions options) {
+        final var symbol = (Symbol) moduleDeclaration.getModuleSymbol();
+        symbol.accept(this, options);
     }
 
-    private int addOpcode(final Set<Modifier> modifiers,
-                          final Modifier modifier,
-                          final int opcode) {
-        return modifiers.contains(modifier)
-                ? opcode
-                : 0;
+    private int resolveAccess(final ClassSymbol classSymbol) {
+        int access = AccessUtils.flagsToAccess(classSymbol.getFlags());
+
+        if (classSymbol.getKind() == ElementKind.INTERFACE
+                && !Flags.hasFlag(classSymbol.getFlags(), Flags.INTERFACE)) {
+            access += Opcodes.ACC_INTERFACE;
+        }
+
+        return access;
     }
 
     private void generateAnnotations(final TypeElement typeElement) {
@@ -56,12 +61,12 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
                 AsmAnnotationGenerator.generate(annotation, classWriter));
     }
 
-    private int resolveClassVersion(final Options.JavaVersion version) {
-        if (version == null) {
-            return Opcodes.V17;
-        } else {
-            return version.getValue();
-        }
+    private void generatePermittedSubClasses(final TypeElement typeElement) {
+        typeElement.getPermittedSubclasses().stream()
+                .map(it -> (DeclaredType) it)
+                .map(DeclaredType::asTypeElement)
+                .map(it -> ClassUtils.getInternalName(it.getQualifiedName()))
+                .forEach(classWriter::visitPermittedSubclass);
     }
 
     @Override
@@ -70,42 +75,80 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
     }
 
     @Override
-    public Void visitClass(final ClassSymbol classSymbol, final Options options) {
-        final var fileObject = classSymbol.getMetaData(StandardElementMetaData.FILE_OBJECT, FileObject.class);
+    public Void visitModule(final ModuleSymbol moduleSymbol, final CompilerOptions options) {
+        var access = moduleSymbol.isSynthetic()
+                ? Opcodes.ACC_SYNTHETIC
+                : Opcodes.ACC_MANDATED;
+
+        if (moduleSymbol.isOpen()) {
+            access += Opcodes.ACC_OPEN;
+        }
+
+        final var visitor = classWriter.visitModule(
+                moduleSymbol.getQualifiedName(),
+                access,
+                null
+        );
+
+        final int api = Opcodes.ASM9;
+        final var moduleGenerator = new AsmModuleCodeGenerator(
+                api,
+                visitor
+        );
+
+        moduleSymbol.accept(moduleGenerator, null);
+
+        return null;
+    }
+
+    @Override
+    public Void visitClass(final ClassSymbol classSymbol, final CompilerOptions options) {
+        final var fileObject = classSymbol.getSourceFile();
         final var fileName = fileObject.getFileName();
 
-        final var access = resolveAccess(classSymbol.getModifiers());
+        final var access = resolveAccess(classSymbol);
         internalName = getInternalName(classSymbol.getQualifiedName());
         final String signature = SignatureGenerator.getClassSignature(classSymbol);
 
-        final var superName = Type.getType(Object.class).getInternalName();
-        final var interfaces = new String[0];
 
-        final var classVersion = resolveClassVersion(options.getTargetVersion());
+        final var superType = classSymbol.getSuperclass().accept(toIType, null);
+        final var superName = toAsmType(superType).getInternalName();
+        final var interfaces = classSymbol.getInterfaces().stream()
+                .map(it -> it.accept(toIType, null))
+                .map(AsmISignatureGenerator::toAsmType)
+                .map(Type::getInternalName)
+                .toArray(String[]::new);
+
+        final var javaVersion = options.getTargetVersion();
+        final var classVersion = javaVersion.getValue();
 
         classWriter.visit(classVersion, access, internalName, signature, superName, interfaces);
         classWriter.visitSource(fileName, null);
 
         generateAnnotations(classSymbol);
-        classSymbol.getEnclosedElements().forEach(e -> e.accept(this, null));
+        generatePermittedSubClasses(classSymbol);
+
+        classSymbol.getMembers().elements().stream()
+                .map(it -> (Symbol) it)
+                .forEach(e -> e.accept(this, null));
         classWriter.visitEnd();
+        return null;
+    }
 
+
+    @Override
+    public Void visitUnknown(final Symbol symbol, final CompilerOptions options) {
         return null;
     }
 
     @Override
-    public Void visitUnknown(final Symbol symbol, final Options options) {
-        return null;
-    }
-
-    @Override
-    public Void visitMethod(final MethodSymbol methodSymbol, final Options options) {
+    public Void visitMethod(final MethodSymbol methodSymbol, final CompilerOptions options) {
         new AsmMethodByteCodeGenerator(classWriter, internalName).generate(methodSymbol);
         return null;
     }
 
     @Override
-    public Void visitVariable(final VariableSymbol variableSymbol, final Options options) {
+    public Void visitVariable(final VariableSymbol variableSymbol, final CompilerOptions options) {
         new AsmFieldByteCodeGenerator(classWriter).generate(variableSymbol);
         return null;
     }

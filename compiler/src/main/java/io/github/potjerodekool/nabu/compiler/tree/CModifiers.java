@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree;
 
-import io.github.potjerodekool.nabu.compiler.Flags;
+import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.tree.expression.AnnotationTree;
 
 import java.util.ArrayList;
@@ -21,7 +21,7 @@ public class CModifiers {
         this.flags = flags;
     }
 
-    public CModifiers with(final int flag) {
+    public CModifiers with(final long flag) {
         final var newFlags = flags + flag;
 
         return new CModifiers(
@@ -38,7 +38,7 @@ public class CModifiers {
         return flags;
     }
 
-    public boolean hasFlag(final int flag) {
+    public boolean hasFlag(final long flag) {
         return (flags & flag) != 0;
     }
 

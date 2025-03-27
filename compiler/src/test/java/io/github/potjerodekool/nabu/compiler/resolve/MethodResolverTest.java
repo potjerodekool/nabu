@@ -1,19 +1,20 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.Types;
-import org.junit.jupiter.api.BeforeEach;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,25 +23,22 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MethodResolverTest {
 
-    private ClassElementLoader loader = null;
-    private Types types;
-    private MethodResolver methodResolver;
-
-    @BeforeEach
-    public void setup() {
-        if (loader == null) {
-            loader = new AsmClassElementLoader();
-            loader.postInit();
-            types = loader.getTypes();
-            methodResolver = new MethodResolver(types);
-        }
-    }
+    private final CompilerContext compilerContext = new CompilerContextImpl(
+            new ApplicationContext(),
+            new NabuCFileManager()
+    );
+    private final ClassElementLoader loader = compilerContext.getClassElementLoader();
+    private final Types types = loader.getTypes();
+    private final MethodResolver methodResolver = compilerContext.getMethodResolver();
 
     @Test
     void resolveMethod() {
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+
         final var target = IdentifierTree.create("list");
-        final var listClass = loader.loadClass("java.util.List");
-        final var stringClass = loader.loadClass("java.lang.String");
+        final var listClass = loader.loadClass(module, "java.util.List");
+        final var stringClass = loader.loadClass(module, "java.lang.String");
         final var stringListType = types.getDeclaredType(
                 listClass,
                 stringClass.asType()
@@ -49,7 +47,7 @@ class MethodResolverTest {
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
 
-        final var listVariable = new VariableBuilder()
+        final var listVariable = SymbolBuilders.variableSymbolBuilder()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name("list")
                 .type(stringListType)
@@ -62,7 +60,7 @@ class MethodResolverTest {
         indexArg.setType(intType);
 
         final var elementArg = IdentifierTree.create("value");
-        final var variable = new VariableBuilder()
+        final var variable = SymbolBuilders.variableSymbolBuilder()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name("value")
                 .type(stringClass.asType())
@@ -94,10 +92,13 @@ class MethodResolverTest {
 
     @Test
     void resolveMethod2() {
-        final var stringClass = loader.loadClass("java.lang.String");
-        final var localDateClass = loader.loadClass("java.time.LocalDate");
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var stringClass = loader.loadClass(module, "java.lang.String");
+        final var localDateClass = loader.loadClass(module, "java.time.LocalDate");
 
-        final var objectType = new ClassBuilder()
+        final var objectType = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .name("Object")
                 .build()
                 .asType();
@@ -105,15 +106,17 @@ class MethodResolverTest {
         final var typeVar = types.getTypeVariable("Y", objectType, null);
 
 
-        final var pathClass = (ClassSymbol) new ClassBuilder()
+        final var pathClass = (ClassSymbol) new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .name("Path")
                 .typeParameter((TypeParameterElement) types.getTypeVariable("X", objectType, null).asElement())
                 .build();
 
-        final var personClass = new ClassBuilder()
+        final var personClass = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .name("Person")
                 .enclosedElement(
-                        (Symbol) new VariableBuilder()
+                        SymbolBuilders.variableSymbolBuilder()
                                 .kind(ElementKind.FIELD)
                                 .name("birthDay")
                                 .type(localDateClass.asType())
@@ -125,16 +128,19 @@ class MethodResolverTest {
                 typeVar
         );
 
-        final var getMethod = (MethodSymbol) new MethodBuilder()
+        final var getMethod = new MethodSymbolBuilderImpl()
+                .kind(ElementKind.METHOD)
                 .enclosingElement(pathClass)
                 .returnType(returnType)
                 .typeParameter((TypeParameterElement) typeVar.asElement())
                 .argumentTypes(stringClass.asType())
                 .name("get")
-                .parameter(pb ->
-                        pb
+                .parameter(
+                        SymbolBuilders.variableSymbolBuilder()
                                 .name("attributeName")
-                                .type(stringClass.asType()))
+                                .type(stringClass.asType())
+                                .build()
+                )
                 .build();
 
         pathClass.addEnclosedElement(getMethod);
@@ -145,7 +151,7 @@ class MethodResolverTest {
                 personClass.asType()
         ));
 
-        final var pathVariable = new VariableBuilder()
+        final var pathVariable = SymbolBuilders.variableSymbolBuilder()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name("list")
                 .type(types.getDeclaredType(
@@ -156,11 +162,10 @@ class MethodResolverTest {
 
         target.setSymbol(pathVariable);
 
-
         final var typeArg = IdentifierTree.create("LocalDate");
         typeArg.setType(localDateClass.asType());
 
-        final var literal = TreeMaker.literalExpressionTree("birthDay", -1,-1);
+        final var literal = TreeMaker.literalExpressionTree("birthDay", -1, -1);
         literal.setType(stringClass.asType());
 
         final var methodInvocationTree = TreeMaker.methodInvocationTree(
@@ -185,9 +190,12 @@ class MethodResolverTest {
 
     @Test
     void test() {
-        final var comparableClass = loader.loadClass("java.lang.Comparable");
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var comparableClass = loader.loadClass(module, "java.lang.Comparable");
 
-        final var objectType = new ClassBuilder()
+        final var objectType = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .name("Object")
                 .build()
                 .asType();
@@ -205,17 +213,20 @@ class MethodResolverTest {
                 null
         );
 
-        final var predicateClass = new ClassBuilder()
+        final var predicateClass = new ClassSymbolBuilder()
+                .kind(ElementKind.INTERFACE)
                 .name("Predicate")
                 .build();
 
-        final var expressionClass = new ClassBuilder()
+        final var expressionClass = new ClassSymbolBuilder()
+                .kind(ElementKind.INTERFACE)
                 .name("Expression")
                 .typeParameter((TypeParameterElement) types.getTypeVariable("T", objectType, null).asElement())
                 .build();
 
         final var methodType = types.getExecutableType(
-                null,
+                new MethodSymbolBuilderImpl()
+                        .build(),
                 List.of(typeVariable),
                 types.getDeclaredType(
                         null,
@@ -235,9 +246,10 @@ class MethodResolverTest {
                 List.of()
         );
 
-        final var localDateClass = loader.loadClass("java.time.LocalDate");
+        final var localDateClass = loader.loadClass(module, "java.time.LocalDate");
 
-        final var pathClass = new ClassBuilder()
+        final var pathClass = new ClassSymbolBuilder()
+                .kind(ElementKind.INTERFACE)
                 .name("Path")
                 .typeParameter((TypeParameterElement) types.getTypeVariable("T", objectType, null).asElement())
                 .build();

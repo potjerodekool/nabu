@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.diagnostic;
 
-import io.github.potjerodekool.nabu.compiler.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.FileObject;
 
 import java.util.Locale;
 

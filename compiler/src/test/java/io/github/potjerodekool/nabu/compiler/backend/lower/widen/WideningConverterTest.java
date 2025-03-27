@@ -1,10 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
+import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.util.Types;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -12,15 +20,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class WideningConverterTest {
 
-    private Types types;
-    private WideningConverter wideningConverter;
+    private final CompilerContext compilerContext = new CompilerContextImpl(
+            new ApplicationContext(),
+            new NabuCFileManager()
+    );
+    private final ClassElementLoader loader = compilerContext.getClassElementLoader();
+    private final Types types = loader.getTypes();
+    private final WideningConverter wideningConverter = new WideningConverter(types);
 
-    @BeforeEach
-    void setup() {
-        if (types == null) {
-            types = new AsmClassElementLoader().getTypes();
-            wideningConverter = new WideningConverter(types);
-        }
+    @AfterEach
+    void teardown() throws Exception {
+        loader.close();
     }
 
     private LiteralExpressionTree createLiteral(final Object literal) {

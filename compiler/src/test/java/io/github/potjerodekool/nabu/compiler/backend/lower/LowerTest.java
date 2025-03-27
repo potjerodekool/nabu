@@ -1,24 +1,31 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.FunctionScope;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.Types;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,25 +39,26 @@ import static org.mockito.Mockito.when;
 
 class LowerTest {
 
+    private final CompilerContextImpl compilerContext = new CompilerContextImpl(
+            new ApplicationContext(),
+            new NabuCFileManager()
+    );
+    private final ClassSymbolLoader loader = compilerContext.getClassElementLoader();
+    private final Types types = loader.getTypes();
     private Lower lower;
-    private ClassElementLoader loader;
-    private Types types;
 
     @BeforeEach
     void setup() {
-        loader = new AsmClassElementLoader();
-        loader.postInit();
-        this.types = loader.getTypes();
-        final var context = mock(CompilerContext.class);
+        final var context = mock(CompilerContextImpl.class);
         final var methodResolver = mock(MethodResolver.class);
 
-        final var clazz = new ClassBuilder()
+        final var clazz = (ClassSymbol) new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .nestingKind(NestingKind.TOP_LEVEL)
                 .name("SomeClass")
                 .build();
 
-        final var method = new MethodBuilder()
+        final var method = new MethodSymbolBuilderImpl()
                 .name("someMethod")
                 .enclosingElement(clazz)
                 .build();
@@ -74,39 +82,41 @@ class LowerTest {
 
     @Test
     void visitBinaryExpression() {
+        final var module = loader.getSymbolTable().getUnnamedModule();
+
         assertBinaryExpression(
                 """
                         shortValue > value.shortValue()""",
                 createParameterIdentifier("shortValue", types.getPrimitiveType(TypeKind.SHORT)),
-                createParameterIdentifier("value", loader.loadClass(Constants.SHORT).asType())
+                createParameterIdentifier("value", loader.loadClass(module, Constants.SHORT).asType())
         );
 
         assertBinaryExpression(
                 """
                         intValue > value.intValue()""",
                 createParameterIdentifier("intValue", types.getPrimitiveType(TypeKind.INT)),
-                createParameterIdentifier("value", loader.loadClass(Constants.INTEGER).asType())
+                createParameterIdentifier("value", loader.loadClass(module, Constants.INTEGER).asType())
         );
 
         assertBinaryExpression(
                 """
                         floatValue > value.floatValue()""",
                 createParameterIdentifier("floatValue", types.getPrimitiveType(TypeKind.FLOAT)),
-                createParameterIdentifier("value", loader.loadClass(Constants.FLOAT).asType())
+                createParameterIdentifier("value", loader.loadClass(module, Constants.FLOAT).asType())
         );
 
         assertBinaryExpression(
                 """
                         longValue > value.longValue()""",
                 createParameterIdentifier("longValue", types.getPrimitiveType(TypeKind.LONG)),
-                createParameterIdentifier("value", loader.loadClass(Constants.LONG).asType())
+                createParameterIdentifier("value", loader.loadClass(module, Constants.LONG).asType())
         );
 
         assertBinaryExpression(
                 """
                         doubleValue > value.doubleValue()""",
                 createParameterIdentifier("doubleValue", types.getPrimitiveType(TypeKind.DOUBLE)),
-                createParameterIdentifier("value", loader.loadClass(Constants.DOUBLE).asType())
+                createParameterIdentifier("value", loader.loadClass(module, Constants.DOUBLE).asType())
         );
     }
 
@@ -129,10 +139,11 @@ class LowerTest {
 
     @Test
     void visitEnhancedForStatement() {
-        final var stringType = loader.loadClass(Constants.STRING).asType();
-        final var listType = loader.loadClass("java.util.List").asType();
+        final var module = loader.getSymbolTable().getJavaBase();
+        final var stringType = loader.loadClass(module, Constants.STRING).asType();
+        final var listType = loader.loadClass(module, "java.util.List").asType();
         final var stringListType = types.getDeclaredType(
-                listType.getTypeElement(),
+                listType.asTypeElement(),
                 stringType
         );
 
@@ -150,7 +161,7 @@ class LowerTest {
 
         listTypeTree.setType(stringListType);
 
-        final var localVariable = new VariableDeclaratorBuilder()
+        final var localVariable = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.LOCAL_VARIABLE)
                 .modifiers(new CModifiers())
                 .type(stringTypeTree)
@@ -165,7 +176,34 @@ class LowerTest {
                 -1
         );
 
-        final var result = enhancedForStatement.accept(lower, null);
+        final var pck = mock(PackageSymbol.class);
+        when(pck.getModuleSymbol())
+                .thenReturn(module);
+
+        final var clazz = mock(ClassSymbol.class);
+        when(clazz.getEnclosingElement())
+                .thenReturn(pck);
+
+        final var method = mock(MethodSymbol.class);
+        when(method.getEnclosingElement())
+                .thenReturn(clazz);
+
+
+        final var classType = mock(DeclaredType.class);
+        when(classType.asTypeElement())
+                .thenReturn(clazz);
+
+        final var symbolScope = new SymbolScope(
+                classType,
+                null
+        );
+
+        final var functionScope = new FunctionScope(
+                symbolScope,
+                method
+        );
+
+        final var result = enhancedForStatement.accept(lower, functionScope);
         final var actual = TreePrinter.print(result);
 
         assertEquals(
@@ -183,7 +221,7 @@ class LowerTest {
                                                      final TypeMirror typeMirror) {
         final var identifierTree = IdentifierTree.create(name);
 
-        final var paramElement = new VariableBuilder()
+        final var paramElement = SymbolBuilders.variableSymbolBuilder()
                 .kind(ElementKind.PARAMETER)
                 .name(name)
                 .type(typeMirror)

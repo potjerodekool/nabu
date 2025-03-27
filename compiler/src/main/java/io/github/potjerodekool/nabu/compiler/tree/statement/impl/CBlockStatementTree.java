@@ -1,0 +1,66 @@
+package io.github.potjerodekool.nabu.compiler.tree.statement.impl;
+
+import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
+import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
+import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.BlockStatementTreeBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+public class CBlockStatementTree extends CStatementTree implements BlockStatementTree {
+
+    private final List<StatementTree> statements = new ArrayList<>();
+
+    public CBlockStatementTree(final List<StatementTree> statements,
+                               final int lineNumber,
+                               final int charPositionInLine) {
+        super(lineNumber, charPositionInLine);
+        this.statements.addAll(statements);
+    }
+
+    public CBlockStatementTree(final BlockStatementTreeBuilder builder) {
+        super(builder);
+        this.statements.addAll(builder.getStatements());
+    }
+
+    @Override
+    public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
+        return visitor.visitBlockStatement(this, param);
+    }
+
+    public CBlockStatementTree statement(final StatementTree statement) {
+        Objects.requireNonNull(statement);
+        this.statements.add(statement);
+        return this;
+    }
+
+    public CBlockStatementTree statement(final List<StatementTree> statements) {
+        statements.forEach(Objects::requireNonNull);
+        this.statements.addAll(statements);
+        return this;
+    }
+
+    public CBlockStatementTree statement(final ExpressionTree expression) {
+        final var expressionStatement = TreeMaker.expressionStatement(expression, expression.getLineNumber(), expression.getColumnNumber());
+        return statement(expressionStatement);
+    }
+
+    public List<StatementTree> getStatements() {
+        return statements;
+    }
+
+    @Override
+    public void addStatement(final StatementTree statement) {
+        this.statements.add(statement);
+    }
+
+    @Override
+    public BlockStatementTreeBuilder builder() {
+        return new BlockStatementTreeBuilder(this);
+    }
+
+}

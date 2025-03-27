@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.util.ElementUtils;
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
 import java.util.ArrayList;
@@ -10,19 +11,22 @@ import java.util.Objects;
 
 public class CClassType extends AbstractType implements DeclaredType {
 
-    private final Element element;
+    private TypeMirror outerType;
 
-    private final TypeMirror outerType;
-
-    private final List<TypeMirror> typeArguments;
+    private List<AbstractType> typeArguments;
 
     private List<TypeMirror> allParameters;
 
+    private TypeMirror supertypeField;
+
+    private List<TypeMirror> interfacesField;
+
     public CClassType(final TypeMirror outerType,
-                      final Element classSymbol,
-                      final List<? extends TypeMirror> typeArguments) {
+                      final TypeSymbol classSymbol,
+                      final List<? extends AbstractType> typeArguments) {
+        super(classSymbol);
+
         this.outerType = outerType;
-        this.element = classSymbol;
         if (typeArguments != null
                 && !typeArguments.isEmpty()) {
             this.typeArguments = new ArrayList<>(typeArguments);
@@ -39,18 +43,23 @@ public class CClassType extends AbstractType implements DeclaredType {
     }
 
     @Override
-    public Element asElement() {
+    public TypeSymbol asElement() {
         return element;
     }
 
     @Override
     public TypeKind getKind() {
+        complete();
         return TypeKind.DECLARED;
     }
 
     @Override
     public TypeMirror getEnclosingType() {
         return outerType;
+    }
+
+    public void setOuterType(final TypeMirror outerType) {
+        this.outerType = outerType;
     }
 
     @Override
@@ -60,25 +69,29 @@ public class CClassType extends AbstractType implements DeclaredType {
     }
 
     @Override
-    public List<? extends TypeMirror> getTypeArguments() {
+    public List<AbstractType> getTypeArguments() {
+        if (typeArguments == null) {
+            complete();
+
+            if (typeArguments == null) {
+                typeArguments = new ArrayList<>();
+            }
+        }
+
         return typeArguments;
+    }
+
+    public void setTypeArguments(final List<AbstractType> typeArguments) {
+        this.typeArguments = typeArguments;
+    }
+
+    private void complete() {
+        element.complete();
     }
 
     @Override
     public String toString() {
-        return ElementUtils.getQualifiedName(element);
-    }
-
-    public CClassType withTypeArguments(final TypeMirror... typeParams) {
-        return withTypeArguments(List.of(typeParams));
-    }
-
-    public CClassType withTypeArguments(final List<TypeMirror> typeParams) {
-        return new CClassType(
-                outerType,
-                element,
-                typeParams
-        );
+        return element.getQualifiedName();
     }
 
     @Override
@@ -99,5 +112,28 @@ public class CClassType extends AbstractType implements DeclaredType {
     @Override
     public boolean isParameterized() {
         return !getAllParameters().isEmpty();
+    }
+
+    @Override
+    public ClassSymbol asTypeElement() {
+        return (ClassSymbol) DeclaredType.super.asTypeElement();
+    }
+
+    public TypeMirror getSupertypeField() {
+        return supertypeField;
+    }
+
+    public List<TypeMirror> getInterfacesField() {
+        return interfacesField;
+    }
+
+    @Override
+    public boolean isInterface() {
+        return this.asTypeElement().getKind() == ElementKind.INTERFACE;
+    }
+
+    @Override
+    public String getClassName() {
+        return element.getQualifiedName();
     }
 }

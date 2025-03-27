@@ -1,14 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression.builder;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir.expression.Ex;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 
-public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessExpressionTree> {
+public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessExpressionTree, FieldAccessExpressionBuilder> {
 
     private ExpressionTree target;
     private ExpressionTree field;
+
+    public FieldAccessExpressionBuilder() {
+        super();
+    }
 
     public FieldAccessExpressionBuilder(final FieldAccessExpressionTree fieldAccessExpressionTree) {
         super(fieldAccessExpressionTree);
@@ -17,7 +20,7 @@ public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessE
     }
 
     @Override
-    public ExpressionBuilder<FieldAccessExpressionTree> self() {
+    public FieldAccessExpressionBuilder self() {
         return this;
     }
 

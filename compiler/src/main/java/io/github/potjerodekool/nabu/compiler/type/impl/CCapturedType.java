@@ -16,4 +16,9 @@ public class CCapturedType extends CTypeVariable implements CapturedType {
     public WildcardType getWildcard() {
         return wildcard;
     }
+
+    @Override
+    public String getClassName() {
+        return "captured";
+    }
 }

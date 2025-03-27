@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression;
 
-import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatement;
+import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 
 import java.util.List;
 
@@ -10,5 +10,7 @@ public interface NewClassExpression extends ExpressionTree {
 
     List<ExpressionTree> getArguments();
 
-    BlockStatement getBody();
+    List<ExpressionTree> getTypeArguments();
+
+    ClassDeclaration getClassDeclaration();
 }

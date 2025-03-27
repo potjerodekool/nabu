@@ -15,4 +15,9 @@ public interface TypeElement extends Element, QualifiedNameable {
     TypeMirror getSuperclass();
 
     List<? extends TypeMirror> getInterfaces();
+
+    default List<? extends TypeMirror> getPermittedSubclasses() {
+        return List.of();
+    }
+
 }

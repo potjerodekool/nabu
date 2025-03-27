@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree;
 
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
+import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 
@@ -17,11 +16,11 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(function, param);
     }
 
-    default R visitBlockStatement(BlockStatement blockStatement, P param) {
+    default R visitBlockStatement(BlockStatementTree blockStatement, P param) {
         return visitUnknown(blockStatement, param);
     }
 
-    default R visitReturnStatement(ReturnStatement returnStatement, P param) {
+    default R visitReturnStatement(ReturnStatementTree returnStatement, P param) {
         return visitUnknown(returnStatement, param);
     }
 
@@ -53,11 +52,11 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(literalExpression, param);
     }
 
-    default R visiExpressionStatement(ExpressionStatement expressionStatement, P param) {
+    default R visiExpressionStatement(ExpressionStatementTree expressionStatement, P param) {
         return visitUnknown(expressionStatement, param);
     }
 
-    default R visitVariableDeclaratorStatement(VariableDeclarator variableDeclaratorStatement, P param) {
+    default R visitVariableDeclaratorStatement(VariableDeclaratorTree variableDeclaratorStatement, P param) {
         return visitUnknown(variableDeclaratorStatement, param);
     }
 
@@ -109,11 +108,11 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(emptyStatementTree, param);
     }
 
-    default R visitForStatement(ForStatement forStatement, P param) {
+    default R visitForStatement(ForStatementTree forStatement, P param) {
         return visitUnknown(forStatement, param);
     }
 
-    default R visitEnhancedForStatement(EnhancedForStatement enhancedForStatement, P param) {
+    default R visitEnhancedForStatement(EnhancedForStatementTree enhancedForStatement, P param) {
         return visitUnknown(enhancedForStatement, param);
     }
 
@@ -129,11 +128,11 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(newClassExpression, param);
     }
 
-    default R visitWhileStatement(WhileStatement whileStatement, P param) {
+    default R visitWhileStatement(WhileStatementTree whileStatement, P param) {
         return visitUnknown(whileStatement, param);
     }
 
-    default R visitDoWhileStatement(DoWhileStatement doWhileStatement, P param) {
+    default R visitDoWhileStatement(DoWhileStatementTree doWhileStatement, P param) {
         return visitUnknown(doWhileStatement, param);
     }
 
@@ -149,8 +148,8 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(arrayTypeTree, param);
     }
 
-    default R visitAssignment(AssignmentExpression assignmentExpression, P param) {
-        return visitUnknown(assignmentExpression, param);
+    default R visitAssignment(AssignmentExpressionTree assignmentExpressionTree, P param) {
+        return visitUnknown(assignmentExpressionTree, param);
     }
 
     default R visitNewArray(NewArrayExpression newArrayExpression, P param) {
@@ -165,8 +164,47 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(intersectionTypeTree, param);
     }
 
-    default R visitArrayAccess(ArrayAccessExpression arrayAccessExpression, P param) {
-        return visitUnknown(arrayAccessExpression, param);
+    default R visitArrayAccess(ArrayAccessExpressionTree arrayAccessExpressionTree, P param) {
+        return visitUnknown(arrayAccessExpressionTree, param);
     }
 
+    default R visitMemberReference(MemberReference memberReference, P param) {
+        return visitUnknown(memberReference, param);
+    }
+
+    default R visitTryStatement(TryStatementTree tryStatementTree, P param) {
+        return visitUnknown(tryStatementTree, param);
+    }
+
+    default R visitCatch(CatchTree catchTree, P param) {
+        return visitUnknown(catchTree, param);
+    }
+
+    default R visitTypeUnion(TypeUnionExpressionTree typeUnionTreeExpression, P param) {
+        return visitUnknown(typeUnionTreeExpression, param);
+    }
+
+    default R visitModuleDeclaration(ModuleDeclaration moduleDeclaration, P param) {
+        return visitUnknown(moduleDeclaration, param);
+    }
+
+    default R visitRequires(RequiresTree requiresTree, P param) {
+        return visitUnknown(requiresTree, param);
+    }
+
+    default R visitProvides(ProvidesTree providesTree, P param) {
+        return visitUnknown(providesTree, param);
+    }
+
+    default R visitExports(ExportsTree exportsTree, P param) {
+        return visitUnknown(exportsTree, param);
+    }
+
+    default R visitUses(UsesTree usesTree, P param) {
+        return visitUnknown(usesTree, param);
+    }
+
+    default R visitOpens(OpensTree opensTree, P param) {
+        return visitUnknown(opensTree, param);
+    }
 }

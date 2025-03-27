@@ -1,7 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
@@ -11,13 +13,26 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     protected final ClassElementLoader loader;
     protected final AbstractVisitor parent;
+    protected final ModuleSymbol moduleSymbol;
 
     protected AbstractVisitor(final int api,
                               final ClassElementLoader loader,
-                              final AbstractVisitor parent) {
+                              final AbstractVisitor parent,
+                              final ModuleSymbol moduleSymbol) {
         super(api);
         this.loader = loader;
         this.parent = parent;
+        this.moduleSymbol = moduleSymbol;
+    }
+
+    protected TypeSymbol loadClass(final String name) {
+        var clazz = loader.loadClass(moduleSymbol, name);
+
+        if (clazz == null) {
+            clazz = loader.getTypes().getErrorType(name).asTypeElement();
+        }
+
+        return (TypeSymbol) clazz;
     }
 
     @Override
@@ -27,37 +42,37 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     @Override
     public SignatureVisitor visitClassBound() {
-        return new BoundVisitor(api, loader, this);
+        return new BoundVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
     public SignatureVisitor visitInterfaceBound() {
-        return new BoundVisitor(api, loader, this);
+        return new BoundVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
     public SignatureVisitor visitSuperclass() {
-        return new SuperClassVisitor(api, loader, this);
+        return new SuperClassVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
     public SignatureVisitor visitInterface() {
-        return new InterfaceVisitor(api, loader, this);
+        return new InterfaceVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
     public SignatureVisitor visitParameterType() {
-        return new ParameterTypeVisitor(api, loader, this);
+        return new ParameterTypeVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
     public SignatureVisitor visitReturnType() {
-        return new ReturnTypeVisitor(api, loader, this);
+        return new ReturnTypeVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
     public SignatureVisitor visitExceptionType() {
-        return new ExceptionTypeVisitor(api, loader, this);
+        return new ExceptionTypeVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
@@ -72,7 +87,7 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     @Override
     public SignatureVisitor visitArrayType() {
-        return new ArrayVisitor(api, loader, this);
+        return new ArrayVisitor(api, loader, this, moduleSymbol);
     }
 
     @Override
@@ -92,7 +107,7 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     @Override
     public SignatureVisitor visitTypeArgument(final char wildcard) {
-        return new TypeArgumentVisitor(api, loader, this, wildcard);
+        return new TypeArgumentVisitor(api, loader, this, wildcard, moduleSymbol);
     }
 
     protected MutableType getType() {
@@ -143,13 +158,13 @@ public abstract class AbstractVisitor extends SignatureVisitor {
         throw new TodoException(getClass().getName());
     }
 
-    protected MutableClassType createMutableClass(final TypeElement typeElement) {
+    protected MutableClassType createMutableClass(final TypeSymbol typeElement) {
         final var enclosingType = typeElement.asType().getEnclosingType();
 
         if (enclosingType == null) {
             return new MutableClassType(typeElement);
         } else {
-            final var mutableEnclosingType = createMutableClass(enclosingType.getTypeElement());
+            final var mutableEnclosingType = createMutableClass((ClassSymbol) enclosingType.asTypeElement());
             return new MutableClassType(typeElement, mutableEnclosingType);
         }
     }

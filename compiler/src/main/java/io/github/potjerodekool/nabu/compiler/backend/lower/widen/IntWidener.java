@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.Types;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 public class IntWidener {
 

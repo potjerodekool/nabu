@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
@@ -13,7 +12,7 @@ public class ToIType implements TypeVisitor<IType, Void> {
 
     @Override
     public IType visitUnknownType(final TypeMirror typeMirror, final Void param) {
-        throw new TodoException();
+        return null;
     }
 
     @Override

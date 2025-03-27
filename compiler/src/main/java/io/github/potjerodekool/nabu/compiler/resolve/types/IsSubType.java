@@ -3,6 +3,7 @@ import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.HashMap;
 
@@ -77,6 +78,10 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                     final var typeArgs = declaredType.getTypeArguments();
                     final var otherTypeArgs = otherDeclaredType.getTypeArguments();
                     boolean match = true;
+
+                    if (typeArgs.size() != otherTypeArgs.size()) {
+                        throw new IllegalStateException();
+                    }
 
                     for (var i = 0; i < typeArgs.size() && match; i++) {
                         final var typeArg = typeArgs.get(i);

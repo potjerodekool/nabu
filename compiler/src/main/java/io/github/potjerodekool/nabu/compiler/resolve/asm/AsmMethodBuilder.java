@@ -1,17 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignature;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
 import java.util.Arrays;
@@ -21,6 +21,7 @@ public class AsmMethodBuilder extends MethodVisitor {
 
     private final MethodSymbol method;
     private final ClassElementLoader loader;
+    private final ModuleSymbol moduleSymbol;
 
     protected AsmMethodBuilder(final int api,
                                final int access,
@@ -30,11 +31,15 @@ public class AsmMethodBuilder extends MethodVisitor {
                                final String[] exceptions,
                                final ClassSymbol clazz,
                                final AsmTypeResolver asmTypeResolver,
-                               final TypeBuilder typeBuilder) {
+                               final TypeBuilder typeBuilder,
+                               final ModuleSymbol moduleSymbol) {
         super(api);
         this.loader = asmTypeResolver.getClassElementLoader();
+        this.moduleSymbol = moduleSymbol;
+        final var module = clazz.resolveModuleSymbol();
 
-        final var modifiers = AccessUtils.parseModifiers(access);
+        final var flags = AccessUtils.parseMethodAccessToFlags(access);
+
         final var elementKind = Constants.INIT.equals(name) ? ElementKind.CONSTRUCTOR
                 : ElementKind.METHOD;
 
@@ -42,7 +47,9 @@ public class AsmMethodBuilder extends MethodVisitor {
 
         if (signature != null) {
             methodSignature = typeBuilder.parseMethodSignature(
-                    signature
+                    signature,
+                    asmTypeResolver,
+                    moduleSymbol
             );
         } else {
             final var asmMethodType = Type.getMethodType(descriptor);
@@ -63,7 +70,9 @@ public class AsmMethodBuilder extends MethodVisitor {
 
             if (exceptions != null) {
                 thrownTypes = Arrays.stream(exceptions)
-                        .map(exceptionName -> typeOrError(loader.loadClass(exceptionName), exceptionName))
+                        .map(exceptionName -> typeOrError(
+                                loader.loadClass(module, exceptionName),
+                                exceptionName))
                         .toList();
             } else {
                 thrownTypes = List.of();
@@ -77,9 +86,7 @@ public class AsmMethodBuilder extends MethodVisitor {
             );
         }
 
-        final var isVarArgs = AccessUtils.hasFlag(access, Opcodes.ACC_VARARGS);
-
-        this.method = (MethodSymbol) new MethodBuilder()
+        this.method = new MethodSymbolBuilderImpl()
                 .kind(elementKind)
                 .name(name)
                 .enclosingElement(clazz)
@@ -91,8 +98,7 @@ public class AsmMethodBuilder extends MethodVisitor {
                 .returnType(methodSignature.returnType())
                 .argumentTypes(methodSignature.argumentTypes())
                 .thrownTypes(methodSignature.thrownTypes())
-                .modifiers(modifiers)
-                .varArgs(isVarArgs)
+                .flags(flags)
                 .build();
 
         clazz.addEnclosedElement(method);
@@ -109,6 +115,6 @@ public class AsmMethodBuilder extends MethodVisitor {
 
     @Override
     public AnnotationVisitor visitAnnotationDefault() {
-        return new AsmAnnotationDefaultValueBuilder(api, loader, method);
+        return new AsmAnnotationDefaultValueBuilder(api, loader, method, moduleSymbol);
     }
 }

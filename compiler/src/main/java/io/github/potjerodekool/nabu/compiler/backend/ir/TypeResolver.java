@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.ir;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
+import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
@@ -61,24 +62,11 @@ class TypeResolver extends AbstractTreeVisitor<IType, Object> implements TypeVis
 
     @Override
     public IType visitTypeNameExpression(final TypeNameExpressionTree typeNameExpression, final Object param) {
-        final var className = asString(typeNameExpression);
+        final var className = TreeUtils.getClassName(typeNameExpression);
         final var declaredType = (DeclaredType) typeNameExpression.getType();
         return declaredType.asElement().getKind() == ElementKind.INTERFACE
                 ? IReferenceType.createInterfaceType(null, className, List.of())
                 : IReferenceType.createClassType(null, className, List.of());
-    }
-
-    private String asString(final ExpressionTree expression) {
-        return switch (expression) {
-            case TypeNameExpressionTree typeNameExpression -> {
-                final var packageName = asString(typeNameExpression.getPackageName());
-                final var className = asString(typeNameExpression.getIdenifier());
-                yield packageName + "." + className;
-            }
-            case IdentifierTree identifier -> identifier.getName();
-            case TypeApplyTree typeIdentifier -> typeIdentifier.getName();
-            default -> "";
-        };
     }
 
     @Override

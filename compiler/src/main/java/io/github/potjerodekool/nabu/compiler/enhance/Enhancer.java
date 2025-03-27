@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.enhance;
 
-import io.github.potjerodekool.nabu.compiler.Flags;
+import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
@@ -11,8 +11,8 @@ import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.Statement;
-import io.github.potjerodekool.nabu.compiler.tree.statement.ExpressionStatement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.ExpressionStatementTree;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
 
 import java.util.ArrayList;
@@ -28,8 +28,12 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
     }
 
     private void conditionalGenerateConstructor(final ClassDeclaration classDeclaration) {
+        if (classDeclaration.getKind() == Kind.INTERFACE) {
+            return;
+        }
+
         if (!hasConstructor(classDeclaration)) {
-            final var statements = new ArrayList<Statement>();
+            final var statements = new ArrayList<StatementTree>();
 
             final var superCall = TreeMaker.methodInvocationTree(
                     IdentifierTree.create(Constants.THIS),
@@ -82,7 +86,7 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
 
     private Function conditionalInvokeSuper(final Function constructor) {
         final var body = constructor.getBody();
-        final var newStatements = new ArrayList<Statement>();
+        final var newStatements = new ArrayList<StatementTree>();
         boolean hasConstructorInvocation = false;
 
         for (final var statement : body.getStatements()) {
@@ -119,8 +123,8 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
         }
     }
 
-    private boolean isConstructorInvocation(final Statement statement) {
-        return statement instanceof ExpressionStatement expressionStatement
+    private boolean isConstructorInvocation(final StatementTree statement) {
+        return statement instanceof ExpressionStatementTree expressionStatement
                 && expressionStatement.getExpression() instanceof MethodInvocationTree methodInvocationTree
                 && isThisOrSuper(methodInvocationTree.getName());
     }

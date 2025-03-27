@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.box;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
@@ -32,7 +31,7 @@ public abstract class AbstractBoxer {
                 return unboxed;
             }
         } else {
-            throw new TodoException();
+            return expressionTree;
         }
     }
 

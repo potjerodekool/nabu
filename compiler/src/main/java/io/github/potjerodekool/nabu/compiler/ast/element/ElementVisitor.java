@@ -23,4 +23,8 @@ public interface ElementVisitor<R, P> {
     default R visitVariable(VariableElement variableElement, P p) {
         return visitUnknown(variableElement, p);
     }
+
+    default R visitModule(ModuleElement moduleElement, P p) {
+        return visitUnknown(moduleElement, p);
+    }
 }

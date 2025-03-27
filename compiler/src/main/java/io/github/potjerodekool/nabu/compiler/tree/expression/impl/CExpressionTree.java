@@ -17,7 +17,8 @@ public abstract class CExpressionTree extends CTree implements ExpressionTree {
         super(lineNumber, charPositionInLine);
     }
 
-    public CExpressionTree(final ExpressionBuilder<? extends ExpressionTree> builder) {
+    public <E extends ExpressionTree,
+            EB extends ExpressionBuilder<E, EB>> CExpressionTree(final ExpressionBuilder<E, EB> builder) {
         super(builder);
         this.symbol = builder.getSymbol();
         this.type = builder.getType();

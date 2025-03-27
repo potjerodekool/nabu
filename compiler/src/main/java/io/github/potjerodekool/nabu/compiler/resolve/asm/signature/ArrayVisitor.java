@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.*;
@@ -12,15 +14,16 @@ public class ArrayVisitor extends AbstractVisitor {
 
     protected ArrayVisitor(final int api,
                            final ClassElementLoader loader,
-                           final AbstractVisitor parent) {
-        super(api, loader, parent);
+                           final AbstractVisitor parent,
+                           final ModuleSymbol moduleSymbol) {
+        super(api, loader, parent, moduleSymbol);
         arrayType = new MutableArrayType(null);
         parent.setType(arrayType);
     }
 
     @Override
     public void visitClassType(final String name) {
-        type = new MutableClassType(loader.loadClass(name));
+        type = new MutableClassType(loadClass(Symbol.createFlatName(name)));
         arrayType.setComponentType(type);
     }
 
@@ -63,7 +66,7 @@ public class ArrayVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loadClass(Constants.OBJECT));
         type = new MutableTypeVariable(name, objectType, null);
         arrayType.setComponentType(type);
     }

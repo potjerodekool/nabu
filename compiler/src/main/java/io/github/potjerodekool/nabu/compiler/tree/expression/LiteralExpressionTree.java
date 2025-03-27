@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression;
 
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CLiteralExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.LiteralExpressionTreeBuilder;
 
 import java.util.Arrays;
 
@@ -16,7 +16,7 @@ public interface LiteralExpressionTree extends ExpressionTree {
 
     LiteralExpressionTree negate();
 
-    CLiteralExpressionTree.LiteralExpressionTreeBuilder builder();
+    LiteralExpressionTreeBuilder builder();
 
     enum Kind {
         INTEGER(Integer.class),

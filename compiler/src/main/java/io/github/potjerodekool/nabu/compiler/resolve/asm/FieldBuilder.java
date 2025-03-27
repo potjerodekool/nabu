@@ -1,9 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.Opcodes;
@@ -27,14 +26,14 @@ public class FieldBuilder extends FieldVisitor {
         if (signature == null) {
             type = asmTypeResolver.resolveByDescriptor(descriptor);
         } else {
-            type = typeBuilder.parseFieldSignature(signature);
+            type = typeBuilder.parseFieldSignature(signature, asmTypeResolver, clazz.resolveModuleSymbol());
         }
 
-        final var field = (VariableSymbol) new VariableBuilder()
+        final var field = SymbolBuilders.variableSymbolBuilder()
                 .kind(elementKind)
                 .name(name)
                 .enclosingElement(clazz)
-                .modifiers(AccessUtils.parseModifiers(access))
+                .flags(AccessUtils.parseFieldAccessToFlags(access))
                 .type(type)
                 .constantValue(value)
                 .build();

@@ -1,13 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.compiler.Flags;
-import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
@@ -15,9 +15,10 @@ import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CReturnStatement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.ReturnStatementTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,7 +84,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             final var body = function.getBody();
 
             if (body.getStatements().isEmpty()) {
-                body.addStatement(new ReturnStatementBuilder()
+                body.addStatement(new ReturnStatementTreeBuilder()
                         .build()
                 );
             }
@@ -115,7 +116,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                 bodyStm
         );
 
-        method.setMetaData(StandardElementMetaData.FRAG, procFrag);
+        method.setFrag(procFrag);
         return null;
     }
 
@@ -166,7 +167,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         if (clientInit != null) {
             clientInit.getBody().addStatement(
-                    new ReturnStatementBuilder()
+                    new ReturnStatementTreeBuilder()
                             .build()
             );
         }
@@ -182,9 +183,9 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                 .orElseGet(() -> {
                     final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
 
-                    final var method = (MethodSymbol) new MethodBuilder()
+                    final var method = new MethodSymbolBuilderImpl()
                             .kind(ElementKind.STATIC_INIT)
-                            .modifiers(Modifier.STATIC)
+                            .flags(Flags.STATIC)
                             .name(Constants.CLINIT)
                             .returnType(types.getNoType(TypeKind.VOID))
                             .build();
@@ -227,7 +228,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitTypeNameExpression(final TypeNameExpressionTree cTypeNameExpression, final TranslateContext context) {
-        throw new TodoException();
+        return null;
     }
 
     @Override
@@ -293,7 +294,11 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         final var originalMethodType = (ExecutableType) methodType.getMethodSymbol().asType();
 
-        final var returnType = toIType(originalMethodType.getReturnType());
+        final IType returnType =
+                invokedMethod.getKind() == ElementKind.CONSTRUCTOR
+                ? IPrimitiveType.VOID
+                : toIType(originalMethodType.getReturnType());
+
         final var argumentTypes = originalMethodType.getParameterTypes();
 
         final List<IType> parameterTypes = argumentTypes.stream()
@@ -331,7 +336,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitReturnStatement(final ReturnStatement returnStatement, final TranslateContext context) {
+    public Exp visitReturnStatement(final ReturnStatementTree returnStatement, final TranslateContext context) {
         final var expression = returnStatement.getExpression();
         final IExpression expr;
 
@@ -358,7 +363,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitBlockStatement(final BlockStatement blockStatement, final TranslateContext context) {
+    public Exp visitBlockStatement(final BlockStatementTree blockStatement, final TranslateContext context) {
         Frame parentFrame = context.frame;
         context.frame = parentFrame.subFrame();
 
@@ -502,7 +507,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement,
+    public Exp visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
                                                 final TranslateContext context) {
         if (variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
             final var variableType = variableDeclaratorStatement.getName().getSymbol().asType();
@@ -588,7 +593,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     public Exp visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final TranslateContext context) {
         final var target = (IdentifierTree) fieldAccessExpression.getTarget();
         final var field = (IdentifierTree) fieldAccessExpression.getField();
-        final var fieldType = toIType(TreeUtils.resolveType(field));
+        final var fieldType = toIType(TreeUtils.typeOf(field));
         return new Ex(new IFieldAccess(
                 target.getName(),
                 field.getName(),
@@ -598,18 +603,20 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitForStatement(final ForStatement forStatement, final TranslateContext context) {
-        final var init = forStatement.getForInit() != null
-                ? forStatement.getForInit().accept(this, context)
-                : new Ex(new TempExpr());
+    public Exp visitForStatement(final ForStatementTree forStatement, final TranslateContext context) {
+        final var init = forStatement.getForInit().stream()
+                .map(it -> it.accept(this, context))
+                .reduce((first, second) -> new Ex(new ExpList(first.unEx(), second.unEx())))
+                .orElse(new Ex(new TempExpr()));
 
         final var condition = forStatement.getExpression() != null
                 ? forStatement.getExpression().accept(this, context)
                 : new Ex(new TempExpr());
 
-        final var update = forStatement.getForUpdate() != null
-                ? forStatement.getForUpdate().accept(this, context)
-                : new Ex(new TempExpr());
+        final var update = forStatement.getForUpdate().stream()
+                .map(it -> it.accept(this, context))
+                .reduce((first, second) -> new Ex(new ExpList(first.unEx(), second.unEx())))
+                .orElse(new Ex(new TempExpr()));
 
         final var body = forStatement.getStatement().accept(this, context);
 
@@ -622,7 +629,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visiExpressionStatement(final ExpressionStatement expressionStatement, final TranslateContext context) {
+    public Exp visiExpressionStatement(final ExpressionStatementTree expressionStatement, final TranslateContext context) {
         final var expr = expressionStatement.getExpression().accept(this, context).unEx();
         final var es = new IExpressionStatement(expr);
         es.setLineNumber(expressionStatement.getLineNumber());
@@ -640,7 +647,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitWhileStatement(final WhileStatement whileStatement, final TranslateContext context) {
+    public Exp visitWhileStatement(final WhileStatementTree whileStatement, final TranslateContext context) {
         final var condition = whileStatement.getCondition().accept(this, context);
         final var body = whileStatement.getBody().accept(this, context);
 
@@ -651,7 +658,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitDoWhileStatement(final DoWhileStatement doWhileStatement, final TranslateContext context) {
+    public Exp visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final TranslateContext context) {
         final var body = doWhileStatement.getBody().accept(this, context);
         final var condition = doWhileStatement.getCondition().accept(this, context);
 

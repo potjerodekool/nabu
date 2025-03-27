@@ -1,16 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression.builder;
 
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
+import io.github.potjerodekool.nabu.compiler.tree.expression.BinaryExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CBinaryExpressionTree;
 
-public class BinaryExpressionBuilder extends ExpressionBuilder<CBinaryExpressionTree> {
+public class BinaryExpressionBuilder extends ExpressionBuilder<BinaryExpressionTree, BinaryExpressionBuilder> {
 
     private ExpressionTree left;
     private Tag tag;
     private ExpressionTree right;
 
-    public BinaryExpressionBuilder(final CBinaryExpressionTree binaryExpression) {
+    public BinaryExpressionBuilder(final BinaryExpressionTree binaryExpression) {
         super(binaryExpression);
         this.left = binaryExpression.getLeft();
         this.right = binaryExpression.getRight();
@@ -30,7 +31,7 @@ public class BinaryExpressionBuilder extends ExpressionBuilder<CBinaryExpression
     }
 
     @Override
-    public ExpressionBuilder<CBinaryExpressionTree> self() {
+    public BinaryExpressionBuilder self() {
         return this;
     }
 
@@ -50,7 +51,7 @@ public class BinaryExpressionBuilder extends ExpressionBuilder<CBinaryExpression
     }
 
     @Override
-    public CBinaryExpressionTree build() {
+    public BinaryExpressionTree build() {
         return new CBinaryExpressionTree(this);
     }
 }

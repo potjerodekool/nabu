@@ -1,14 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve.scope;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.PackageElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 import java.util.Set;
+import java.util.function.Predicate;
 
 public interface Scope {
 
@@ -31,8 +28,16 @@ public interface Scope {
 
     Element resolve(String name);
 
+    default Element resolve(String name,
+                    Predicate<Element> filter) {
+        return resolve(name);
+    }
+
     default TypeMirror resolveType(String name) {
-        return null;
+        final var parent = getParent();
+        return parent != null
+                ? parent.resolveType(name)
+                : null;
     }
 
     default Set<String> locals() {
@@ -68,6 +73,23 @@ public interface Scope {
         final var parent = getParent();
         if (parent != null) {
             parent.setPackageElement(packageElement);
+        }
+    }
+
+    default ModuleElement findModuleElement() {
+        return findModuleElement(getCurrentClass());
+    }
+
+    private ModuleElement findModuleElement(final Element element) {
+        if (element == null) {
+            final var parent = getParent();
+            return parent != null
+                    ? parent.findModuleElement()
+                    : null;
+        } else if (element instanceof PackageElement packageElement) {
+            return packageElement.getModuleSymbol();
+        } else {
+            return findModuleElement(element.getEnclosingElement());
         }
     }
 }

@@ -42,7 +42,7 @@ public class CUnaryExpressionTree extends CExpressionTree implements UnaryExpres
         return new UnaryExpressionBuilder(this);
     }
 
-    public static class UnaryExpressionBuilder extends ExpressionBuilder<CUnaryExpressionTree> {
+    public static class UnaryExpressionBuilder extends ExpressionBuilder<CUnaryExpressionTree, UnaryExpressionBuilder> {
 
         private ExpressionTree expression;
 
@@ -52,7 +52,7 @@ public class CUnaryExpressionTree extends CExpressionTree implements UnaryExpres
         }
 
         @Override
-        public ExpressionBuilder<CUnaryExpressionTree> self() {
+        public UnaryExpressionBuilder self() {
             return this;
         }
 

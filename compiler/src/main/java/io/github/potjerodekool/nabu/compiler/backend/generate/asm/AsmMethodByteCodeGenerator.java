@@ -3,8 +3,8 @@ package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.StandardElementMetaData;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.*;
@@ -18,7 +18,8 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.ExpCall;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.MoveCall;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import org.objectweb.asm.*;
@@ -27,7 +28,7 @@ import org.objectweb.asm.util.TraceMethodVisitor;
 
 import java.util.*;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.ClassUtils.getInternalName;
+import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;
 
 public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
@@ -55,9 +56,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         return textifier;
     }
 
-    public void generate(final ExecutableElement methodSymbol) {
-        final var access = AsmUtils.calculateAccess(methodSymbol.getModifiers());
-
+    public void generate(final MethodSymbol methodSymbol) {
+        final var access = AccessUtils.flagsToAccess(methodSymbol.getFlags());
         final var methodHeader = createMethodHeader(methodSymbol);
         final var methodDescriptor = createMethodDescriptor(methodHeader);
         final var methodSignature = createMethodSignature(methodHeader);
@@ -78,7 +78,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             frame.allocateLocal("this", IReferenceType.createClassType(null, owner, List.of()), false);
         }
 
-        final var procFrag = methodSymbol.getMetaData(StandardElementMetaData.FRAG, ProcFrag.class);
+        final var procFrag = methodSymbol.getFrag();
         final List<IStatement> body;
 
         if (procFrag != null) {
@@ -87,7 +87,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         } else {
             final var clazz = (TypeElement) methodSymbol.getEnclosingElement();
             final var superTypes = (DeclaredType) clazz.getSuperclass();
-            final var superClassName = superTypes.getTypeElement().getQualifiedName();
+            final var superClassName = superTypes.asTypeElement().getQualifiedName();
 
             body = List.of(new Move(
                     new Call(
@@ -104,7 +104,11 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         visitParameters(methodHeader, frame);
         visitAnnotations(methodSymbol);
-        visitBody(body, frame);
+
+        if (!methodSymbol.isAbstract()) {
+            visitBody(body, frame);
+        }
+
         visitLocalVariables(frame);
 
         methodWriter.visitMaxs(-1, -1);

@@ -1,11 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -15,14 +16,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class SignatureUtilsTest {
 
-    private final ClassElementLoader loader = new AsmClassElementLoader(new SymbolTable());
-    private boolean init = true;
+    private CompilerContext compilerContext;
 
     @BeforeEach
     void setup() {
-        if (init) {
-            loader.postInit();
-            init = false;
+        if (compilerContext == null) {
+            this.compilerContext = new CompilerContextImpl(
+                    new ApplicationContext(),
+                    new NabuCFileManager()
+            );
         }
     }
 

@@ -8,7 +8,7 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CAnnotatedType
 import java.util.ArrayList;
 import java.util.List;
 
-public class AnnotatedTypeTreeBuilder extends ExpressionBuilder<AnnotatedTypeTree> {
+public class AnnotatedTypeTreeBuilder extends ExpressionBuilder<AnnotatedTypeTree, AnnotatedTypeTreeBuilder> {
 
     private final List<AnnotationTree> annotations = new ArrayList<>();
 
@@ -46,7 +46,7 @@ public class AnnotatedTypeTreeBuilder extends ExpressionBuilder<AnnotatedTypeTre
     }
 
     @Override
-    public CAnnotatedTypeTree build() {
+    public AnnotatedTypeTree build() {
         return new CAnnotatedTypeTree(this);
     }
 }

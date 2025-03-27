@@ -1,14 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.Types;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +19,11 @@ import java.util.List;
 
 class CasterTest {
 
-    private final ClassElementLoader loader = new AsmClassElementLoader();
+    final CompilerContextImpl compilerContext = new CompilerContextImpl(
+            new ApplicationContext(),
+            new NabuCFileManager()
+    );
+    private final ClassElementLoader loader = compilerContext.getClassElementLoader();
     private final Types types = loader.getTypes();
     private final Caster caster = new Caster();
 
@@ -32,11 +39,14 @@ class CasterTest {
                 -1
         );
 
-        final var objectType = loader.loadClass(Constants.OBJECT).asType();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getUnnamedModule();
 
-        final var integerType = loader.loadClass(Constants.INTEGER).asType();
+        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 
-        final var method = new MethodBuilder()
+        final var integerType = loader.loadClass(module, Constants.INTEGER).asType();
+
+        final var method = new MethodSymbolBuilderImpl()
                 .returnType(types.getTypeVariable("E", objectType, null))
                 .build();
 

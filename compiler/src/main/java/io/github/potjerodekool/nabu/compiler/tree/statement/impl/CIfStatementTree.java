@@ -3,18 +3,18 @@ package io.github.potjerodekool.nabu.compiler.tree.statement.impl;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.IfStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.IfStatementTreeBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.statement.Statement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.IfStatementTreeBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
 
-public class CIfStatementTree extends CStatement implements IfStatementTree {
+public class CIfStatementTree extends CStatementTree implements IfStatementTree {
 
     private final ExpressionTree expression;
-    private final Statement thenStatement;
-    private final Statement elseStatement;
+    private final StatementTree thenStatement;
+    private final StatementTree elseStatement;
 
     public CIfStatementTree(final ExpressionTree expression,
-                            final Statement thenStatement,
-                            final Statement elseStatement,
+                            final StatementTree thenStatement,
+                            final StatementTree elseStatement,
                             final int lineNumber,
                             final int charPositionInLine) {
         super(lineNumber, charPositionInLine);
@@ -34,11 +34,11 @@ public class CIfStatementTree extends CStatement implements IfStatementTree {
         return expression;
     }
 
-    public Statement getThenStatement() {
+    public StatementTree getThenStatement() {
         return thenStatement;
     }
 
-    public Statement getElseStatement() {
+    public StatementTree getElseStatement() {
         return elseStatement;
     }
 

@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.*;
@@ -10,13 +12,14 @@ public class ParameterTypeVisitor extends AbstractVisitor {
 
     protected ParameterTypeVisitor(final int api,
                                    final ClassElementLoader loader,
-                                   final AbstractVisitor parent) {
-        super(api, loader, parent);
+                                   final AbstractVisitor parent,
+                                   final ModuleSymbol moduleSymbol) {
+        super(api, loader, parent, moduleSymbol);
     }
 
     @Override
     public void visitClassType(final String name) {
-        parameterType = new MutableClassType(loader.loadClass(name));
+        parameterType = new MutableClassType(loadClass(Symbol.createFlatName(name)));
         parent.addParameterType(parameterType);
     }
 
@@ -28,7 +31,7 @@ public class ParameterTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loadClass(Constants.OBJECT));
         parameterType = new MutableTypeVariable(name, objectType, null);
         parent.addParameterType(parameterType);
     }
@@ -61,7 +64,7 @@ public class ParameterTypeVisitor extends AbstractVisitor {
     @Override
     public void visitInnerClassType(final String name) {
         final var innerName = ((MutableClassType)parent.getLastParameterType()).getClassName() + "$" + name;
-        final var element = loader.loadClass(innerName);
+        final var element = loadClass(innerName);
         parent.replaceLastParameterType(new MutableClassType(element));
     }
 }

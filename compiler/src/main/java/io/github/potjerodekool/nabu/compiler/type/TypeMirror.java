@@ -56,7 +56,7 @@ public interface TypeMirror {
         return null;
     }
 
-    default TypeElement getTypeElement() {
+    default TypeElement asTypeElement() {
         return null;
     }
 
@@ -65,7 +65,7 @@ public interface TypeMirror {
     }
 
     default boolean isRaw() {
-        final var typeElement = getTypeElement();
+        final var typeElement = asTypeElement();
         return this != typeElement.asType()
                 && !typeElement.asType().getAllParameters().isEmpty()
                 && getAllParameters().isEmpty();
@@ -75,4 +75,13 @@ public interface TypeMirror {
         return false;
     }
 
+    default boolean isCompound() {
+        return false;
+    }
+
+    default boolean isInterface() {
+        return false;
+    }
+
+    String getClassName();
 }

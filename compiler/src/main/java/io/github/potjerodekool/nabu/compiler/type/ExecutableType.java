@@ -19,4 +19,6 @@ public interface ExecutableType extends TypeMirror {
     TypeMirror getReturnType();
 
     List<? extends TypeMirror> getThrownTypes();
+
+    TypeMirror getReceiverType();
 }

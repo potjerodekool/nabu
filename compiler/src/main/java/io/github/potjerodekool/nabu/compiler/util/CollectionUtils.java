@@ -55,14 +55,13 @@ public final class CollectionUtils {
     /**
      * @param first  A List
      * @param second Another List
-     * @param <E>    Some type.
-     *               <p>
-     *               Will throw an IllegalArgumentException if the size of the lists don't match.
+     * <p>
+     * Will throw an IllegalArgumentException if the size of the lists don't match.
      * @return Returns a Stream of pairs where
      * every pair contains a value from the first list and a value from the second list.
      */
-    public static <E> Stream<Pair<E, E>> pairStream(final List<? extends E> first,
-                                                 final List<? extends E> second) {
+    public static <A, B> Stream<Pair<A, B>> pairStream(final List<? extends A> first,
+                                                       final List<? extends B> second) {
         if (first.size() != second.size()) {
             throw new IllegalArgumentException("Cannot create pair Stream");
         }
@@ -72,9 +71,9 @@ public final class CollectionUtils {
 
     /**
      * @param resultClass
-     * @return
      * @param <T>
      * @param <R>
+     * @return
      */
     public static <T, R> Function<T, Stream<R>> mapOnly(final Class<R> resultClass) {
         return t -> {
@@ -87,25 +86,25 @@ public final class CollectionUtils {
     }
 }
 
-class PairSpliterator<E> implements Spliterator<Pair<E,E>> {
+class PairSpliterator<A, B> implements Spliterator<Pair<A, B>> {
 
-    private final List<? extends E> left;
-    private final List<? extends E> right;
+    private final List<? extends A> left;
+    private final List<? extends B> right;
     private int pos = 0;
 
-    public PairSpliterator(final List<? extends E> left,
-                           final List<? extends E> right) {
+    public PairSpliterator(final List<? extends A> left,
+                           final List<? extends B> right) {
         this.left = left;
         this.right = right;
     }
 
     @Override
-    public boolean tryAdvance(final Consumer<? super Pair<E,E>> action) {
+    public boolean tryAdvance(final Consumer<? super Pair<A, B>> action) {
         if (pos == 0 && left.isEmpty()) {
             return false;
         }
 
-        final var pair = new Pair<E,E>(
+        final var pair = new Pair<A, B>(
                 left.get(pos),
                 right.get(pos)
         );
@@ -115,7 +114,7 @@ class PairSpliterator<E> implements Spliterator<Pair<E,E>> {
     }
 
     @Override
-    public Spliterator<Pair<E,E>> trySplit() {
+    public Spliterator<Pair<A, B>> trySplit() {
         return null;
     }
 

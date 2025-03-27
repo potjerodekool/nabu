@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import org.objectweb.asm.AnnotationVisitor;
@@ -31,7 +31,7 @@ public class AsmAnnotationGenerator implements AnnotationValueVisitor<Void, AsmA
 
     private static boolean isVisible(final AnnotationMirror annotation) {
         final var annotationType = annotation.getAnnotationType();
-        final var element = annotationType.getTypeElement();
+        final var element = annotationType.asTypeElement();
         return element.getAnnotationMirrors().stream()
                 .filter(AsmAnnotationGenerator::isRetentionAnnotation)
                 .flatMap(it -> it.getElementValues().entrySet().stream())
@@ -45,7 +45,7 @@ public class AsmAnnotationGenerator implements AnnotationValueVisitor<Void, AsmA
     private static boolean isRetentionAnnotation(final AnnotationMirror annotation) {
         final var annotationType = annotation.getAnnotationType();
         return "java.lang.annotation.Retention".equals(
-                annotationType.getTypeElement().getQualifiedName()
+                annotationType.asTypeElement().getQualifiedName()
         );
     }
 
@@ -133,7 +133,7 @@ public class AsmAnnotationGenerator implements AnnotationValueVisitor<Void, AsmA
         final var declaredType = (DeclaredType) t;
 
         final var internalName =
-                ClassUtils.getInternalName(declaredType.getTypeElement().getQualifiedName());
+                ClassUtils.getInternalName(declaredType.asTypeElement().getQualifiedName());
         annotationGeneratorContext.annotationVisitor.visit(
                 annotationGeneratorContext.name,
                 Type.getObjectType(internalName)

@@ -5,8 +5,8 @@ import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatement;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclarator;
+import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 
 import java.util.List;
 
@@ -24,17 +24,17 @@ public interface Function extends Tree {
 
     ExpressionTree getDefaultValue();
 
-    VariableDeclarator getReceiverParameter();
+    VariableDeclaratorTree getReceiverParameter();
 
-    List<? extends VariableDeclarator> getParameters();
+    List<? extends VariableDeclaratorTree> getParameters();
 
     ExpressionTree getReturnType();
 
     List<? extends Tree> getThrownTypes();
 
-    BlockStatement getBody();
+    BlockStatementTree getBody();
 
-    default boolean hasFlag(final int flag) {
+    default boolean hasFlag(final long flag) {
         return getModifiers().hasFlag(flag);
     }
 

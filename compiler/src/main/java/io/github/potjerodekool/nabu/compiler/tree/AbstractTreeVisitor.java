@@ -12,6 +12,11 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         return null;
     }
 
+    public R defaultAnswer(final Tree tree,
+                           final P param) {
+        return null;
+    }
+
     @Override
     public R visitCompilationUnit(final CompilationUnit compilationUnit,
                                   final P param) {
@@ -24,12 +29,12 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         );
 
         compilationUnit.getClasses().forEach(e -> e.accept(this, param));
-        return null;
+        return defaultAnswer(compilationUnit, param);
     }
 
     @Override
     public R visitImportItem(final ImportItem importItem, final P param) {
-        return null;
+        return defaultAnswer(importItem, param);
     }
 
     @Override
@@ -47,23 +52,23 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
             body.accept(this, param);
         }
 
-        return null;
+        return defaultAnswer(function, param);
     }
 
     @Override
-    public R visitBlockStatement(final BlockStatement blockStatement, final P param) {
+    public R visitBlockStatement(final BlockStatementTree blockStatement, final P param) {
         blockStatement.getStatements().forEach(s -> s.accept(this, param));
-        return null;
+        return defaultAnswer(blockStatement, param);
     }
 
     @Override
-    public R visitReturnStatement(final ReturnStatement returnStatement, final P param) {
+    public R visitReturnStatement(final ReturnStatementTree returnStatement, final P param) {
         final var expression = returnStatement.getExpression();
 
         if (expression != null) {
             return returnStatement.getExpression().accept(this, param);
         } else {
-            return null;
+            return defaultAnswer(returnStatement, param);
         }
     }
 
@@ -72,27 +77,27 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     public R visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final P param) {
         lambdaExpression.getVariables().forEach(variable -> variable.accept(this, param));
         lambdaExpression.getBody().accept(this, param);
-        return null;
+        return defaultAnswer(lambdaExpression, param);
     }
 
     @Override
     public R visitBinaryExpression(final BinaryExpressionTree binaryExpression, final P param) {
         binaryExpression.getLeft().accept(this, param);
         binaryExpression.getRight().accept(this, param);
-        return null;
+        return defaultAnswer(binaryExpression, param);
     }
 
     @Override
     public R visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final P param) {
         fieldAccessExpression.getTarget().accept(this, param);
         fieldAccessExpression.getField().accept(this, param);
-        return null;
+        return defaultAnswer(fieldAccessExpression, param);
     }
 
     @Override
     public R visitClass(final ClassDeclaration classDeclaration, final P param) {
         classDeclaration.getEnclosedElements().forEach(e -> e.accept(this, param));
-        return null;
+        return defaultAnswer(classDeclaration, param);
     }
 
     @Override
@@ -103,12 +108,13 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         }
         methodInvocation.getName().accept(this, param);
         methodInvocation.getArguments().forEach(arg -> arg.accept(this, param));
-        return null;
+        return defaultAnswer(methodInvocation, param);
     }
 
     @Override
-    public R visiExpressionStatement(final ExpressionStatement expressionStatement, final P param) {
-        return expressionStatement.getExpression().accept(this, param);
+    public R visiExpressionStatement(final ExpressionStatementTree expressionStatement, final P param) {
+        expressionStatement.getExpression().accept(this, param);
+        return defaultAnswer(expressionStatement, param);
     }
 
     @Override
@@ -116,11 +122,11 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         annotatedType.getAnnotations().forEach(a -> a.accept(this, param));
         annotatedType.getClazz().accept(this, param);
         annotatedType.getArguments().forEach(a -> a.accept(this, param));
-        return null;
+        return defaultAnswer(annotatedType, param);
     }
 
     @Override
-    public R visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final P param) {
+    public R visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final P param) {
         variableDeclaratorStatement.getName().accept(this, param);
 
         if (variableDeclaratorStatement.getValue() != null) {
@@ -129,13 +135,13 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
 
         variableDeclaratorStatement.getType().accept(this, param);
 
-        return null;
+        return defaultAnswer(variableDeclaratorStatement, param);
     }
 
     @Override
     public R visitUnaryExpression(final UnaryExpressionTree unaryExpression, final P param) {
         unaryExpression.getExpression().accept(this, param);
-        return null;
+        return defaultAnswer(unaryExpression, param);
     }
 
     @Override
@@ -143,7 +149,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         if (wildCardExpression.getBound() != null) {
             wildCardExpression.getBound().accept(this, param);
         }
-        return null;
+        return defaultAnswer(wildCardExpression, param);
     }
 
     @Override
@@ -155,24 +161,24 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
             ifStatementTree.getElseStatement().accept(this, param);
         }
 
-        return null;
+        return defaultAnswer(ifStatementTree, param);
     }
 
     @Override
-    public R visitForStatement(final ForStatement forStatement, final P param) {
-        accept(forStatement.getForInit(), param);
+    public R visitForStatement(final ForStatementTree forStatement, final P param) {
+        forStatement.getForInit().forEach(it -> it.accept(this, param));
         accept(forStatement.getExpression(), param);
-        accept(forStatement.getForUpdate(), param);
+        forStatement.getForUpdate().forEach(it -> it.accept(this, param));
         forStatement.getStatement().accept(this, param);
-        return null;
+        return defaultAnswer(forStatement, param);
     }
 
     @Override
-    public R visitEnhancedForStatement(final EnhancedForStatement enhancedForStatement, final P param) {
+    public R visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final P param) {
         enhancedForStatement.getExpression().accept(this, param);
         enhancedForStatement.getLocalVariable().accept(this, param);
         enhancedForStatement.getStatement().accept(this, param);
-        return null;
+        return defaultAnswer(enhancedForStatement, param);
     }
 
     private void accept(final Tree tree,
@@ -185,35 +191,35 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     @Override
     public R visitNewClass(final NewClassExpression newClassExpression, final P param) {
         newClassExpression.getName().accept(this, param);
-        newClassExpression.getBody().accept(this, param);
-        return null;
+        newClassExpression.getClassDeclaration().accept(this, param);
+        return defaultAnswer(newClassExpression, param);
     }
 
     @Override
-    public R visitWhileStatement(final WhileStatement whileStatement, final P param) {
+    public R visitWhileStatement(final WhileStatementTree whileStatement, final P param) {
         whileStatement.getCondition().accept(this, param);
         whileStatement.getBody().accept(this, param);
-        return null;
+        return defaultAnswer(whileStatement, param);
     }
 
     @Override
-    public R visitDoWhileStatement(final DoWhileStatement doWhileStatement, final P param) {
+    public R visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final P param) {
         doWhileStatement.getBody().accept(this, param);
         doWhileStatement.getCondition().accept(this, param);
-        return null;
+        return defaultAnswer(doWhileStatement, param);
     }
 
     @Override
     public R visitAnnotation(final AnnotationTree annotationTree, final P param) {
         annotationTree.getName().accept(this, param);
         annotationTree.getArguments().forEach(arg -> arg.accept(this, param));
-        return null;
+        return defaultAnswer(annotationTree, param);
     }
 
     @Override
-    public R visitAssignment(final AssignmentExpression assignmentExpression, final P param) {
-        assignmentExpression.getLeft().accept(this, param);
-        assignmentExpression.getRight().accept(this, param);
-        return null;
+    public R visitAssignment(final AssignmentExpressionTree assignmentExpressionTree, final P param) {
+        assignmentExpressionTree.getLeft().accept(this, param);
+        assignmentExpressionTree.getRight().accept(this, param);
+        return defaultAnswer(assignmentExpressionTree, param);
     }
 }

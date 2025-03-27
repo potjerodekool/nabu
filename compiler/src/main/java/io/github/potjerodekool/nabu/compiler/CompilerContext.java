@@ -1,47 +1,16 @@
 package io.github.potjerodekool.nabu.compiler;
 
-import io.github.potjerodekool.dependencyinjection.ApplicationContext;
-import io.github.potjerodekool.nabu.compiler.resolve.*;
+import io.github.potjerodekool.nabu.compiler.resolve.ArgumentBoxer;
+import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.util.Elements;
 
-public class CompilerContext {
+public interface CompilerContext extends AutoCloseable {
+    ClassElementLoader getClassElementLoader();
 
-    private final ClassElementLoader classElementLoader;
-    private final MethodResolver methodResolver;
-    private final ArgumentBoxer argumentBoxer;
-    private final SymbolResolverRegistry resolverRegistry;
+    Elements getElements();
 
-    public CompilerContext(final ClassElementLoader classElementLoader,
-                           final ApplicationContext applicationContext) {
-        this.classElementLoader = classElementLoader;
-        this.methodResolver = new MethodResolver(
-                classElementLoader.getTypes()
-        );
-        this.resolverRegistry = createSymbolResolverRegistry(applicationContext);
+    MethodResolver getMethodResolver();
 
-        this.argumentBoxer = new ArgumentBoxer(
-                classElementLoader,
-                methodResolver
-        );
-    }
-
-    private SymbolResolverRegistry createSymbolResolverRegistry(final ApplicationContext applicationContext) {
-        final var symbolResolvers = applicationContext.getBeansOfType(SymbolResolver.class);
-        return new SymbolResolverRegistry(symbolResolvers);
-    }
-
-    public SymbolResolverRegistry getResolverRegistry() {
-        return resolverRegistry;
-    }
-
-    public ClassElementLoader getClassElementLoader() {
-        return classElementLoader;
-    }
-
-    public MethodResolver getMethodResolver() {
-        return methodResolver;
-    }
-
-    public ArgumentBoxer getArgumentBoxer() {
-        return argumentBoxer;
-    }
+    ArgumentBoxer getArgumentBoxer();
 }

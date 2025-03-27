@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DefaultDiagnostic;
 import io.github.potjerodekool.nabu.compiler.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DiagnosticListener;
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.resolve.access.StandardAccessChecker;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
@@ -11,6 +10,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.compiler.tree.ImportItem;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
@@ -41,6 +41,22 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     public Object visitCompilationUnit(final CompilationUnit compilationUnit,
                                        final Scope scope) {
         return super.visitCompilationUnit(compilationUnit, new GlobalScope(compilationUnit, null));
+    }
+
+    @Override
+    public Object visitImportItem(final ImportItem importItem,
+                                  final Scope scope) {
+        if (importItem.getSymbol() == null) {
+            final var className = importItem.getClassOrPackageName();
+
+            reportUnresolvedSymbol(
+                    className,
+                    importItem,
+                    scope
+            );
+        }
+
+        return null;
     }
 
     @Override
@@ -78,17 +94,16 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
     @Override
     public Object visitIdentifier(final IdentifierTree identifier,
-                                  final Scope scope){
+                                  final Scope scope) {
         final var symbol = identifier.getSymbol();
         final var type = identifier.getType();
 
-        if (symbol == null && isNullOrErrorType(type)) {
-            final var linInfo = formatLineInfo(identifier);
-            listener.report(new DefaultDiagnostic(
-                    Diagnostic.Kind.ERROR,
-                    String.format("Failed to resolve symbol %s %s", identifier.getName(), linInfo),
-                    getCompilationUnit(scope).getFileObject()
-            ));
+        if (isNullOrError(symbol) && isNullOrErrorType(type)) {
+            reportUnresolvedSymbol(
+                    identifier.getName(),
+                    identifier,
+                    scope
+            );
         } else {
             final var currentClass = scope.getCurrentClass();
 
@@ -103,6 +118,22 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         return null;
     }
 
+    private void reportUnresolvedSymbol(final String name,
+                                        final Tree tree,
+                                        final Scope scope) {
+        final var lineInfo = formatLineInfo(tree);
+        listener.report(new DefaultDiagnostic(
+                Diagnostic.Kind.ERROR,
+                String.format("Failed to resolve symbol %s %s", name, lineInfo),
+                getCompilationUnit(scope).getFileObject()
+        ));
+    }
+
+    private boolean isNullOrError(final Element element) {
+        return element == null
+                || !element.exists();
+    }
+
     private String formatLineInfo(final Tree tree) {
         return "at " + tree.getLineNumber() + ":" + tree.getColumnNumber();
     }
@@ -113,16 +144,22 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         final String message;
         final var className = currentClass.getQualifiedName();
 
-        if (element instanceof VariableElement variableElement
-                && variableElement.getKind() == ElementKind.FIELD) {
+        if (element instanceof VariableElement variableElement) {
             final var ownerClass = (TypeElement) variableElement.getEnclosingElement();
 
-            message = String.format("Field %s of %s is not accessible from %s",
+            final var elementType = variableElement.getKind() == ElementKind.ENUM_CONSTANT
+                    ? "Enum constant"
+                    : "Field";
+
+            message = String.format("%s %s of %s is not accessible from %s",
+                    elementType,
                     variableElement.getSimpleName(),
                     ownerClass.getQualifiedName(),
                     className);
         } else {
-            throw new TodoException();
+            message = String.format("%s is not accessible from %s",
+                    element.getSimpleName(),
+                    className);
         }
 
         listener.report(new DefaultDiagnostic(
@@ -135,9 +172,12 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
         if (isNullOrErrorType(typeIdentifier.getType())) {
+            final var clazz = typeIdentifier.getClazz();
+            final var className = clazz.toString();
+
             listener.report(new DefaultDiagnostic(
                     Diagnostic.Kind.ERROR,
-                    "Failed to resolve " + typeIdentifier.getName(),
+                    "Failed to resolve " + className,
                     getCompilationUnit(scope).getFileObject()));
         }
 

@@ -7,12 +7,12 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CIntersectionT
 import java.util.ArrayList;
 import java.util.List;
 
-public class IntersectionTypeTreeBuilder extends ExpressionBuilder<IntersectionTypeTree> {
+public class IntersectionTypeTreeBuilder extends ExpressionBuilder<IntersectionTypeTree, IntersectionTypeTreeBuilder> {
 
     private final List<Tree> bounds = new ArrayList<>();
 
     @Override
-    public ExpressionBuilder<IntersectionTypeTree> self() {
+    public IntersectionTypeTreeBuilder self() {
         return this;
     }
 

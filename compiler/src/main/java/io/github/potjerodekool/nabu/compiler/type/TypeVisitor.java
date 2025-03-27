@@ -61,4 +61,12 @@ public interface TypeVisitor<R, P> {
     default R visitType(TypeMirror typeMirror, P param) {
         return visitUnknownType(typeMirror, param);
     }
+
+    default R visitPackageType(PackageType packageType, P param) {
+        return visitUnknownType(packageType, param);
+    }
+
+    default R visitUnionType(UnionType unionType, P param) {
+        return visitUnknownType(unionType, param);
+    }
 }

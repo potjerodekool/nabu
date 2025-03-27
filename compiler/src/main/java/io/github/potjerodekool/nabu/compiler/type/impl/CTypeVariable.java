@@ -1,12 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeParameterElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.TypeVariableSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeVariableSymbol;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
 public class CTypeVariable extends AbstractType implements TypeVariable {
 
-    private final TypeParameterElement element;
     private final TypeMirror upperBound;
     private final TypeMirror lowerBound;
 
@@ -17,27 +15,15 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
     public CTypeVariable(final String name,
                          final TypeMirror upperBound,
                          final TypeMirror lowerBound) {
-        this.element = new TypeVariableSymbol(name, null, this);
-
-        if (upperBound == null && lowerBound == null) {
-            throw new IllegalArgumentException();
-        }
-
-        validate(upperBound);
-        validate(lowerBound);
+        super(new TypeVariableSymbol(name, null));
+        super.element.setType(this);
         this.upperBound = upperBound;
         this.lowerBound = lowerBound;
     }
 
-    private void validate(final TypeMirror typeMirror) {
-        if (typeMirror instanceof PrimitiveType) {
-            throw new IllegalArgumentException();
-        }
-    }
-
     @Override
-    public TypeParameterElement asElement() {
-        return element;
+    public TypeVariableSymbol asElement() {
+        return (TypeVariableSymbol) element;
     }
 
     @Override
@@ -68,5 +54,18 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
     @Override
     public boolean equals(final Object obj) {
         return false;
+    }
+
+    @Override
+    public String getClassName() {
+        final var name = element.getSimpleName();
+
+        if (upperBound != null) {
+            return name + " extends " + upperBound.getClassName();
+        } else if (lowerBound != null) {
+            return name + " super " + lowerBound.getClassName();
+        } else {
+            return name;
+        }
     }
 }

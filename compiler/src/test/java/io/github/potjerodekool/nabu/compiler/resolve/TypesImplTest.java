@@ -1,17 +1,21 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.PackageElementBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmTypeResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.TypeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.Types;
-import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -20,18 +24,24 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TypesImplTest {
 
-    private final ClassElementLoader loader = new AsmClassElementLoader();
-    private final Types types = loader.getTypes();
-    private final TypeBuilder typeBuilder = new TypeBuilder(
-            new AsmTypeResolver(loader)
+    private final CompilerContext compilerContext = new CompilerContextImpl(
+            new ApplicationContext(),
+            new NabuCFileManager()
     );
+    private final ClassElementLoader loader = compilerContext.getClassElementLoader();
+    private final Types types = loader.getTypes();
+    private final AsmTypeResolver typeResolver = new AsmTypeResolver(loader, null);
+    private final TypeBuilder typeBuilder = new TypeBuilder();
 
     @Test
     void asMemberOf() {
-        final var setClass = loader.loadClass("java.util.Set");
-        final var objectType = loader.loadClass(Constants.OBJECT).asType();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
 
-        final var stringClass = loader.loadClass(Constants.STRING);
+        final var setClass = (ClassSymbol) loader.loadClass(module, "java.util.Set");
+        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
+
+        final var stringClass = loader.loadClass(module, Constants.STRING);
 
         final var stringType = types.getDeclaredType(
                 null,
@@ -46,7 +56,7 @@ class TypesImplTest {
 
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
-        final var method = new MethodBuilder()
+        final var method = new MethodSymbolBuilderImpl()
                 .name("add")
                 .enclosingElement(setClass)
                 .returnType(types.getNoType(TypeKind.VOID))
@@ -77,17 +87,21 @@ class TypesImplTest {
 
     @Test
     void isSubTypeNonGeneric() {
-        final var arrayListType = (DeclaredType) loader.loadClass("java.util.ArrayList").asType();
-        final var listType = (DeclaredType) loader.loadClass("java.util.List").asType();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var arrayListType = (DeclaredType) loader.loadClass(module, "java.util.ArrayList").asType();
+        final var listType = (DeclaredType) loader.loadClass(module, "java.util.List").asType();
         assertTrue(types.isSubType(arrayListType, listType));
     }
 
     @Test
     void isSubTypeGeneric() {
-        final var arrayListType = (DeclaredType) loader.loadClass("java.util.ArrayList").asType();
-        final var listType = (DeclaredType) loader.loadClass("java.util.List").asType();
-        final var objectType = (DeclaredType) loader.loadClass("java.lang.Object").asType();
-        final var stringType = (DeclaredType) loader.loadClass("java.lang.String").asType();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var arrayListType = (DeclaredType) loader.loadClass(module, "java.util.ArrayList").asType();
+        final var listType = (DeclaredType) loader.loadClass(module, "java.util.List").asType();
+        final var objectType = (DeclaredType) loader.loadClass(module, "java.lang.Object").asType();
+        final var stringType = (DeclaredType) loader.loadClass(module, "java.lang.String").asType();
 
         final var arrayListOfObjectType = types.getDeclaredType(
                 (TypeElement) arrayListType.asElement(),
@@ -117,10 +131,12 @@ class TypesImplTest {
 
     @Test
     void isSubTypeArray() {
-        final var objectType = loader.loadClass("java.lang.Object").asType();
-        final var stringType = loader.loadClass("java.lang.String").asType();
-        final var cloneableType = loader.loadClass(Constants.CLONEABLE).asType();
-        final var serializableType = loader.loadClass(Constants.SERIALIZABLE).asType();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var objectType = loader.loadClass(module, "java.lang.Object").asType();
+        final var stringType = loader.loadClass(module, "java.lang.String").asType();
+        final var cloneableType = loader.loadClass(module, Constants.CLONEABLE).asType();
+        final var serializableType = loader.loadClass(module, Constants.SERIALIZABLE).asType();
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
         assertTrue(types.isSubType(
@@ -166,9 +182,11 @@ class TypesImplTest {
 
     @Test
     void isSameType1() {
-        final var actual = typeBuilder.parseFieldSignature("Ljava/util/Optional<*>;");
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var actual = typeBuilder.parseFieldSignature("Ljava/util/Optional<*>;", typeResolver, module);
 
-        final var optionalClazz = loader.loadClass("java.util.Optional");
+        final var optionalClazz = loader.loadClass(module, "java.util.Optional");
 
         final var expected = types.getDeclaredType(
                 optionalClazz,
@@ -180,8 +198,10 @@ class TypesImplTest {
 
     @Test
     void isSameType2() {
-        final var actual = typeBuilder.parseFieldSignature("TT;");
-        final var objectType = loader.loadClass(Constants.OBJECT).asType();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getUnnamedModule();
+        final var actual = typeBuilder.parseFieldSignature("TT;", typeResolver, module);
+        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 
         final var expected = types.getTypeVariable("T", objectType, null);
         assertTrue(types.isSameType(expected, actual));
@@ -189,22 +209,35 @@ class TypesImplTest {
 
     @Test
     void isSameType3() {
-        final var actual = typeBuilder.parseFieldSignature("Ljava/lang/invoke/ClassSpecializer<TT;TK;TS;>.Factory;");
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getUnnamedModule();
 
-        var classSpecializerType = (CClassType) types.getDeclaredType(new ClassBuilder()
+        final var actual = typeBuilder.parseFieldSignature("Ljava/lang/invoke/ClassSpecializer<TT;TK;TS;>.Factory;", typeResolver, module);
+
+        var classSpecializerType = types.getDeclaredType(new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .enclosingElement(PackageElementBuilder.createFromName("java.lang.invoke"))
                 .name("ClassSpecializer")
+                .typeParameters(List.of(
+                        new CTypeVariable("T", null, null).asElement(),
+                        new CTypeVariable("K", null, null).asElement(),
+                        new CTypeVariable("S", null, null).asElement()
+                ))
                 .build());
 
-        final var objectType = loader.loadClass(Constants.OBJECT).asType();
+        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 
-        classSpecializerType = classSpecializerType.withTypeArguments(
-                types.getTypeVariable("T", objectType, null),
-                types.getTypeVariable("K", objectType, null),
-                types.getTypeVariable("S", objectType, null)
-        );
+        classSpecializerType =
+                types.getDeclaredType(
+                        classSpecializerType.asTypeElement(),
+                        types.getTypeVariable("T", objectType, null),
+                        types.getTypeVariable("K", objectType, null),
+                        types.getTypeVariable("S", objectType, null
+                ));
 
-        var factoryType = (CClassType) types.getDeclaredType(new ClassBuilder()
+        var factoryType = types.getDeclaredType(new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
+                .nestingKind(NestingKind.MEMBER)
                 .enclosingElement(classSpecializerType.asElement())
                 .name("Factory")
                 .outerType(classSpecializerType)
@@ -218,10 +251,14 @@ class TypesImplTest {
 
     @Test
     void isSameType4() {
-        final var actual = typeBuilder.parseFieldSignature("Ljava/util/List<Ljava/lang/module/Configuration;>;");
-        final var listClass = loader.loadClass("java.util.List");
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
 
-        final var configurationClass = new ClassBuilder()
+        final var actual = typeBuilder.parseFieldSignature("Ljava/util/List<Ljava/lang/module/Configuration;>;", typeResolver, module);
+        final var listClass = loader.loadClass(module, "java.util.List");
+
+        final var configurationClass = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
                 .enclosingElement(PackageElementBuilder.createFromName("java.lang.module"))
                 .name("Configuration")
                 .build();
@@ -238,9 +275,11 @@ class TypesImplTest {
 
     @Test
     void isSameType5() {
-        final var actual = typeBuilder.parseFieldSignature("[Ljava/lang/reflect/TypeVariable<*>;");
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var actual = typeBuilder.parseFieldSignature("[Ljava/lang/reflect/TypeVariable<*>;", typeResolver, module);
 
-        final var typeVariableClass = loader.loadClass("java.lang.reflect/TypeVariable");
+        final var typeVariableClass = loader.loadClass(module, "java.lang.reflect.TypeVariable");
 
         final var expected = types.getArrayType(
                 types.getDeclaredType(
@@ -257,9 +296,11 @@ class TypesImplTest {
 
     @Test
     void isSameType6() {
-        final var objectType = loader.loadClass(Constants.OBJECT).asType();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var module = asmLoader.getSymbolTable().getUnnamedModule();
+        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 
-        final var actual = typeBuilder.parseFieldSignature("[TT;");
+        final var actual = typeBuilder.parseFieldSignature("[TT;", typeResolver, module);
         final var expected = types.getArrayType(
                 types.getTypeVariable("T", objectType, null)
         );

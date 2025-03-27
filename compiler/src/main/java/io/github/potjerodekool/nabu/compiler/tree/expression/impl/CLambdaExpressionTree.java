@@ -5,10 +5,9 @@ import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LambdaExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.LambdaExpressionTreeBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclarator;
-import io.github.potjerodekool.nabu.compiler.tree.statement.Statement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -16,14 +15,14 @@ import java.util.List;
 
 public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpressionTree {
 
-    private final List<VariableDeclarator> variables = new ArrayList<>();
+    private final List<VariableDeclaratorTree> variables = new ArrayList<>();
 
-    private Statement body;
+    private StatementTree body;
 
     private ExecutableType lambdaMethodType;
 
-    public CLambdaExpressionTree(final List<VariableDeclarator> parameters,
-                                 final Statement body,
+    public CLambdaExpressionTree(final List<VariableDeclaratorTree> parameters,
+                                 final StatementTree body,
                                  final int lineNumber,
                                  final int charPositionInLine) {
         super(lineNumber, charPositionInLine);
@@ -38,26 +37,26 @@ public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpr
         this.lambdaMethodType = builder.getLambdaMethodType();
     }
 
-    public List<VariableDeclarator> getVariables() {
+    public List<VariableDeclaratorTree> getVariables() {
         return variables;
     }
 
-    public CLambdaExpressionTree variable(final VariableDeclarator variable) {
+    public CLambdaExpressionTree variable(final VariableDeclaratorTree variable) {
         variables.add(variable);
         return this;
     }
 
-    public CLambdaExpressionTree variable(final VariableDeclarator... variable) {
+    public CLambdaExpressionTree variable(final VariableDeclaratorTree... variable) {
         variables.addAll(Arrays.asList(variable));
         return this;
     }
 
-    public Statement getBody() {
+    public StatementTree getBody() {
         return body;
     }
 
     @Override
-    public LambdaExpressionTree body(final Statement body) {
+    public LambdaExpressionTree body(final StatementTree body) {
         this.body = body;
         return this;
     }

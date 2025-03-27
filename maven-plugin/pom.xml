@@ -75,7 +75,6 @@
                 <version>3.13.1</version>
                 <configuration>
                     <goalPrefix>plugin</goalPrefix>
-                    <outputDirectory>target/dir</outputDirectory>
                 </configuration>
             </plugin>
         </plugins>

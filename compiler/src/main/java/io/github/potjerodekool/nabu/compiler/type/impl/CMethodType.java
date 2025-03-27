@@ -9,6 +9,8 @@ import java.util.List;
 
 public class CMethodType extends AbstractType implements ExecutableType {
 
+    private final TypeMirror receiverType;
+
     private final TypeMirror returnType;
 
     private final List<TypeMirror> argumentTypes = new ArrayList<>();
@@ -20,11 +22,14 @@ public class CMethodType extends AbstractType implements ExecutableType {
     private final ExecutableElement methodSymbol;
 
     public CMethodType(final ExecutableElement methodSymbol,
+                       final TypeMirror receiverType,
                        final List<? extends TypeVariable> typeVariables,
                        final TypeMirror returnType,
                        final List<? extends TypeMirror> argumentTypes,
                        final List<? extends TypeMirror> thrownTypes) {
+        super(null);
         this.methodSymbol = methodSymbol;
+        this.receiverType = receiverType;
         this.typeVariables.addAll(typeVariables);
         this.returnType = returnType;
         this.argumentTypes.addAll(argumentTypes);
@@ -64,6 +69,16 @@ public class CMethodType extends AbstractType implements ExecutableType {
     @Override
     public List<? extends TypeMirror> getThrownTypes() {
         return thrownTypes;
+    }
+
+    @Override
+    public String getClassName() {
+        return "methodType";
+    }
+
+    @Override
+    public TypeMirror getReceiverType() {
+        return receiverType;
     }
 
     @Override

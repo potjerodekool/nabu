@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
@@ -13,34 +12,27 @@ public final class TreeUtils {
     private TreeUtils() {
     }
 
-    public static TypeMirror resolveType(final Tree tree) {
+    public static TypeMirror typeOf(final Tree tree) {
         return switch (tree) {
-            case FieldAccessExpressionTree fieldAccessExpression -> resolveType(fieldAccessExpression.getField());
-            case IdentifierTree ident -> {
-                if (ident.getType() != null) {
-                    yield ident.getType();
-                } else {
-                    yield resolveType(ident.getSymbol());
-                }
-            }
-            case CastExpressionTree asExpression -> resolveType(asExpression.getTargetType());
-            case MethodInvocationTree methodInvocation ->  methodInvocation.getMethodType().getReturnType();
+            case FieldAccessExpressionTree fieldAccessExpression -> typeOf(fieldAccessExpression.getField());
+            case IdentifierTree identifier -> identifier.getType() != null
+                    ? identifier.getType()
+                    : typeOf(identifier.getSymbol());
+            case CastExpressionTree asExpression -> typeOf(asExpression.getTargetType());
+            case MethodInvocationTree methodInvocation -> methodInvocation.getMethodType().getReturnType();
             case VariableTypeTree variableType -> {
                 final var type = variableType.getType();
-
-                if (type instanceof VariableType varType && varType.getInterferedType() != null) {
-                    yield varType.getInterferedType();
-                } else {
-                    yield variableType.getType();
-                }
+                yield type instanceof VariableType varType && varType.getInterferedType() != null
+                        ? varType.getInterferedType()
+                        : variableType.getType();
             }
             case ExpressionTree expressionTree -> expressionTree.getType();
-            default -> throw new TodoException(tree.getClass().getName());
+            default -> throw new UnsupportedOperationException(tree.getClass().getName());
         };
     }
 
-    public static TypeMirror resolveType(final Element element) {
-        if (element == null) {
+    public static TypeMirror typeOf(final Element element) {
+        if (element == null || !element.exists()) {
             return null;
         }
 
@@ -52,17 +44,41 @@ public final class TreeUtils {
             } else {
                 return varType;
             }
+        } else {
+            return element.asType();
         }
-
-        throw new TodoException(element.getClass().getName());
     }
 
     public static Element getSymbol(final ExpressionTree expression) {
         return switch (expression) {
-            case IdentifierTree ignored -> expression.getSymbol();
             case FieldAccessExpressionTree fieldAccessExpressionTree -> getSymbol(fieldAccessExpressionTree.getField());
             case MethodInvocationTree methodInvocationTree -> getSymbol(methodInvocationTree.getTarget());
-            default -> throw new TodoException();
+            default -> expression.getSymbol();
         };
+    }
+
+    public static String getClassName(final ExpressionTree expressionTree) {
+        switch (expressionTree) {
+            case IdentifierTree identifierTree -> {
+                return identifierTree.getName();
+            }
+            case FieldAccessExpressionTree fieldAccessExpressionTree -> {
+                final var targetName = getClassName(fieldAccessExpressionTree.getTarget());
+                final var fieldName = getClassName(fieldAccessExpressionTree.getField());
+                return targetName + "." + fieldName;
+            }
+            case AnnotatedTypeTree annotatedTypeTree -> {
+                return getClassName(annotatedTypeTree.getClazz());
+            }
+            case TypeNameExpressionTree typeNameExpression -> {
+                final var packageName = getClassName(typeNameExpression.getPackageName());
+                final var className = getClassName(typeNameExpression.getIdenifier());
+                return packageName + "." + className;
+            }
+            case TypeApplyTree typeApplyTree -> {
+                return getClassName(typeApplyTree.getClazz());
+            }
+            default -> throw new IllegalArgumentException(expressionTree.getClass().getName());
+        }
     }
 }

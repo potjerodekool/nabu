@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocationTree> {
+public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocationTree, MethodInvocationTreeBuilder> {
 
     private ExpressionTree target;
 
@@ -22,7 +22,6 @@ public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocat
     private ExecutableType methodType;
 
     public MethodInvocationTreeBuilder() {
-
     }
 
     public MethodInvocationTreeBuilder(final MethodInvocationTree original) {

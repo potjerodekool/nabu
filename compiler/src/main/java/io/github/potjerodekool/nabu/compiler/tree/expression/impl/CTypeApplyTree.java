@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.tree.expression.impl;
 
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.TypeApplyTree;
 
 import java.util.ArrayList;
@@ -24,8 +23,8 @@ public class CTypeApplyTree extends CExpressionTree implements TypeApplyTree {
     }
 
     @Override
-    public String getName() {
-        return ((IdentifierTree) clazz).getName();
+    public ExpressionTree getClazz() {
+        return clazz;
     }
 
     @Override

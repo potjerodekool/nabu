@@ -4,6 +4,7 @@ public enum Kind {
     PARAMETER,
     LOCAL_VARIABLE,
     FIELD,
+    RESOURCE_VARIABLE,
     CONSTRUCTOR,
     METHOD,
     STATIC_INIT,

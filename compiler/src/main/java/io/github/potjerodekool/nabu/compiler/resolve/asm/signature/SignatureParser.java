@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
@@ -8,6 +9,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableTyp
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableTypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
+import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,13 +26,14 @@ public class SignatureParser extends AbstractVisitor {
     private MutableType returnType;
 
     public SignatureParser(final int api,
-                           final ClassElementLoader loader) {
-        super(api, loader, null);
+                           final ClassElementLoader loader,
+                           final ModuleSymbol moduleSymbol) {
+        super(api, loader, null, moduleSymbol);
     }
 
     @Override
     public void visitFormalTypeParameter(final String name) {
-        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loadClass(Constants.OBJECT));
         formalTypeParameters.add(new MutableTypeVariable(name, objectType, null));
     }
 
@@ -55,9 +58,9 @@ public class SignatureParser extends AbstractVisitor {
         this.type = type;
     }
 
-    public List<TypeVariable> createFormalTypeParameters() {
+    public List<AbstractType> createFormalTypeParameters() {
         return formalTypeParameters.stream()
-                .map(it -> (TypeVariable) it.toType(loader, new HashMap<>()))
+                .map(it -> (AbstractType) it.toType(loader, new HashMap<>()))
                 .toList();
     }
 
@@ -78,6 +81,10 @@ public class SignatureParser extends AbstractVisitor {
 
     @Override
     protected void addParameterType(final MutableType type) {
+        if (type instanceof MutableClassType mt && mt.getElement() == null) {
+            throw new TodoException();
+        }
+
         this.parameterTypes.add(type);
     }
 

@@ -1193,7 +1193,7 @@ typePattern
 
 expression
     : lambdaExpression
-    | assignmentExpression
+    | assignmentExpressionTree
     ;
 
 // Paragraph 15.8
@@ -1582,7 +1582,7 @@ conditionalExpression
 // Paragraph 15.26
 // ---------------
 
-assignmentExpression
+assignmentExpressionTree
     : conditionalExpression
     | assignment
     ;

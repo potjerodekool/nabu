@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.scope;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Predicate;
 
 public abstract class AbstractScope implements Scope {
 
@@ -26,6 +26,14 @@ public abstract class AbstractScope implements Scope {
         return locals.keySet();
     }
 
+    protected Collection<Element> elements() {
+        return locals.values();
+    }
+
+    public void reset() {
+        this.locals.clear();
+    }
+
     @Override
     public Scope getParent() {
         return parent;
@@ -33,16 +41,39 @@ public abstract class AbstractScope implements Scope {
 
     @Override
     public Element resolve(final String name) {
+        return resolve(name, it -> true);
+    }
+
+    @Override
+    public Element resolve(final String name,
+                           final Predicate<Element> filter) {
         var element = this.locals.get(name);
 
-        if (element != null) {
+        if (element != null && filter.test(element)) {
             return element;
         }
 
         if (parent != null) {
-            return parent.resolve(name);
+            return parent.resolve(name, filter);
         }
 
         return null;
+    }
+
+    @Override
+    public TypeMirror resolveType(final String name) {
+        final var element = locals.get(name);
+
+        if (element == null) {
+            if (parent != null) {
+                return parent.resolveType(name);
+            } else {
+                return null;
+            }
+        }
+
+        return element.getKind().isDeclaredType()
+                ? element.asType()
+                : null;
     }
 }

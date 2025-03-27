@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler;
 
 import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.dependencyinjection.ClassPathScanner;
-import io.github.potjerodekool.nabu.compiler.ast.element.StandardElementMetaData;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Translate;
 import io.github.potjerodekool.nabu.compiler.backend.lower.Lower;
@@ -15,12 +15,19 @@ import io.github.potjerodekool.nabu.compiler.enhance.Enhancer;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerVisitor;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.FileManager;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
+import io.github.potjerodekool.nabu.compiler.io.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.resolve.*;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.Phase1Resolver;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.Phase2Resolver;
 import io.github.potjerodekool.nabu.compiler.transform.CodeTransformer;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 
 import java.io.File;
 import java.io.IOException;
@@ -30,7 +37,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
-public class NabuCompiler implements AutoCloseable {
+public class NabuCompiler {
 
     private final Logger logger = Logger.getLogger(NabuCompiler.class.getName());
 
@@ -38,92 +45,123 @@ public class NabuCompiler implements AutoCloseable {
 
     private final NabuCompilerParser parser = new NabuCompilerParser();
 
-    private final ClassElementLoader classElementLoader = new AsmClassElementLoader();
-
-    private final ErrorCapturer errorCapturer = new ErrorCapturer(
+    private final ErrorCapture errorCapture = new ErrorCapture(
             new ConsoleDiagnosticListener()
     );
 
-    private final FileManager fileManager = new FileManager();
 
     private final ApplicationContext applicationContext = new ApplicationContext();
 
-    public void addClassPathEntry(final Path path) {
-        classElementLoader.addClassPathEntry(path);
+    public void compile(final CompilerOptions compilerOptions) {
+        try (final NabuCFileManager fileManager = new NabuCFileManager();
+             final var compilerContext = new CompilerContextImpl(
+                     applicationContext,
+                     fileManager
+             )) {
+            setup(fileManager, compilerContext, compilerOptions);
+
+            final var nabuSourceFiles = resolveSourceFiles(fileManager);
+            final var compilationUnits = processFiles(nabuSourceFiles, compilerContext);
+
+            final var exitCode = generate(compilationUnits, compilerOptions);
+
+            if (exitCode != 0) {
+                System.exit(exitCode);
+            }
+        } catch (final Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
-    public void compile(final Options options) throws IOException {
-        if (options.getTargetDirectory() != null) {
-            this.targetDirectory = options.getTargetDirectory();
-        }
+    private void setup(final FileManager fileManager,
+                       final CompilerContext compilerContext,
+                       final CompilerOptions compilerOptions) {
+        fileManager.processOptions(compilerOptions);
 
-        init();
+        compilerOptions.getTargetDirectory()
+                .ifPresent(path -> this.targetDirectory = path);
 
-        final var compilerContext = new CompilerContext(
-                classElementLoader,
-                applicationContext
-        );
-
-        applicationContext.registerBean(CompilerContext.class, compilerContext);
-
-        final var files = options.getSourceRoots().stream()
-                .flatMap(sourceRoot -> fileManager.listFiles(sourceRoot).stream())
-                .toList();
-
-        final var compilationUnits = new ArrayList<CompilationUnit>();
-
-        for (final FileObject file : files) {
-            final var units = process(file, compilerContext);
-            compilationUnits.addAll(units);
-        }
-
-        compilationUnits.forEach(compilationUnit -> {
-            final ByteCodeGenerator generator = new AsmByteCodeGenerator();
-
-            final var packageDeclaration = compilationUnit.getPackageDeclaration();
-
-            final var clazz = compilationUnit.getClasses().getFirst();
-            generator.generate(clazz, options);
-            final var bytecode = generator.getBytecode();
-
-            final var name = clazz.getSimpleName();
-            final var outputPath = Path.of(name + ".class");
-
-            Path outputDirectory;
-
-            if (packageDeclaration != null) {
-                final var packagePath = Paths.get(packageDeclaration.getPackageName()
-                        .replace('.', File.separatorChar));
-                outputDirectory = targetDirectory.resolve(packagePath);
-            } else {
-                outputDirectory = targetDirectory;
-            }
-
-            final var path = outputDirectory.resolve(outputPath);
-
-            try {
-                deleteIfExists(path);
-                createDirectories(outputDirectory);
-                Files.write(path, bytecode);
-                logger.log(
-                        LogLevel.INFO,
-                        String.format("Generated %s", path.toAbsolutePath())
-                );
-            } catch (final IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    private void init() {
-        classElementLoader.postInit();
         scanForBeans();
+
+        applicationContext.registerBean(CompilerContextImpl.class, compilerContext);
+    }
+
+    private List<FileObject> resolveSourceFiles(final FileManager fileManager) {
+        return fileManager.getFilesForLocation(
+                StandardLocation.SOURCE_PATH,
+                FileObject.Kind.SOURCE
+        );
+    }
+
+    private int generate(final List<CompilationUnit> compilationUnits,
+                         final CompilerOptions compilerOptions) {
+        if (errorCapture.getErrorCount() > 0) {
+            logger.log(LogLevel.ERROR,
+                    "Compilation failed with " + errorCapture.getErrorCount() + " errors"
+            );
+            return 1;
+        }
+
+        compilationUnits.forEach(compilationUnit ->
+                generate(compilationUnit, compilerOptions));
+
+        return 0;
+    }
+
+    private void generate(final CompilationUnit compilationUnit,
+                          final CompilerOptions compilerOptions) {
+        final ByteCodeGenerator generator = new AsmByteCodeGenerator();
+
+        final var moduleDeclaration = compilationUnit.getModuleDeclaration();
+        final var classes = compilationUnit.getClasses();
+        final String packageName;
+        final String name;
+
+        if (moduleDeclaration != null) {
+            generator.generate(moduleDeclaration, compilerOptions);
+            name = "module-info";
+            packageName = null;
+        } else if (!classes.isEmpty()) {
+            final var clazz = classes.getFirst();
+            final var packageDeclaration = compilationUnit.getPackageDeclaration();
+            generator.generate(clazz, compilerOptions);
+            name = clazz.getSimpleName();
+            packageName = packageDeclaration.getQualifiedName();
+        } else {
+            return;
+        }
+
+        final var bytecode = generator.getBytecode();
+        final var outputPath = Path.of(name + ".class");
+
+        Path outputDirectory;
+
+        if (packageName != null) {
+            final var packagePath = Paths.get(packageName
+                    .replace('.', File.separatorChar));
+            outputDirectory = targetDirectory.resolve(packagePath);
+        } else {
+            outputDirectory = targetDirectory;
+        }
+
+        final var path = outputDirectory.resolve(outputPath);
+
+        try {
+            deleteIfExists(path);
+            createDirectories(outputDirectory);
+            Files.write(path, bytecode);
+            logger.log(
+                    LogLevel.INFO,
+                    String.format("Generated %s", path.toAbsolutePath())
+            );
+        } catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void scanForBeans() {
         final var scanner = new ClassPathScanner();
         final var beans = scanner.scan();
-        applicationContext.registerBean(ClassElementLoader.class, classElementLoader);
         applicationContext.registerBeans(beans);
     }
 
@@ -147,113 +185,125 @@ public class NabuCompiler implements AutoCloseable {
         }
     }
 
-    public List<CompilationUnit> process(final FileObject fileObject,
-                                         final CompilerContext compilerContext) throws IOException {
-        final var oldErrorCount = errorCapturer.getErrorCount();
+    private List<CompilationUnit> processFiles(final List<FileObject> files,
+                                               final CompilerContextImpl compilerContext) {
+        var fileObjectAndCompilationUnits = parseFiles(files).stream()
+                .map(this::enchange)
+                .map(it -> resolvePhase1(it, compilerContext))
+                .toList();
 
-        var cu = parse(fileObject);
-        cu = enchange(cu);
-        resolvePhase1(
-                cu,
-                fileObject,
-                compilerContext
-        );
-        cu = resolvePhase2(cu, compilerContext);
-        transform(cu);
-        cu = resolvePhase2(cu, compilerContext);
-        check(cu);
+        final var compilationUnits = fileObjectAndCompilationUnits.stream().map(it -> resolvePhase2(it, compilerContext))
+                .map(this::transform)
+                .map(it -> resolvePhase2(it, compilerContext))
+                .map(it -> check(it.compilationUnit()))
+                .toList();
 
-        final var newErrorCount = errorCapturer.getErrorCount();
-
-        if (newErrorCount > oldErrorCount || newErrorCount > 100) {
+        if (errorCapture.getErrorCount() > 0) {
             return List.of();
         }
 
-        cu = lambdaToMethod(cu);
-        cu = lower(cu, compilerContext);
-        ir(cu);
-        return List.of(cu);
+        return compilationUnits.stream()
+                .map(this::lambdaToMethod)
+                .map(cu -> lower(cu, compilerContext))
+                .map(cu -> this.ir(cu, compilerContext))
+                .toList();
+
     }
 
-    public CompilationUnit parse(final FileObject fileObject) throws IOException {
+    private List<FileObjectAndCompilationUnit> parseFiles(final List<FileObject> files) {
+        return files.stream()
+                .map(file -> new FileObjectAndCompilationUnit(file, parseFile(file)))
+                .toList();
+    }
+
+    public CompilationUnit parseFile(final FileObject fileObject) {
         logger.log(LogLevel.INFO, "Parsing " + fileObject.getFileName());
 
         try (var inputStream = fileObject.openInputStream()) {
             final var compilationUnitContext = parser.parse(inputStream);
             final var visitor = new NabuCompilerVisitor(fileObject);
             return (CompilationUnit) compilationUnitContext.accept(visitor);
+        } catch (final IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
-    public void resolvePhase1(final CompilationUnit compilationUnit,
-                              final FileObject fileObject,
-                              final CompilerContext compilerContext) {
+    private FileObjectAndCompilationUnit resolvePhase1(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
+                                                       final CompilerContextImpl compilerContext) {
+        final var fileObject = fileObjectAndCompilationUnit.fileObject();
+        final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
+
         final var phase1Resolver = new Phase1Resolver(
                 compilerContext
         );
         compilationUnit.accept(phase1Resolver, null);
 
         compilationUnit.getClasses().stream()
-                .findFirst().ifPresent(classDeclaration -> {
-                    final var classSymbol = classDeclaration.getClassSymbol();
-                    classSymbol.setMetaData(StandardElementMetaData.FILE_OBJECT, fileObject);
-                });
+                .map(ClassDeclaration::getClassSymbol)
+                .map(classSymbol -> (ClassSymbol) classSymbol)
+                .findFirst().ifPresent(classSymbol -> classSymbol.setSourceFile(fileObject));
+        return fileObjectAndCompilationUnit;
     }
 
-    public CompilationUnit resolvePhase2(final CompilationUnit compilationUnit,
-                                         final CompilerContext compilerContext) {
+    private FileObjectAndCompilationUnit resolvePhase2(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
+                                                       final CompilerContextImpl compilerContext) {
+        final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
+
         final var phase2Resolver = new Phase2Resolver(
                 compilerContext
         );
 
         compilationUnit.accept(phase2Resolver, null);
-        return compilationUnit;
+        return fileObjectAndCompilationUnit;
     }
 
-    private void transform(final CompilationUnit compilationUnit) {
+    private FileObjectAndCompilationUnit transform(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit) {
+        final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
         final var codeTransformers = applicationContext.getBeansOfType(CodeTransformer.class);
         codeTransformers.forEach(codeTransformer -> codeTransformer.tranform(compilationUnit));
+        return fileObjectAndCompilationUnit;
     }
 
-    private void check(final CompilationUnit compilationUnit) {
-        final var checker = new Checker(errorCapturer);
+    private CompilationUnit check(final CompilationUnit compilationUnit) {
+        final var checker = new Checker(errorCapture);
         compilationUnit.accept(checker, null);
-    }
-
-    public CompilationUnit enchange(final CompilationUnit compilationUnit) {
-        final var enhance = new Enhancer();
-        compilationUnit.accept(enhance, null);
         return compilationUnit;
     }
 
-    public CompilationUnit lower(final CompilationUnit compilationUnit, final CompilerContext compilerContext) {
+    private FileObjectAndCompilationUnit enchange(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit) {
+        final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
+        final var enhance = new Enhancer();
+        compilationUnit.accept(enhance, null);
+        return fileObjectAndCompilationUnit;
+    }
+
+    private CompilationUnit lower(final CompilationUnit compilationUnit,
+                                  final CompilerContextImpl compilerContext) {
         final var lower = new Lower(compilerContext);
         compilationUnit.accept(lower, null);
         return compilationUnit;
     }
 
-    public void ir(final CompilationUnit compilationUnit) {
-        final var translate = new Translate(classElementLoader.getTypes());
+    private CompilationUnit ir(final CompilationUnit compilationUnit,
+                               final CompilerContextImpl compilerContext) {
+        final var translate = new Translate(compilerContext.getClassElementLoader().getTypes());
         compilationUnit.accept(translate, null);
+        return compilationUnit;
     }
 
-    public CompilationUnit lambdaToMethod(final CompilationUnit compilationUnit) {
+    private CompilationUnit lambdaToMethod(final CompilationUnit compilationUnit) {
         final var lamdaToMethod = new LambdaToMethod();
         compilationUnit.accept(lamdaToMethod, null);
         return compilationUnit;
     }
 
-    @Override
-    public void close() {
-        classElementLoader.close();
-    }
 }
 
-class ErrorCapturer extends DelegateDiagnosticListener {
+class ErrorCapture extends DelegateDiagnosticListener {
 
     private final List<Diagnostic> errors = new ArrayList<>();
 
-    public ErrorCapturer(final DiagnosticListener delegate) {
+    public ErrorCapture(final DiagnosticListener delegate) {
         super(delegate);
     }
 
@@ -272,4 +322,9 @@ class ErrorCapturer extends DelegateDiagnosticListener {
     public int getErrorCount() {
         return errors.size();
     }
+}
+
+record FileObjectAndCompilationUnit(FileObject fileObject,
+                                    CompilationUnit compilationUnit) {
+
 }

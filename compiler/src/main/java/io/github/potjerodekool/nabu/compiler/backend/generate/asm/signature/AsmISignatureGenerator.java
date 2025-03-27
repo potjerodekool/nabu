@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.ISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import org.objectweb.asm.Type;
 
 import java.util.List;
@@ -63,7 +63,7 @@ public class AsmISignatureGenerator extends ISignatureGenerator {
                 case ITypeVariable typeVariable -> typeVariable.getUpperBound() != null
                         ? toAsmType(typeVariable.getUpperBound())
                         : toAsmType(typeVariable.getLowerBound());
-                case IIntersectionType ignored -> throw new TodoException();
+                default -> throw new IllegalArgumentException(type.getClass().getName());
             };
         }
     }

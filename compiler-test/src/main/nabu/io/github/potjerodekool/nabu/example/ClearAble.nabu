@@ -1,0 +1,9 @@
+package io.github.potjerodekool.nabu.example;
+
+public interface ClearAble {
+
+    abstract fun clear(): void;
+
+
+
+}

@@ -1,15 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.IfStatementTreeBuilder;
 
-public interface IfStatementTree extends Statement {
+public interface IfStatementTree extends StatementTree {
 
 
     ExpressionTree getExpression();
 
-    Statement getThenStatement();
+    StatementTree getThenStatement();
 
-    Statement getElseStatement();
+    StatementTree getElseStatement();
 
     IfStatementTreeBuilder builder();
 }

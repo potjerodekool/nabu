@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.compiler.tree.builder.TreeBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
-public abstract class ExpressionBuilder<E extends ExpressionTree> extends TreeBuilder<E, ExpressionBuilder<E>> {
+public abstract class ExpressionBuilder<E extends ExpressionTree, EB extends TreeBuilder<E, EB>> extends TreeBuilder<E, EB> {
 
     private final Element symbol;
     private TypeMirror type;
@@ -30,8 +30,8 @@ public abstract class ExpressionBuilder<E extends ExpressionTree> extends TreeBu
         return type;
     }
 
-    public ExpressionBuilder<E> type(final TypeMirror type) {
+    public EB type(final TypeMirror type) {
         this.type = type;
-        return this;
+        return self();
     }
 }

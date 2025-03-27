@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.scope;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
@@ -11,12 +10,12 @@ import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 public class ClassScope implements Scope {
 
     private final DeclaredType declaredType;
-    private final ClassScope parentScope;
+    private final Scope parentScope;
     private final CompilationUnit compilationUnit;
     private final ClassElementLoader loader;
 
     public ClassScope(final TypeMirror classType,
-                      final ClassScope parentScope,
+                      final Scope parentScope,
                       final CompilationUnit compilationUnit,
                       final ClassElementLoader loader) {
         this.declaredType = (DeclaredType) classType;
@@ -31,20 +30,46 @@ public class ClassScope implements Scope {
 
     @Override
     public Element resolve(final String name) {
-        return null;
+        final var classSymbol = getCurrentClass();
+        final var fieldOptional = ElementFilter.elements(
+                        classSymbol,
+                        element ->
+                                element.getKind() == ElementKind.FIELD
+                                        || element.getKind() == ElementKind.ENUM_CONSTANT,
+                        VariableElement.class
+                ).stream()
+                .filter(Element::isStatic)
+                .filter(elem -> elem.getSimpleName().equals(name))
+                .findFirst();
+
+        if (fieldOptional.isPresent()) {
+            return fieldOptional.get();
+        } else if (parentScope != null) {
+            return parentScope.resolve(name);
+        } else {
+            return null;
+        }
     }
 
     @Override
     public TypeMirror resolveType(final String name) {
+        //For class literal like String.class.
         if ("class".equals(name)) {
-            final var clazz = loader.loadClass(Constants.CLAZZ);
+            final var module = findModuleElement();
+
+            final var clazz = loader.loadClass(
+                    module,
+                    Constants.CLAZZ
+            );
             return loader.getTypes()
                     .getDeclaredType(
                             clazz,
                             declaredType
                     );
         } else {
-            return null;
+            return parentScope != null
+                    ? parentScope.resolveType(name)
+                    : null;
         }
     }
 
@@ -55,7 +80,7 @@ public class ClassScope implements Scope {
 
     @Override
     public TypeElement getCurrentClass() {
-        return declaredType.getTypeElement();
+        return declaredType.asTypeElement();
     }
 
     @Override

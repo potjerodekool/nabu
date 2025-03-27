@@ -1,21 +1,21 @@
 package io.github.potjerodekool.nabu.compiler.tree.element.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.StatementBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CStatement;
+import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CStatementTree;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class CClassDeclaration extends CStatement implements ClassDeclaration {
+public class CClassDeclaration extends CStatementTree implements ClassDeclaration {
 
     private final Kind kind;
 
@@ -31,7 +31,9 @@ public class CClassDeclaration extends CStatement implements ClassDeclaration {
 
     private final List<ExpressionTree> implementing = new ArrayList<>();
 
-    private final ExpressionTree extendion;
+    private final ExpressionTree extending;
+
+    private final List<IdentifierTree> permits;
 
     public CClassDeclaration(final Kind kind,
                              final CModifiers modifiers,
@@ -39,7 +41,8 @@ public class CClassDeclaration extends CStatement implements ClassDeclaration {
                              final List<Tree> enclosedElements,
                              final List<TypeParameterTree> typeParameters,
                              final List<ExpressionTree> implementing,
-                             final ExpressionTree extendion,
+                             final ExpressionTree extending,
+                             final List<IdentifierTree> permits,
                              final int lineNumber,
                              final int charPositionInLine) {
         super(lineNumber, charPositionInLine);
@@ -49,18 +52,20 @@ public class CClassDeclaration extends CStatement implements ClassDeclaration {
         this.enclosedElements.addAll(enclosedElements);
         this.typeParameters.addAll(typeParameters);
         this.implementing.addAll(implementing);
-        this.extendion = extendion;
+        this.extending = extending;
+        this.permits = permits;
     }
 
     public CClassDeclaration(final ClassDeclarationBuilder classDeclarationBuilder) {
         super(classDeclarationBuilder);
-        this.kind = classDeclarationBuilder.kind;
-        this.simpleName = classDeclarationBuilder.simpleName;
-        this.enclosedElements.addAll(classDeclarationBuilder.enclosedElements);
-        this.modifiers = classDeclarationBuilder.modifiers;
-        this.typeParameters.addAll(classDeclarationBuilder.typeParameters);
-        this.implementing.addAll(classDeclarationBuilder.implementing);
-        this.extendion = classDeclarationBuilder.extendion;
+        this.kind = classDeclarationBuilder.getKind();
+        this.simpleName = classDeclarationBuilder.getSimpleName();
+        this.enclosedElements.addAll(classDeclarationBuilder.getEnclosedElements());
+        this.modifiers = classDeclarationBuilder.getModifiers();
+        this.typeParameters.addAll(classDeclarationBuilder.getTypeParameters());
+        this.implementing.addAll(classDeclarationBuilder.getImplementing());
+        this.extending = classDeclarationBuilder.getExtending();
+        this.permits = classDeclarationBuilder.getPermits();
     }
 
     public String getSimpleName() {
@@ -71,8 +76,9 @@ public class CClassDeclaration extends CStatement implements ClassDeclaration {
         return modifiers;
     }
 
-    public ExpressionTree getExtendion() {
-        return extendion;
+    @Override
+    public ExpressionTree getExtending() {
+        return extending;
     }
 
     public Kind getKind() {
@@ -111,12 +117,13 @@ public class CClassDeclaration extends CStatement implements ClassDeclaration {
         return implementing;
     }
 
-    public ExpressionTree getExtends() {
-        return extendion;
-    }
-
     public List<TypeParameterTree> getTypeParameters() {
         return typeParameters;
+    }
+
+    @Override
+    public List<IdentifierTree> getPermits() {
+        return permits;
     }
 
     public ClassDeclarationBuilder builder() {
@@ -133,70 +140,4 @@ public class CClassDeclaration extends CStatement implements ClassDeclaration {
         this.typeElement = typeElement;
     }
 
-    public static class ClassDeclarationBuilder extends StatementBuilder<CClassDeclaration, ClassDeclarationBuilder> {
-
-        private CModifiers modifiers;
-        private Kind kind;
-        private String simpleName;
-        private final List<Tree> enclosedElements = new ArrayList<>();
-        public ExpressionTree extendion;
-        private final List<TypeParameterTree> typeParameters = new ArrayList<>();
-        private final List<ExpressionTree> implementing = new ArrayList<>();
-
-        public ClassDeclarationBuilder() {
-            super();
-        }
-
-        public ClassDeclarationBuilder(final CClassDeclaration classDeclaration) {
-            super(classDeclaration);
-            this.modifiers = classDeclaration.modifiers;
-            this.kind = classDeclaration.kind;
-            this.simpleName = classDeclaration.simpleName;
-            this.enclosedElements.addAll(classDeclaration.enclosedElements);
-            this.extendion = classDeclaration.extendion;
-            this.typeParameters.addAll(classDeclaration.typeParameters);
-            this.implementing.addAll(classDeclaration.implementing);
-        }
-
-        @Override
-        public ClassDeclarationBuilder self() {
-            return this;
-        }
-
-        @Override
-        public CClassDeclaration build() {
-            return new CClassDeclaration(this);
-        }
-
-        public ClassDeclarationBuilder typeParameters(final List<TypeParameterTree> typeParameters) {
-            this.typeParameters.addAll(typeParameters);
-            return this;
-        }
-
-        public ClassDeclarationBuilder implementing(final List<ExpressionTree> implementing) {
-            this.implementing.addAll(implementing);
-            return this;
-        }
-
-        public ClassDeclarationBuilder extendion(final ExpressionTree extendion) {
-            this.extendion = extendion;
-            return this;
-        }
-
-        public ClassDeclarationBuilder modifiers(final CModifiers modifiers) {
-            this.modifiers = modifiers;
-            return this;
-        }
-
-        public ClassDeclarationBuilder simpleName(final String name) {
-            this.simpleName = name;
-            return this;
-        }
-
-        public ClassDeclarationBuilder enclosedElements(final List<Tree> enclosedElements) {
-            this.enclosedElements.clear();
-            this.enclosedElements.addAll(enclosedElements);
-            return this;
-        }
-    }
 }

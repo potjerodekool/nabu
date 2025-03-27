@@ -1,0 +1,6 @@
+package io.github.potjerodekool.nabu.example;
+
+public class Shape permits Box {
+
+
+}

@@ -24,7 +24,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     @Override
     public Tree visitFunction(final Function function, final Scope scope) {
         final var body = function.getBody();
-        final var newBody = (BlockStatement) body.accept(this, scope);
+        final BlockStatementTree newBody = accept(body, scope);
 
         if (newBody != body) {
             return function.builder()
@@ -36,9 +36,9 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitBlockStatement(final BlockStatement blockStatement, final Scope scope) {
+    public Tree visitBlockStatement(final BlockStatementTree blockStatement, final Scope scope) {
         final var newStatements = blockStatement.getStatements().stream()
-                .map(statement -> (Statement) statement.accept(this, scope))
+                .map(statement -> (StatementTree) statement.accept(this, scope))
                 .toList();
         return blockStatement.builder()
                 .statements(newStatements)
@@ -46,7 +46,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitReturnStatement(final ReturnStatement returnStatement, final Scope scope) {
+    public Tree visitReturnStatement(final ReturnStatementTree returnStatement, final Scope scope) {
         final var expression = returnStatement.getExpression();
 
         if (expression == null) {
@@ -72,10 +72,10 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     @Override
     public Tree visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final Scope scope) {
         final var variables = lambdaExpression.getVariables().stream()
-                .map(it -> (VariableDeclarator) it.accept(this, scope))
+                .map(it -> (VariableDeclaratorTree) it.accept(this, scope))
                 .toList();
 
-        final var body = (Statement) lambdaExpression.getBody().accept(this, scope);
+        final var body = (StatementTree) lambdaExpression.getBody().accept(this, scope);
 
         return lambdaExpression.builder()
                 .variables(variables)
@@ -117,7 +117,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visiExpressionStatement(final ExpressionStatement expressionStatement, final Scope scope) {
+    public Tree visiExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
         final var expression = expressionStatement.getExpression();
         final var newExpression = (ExpressionTree) expression.accept(this, scope);
 
@@ -131,7 +131,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final Scope scope) {
+    public Tree visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
         return variableDeclaratorStatement;
     }
 
@@ -188,8 +188,8 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     @Override
     public Tree visitIfStatement(final IfStatementTree ifStatementTree, final Scope scope) {
         final var expression = (ExpressionTree) ifStatementTree.getExpression().accept(this, scope);
-        final var thenStatement = (Statement) ifStatementTree.getThenStatement().accept(this, scope);
-        final var elseStatement = accept(ifStatementTree.getElseStatement(), scope, Statement.class);
+        final var thenStatement = (StatementTree) ifStatementTree.getThenStatement().accept(this, scope);
+        final StatementTree elseStatement = accept(ifStatementTree.getElseStatement(), scope);
 
         return ifStatementTree.builder()
                 .expression(expression)
@@ -204,19 +204,24 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     protected <T extends Tree> T accept(final T tree,
-                                        final Scope scope,
-                                        final Class<T> returnType) {
+                                        final Scope scope) {
         return tree != null
-                ? returnType.cast(tree.accept(this, scope))
+                ? (T) tree.accept(this, scope)
                 : null;
     }
 
     @Override
-    public Tree visitForStatement(final ForStatement forStatement, final Scope scope) {
-        final var newInit = accept(forStatement.getForInit(), scope, Statement.class);
-        final var newExpression = accept(forStatement.getExpression(), scope, ExpressionTree.class);
-        final var newUpdate = accept(forStatement.getForUpdate(), scope, ExpressionTree.class);
-        final var newStatement = (Statement) forStatement.getStatement().accept(this, scope);
+    public Tree visitForStatement(final ForStatementTree forStatement, final Scope scope) {
+        final var newInit = forStatement.getForInit().stream()
+                .map(it -> (StatementTree) it.accept(this, scope))
+                .toList();
+
+        final ExpressionTree newExpression = accept(forStatement.getExpression(), scope);
+        final var newUpdate = forStatement.getForUpdate().stream()
+                .map(it -> (StatementTree) it.accept(this, scope))
+                .toList();
+
+        final var newStatement = (StatementTree) forStatement.getStatement().accept(this, scope);
 
         return forStatement.builder()
                 .forInit(newInit)
@@ -227,10 +232,10 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitEnhancedForStatement(final EnhancedForStatement enhancedForStatement, final Scope scope) {
+    public Tree visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Scope scope) {
         final var newExpression = (ExpressionTree) enhancedForStatement.getExpression().accept(this, scope);
-        final var newLocalVariable = (VariableDeclarator) enhancedForStatement.getLocalVariable().accept(this, scope);
-        final var newStatement = (Statement) enhancedForStatement.getStatement().accept(this, scope);
+        final var newLocalVariable = (VariableDeclaratorTree) enhancedForStatement.getLocalVariable().accept(this, scope);
+        final var newStatement = (StatementTree) enhancedForStatement.getStatement().accept(this, scope);
 
         return enhancedForStatement.builder()
                 .localVariable(newLocalVariable)
@@ -255,9 +260,9 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitWhileStatement(final WhileStatement whileStatement, final Scope scope) {
+    public Tree visitWhileStatement(final WhileStatementTree whileStatement, final Scope scope) {
         final var condition = (ExpressionTree) whileStatement.getCondition().accept(this, scope);
-        final var body = (Statement) whileStatement.getBody().accept(this, scope);
+        final var body = (StatementTree) whileStatement.getBody().accept(this, scope);
         return whileStatement.builder()
                 .condition(condition)
                 .body(body)
@@ -265,8 +270,8 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitDoWhileStatement(final DoWhileStatement doWhileStatement, final Scope scope) {
-        final var body = (Statement) doWhileStatement.getBody().accept(this, scope);
+    public Tree visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final Scope scope) {
+        final var body = (StatementTree) doWhileStatement.getBody().accept(this, scope);
         final var condition = (ExpressionTree) doWhileStatement.getCondition().accept(this, scope);
         return doWhileStatement.builder()
                 .body(body)

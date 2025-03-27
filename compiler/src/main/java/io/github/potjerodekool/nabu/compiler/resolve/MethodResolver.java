@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
@@ -8,11 +7,11 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressi
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 public class MethodResolver {
 
@@ -95,7 +94,7 @@ public class MethodResolver {
         } else if (typeMirror instanceof io.github.potjerodekool.nabu.compiler.type.VariableType variableType) {
             return asClassType(variableType.getInterferedType());
         } else {
-            throw new TodoException();
+            return types.getErrorType(typeMirror.getClassName());
         }
     }
 
@@ -170,16 +169,17 @@ public class MethodResolver {
         final ExecutableType methodType;
 
         final var clazz = (TypeElement) type.asElement();
-        final Stream<ExecutableElement> methods;
+        final List<ExecutableElement> methods;
 
         if (Constants.THIS.equals(methodName)) {
-            methods = ElementFilter.constructors(clazz).stream();
+            methods = ElementFilter.constructors(clazz);
         } else {
             methods = ElementFilter.methods(clazz).stream()
-                    .filter(element -> methodFilter(element, methodName, isStaticCall));
+                    .filter(element -> methodFilter(element, methodName, isStaticCall))
+                    .toList();
         }
 
-        final var methodTypes = methods
+        final var methodTypes = methods.stream()
                 .map(method -> (ExecutableType) types.asMemberOf(type, method))
                 .map(mt -> transform(mt, typeArguments, argumentTypes))
                 .filter(method -> match(method, argumentTypes))
@@ -224,8 +224,8 @@ public class MethodResolver {
     public ExecutableType transform(final ExecutableType methodType,
                                     final List<TypeMirror> typeArguments,
                                     final List<TypeMirror> argumentTypes) {
-        final var map = new HashMap<String, TypeMirror>();
-        final var filler2 = new Filler2(map);
+        final var typeMapFiller = new TypeMapFiller();
+        final var map = typeMapFiller.getMap();
         final var methodArgumentTypes = methodType.getParameterTypes();
 
         for (var i = 0; i < methodArgumentTypes.size(); i++) {
@@ -233,7 +233,7 @@ public class MethodResolver {
 
             if (argumentTypes.size() > i) {
                 final var argType = argumentTypes.get(i);
-                argType.accept(filler2, methodArgType);
+                argType.accept(typeMapFiller, methodArgType);
             }
         }
 
@@ -241,7 +241,7 @@ public class MethodResolver {
             for (var i = 0; i < typeArguments.size(); i++) {
                 final var typeArg = typeArguments.get(i);
                 final var typeVar = methodType.getTypeVariables().get(i);
-                typeArg.accept(filler2, typeVar);
+                typeArg.accept(typeMapFiller, typeVar);
             }
         }
 
@@ -277,12 +277,12 @@ public class MethodResolver {
     }
 }
 
-class Filler2 implements TypeVisitor<Void, TypeMirror> {
+class TypeMapFiller implements TypeVisitor<Void, TypeMirror> {
 
-    private final HashMap<String, TypeMirror> map;
+    private final HashMap<String, TypeMirror> map = new HashMap<>();
 
-    public Filler2(final HashMap<String, TypeMirror> map) {
-        this.map = map;
+    public HashMap<String, TypeMirror> getMap() {
+        return map;
     }
 
     @Override

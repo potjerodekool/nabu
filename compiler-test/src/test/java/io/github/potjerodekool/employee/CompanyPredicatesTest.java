@@ -1,6 +1,6 @@
 package io.github.potjerodekool.employee;
 
-//import io.github.potjerodekool.nabu.example.CompanyPredicates;
+import io.github.potjerodekool.nabu.example.CompanyPredicates;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 
@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class CompanyPredicatesTest extends AbstractPredicateTest {
 
-    /*
     private void setupTestData(final EntityManager em) {
         final var employee = new Employee();
         employee.setFirstName("Evert");
@@ -54,5 +53,4 @@ public class CompanyPredicatesTest extends AbstractPredicateTest {
             assertEquals(1L, employeeCount);
         });
     }
-     */
 }

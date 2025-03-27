@@ -2,14 +2,14 @@ package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.lower.ExpressionConverter;
+import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.Map;
 import java.util.Set;
-
-import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.resolveType;
 
 public class WideningConverter implements ExpressionConverter {
 
@@ -37,8 +37,8 @@ public class WideningConverter implements ExpressionConverter {
 
     @Override
     public ExpressionTree convert(final ExpressionTree left, final ExpressionTree right) {
-        final var leftType = resolveType(left);
-        final var rightType = resolveType(right);
+        final var leftType = TreeUtils.typeOf(left);
+        final var rightType = TreeUtils.typeOf(right);
 
         if (leftType instanceof DeclaredType leftClassType) {
             return visitDeclaredType(left, leftClassType, rightType);

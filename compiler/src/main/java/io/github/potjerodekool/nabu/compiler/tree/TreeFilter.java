@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclarator;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
 
 import java.util.List;
@@ -15,8 +15,8 @@ public final class TreeFilter {
     private TreeFilter() {
     }
 
-    public static List<VariableDeclarator> fields(final ClassDeclaration classDeclaration) {
-        return filter(classDeclaration, VariableDeclarator.class)
+    public static List<VariableDeclaratorTree> fields(final ClassDeclaration classDeclaration) {
+        return filter(classDeclaration, VariableDeclaratorTree.class)
                 .toList();
     }
 

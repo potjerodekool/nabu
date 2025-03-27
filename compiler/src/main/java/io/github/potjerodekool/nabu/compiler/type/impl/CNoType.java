@@ -5,6 +5,11 @@ import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 
 public class CNoType extends AbstractType implements NoType {
+
+    public CNoType() {
+        super(null);
+    }
+
     @Override
     public TypeKind getKind() {
         return TypeKind.NONE;
@@ -13,5 +18,10 @@ public class CNoType extends AbstractType implements NoType {
     @Override
     public <R, P> R accept(final TypeVisitor<R, P> visitor, final P param) {
         return visitor.visitNoneType(this, param);
+    }
+
+    @Override
+    public String getClassName() {
+        return "NO";
     }
 }

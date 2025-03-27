@@ -1,7 +1,6 @@
-    package io.github.potjerodekool.nabu.maven;
+package io.github.potjerodekool.nabu.maven;
 
-import io.github.potjerodekool.nabu.compiler.NabuCompiler;
-import io.github.potjerodekool.nabu.compiler.Options;
+import io.github.potjerodekool.nabu.compiler.*;
 import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
@@ -12,8 +11,8 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 @Mojo(
         name = "compile",
@@ -31,39 +30,41 @@ public class NabuMojo extends AbstractMojo {
 
         configureLogging();
 
-        try (final var nabuCompiler = new NabuCompiler()) {
-            final var options = new Options();
+        final var nabuCompiler = new NabuCompiler();
+        final var compilerOptionsBuilder = new CompilerOptions.CompilerOptionsBuilder();
 
-            configureClassPath(nabuCompiler);
-            configureSourceRoots(options);
-            options.targetDirectory(Paths.get(project.getBuild().getOutputDirectory()));
+        configureClassPath(compilerOptionsBuilder);
+        configureSourceRoots(compilerOptionsBuilder);
 
-            try {
-                nabuCompiler.compile(options);
-            } catch (final IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
-
-    private void configureSourceRoots(final Options options) {
-        final var sourceRoots = project.getCompileSourceRoots();
-        sourceRoots.forEach(sourceRoot -> {
-            getLog().info("sourceRoot: " + sourceRoot);
-            options.sourceRoot(Paths.get(sourceRoot));
-        });
-    }
-
-    private void configureClassPath(final NabuCompiler nabuCompiler) {
-        nabuCompiler.addClassPathEntry(
-                Paths.get(project.getBuild().getOutputDirectory())
+        compilerOptionsBuilder.option(
+                CompilerOption.TARGET_DIRECTORY,
+                project.getBuild().getOutputDirectory()
         );
 
-        final var artifacts = project.getArtifacts().stream()
+        nabuCompiler.compile(compilerOptionsBuilder.build());
+    }
+
+    private void configureSourceRoots(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder) {
+        final var sourceRoots = project.getCompileSourceRoots();
+        final var sourcePath = sourceRoots.stream()
+                .peek(sourceRoot -> getLog().info("sourceRoot: " + sourceRoot))
+                .collect(Collectors.joining(File.pathSeparator));
+        compilerOptionsBuilder.option(CompilerOption.SOURCE_PATH, sourcePath);
+    }
+
+    private void configureClassPath(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder) {
+        final var paths = new ArrayList<String>();
+        paths.add(project.getBuild().getOutputDirectory());
+
+        paths.addAll(project.getArtifacts().stream()
                 .map(Artifact::getFile)
-                .map(File::toPath)
-                .toList();
-        artifacts.forEach(nabuCompiler::addClassPathEntry);
+                .map(File::getAbsolutePath)
+                .toList());
+
+        compilerOptionsBuilder.option(
+                CompilerOption.CLASS_PATH,
+                String.join(File.pathSeparator, paths)
+        );
     }
 
     private void configureLogging() {

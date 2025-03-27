@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
@@ -15,19 +17,20 @@ public class TypeArgumentVisitor extends AbstractVisitor {
     protected TypeArgumentVisitor(final int api,
                                   final ClassElementLoader loader,
                                   final AbstractVisitor parent,
-                                  final char wildcard) {
-        super(api, loader, parent);
+                                  final char wildcard,
+                                  final ModuleSymbol moduleSymbol) {
+        super(api, loader, parent, moduleSymbol);
         this.wildcard = wildcard;
     }
 
     public void visitClassType(final String name) {
-        type = new MutableClassType(loader.loadClass(name));
+        type = new MutableClassType((TypeSymbol) loader.loadClass(moduleSymbol, name));
         parent.addTypeArgument(type);
     }
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
+        final var objectType = new MutableClassType((TypeSymbol)loader.loadClass(moduleSymbol, Constants.OBJECT));
         final var type = new MutableTypeVariable(name, objectType, null);
         final var classType = (MutableClassType) parent.getType();
         classType.addTypeArgument(process(type));
@@ -77,7 +80,7 @@ public class TypeArgumentVisitor extends AbstractVisitor {
     public void visitInnerClassType(final String name) {
         final var classType = (MutableClassType) this.type;
         final var innerName = classType.getClassName() + "$" + name;
-        final var element = loader.loadClass(innerName);
-        this.type = new MutableClassType(element, classType);
+        final var element = loader.loadClass(moduleSymbol, innerName);
+        this.type = new MutableClassType((TypeSymbol) element, classType);
     }
 }

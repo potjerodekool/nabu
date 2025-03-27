@@ -8,6 +8,42 @@ import static io.github.potjerodekool.nabu.test.TreeAssert.parseAndAssert;
 class NabuCompilerVisitorTest {
 
     @Test
+    void ordinaryCompilationUnit() {
+        parseAndAssert("""
+                package something;
+                
+                import java.util.List;
+                
+                public class SomeClass {
+                }
+                """, NabuParser::ordinaryCompilationUnit);
+    }
+
+    @Test
+    void modularCompilationUnit() {
+        parseAndAssert("""
+                import java.util.List;
+ 
+                @Module
+                open module some.mymodule {
+                requires transitive static other.theremodule;
+                exports mystuff;
+                exports myotherstuff to foo, bar;
+                opens myotherstuff to foo, bar;
+                uses SomeThings;
+                provides SomeInterface with StandardSomeThing, AdvancedSomeThing;
+                }""", NabuParser::modularCompilationUnit);
+    }
+
+    @Test
+    void importDeclaration() {
+        parseAndAssert("import java.util.List;", NabuParser::importDeclaration);
+        parseAndAssert("import java.util.*;", NabuParser::importDeclaration);
+        parseAndAssert("import static java.util.List.of;", NabuParser::importDeclaration);
+        parseAndAssert("import static java.util.List.*;", NabuParser::importDeclaration);
+    }
+
+    @Test
     void visitExplicitConstructorInvocation() {
         parseAndAssert("super();", NabuParser::explicitConstructorInvocation);
         parseAndAssert("super(10);", NabuParser::explicitConstructorInvocation);
@@ -23,17 +59,19 @@ class NabuCompilerVisitorTest {
 
     @Test
     void visitRelationalExpression() {
-        //parseAndAssert("\"test\" instanceof String", NabuParser::relationalExpression);
+        parseAndAssert("\"test\" instanceof String", NabuParser::relationalExpression);
     }
 
     @Test
     void visitPrimaryNoNewArray() {
+        parseAndAssert("list.get(0)", NabuParser::primaryNoNewArray);
         parseAndAssert("\"test\".replace('A', 'B')", NabuParser::primaryNoNewArray);
         parseAndAssert("this", NabuParser::primaryNoNewArray);
         parseAndAssert("this.array[10]", NabuParser::primaryNoNewArray);
         parseAndAssert("this.array[10][2]", NabuParser::primaryNoNewArray);
         parseAndAssert("this.array[1][2][3]", NabuParser::primaryNoNewArray);
         parseAndAssert("this.someField", NabuParser::primaryNoNewArray);
+        parseAndAssert("TT.this.getName()", NabuParser::primaryNoNewArray);
     }
 
     @Test
@@ -56,17 +94,17 @@ class NabuCompilerVisitorTest {
 
     @Test
     void pNNA() {
-        parseAndAssert(".id", NabuParser::pNNA, ".");
-        parseAndAssert(".user.id", NabuParser::pNNA, ".");
-        parseAndAssert("[2]", NabuParser::pNNA);
-        parseAndAssert("[2][3]", NabuParser::pNNA);
-        parseAndAssert(".<String>getName()", NabuParser::pNNA, ".");
-        parseAndAssert("""
-            .new SomeClass<String>(1, 2, 3){
-            }
-            """, NabuParser::pNNA,
+        parseAndAssert(".new SomeClass<String>(1, 2, 3){}", NabuParser::pNNA,
                 "."
-        );
+        ); // 0
+        parseAndAssert(".id", NabuParser::pNNA, "."); // 1
+        parseAndAssert(".user.id", NabuParser::pNNA, "."); //1
+        parseAndAssert(".array[10]", NabuParser::pNNA, "."); // 1
+        parseAndAssert("[2]", NabuParser::pNNA); // 2
+        parseAndAssert("[2][3]", NabuParser::pNNA); // 2
+        parseAndAssert(".<String>getName()", NabuParser::pNNA, "."); //3
+        parseAndAssert("::<String, Object>get", NabuParser::pNNA);
+        parseAndAssert("::<String, Object>get.more", NabuParser::pNNA);
     }
 
     @Test
@@ -178,6 +216,46 @@ class NabuCompilerVisitorTest {
             fun fail(MyClass.this : MyClass, other : String): String {
             }
             """, NabuParser::functionDeclaration);
+    }
+
+    @Test
+    void classOrInterfaceType() {
+        parseAndAssert("java.util.@Deprecated List<String>", NabuParser::classOrInterfaceType);
+        parseAndAssert("java.util.@Deprecated Map<String, String>.@Deprecated Entry<String, String>", NabuParser::classOrInterfaceType);
+    }
+
+    @Test
+    void tryWithResourcesStatement() {
+        parseAndAssert("""
+            try (FileInputStream fis = new FileInputStream(file.txt)) {
+            }
+            """, NabuParser::tryWithResourcesStatement);
+    }
+
+    @Test
+    void unannPrimitiveType() {
+        parseAndAssert("byte", NabuParser::unannPrimitiveType);
+        parseAndAssert("short", NabuParser::unannPrimitiveType);
+        parseAndAssert("int", NabuParser::unannPrimitiveType);
+        parseAndAssert("long", NabuParser::unannPrimitiveType);
+        parseAndAssert("char", NabuParser::unannPrimitiveType);
+        parseAndAssert("float", NabuParser::unannPrimitiveType);
+        parseAndAssert("double", NabuParser::unannPrimitiveType);
+        parseAndAssert("boolean", NabuParser::unannPrimitiveType);
+    }
+
+    //@Test
+    void constructorDeclaration() {
+        parseAndAssert("private SomeClass() throws Exception { }", NabuParser::constructorDeclaration);
+    }
+
+    @Test
+    void enhancedForStatement() {
+        parseAndAssert("""
+            for (var e : list)
+            {
+            }
+            """, NabuParser::enhancedForStatement);
     }
 
 }

@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.*;
@@ -9,19 +11,20 @@ public class SuperClassVisitor extends AbstractVisitor {
 
     protected SuperClassVisitor(final int api,
                                 final ClassElementLoader loader,
-                                final AbstractVisitor parent) {
-        super(api, loader, parent);
+                                final AbstractVisitor parent,
+                                final ModuleSymbol moduleSymbol) {
+        super(api, loader, parent, moduleSymbol);
     }
 
     @Override
     public void visitClassType(final String name) {
-        final var type = new MutableClassType(loader.loadClass(name));
+        final var type = new MutableClassType(loadClass(Symbol.createFlatName(name)));
         parent.setSuperType(type);
     }
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectType = new MutableClassType(loader.loadClass(Constants.OBJECT));
+        final var objectType = new MutableClassType(loadClass(Constants.OBJECT));
         final var type = new MutableTypeVariable(name, objectType, null);
         parent.setSuperType(type);
     }
@@ -54,7 +57,7 @@ public class SuperClassVisitor extends AbstractVisitor {
     @Override
     public void visitInnerClassType(final String name) {
         final var innerName = ((MutableClassType)parent.getSuperType()).getClassName() + "$" + name;
-        final var element = loader.loadClass(innerName);
+        final var element = loadClass(innerName);
         parent.setSuperType(new MutableClassType(element));
     }
 

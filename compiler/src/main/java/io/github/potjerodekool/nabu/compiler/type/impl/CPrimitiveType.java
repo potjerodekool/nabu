@@ -9,6 +9,7 @@ public class CPrimitiveType extends AbstractType implements PrimitiveType {
     private final TypeKind kind;
 
     public CPrimitiveType(final TypeKind kind) {
+        super(null);
         if (kind == null || !kind.isPrimitive()) {
             throw new IllegalArgumentException("Not a primitive kind " + kind);
         }
@@ -27,7 +28,7 @@ public class CPrimitiveType extends AbstractType implements PrimitiveType {
     }
 
     @Override
-    public String toString() {
+    public String getClassName() {
         return switch (kind) {
             case BOOLEAN -> "boolean";
             case CHAR -> "char";
@@ -39,6 +40,11 @@ public class CPrimitiveType extends AbstractType implements PrimitiveType {
             case DOUBLE -> "double";
             default -> "";
         };
+    }
+
+    @Override
+    public String toString() {
+        return getClassName();
     }
 
     @Override

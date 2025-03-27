@@ -1,14 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression.builder;
 
+import io.github.potjerodekool.nabu.compiler.tree.expression.CastExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CCastExpressionTree;
 
-public class CastExpressionTreeBuilder extends ExpressionBuilder<CCastExpressionTree> {
+public class CastExpressionTreeBuilder extends ExpressionBuilder<CastExpressionTree, CastExpressionTreeBuilder> {
 
     private ExpressionTree expression;
     private ExpressionTree targetType;
 
-    public CastExpressionTreeBuilder(final CCastExpressionTree castExpressionTree) {
+    public CastExpressionTreeBuilder(final CastExpressionTree castExpressionTree) {
         super(castExpressionTree);
         this.expression = castExpressionTree.getExpression();
         this.targetType = castExpressionTree.getTargetType();
@@ -38,7 +39,7 @@ public class CastExpressionTreeBuilder extends ExpressionBuilder<CCastExpression
     }
 
     @Override
-    public CCastExpressionTree build() {
+    public CastExpressionTree build() {
         return new CCastExpressionTree(this);
     }
 }

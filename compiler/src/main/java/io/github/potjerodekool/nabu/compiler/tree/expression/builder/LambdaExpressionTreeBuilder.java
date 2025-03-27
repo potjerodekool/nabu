@@ -2,18 +2,18 @@ package io.github.potjerodekool.nabu.compiler.tree.expression.builder;
 
 import io.github.potjerodekool.nabu.compiler.tree.expression.LambdaExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CLambdaExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.Statement;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclarator;
+import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpressionTree> {
+public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpressionTree, LambdaExpressionTreeBuilder> {
 
-    private List<VariableDeclarator> variables;
+    private List<VariableDeclaratorTree> variables;
 
-    private Statement body;
+    private StatementTree body;
 
     private ExecutableType lambdaMethodType;
 
@@ -29,11 +29,11 @@ public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpress
         this.lambdaMethodType = lambdaExpressionTree.getLambdaMethodType();
     }
 
-    public List<VariableDeclarator> getVariables() {
+    public List<VariableDeclaratorTree> getVariables() {
         return variables;
     }
 
-    public Statement getBody() {
+    public StatementTree getBody() {
         return body;
     }
 
@@ -46,18 +46,18 @@ public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpress
         return this;
     }
 
-    public LambdaExpressionTreeBuilder variables(final List<VariableDeclarator> variables) {
+    public LambdaExpressionTreeBuilder variables(final List<VariableDeclaratorTree> variables) {
         this.variables = variables;
         return this;
     }
 
-    public LambdaExpressionTreeBuilder body(final Statement body) {
+    public LambdaExpressionTreeBuilder body(final StatementTree body) {
         this.body = body;
         return this;
     }
 
     @Override
-    public CLambdaExpressionTree build() {
+    public LambdaExpressionTree build() {
         return new CLambdaExpressionTree(this);
     }
 

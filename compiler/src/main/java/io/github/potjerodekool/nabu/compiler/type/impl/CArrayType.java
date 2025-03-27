@@ -7,6 +7,7 @@ public class CArrayType extends AbstractType implements ArrayType {
     private final TypeMirror componentType;
 
     public CArrayType(final TypeMirror componentType) {
+        super(null);
         this.componentType = componentType;
     }
 
@@ -32,5 +33,10 @@ public class CArrayType extends AbstractType implements ArrayType {
             return componentType.equals(otherArrayType.getComponentType());
         }
         return false;
+    }
+
+    @Override
+    public String getClassName() {
+        return "[" + componentType.getClassName();
     }
 }

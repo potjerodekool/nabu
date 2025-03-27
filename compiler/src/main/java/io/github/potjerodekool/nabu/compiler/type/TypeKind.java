@@ -16,6 +16,7 @@ public enum TypeKind {
     NULL(false),
     WILDCARD(false),
     INTERSECTION(false),
+    UNION(false),
     NONE(false),
     TYPEVAR(false),
     PACKAGE(false),

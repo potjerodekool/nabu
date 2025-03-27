@@ -109,7 +109,7 @@ abstract class AbstractTypeParamSignatureVisitor
     private String getDescriptor(final DeclaredType declaredType,
                                  final boolean addSemicolon) {
         final String name;
-        final var typeElement = declaredType.getTypeElement();
+        final var typeElement = declaredType.asTypeElement();
 
         if (typeElement.getNestingKind() == NestingKind.TOP_LEVEL) {
             name = "L" + typeElement.getQualifiedName().replace('.', '/');

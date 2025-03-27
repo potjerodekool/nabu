@@ -1,25 +1,29 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.resolve.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
-import io.github.potjerodekool.nabu.test.TestElementLoader;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.signature.SignatureReader;
 import org.objectweb.asm.signature.SignatureVisitor;
 
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class SignatureParserTest {
+
+    private final CompilerContext compilerContext = new CompilerContextImpl(
+            new ApplicationContext(),
+            new NabuCFileManager()
+    );
 
     @Test
     void test1() {
@@ -80,34 +84,20 @@ class SignatureParserTest {
     }
 
     private void parseAndAssertClassSignature(final String signature) {
-        final var printer = new Printer();
-
         final var parser = parseSignature(signature);
         final var formalTypeParameters = parser.createFormalTypeParameters();
 
-        printer.visitTypeVariables(formalTypeParameters);
-
         final var superType = parser.createSuperType();
-        superType.accept(printer, null);
 
         final var interfaceTypes = parser.createInterfaceTypes();
-
-        for (final var interfaceType : interfaceTypes) {
-            printer.process(interfaceType);
-        }
-
-        final var actual = printer.getText();
 
         final var typeParams = formalTypeParameters.stream()
                 .map(it -> (TypeParameterElement) it.asElement())
                 .toList();
 
-        final var actual2 = SignatureGenerator.getClassSignature(typeParams, superType, interfaceTypes);
+        final var actual = SignatureGenerator.getClassSignature(typeParams, superType, interfaceTypes);
 
-        //assertEquals(signature, actual);
-        // <T:Ljava/lang/Object;>Ljava/lang/Object;Ljava/io/Serializable;Ljava/lang/reflect/GenericDeclaration;Ljava/lang/reflect/Type;Ljava/lang/reflect/AnnotatedElement;Ljava/lang/invoke/TypeDescriptor$OfField<Ljava/lang/Class<*>;>;Ljava/lang/constant/Constable;
-        // <T:Ljava/lang/Object;>Ljava/lang/Object;:Ljava/io/Serializable;:Ljava/lang/reflect/GenericDeclaration;:Ljava/lang/reflect/Type;:Ljava/lang/reflect/AnnotatedElement;:Ljava/lang/invoke/TypeDescriptor$OfField<Ljava/lang/Class<*>;>;:Ljava/lang/constant/Constable;
-        assertEquals(signature, actual2);
+        assertEquals(signature, actual);
     }
 
     private void parseAndAssertFieldSignature(final String signature) {
@@ -124,6 +114,7 @@ class SignatureParserTest {
         final var methodSignature = parseSignature(signature).createMethodSignature();
         final var methodType = new CMethodType(
                 null,
+                null,
                 methodSignature.typeVariables(),
                 methodSignature.returnType(),
                 methodSignature.argumentTypes(),
@@ -139,14 +130,16 @@ class SignatureParserTest {
     }
 
     protected SignatureParser parseSignature(final String signature) {
-        //final var loader = new TestElementLoader();
-        final var loader = new TestElementLoader(new SymbolTable());
-        loader.postInit();
+        final var loader = compilerContext.getClassElementLoader();
+        final var asmLoader = (AsmClassElementLoader) loader;
+        final var javaBase = asmLoader.getSymbolTable().getJavaBase();
+
         final var reader = new SignatureReader(signature);
 
         final var signatureBuilder = new SignatureParser(
                 Opcodes.ASM9,
-                loader
+                loader,
+                javaBase
         );
 
         reader.accept(signatureBuilder);
@@ -165,7 +158,7 @@ class Printer implements TypeVisitor<Object, PrinterContext> {
 
     @Override
     public Object visitUnknownType(final TypeMirror typeMirror, final PrinterContext param) {
-        throw new TodoException();
+        return null;
     }
 
     @Override
@@ -333,14 +326,6 @@ class Printer implements TypeVisitor<Object, PrinterContext> {
         return builder.toString();
     }
 
-    public void visitTypeVariables(final List<TypeVariable> typeVariables) {
-        final var context = new PrinterContext(true,false);
-        if (!typeVariables.isEmpty()) {
-            print("<");
-            typeVariables.forEach(it -> it.accept(this, context));
-            print(">");
-        }
-    }
 }
 
 class SignaturePrinter extends SignatureVisitor {

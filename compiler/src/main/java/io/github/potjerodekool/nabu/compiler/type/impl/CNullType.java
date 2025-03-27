@@ -6,6 +6,10 @@ import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 
 public class CNullType extends AbstractType implements NullType {
 
+    public CNullType() {
+        super(null);
+    }
+
     @Override
     public TypeKind getKind() {
         return TypeKind.NULL;
@@ -14,5 +18,10 @@ public class CNullType extends AbstractType implements NullType {
     @Override
     public <R, P> R accept(final TypeVisitor<R, P> visitor, final P param) {
         return visitor.visitNullType(this, param);
+    }
+
+    @Override
+    public String getClassName() {
+        return "null";
     }
 }

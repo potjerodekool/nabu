@@ -1,74 +1,61 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
-import io.github.potjerodekool.nabu.compiler.resolve.scope.AbstractScope;
+import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
-public class SimpleScope extends AbstractScope {
+public class SimpleScope extends LambdaScope {
 
-    private final Tree owner;
-    private final LambdaContext lambdaContext;
+    private final Map<String, Element> locals = new LinkedHashMap<>();
 
     public SimpleScope(final Tree owner,
                        final LambdaContext lambdaContext) {
         this(null, owner, lambdaContext);
     }
 
-    public SimpleScope(final SimpleScope parentScope,
+    public SimpleScope(final LambdaScope parentScope,
                        final Tree owner,
                        final LambdaContext lambdaContext) {
-        super(parentScope);
-        this.lambdaContext = lambdaContext;
-        this.owner = owner;
+        super(parentScope, owner, lambdaContext);
     }
 
+    @Override
     public Set<String> locals() {
-        return new LinkedHashSet<>(super.locals());
+        return locals.keySet();
     }
 
-    private SimpleScope getParentScope() {
-        return (SimpleScope) getParent();
+    @Override
+    public void define(final Element element) {
+        locals.put(element.getSimpleName(), element);
     }
 
-    public Function getCurrentFunctionDeclaration() {
-        if (owner instanceof Function function) {
-            return function;
-        } else  {
-            final var parent = getParentScope();
-            return parent != null
-                    ? parent.getCurrentFunctionDeclaration()
-                    : null;
+    @Override
+    public Element resolve(String name) {
+        var element = this.locals.get(name);
+
+        if (element != null) {
+            return element;
         }
-    }
 
-    public ClassDeclaration getCurrentClassDeclaration() {
-        if (owner instanceof ClassDeclaration classDeclaration) {
-            return classDeclaration;
-        } else  {
-            final var parent = getParentScope();
-            return parent != null
-                    ? parent.getCurrentClassDeclaration()
-                    : null;
+        final var parent = getParent();
+
+        if (parent != null) {
+            return parent.resolve(name);
         }
+
+        return null;
     }
 
-    public LambdaContext getLambdaContext() {
-        return lambdaContext;
-    }
-
-    public Tree getOwner() {
-        return owner;
-    }
-
+    @Override
     public SimpleScope childScope(final Tree owner) {
         return new SimpleScope(
                 this,
                 owner,
-                lambdaContext
+                getLambdaContext()
         );
     }
+
 }

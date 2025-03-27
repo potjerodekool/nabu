@@ -1,20 +1,23 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.Types;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.objectweb.asm.Type;
 
 public class AsmTypeResolver {
 
     private final ClassElementLoader classElementLoader;
-
     private final Types types;
+    private final ModuleSymbol moduleSymbol;
 
-    public AsmTypeResolver(final ClassElementLoader classElementLoader) {
+    public AsmTypeResolver(final ClassElementLoader classElementLoader,
+                           final ModuleSymbol moduleSymbol) {
         this.classElementLoader = classElementLoader;
         this.types = classElementLoader.getTypes();
+        this.moduleSymbol = moduleSymbol;
     }
 
     public ClassElementLoader getClassElementLoader() {
@@ -46,7 +49,7 @@ public class AsmTypeResolver {
                 final var componentType = asTypeMirror(type.getElementType());
                 yield types.getArrayType(componentType);
             }
-            case Type.OBJECT -> classElementLoader.loadClass(type.getInternalName()).asType();
+            case Type.OBJECT -> classElementLoader.loadClass(moduleSymbol, type.getClassName()).asType();
             default -> throw new UnsupportedOperationException("" + type.getSort());
         };
     }

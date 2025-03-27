@@ -4,9 +4,9 @@ import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 import java.util.List;
@@ -15,10 +15,12 @@ public abstract class AbstractJpaTransformer extends AbstractResolver {
 
     private static final String PATH_CLASS = "jakarta.persistence.criteria.Path";
 
+    private final CompilerContext compilerContext;
     private final ClassElementLoader loader;
 
     protected AbstractJpaTransformer(final CompilerContext compilerContext) {
         super(compilerContext);
+        this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
     }
 
@@ -86,43 +88,13 @@ public abstract class AbstractJpaTransformer extends AbstractResolver {
         methodInvocation.setMethodType(resolvedMethodType);
     }
 
-    protected TypeMirror resolvePathType() {
-        return loader.loadClass(PATH_CLASS).asType();
+    protected TypeMirror resolvePathType(final Scope scope) {
+        return loader.loadClass(scope.findModuleElement(), PATH_CLASS).asType();
     }
 
     @Override
-    public Object visitVariableType(final VariableTypeTree variableType, final Scope scope) {
-        super.visitVariableType(variableType, scope);
-        return variableType;
-    }
-
-    @Override
-    public Object visitEmptyStatement(final EmptyStatementTree emptyStatementTree, final Scope param) {
-        return emptyStatementTree;
-    }
-
-    @Override
-    public Object visitIfStatement(final IfStatementTree ifStatementTree, final Scope param) {
-        return ifStatementTree;
-    }
-
-    @Override
-    public Object visitPrimitiveType(final PrimitiveTypeTree primitiveType, final Scope param) {
-        return primitiveType;
-    }
-
-    @Override
-    public Object visitForStatement(final ForStatement forStatement, final Scope param) {
-        return forStatement;
-    }
-
-    @Override
-    public Object visitWhileStatement(final WhileStatement whileStatement, final Scope scope) {
-        return whileStatement;
-    }
-
-    @Override
-    public Object visitDoWhileStatement(final DoWhileStatement doWhileStatement, final Scope scope) {
-        return doWhileStatement;
+    public Object visitUnknown(final Tree tree,
+                               final Scope Param) {
+        return tree;
     }
 }

@@ -1,0 +1,13 @@
+package io.github.potjerodekool.nabu.example;
+
+public class Strings {
+
+    fun sayHi(): String {
+        String message = "Hi " + this.getName();
+        return message;
+    }
+
+    fun getName(): String {
+        return "Evert";
+    }
+}

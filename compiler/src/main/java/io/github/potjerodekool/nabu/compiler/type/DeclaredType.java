@@ -19,7 +19,7 @@ public interface DeclaredType extends ReferenceType {
     }
 
     @Override
-    default TypeElement getTypeElement() {
+    default TypeElement asTypeElement() {
         return (TypeElement) asElement();
     }
 }

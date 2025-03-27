@@ -2,9 +2,9 @@ package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.ElementBuilders;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.ElementFilter;
+import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.transform.CodeTransformer;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
@@ -16,13 +16,13 @@ import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.getSymbol;
-import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.resolveType;
 
 public class JpaTransformer extends AbstractJpaTransformer implements CodeTransformer {
 
@@ -41,9 +41,6 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
             Tag.GE, "greaterThanOrEqualTo"
     );
 
-
-    private TypeMirror joinTypeMirror;
-
     public JpaTransformer(final CompilerContext compilerContext) {
         super(compilerContext);
         this.compilerContext = compilerContext;
@@ -57,17 +54,18 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     @Override
-    public Object visitCompilationUnit(final CompilationUnit compilationUnit, final Scope scope) {
-        final var globalScope = new GlobalScope(compilationUnit, compilerContext);
-        return super.visitCompilationUnit(compilationUnit, globalScope);
-    }
-
-    @Override
     public Object visitClass(final ClassDeclaration classDeclaration, final Scope scope) {
         final var clazz = classDeclaration.getClassSymbol();
-        final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
+        final var classScope = new ClassScope(
+                clazz.asType(),
+                scope,
+                scope.getCompilationUnit(),
+                loader
+        );
+
+        final var symbolScope = new SymbolScope((DeclaredType) clazz.asType(), classScope);
         classDeclaration.getEnclosedElements()
-                .forEach(enclosingElement -> enclosingElement.accept(this, classScope));
+                .forEach(enclosingElement -> enclosingElement.accept(this, symbolScope));
         return null;
     }
 
@@ -99,7 +97,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
         }
 
         lambdaExpression.getVariables().forEach(variable -> variable.accept(this, scope));
-        final var newBody = (Statement) lambdaExpression.getBody().accept(this, scope);
+        final var newBody = (StatementTree) lambdaExpression.getBody().accept(this, scope);
         lambdaExpression.body(newBody);
         return lambdaExpression;
     }
@@ -107,6 +105,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     @Override
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Scope scope) {
+        final var module = scope.findModuleElement();
         var target = fieldAccessExpression.getTarget();
         final var newTarget = (ExpressionTree) target.accept(this, scope);
 
@@ -122,13 +121,13 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
         if (symbol instanceof VariableElement variableElement) {
             final var variableType = variableElement.asType();
 
-            final var pathType = resolvePathType();
+            final var pathType = resolvePathType(scope);
             final var isPath = types.isSubType(variableType, pathType);
 
             if (isPath) {
                 final var field = (IdentifierTree) newField;
                 final var literal = TreeMaker.literalExpressionTree(field.getName(), -1, -1);
-                final var stringType = loader.loadClass(ClassNames.STRING_CLASS_NAME).asType();
+                final var stringType = loader.loadClass(module, ClassNames.STRING_CLASS_NAME).asType();
                 literal.setType(stringType);
 
                 final var targetType = resolveVariableType(variableElement);
@@ -210,7 +209,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
                     .right(newRight)
                     .build();
 
-            final var pathType = resolvePathType();
+            final var pathType = resolvePathType(scope);
 
             if (types.isSubType(newLeft.getType(), pathType)) {
                 return transformBinaryExpression(newExpression, scope);
@@ -279,7 +278,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     private Optional<VariableElement> findBuilderVariable(final Scope scope) {
-        final var criteriaBuilderType = loader.loadClass(CRITERIA_BUILDER_CLASS).asType();
+        final var criteriaBuilderType = loader.loadClass(scope.findModuleElement(), CRITERIA_BUILDER_CLASS).asType();
         return findBuilderVariable(scope, criteriaBuilderType);
     }
 
@@ -311,7 +310,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     @Override
-    public Object visiExpressionStatement(final ExpressionStatement expressionStatement, final Scope scope) {
+    public Object visiExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
         final var newExpression = (ExpressionTree) expressionStatement.getExpression().accept(this, scope);
 
         if (newExpression != expressionStatement.getExpression()) {
@@ -324,16 +323,16 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     @Override
-    public Object visitBlockStatement(final BlockStatement blockStatement, final Scope scope) {
+    public Object visitBlockStatement(final BlockStatementTree blockStatement, final Scope scope) {
         final var newStatements = blockStatement.getStatements().stream()
                 .map(statement -> {
                     final var result = statement.accept(this, scope);
 
-                    if (!(result instanceof Statement)) {
+                    if (!(result instanceof StatementTree)) {
                         throw new IllegalArgumentException();
                     }
 
-                    return (Statement) result;
+                    return (StatementTree) result;
                 })
                 .toList();
 
@@ -350,7 +349,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     @Override
-    public Object visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final Scope scope) {
+    public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
         final var newType = (ExpressionTree) variableDeclaratorStatement.getType().accept(this, scope);
         final var newIdentifier = (IdentifierTree) variableDeclaratorStatement.getName().accept(this, scope);
         final var newValue = accept(variableDeclaratorStatement.getValue(), scope);
@@ -365,18 +364,19 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
 
         if (newVariableDeclaratorStatement.getValue() != null
                 && variableDeclaratorStatement.getType() instanceof VariableTypeTree) {
-            type = resolveType(newVariableDeclaratorStatement.getValue());
+            type = TreeUtils.typeOf(newVariableDeclaratorStatement.getValue());
         } else {
-            type = resolveType(newType);
+            type = TreeUtils.typeOf(newType);
         }
 
-        final var varElement = new VariableBuilder()
+        final var varElement = ElementBuilders.variableElementBuilder()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name(newIdentifier.getName())
                 .type(type)
                 .build();
 
-
+        final var name = variableDeclaratorStatement.getName();
+        name.setSymbol(varElement);
         scope.define(varElement);
 
         return newVariableDeclaratorStatement;
@@ -409,16 +409,17 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     @Override
-    public Object visitLiteralExpression(final LiteralExpressionTree literalExpression, final Scope param) {
-        super.visitLiteralExpression(literalExpression, param);
+    public Object visitLiteralExpression(final LiteralExpressionTree literalExpression, final Scope scope) {
+        super.visitLiteralExpression(literalExpression, scope);
+        final var module = scope.findModuleElement();
 
         final TypeMirror type = switch (literalExpression.getLiteralKind()) {
             case INTEGER -> types.getPrimitiveType(TypeKind.INT);
             case LONG -> types.getPrimitiveType(TypeKind.LONG);
             case BOOLEAN -> types.getPrimitiveType(TypeKind.BOOLEAN);
-            case STRING -> loader.loadClass(ClassNames.STRING_CLASS_NAME).asType();
+            case STRING -> loader.loadClass(module, ClassNames.STRING_CLASS_NAME).asType();
             case NULL -> types.getNullType();
-            case CLASS -> loader.loadClass(ClassNames.CLASS_CLASS_NAME).asType();
+            case CLASS -> loader.loadClass(module, ClassNames.CLASS_CLASS_NAME).asType();
             case BYTE -> types.getPrimitiveType(TypeKind.BYTE);
             case SHORT -> types.getPrimitiveType(TypeKind.SHORT);
             case FLOAT -> types.getPrimitiveType(TypeKind.FLOAT);
@@ -432,7 +433,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     @Override
-    public Object visitReturnStatement(final ReturnStatement returnStatement,
+    public Object visitReturnStatement(final ReturnStatementTree returnStatement,
                                        final Scope scope) {
         if (returnStatement.getExpression() == null) {
             return returnStatement;
@@ -449,21 +450,19 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
         return returnStatement;
     }
 
-    private void initJoinTypes() {
-        if (joinTypeMirror == null) {
-            this.joinTypeMirror = loader.loadClass("io.github.potjerodekool.nabu.lang.jpa.support.Join").asType();
-        }
-    }
-
     @Override
     public Object visitCastExpression(final CastExpressionTree castExpressionTree,
                                       final Scope scope) {
-        initJoinTypes();
+        final var module = scope.findModuleElement();
+        final var joinClass = loader.loadClass(module, "io.github.potjerodekool.nabu.lang.jpa.support.Join");
+
+        final var joinTypeMirror = joinClass.asType();
+
         final var targetType = castExpressionTree.getTargetType().getType();
 
         final var isJointType = types.isAssignable(
                 targetType,
-                this.joinTypeMirror
+                joinTypeMirror
         );
 
         if (isJointType) {

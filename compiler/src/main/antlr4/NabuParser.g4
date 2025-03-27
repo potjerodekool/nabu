@@ -338,15 +338,15 @@ topLevelClassOrInterfaceDeclaration
 // -------------
 
 moduleDeclaration
-    : annotation* 'open'? 'module' identifier ('.' identifier)* '{' moduleDirective* '}'
+    : annotation* open='open'? 'module' identifier ('.' identifier)* '{' moduleDirective* '}'
     ;
 
 moduleDirective
-    : 'requires' requiresModifier* moduleName ';'
-    | 'exports' packageName ('to' moduleName ( ',' moduleName)*)? ';'
-    | 'opens' packageName ('to' moduleName ( ',' moduleName)*)? ';'
-    | 'uses' typeName ';'
-    | 'provides' typeName 'with' typeName ( ',' typeName)* ';'
+    : directive='requires' requiresModifier* moduleName ';'
+    | directive='exports' packageName ('to' moduleName ( ',' moduleName)*)? ';'
+    | directive='opens' packageName ('to' moduleName ( ',' moduleName)*)? ';'
+    | directive='uses' typeName ';'
+    | directive='provides' typeName 'with' typeName ( ',' typeName)* ';'
     ;
 
 requiresModifier

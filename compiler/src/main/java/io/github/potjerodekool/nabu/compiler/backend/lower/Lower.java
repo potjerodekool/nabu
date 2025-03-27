@@ -1,32 +1,36 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
 import io.github.potjerodekool.nabu.compiler.resolve.Boxer;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
-import io.github.potjerodekool.nabu.compiler.type.Types;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.resolveType;
-
 public class Lower extends AbstractTreeTranslator {
 
+    private final CompilerContext compilerContext;
     private final WideningConverter wideningConverter;
     private final Boxer boxer;
     private final Caster caster;
@@ -35,7 +39,8 @@ public class Lower extends AbstractTreeTranslator {
     private final ClassElementLoader loader;
     private int varCounter = 0;
 
-    public Lower(final CompilerContext compilerContext) {
+    public Lower(final CompilerContextImpl compilerContext) {
+        this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getClassElementLoader().getTypes();
         this.boxer = new Boxer(
@@ -45,6 +50,12 @@ public class Lower extends AbstractTreeTranslator {
         this.caster = new Caster();
         this.wideningConverter = new WideningConverter(types);
         this.methodResolver = compilerContext.getMethodResolver();
+    }
+
+    @Override
+    public Tree visitCompilationUnit(final CompilationUnit compilationUnit, final Scope scope) {
+        final var globalScope = new GlobalScope(compilationUnit, compilerContext);
+        return super.visitCompilationUnit(compilationUnit, globalScope);
     }
 
     @Override
@@ -60,8 +71,8 @@ public class Lower extends AbstractTreeTranslator {
                 binaryExpression.getLeft()
         );
 
-        left = resolveType(right).accept(caster, left);
-        right = resolveType(left).accept(caster, right);
+        left = TreeUtils.typeOf(right).accept(caster, left);
+        right = TreeUtils.typeOf(left).accept(caster, right);
 
         left = unboxIfNeeded(left, right);
         right = unboxIfNeeded(right, left);
@@ -78,10 +89,12 @@ public class Lower extends AbstractTreeTranslator {
     }
 
     @Override
-    public Tree visitEnhancedForStatement(final EnhancedForStatement enhancedForStatement, final Scope scope) {
+    public Tree visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Scope scope) {
+        final var module = scope.findModuleElement();
+
         final var expression = (ExpressionTree) enhancedForStatement.getExpression().accept(this, scope);
-        final var localVariable = (VariableDeclarator) enhancedForStatement.getLocalVariable().accept(this, scope);
-        final var statement = (Statement) enhancedForStatement.getStatement().accept(this, scope);
+        final var localVariable = (VariableDeclaratorTree) enhancedForStatement.getLocalVariable().accept(this, scope);
+        final var statement = (StatementTree) enhancedForStatement.getStatement().accept(this, scope);
 
         var methodInvocation = TreeMaker.methodInvocationTree(
                 expression,
@@ -96,11 +109,14 @@ public class Lower extends AbstractTreeTranslator {
 
         final var localVariableType = (DeclaredType) localVariable.getType().getType();
         final var iteratorName = generateVariableName();
-        final var iteratorClassElement = loader.loadClass("java.util.Iterator");
+        final var iteratorClassElement = loader.loadClass(
+                module,
+                "java.util.Iterator"
+        );
 
         final var iteratorType = types.getDeclaredType(iteratorClassElement, localVariableType);
 
-        final var localVariableElement = new VariableBuilder()
+        final var localVariableElement = SymbolBuilders.variableSymbolBuilder()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name(iteratorName)
                 .type(iteratorType)
@@ -115,7 +131,7 @@ public class Lower extends AbstractTreeTranslator {
 
         iteratorTypeTree.setType(iteratorType);
 
-        final var forInit = new VariableDeclaratorBuilder()
+        final var forInit = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.LOCAL_VARIABLE)
                 .modifiers(new CModifiers())
                 .type(iteratorTypeTree)
@@ -165,13 +181,13 @@ public class Lower extends AbstractTreeTranslator {
 
         cast.setType(localVariableType);
 
-        final var statements = new ArrayList<Statement>();
+        final var statements = new ArrayList<StatementTree>();
         statements.add(localVariable.builder()
                 .type(typeTree)
                 .value(cast)
                 .build());
 
-        if (statement instanceof BlockStatement blockStatement) {
+        if (statement instanceof BlockStatementTree blockStatement) {
             statements.addAll(blockStatement.getStatements());
         } else {
             statements.add(statement);
@@ -184,9 +200,9 @@ public class Lower extends AbstractTreeTranslator {
         );
 
         return TreeMaker.forStatement(
-                forInit,
+                List.of(forInit),
                 check,
-                null,
+                List.of(),
                 newBody,
                 -1,
                 -1
@@ -214,8 +230,8 @@ public class Lower extends AbstractTreeTranslator {
 
     public ExpressionTree unboxIfNeeded(final ExpressionTree left,
                                         final ExpressionTree right) {
-        final var leftType = resolveType(left);
-        final var rightType = resolveType(right);
+        final var leftType = TreeUtils.typeOf(left);
+        final var rightType = TreeUtils.typeOf(right);
 
         if (leftType instanceof DeclaredType
                 && rightType instanceof PrimitiveType primitiveType) {

@@ -1,10 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.ArrayAttributeProxy;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.CompoundAttribute;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.ClassBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.CArrayAttributeProxy;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.CCompoundAttribute;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import org.junit.jupiter.api.Test;
@@ -18,29 +20,35 @@ class AnnotationDeProxyProcessorTest {
 
     @Test
     void process() {
-        final var simpleMethod = new MethodBuilder()
-                .name("value")
-                .build();
-
-        final var valuesAttribute = new ArrayAttributeProxy(
-                List.of()
-        );
-
-        final var elementTypeClass = new ClassBuilder()
+        final var elementTypeClass = new ClassSymbolBuilder()
+                .kind(ElementKind.ENUM)
                 .name("ElementType")
                 .build();
 
-        final var method = (MethodSymbol) new MethodBuilder()
+        final var simpleMethod = new MethodSymbolBuilderImpl()
+                .name("value")
+                .enclosingElement(elementTypeClass)
+                .build();
+
+        final var valuesAttribute = new CArrayAttributeProxy(
+                List.of()
+        );
+
+        final var targetClass = (ClassSymbol) new ClassSymbolBuilder()
+                .kind(ElementKind.ANNOTATION_TYPE)
+                .name("Target")
+                .build();
+
+        final var method = new MethodSymbolBuilderImpl()
+                .kind(ElementKind.METHOD)
                 .name("value")
                 .returnType(new CArrayType(elementTypeClass.asType()))
+                .enclosingElement(targetClass)
                 .build();
 
-        final var targetClass = new ClassBuilder()
-                .name("Target")
-                .enclosedElement(method)
-                .build();
+        targetClass.addEnclosedElement(method);
 
-        final var before = new CompoundAttribute(
+        final var before = new CCompoundAttribute(
                 (DeclaredType) targetClass.asType(),
                 Map.of(
                         simpleMethod,

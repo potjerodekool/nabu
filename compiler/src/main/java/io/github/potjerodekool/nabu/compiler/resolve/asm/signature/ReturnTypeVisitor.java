@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.*;
@@ -8,13 +10,16 @@ public class ReturnTypeVisitor extends AbstractVisitor {
 
     private MutableType returnType;
 
-    protected ReturnTypeVisitor(final int api, final ClassElementLoader loader, final AbstractVisitor parent) {
-        super(api, loader, parent);
+    protected ReturnTypeVisitor(final int api,
+                                final ClassElementLoader loader,
+                                final AbstractVisitor parent,
+                                final ModuleSymbol moduleSymbol) {
+        super(api, loader, parent, moduleSymbol);
     }
 
     @Override
     public void visitClassType(final String name) {
-        returnType = new MutableClassType(loader.loadClass(name));
+        returnType = new MutableClassType(loadClass(Symbol.createFlatName(name)));
         parent.setReturnType(returnType);
     }
 
@@ -26,7 +31,7 @@ public class ReturnTypeVisitor extends AbstractVisitor {
 
     @Override
     public void visitTypeVariable(final String name) {
-        final var objectElement = loader.loadClass(Constants.OBJECT);
+        final var objectElement = loadClass(Constants.OBJECT);
         final var objectType = new MutableClassType(objectElement);
         returnType = new MutableTypeVariable(name, objectType, null);
         parent.setReturnType(returnType);
@@ -60,7 +65,7 @@ public class ReturnTypeVisitor extends AbstractVisitor {
     @Override
     public void visitInnerClassType(final String name) {
         final var innerName = ((MutableClassType)parent.getReturnType()).getClassName() + "$" + name;
-        final var element = loader.loadClass(innerName);
+        final var element = loadClass(innerName);
         parent.setReturnType(new MutableClassType(element));
     }
 }

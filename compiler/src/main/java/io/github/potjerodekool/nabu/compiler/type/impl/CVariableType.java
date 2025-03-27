@@ -7,12 +7,10 @@ import io.github.potjerodekool.nabu.compiler.type.VariableType;
 
 public class CVariableType extends AbstractType implements VariableType {
 
-    private TypeMirror interferedType;
-
-    public CVariableType() {
-    }
+    private final TypeMirror interferedType;
 
     public CVariableType(final TypeMirror interferedType) {
+        super(null);
         this.interferedType = interferedType;
     }
 
@@ -27,22 +25,19 @@ public class CVariableType extends AbstractType implements VariableType {
     }
 
     @Override
+    public String getClassName() {
+        return interferedType != null
+                ? interferedType.getClassName()
+                : "var";
+    }
+
+    @Override
     public TypeMirror getInterferedType() {
         return interferedType;
     }
 
-    public void setInterferedType(final TypeMirror interferedType) {
-        if (interferedType != null) {
-            this.interferedType = interferedType;
-        }
-    }
-
     @Override
     public String toString() {
-        if (interferedType != null) {
-            return interferedType.toString();
-        } else {
-            return "var";
-        }
+        return getClassName();
     }
 }

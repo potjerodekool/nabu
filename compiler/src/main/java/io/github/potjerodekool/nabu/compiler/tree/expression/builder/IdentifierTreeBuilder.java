@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.tree.expression.builder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CIdentifierTree;
 
-public class IdentifierTreeBuilder extends ExpressionBuilder<IdentifierTree> {
+public class IdentifierTreeBuilder extends ExpressionBuilder<IdentifierTree, IdentifierTreeBuilder> {
 
     private String name;
 

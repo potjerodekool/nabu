@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree;
 
-import io.github.potjerodekool.nabu.compiler.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
@@ -27,27 +27,32 @@ public final class TreeMaker {
     }
 
     public static PackageDeclaration packageDeclaration(final List<AnnotationTree> annotations,
-                                                        final String name,
+                                                        final ExpressionTree identifier,
                                                         final int line,
                                                         final int charPositionInLine) {
-        return new CPackageDeclaration(annotations, name, line, charPositionInLine);
+        return new CPackageDeclarationTree(annotations, identifier, line, charPositionInLine);
     }
 
-    public static SingleImportItem singleImportItem(final String name,
-                                                    final int lineNumber,
-                                                    final int charPositionInLine) {
-        return new CSingleImportItem(name, lineNumber, charPositionInLine);
+    public static ImportItem importItem(final FieldAccessExpressionTree qualified,
+                                        final boolean isStatic,
+                                        final int lineNumber,
+                                        final int charPositionInLine) {
+        return new CImportItemTree(
+                qualified,
+                isStatic,
+                lineNumber,
+                charPositionInLine);
     }
 
-    public static VariableDeclarator variableDeclarator(final Kind kind,
-                                                        final CModifiers modifiers,
-                                                        final ExpressionTree type,
-                                                        final IdentifierTree name,
-                                                        final ExpressionTree nameExpression,
-                                                        final Tree value,
-                                                        final int lineNumber,
-                                                        final int charPositionInLine) {
-        return new CVariableDeclarator(
+    public static VariableDeclaratorTree variableDeclarator(final Kind kind,
+                                                            final CModifiers modifiers,
+                                                            final ExpressionTree type,
+                                                            final IdentifierTree name,
+                                                            final ExpressionTree nameExpression,
+                                                            final Tree value,
+                                                            final int lineNumber,
+                                                            final int charPositionInLine) {
+        return new CVariableDeclaratorTree(
                 kind,
                 modifiers,
                 type,
@@ -59,15 +64,15 @@ public final class TreeMaker {
         );
     }
 
-    public static ReturnStatement returnStatement(final ExpressionTree expression,
-                                                  final int lineNumber,
-                                                  final int charPositionInLine) {
-        return new CReturnStatement(expression, lineNumber, charPositionInLine);
+    public static ReturnStatementTree returnStatement(final ExpressionTree expression,
+                                                      final int lineNumber,
+                                                      final int charPositionInLine) {
+        return new CReturnStatementTree(expression, lineNumber, charPositionInLine);
     }
 
 
-    public static LambdaExpressionTree lambdaExpressionTree(final List<VariableDeclarator> parameters,
-                                                            final Statement body,
+    public static LambdaExpressionTree lambdaExpressionTree(final List<VariableDeclaratorTree> parameters,
+                                                            final StatementTree body,
                                                             final int lineNumber,
                                                             final int charPositionInLine) {
         return new CLambdaExpressionTree(
@@ -78,10 +83,10 @@ public final class TreeMaker {
         );
     }
 
-    public static ExpressionStatement expressionStatement(final ExpressionTree expression,
-                                                          final int line,
-                                                          final int charPositionInLine) {
-        return new CExpressionStatement(expression, line, charPositionInLine);
+    public static ExpressionStatementTree expressionStatement(final ExpressionTree expression,
+                                                              final int line,
+                                                              final int charPositionInLine) {
+        return new CExpressionStatementTree(expression, line, charPositionInLine);
     }
 
     public static BinaryExpressionTree binaryExpressionTree(final ExpressionTree left,
@@ -192,8 +197,8 @@ public final class TreeMaker {
     }
 
     public static IfStatementTree ifStatementTree(final ExpressionTree expression,
-                                                  final Statement thenStatement,
-                                                  final Statement elseStatement,
+                                                  final StatementTree thenStatement,
+                                                  final StatementTree elseStatement,
                                                   final int lineNumber,
                                                   final int charPositionInLine) {
         return new CIfStatementTree(
@@ -205,10 +210,10 @@ public final class TreeMaker {
         );
     }
 
-    public static BlockStatement blockStatement(final List<Statement> statements,
-                                                final int lineNumber,
-                                                final int charPositionInLine) {
-        return new CBlockStatement(statements, lineNumber, charPositionInLine);
+    public static BlockStatementTree blockStatement(final List<StatementTree> statements,
+                                                    final int lineNumber,
+                                                    final int charPositionInLine) {
+        return new CBlockStatementTree(statements, lineNumber, charPositionInLine);
     }
 
     public static EmptyStatementTree emptyStatementTree(final int lineNumber,
@@ -216,13 +221,13 @@ public final class TreeMaker {
         return new CEmptyStatementTree(lineNumber, charPositionInLine);
     }
 
-    public static ForStatement forStatement(final Statement forInit,
-                                            final ExpressionTree expression,
-                                            final ExpressionTree forUpdate,
-                                            final Statement statement,
-                                            final int lineNumber,
-                                            final int charPositionInLine) {
-        return new CForStatement(
+    public static ForStatementTree forStatement(final List<StatementTree> forInit,
+                                                final ExpressionTree expression,
+                                                final List<StatementTree> forUpdate,
+                                                final StatementTree statement,
+                                                final int lineNumber,
+                                                final int charPositionInLine) {
+        return new CForStatementTree(
                 forInit,
                 expression,
                 forUpdate,
@@ -246,12 +251,12 @@ public final class TreeMaker {
         );
     }
 
-    public static EnhancedForStatement enhancedForStatement(final VariableDeclarator localVariable,
-                                                            final ExpressionTree expression,
-                                                            final Statement statement,
-                                                            final int lineNumber,
-                                                            final int charPositionInLine) {
-        return new CEnhancedForStatement(
+    public static EnhancedForStatementTree enhancedForStatement(final VariableDeclaratorTree localVariable,
+                                                                final ExpressionTree expression,
+                                                                final StatementTree statement,
+                                                                final int lineNumber,
+                                                                final int charPositionInLine) {
+        return new CEnhancedForStatementTree(
                 localVariable,
                 expression,
                 statement,
@@ -273,36 +278,38 @@ public final class TreeMaker {
     }
 
     public static NewClassExpression newClassExpression(final ExpressionTree name,
+                                                        final List<ExpressionTree> typeArguments,
                                                         final List<ExpressionTree> arguments,
-                                                        final BlockStatement classBody,
+                                                        final ClassDeclaration classDeclaration,
                                                         final int lineNumber,
                                                         final int charPositionInLine) {
         return new CNewClassExpression(
                 name,
+                typeArguments,
                 arguments,
-                classBody,
+                classDeclaration,
                 lineNumber,
                 charPositionInLine
         );
     }
 
-    public static WhileStatement whileStatement(final ExpressionTree condition,
-                                                final Statement body,
-                                                final int lineNumber,
-                                                final int charPositionInLine) {
-        return new CWhileStatement(
-                condition,
-                body,
-                lineNumber,
-                charPositionInLine
-        );
-    }
-
-    public static DoWhileStatement doWhileStatement(final Statement body,
-                                                    final ExpressionTree condition,
+    public static WhileStatementTree whileStatement(final ExpressionTree condition,
+                                                    final StatementTree body,
                                                     final int lineNumber,
                                                     final int charPositionInLine) {
-        return new CDoWhileStatement(
+        return new CWhileStatementTree(
+                condition,
+                body,
+                lineNumber,
+                charPositionInLine
+        );
+    }
+
+    public static DoWhileStatementTree doWhileStatement(final StatementTree body,
+                                                        final ExpressionTree condition,
+                                                        final int lineNumber,
+                                                        final int charPositionInLine) {
+        return new CDoWhileStatementTree(
                 body,
                 condition,
                 lineNumber,
@@ -310,11 +317,11 @@ public final class TreeMaker {
         );
     }
 
-    public static AssignmentExpression assignmentExpression(final ExpressionTree left,
-                                                            final ExpressionTree right,
-                                                            final int lineNumber,
-                                                            final int charPositionInLine) {
-        return new CAssignmentExpression(
+    public static AssignmentExpressionTree assignmentExpression(final ExpressionTree left,
+                                                                final ExpressionTree right,
+                                                                final int lineNumber,
+                                                                final int charPositionInLine) {
+        return new CAssignmentExpressionTree(
                 left,
                 right,
                 lineNumber,
@@ -373,7 +380,7 @@ public final class TreeMaker {
                                                   final List<Tree> declarations,
                                                   final int lineNumber,
                                                   final int charPositionInLine) {
-        return new CCompilationUnit(
+        return new CCompilationTreeUnit(
                 fileObject,
                 importItems,
                 declarations,
@@ -387,8 +394,9 @@ public final class TreeMaker {
                                                     final String simpleName,
                                                     final List<Tree> enclosedElements,
                                                     final List<TypeParameterTree> typeParameters,
-                                                    final List<ExpressionTree> implementing,
-                                                    final ExpressionTree extendion,
+                                                    final List<ExpressionTree> implementations,
+                                                    final ExpressionTree extending,
+                                                    final List<IdentifierTree> permits,
                                                     final int lineNumber,
                                                     final int charPositionInLine) {
         return new CClassDeclaration(
@@ -397,8 +405,9 @@ public final class TreeMaker {
                 simpleName,
                 enclosedElements,
                 typeParameters,
-                implementing,
-                extendion,
+                implementations,
+                extending,
+                permits,
                 lineNumber,
                 charPositionInLine
         );
@@ -408,11 +417,11 @@ public final class TreeMaker {
                                     final Kind kind,
                                     final CModifiers modifiers,
                                     final List<TypeParameterTree> typeParameters,
-                                    final VariableDeclarator receiveParameter,
-                                    final List<VariableDeclarator> parameters,
+                                    final VariableDeclaratorTree receiveParameter,
+                                    final List<VariableDeclaratorTree> parameters,
                                     final ExpressionTree returnType,
                                     final List<Tree> thrownTypes,
-                                    final BlockStatement body,
+                                    final BlockStatementTree body,
                                     final ExpressionTree defaultValue,
                                     final int lineNumber,
                                     final int charPositionInLine) {

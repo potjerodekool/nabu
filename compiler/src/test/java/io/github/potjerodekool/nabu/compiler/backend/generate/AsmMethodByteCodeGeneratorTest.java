@@ -1,10 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
-import io.github.potjerodekool.nabu.compiler.Flags;
-import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.StandardElementMetaData;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.MethodBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.InvocationType;
@@ -16,7 +14,6 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.type.impl.CVoidType;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
@@ -35,8 +32,8 @@ class AsmMethodByteCodeGeneratorTest {
         return writer;
     }
 
-    private ExecutableElement createMethod(final Frame frame,
-                                           final List<IStatement> statements) {
+    private MethodSymbol createMethod(final Frame frame,
+                                      final List<IStatement> statements) {
         final var frag = new ProcFrag(
                 Flags.STATIC,
                 "SomeMethod",
@@ -45,12 +42,12 @@ class AsmMethodByteCodeGeneratorTest {
                 statements
         );
 
-        final var method = new MethodBuilder()
+        final var method = new MethodSymbolBuilderImpl()
                 .name("someMethod")
                 .returnType(new CVoidType())
                 .build();
 
-        method.setMetaData(StandardElementMetaData.FRAG, frag);
+        method.setFrag(frag);
         return method;
     }
 
@@ -213,7 +210,6 @@ class AsmMethodByteCodeGeneratorTest {
         assertEquals(expected, actual);
     }
 
-    @Disabled
     @Test
     void stringConcat() {
         final var frame = new Frame();
@@ -256,8 +252,6 @@ class AsmMethodByteCodeGeneratorTest {
                         List.of(thisExp)
                 )
         );
-
-        binOp.toString();
 
         final List<IStatement> statements = List.of(new IExpressionStatement(binOp));
 

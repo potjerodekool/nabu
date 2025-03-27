@@ -1,9 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.compiler.resolve.ElementFilter;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 
 import java.util.List;
@@ -17,9 +15,9 @@ import java.util.stream.Collectors;
  */
 public class AnnotationDeProxyProcessor implements AnnotationValueVisitor<Attribute, ExecutableElement> {
 
-    public AnnotationMirror process(final AnnotationMirror annotationMirror) {
+    public CompoundAttribute process(final AnnotationMirror annotationMirror) {
         final var annotationType = annotationMirror.getAnnotationType();
-        final var methodMap = ElementFilter.methods(annotationType.getTypeElement()).stream()
+        final var methodMap = ElementFilter.methods(annotationType.asTypeElement()).stream()
                 .collect(Collectors.toMap(
                         Element::getSimpleName,
                         Function.identity()
@@ -53,7 +51,7 @@ public class AnnotationDeProxyProcessor implements AnnotationValueVisitor<Attrib
 
     @Override
     public Attribute visitAnnotation(final AnnotationMirror a, final ExecutableElement executableElement) {
-        return (Attribute) this.process(a);
+        return this.process(a);
     }
 
     @Override
@@ -73,7 +71,7 @@ public class AnnotationDeProxyProcessor implements AnnotationValueVisitor<Attrib
     @Override
     public Attribute visitEnumConstant(final VariableElement c, final ExecutableElement executableElement) {
         final var type = (DeclaredType) c.asType();
-        final var variable = ElementFilter.enumConstantByName(type.getTypeElement(), c.getSimpleName())
+        final var variable = ElementFilter.enumConstantByName(type.asTypeElement(), c.getSimpleName())
                         .orElse(c);
 
         return AnnotationBuilder.createEnumValue(
@@ -84,6 +82,6 @@ public class AnnotationDeProxyProcessor implements AnnotationValueVisitor<Attrib
 
     @Override
     public Attribute visitUnknown(final AnnotationValue av, final ExecutableElement executableElement) {
-        throw new TodoException();
+        throw new IllegalArgumentException("Unsupported annotation value type: " + av.getClass().getName());
     }
 }

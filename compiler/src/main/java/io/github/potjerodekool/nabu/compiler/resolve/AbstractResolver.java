@@ -1,27 +1,21 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
-import io.github.potjerodekool.nabu.compiler.Flags;
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.Modifier;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.ClassScope;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.LocalScope;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ErrorSymbol;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
-import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Objects;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.resolveType;
+import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.typeOf;
 
 public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope> {
 
@@ -36,17 +30,36 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     }
 
     @Override
+    public Object defaultAnswer(final Tree tree, final Scope param) {
+        return tree;
+    }
+
+    @Override
+    public Object visitCompilationUnit(final CompilationUnit compilationUnit,
+                                       final Scope scope) {
+        return super.visitCompilationUnit(compilationUnit, createScope(compilationUnit));
+    }
+
+    protected Scope createScope(final CompilationUnit compilationUnit) {
+        return new GlobalScope(compilationUnit, compilerContext);
+    }
+
+    @Override
     public Object visitVariableType(final VariableTypeTree variableType, final Scope scope) {
         if (variableType.getType() == null) {
             variableType.setType(types.getVariableType(null));
         }
-        return null;
+        return defaultAnswer(variableType, scope);
     }
 
     @Override
-    public Object visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement,
+    public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
                                                    final Scope scope) {
-        super.visitVariableDeclaratorStatement(variableDeclaratorStatement, scope);
+        if (variableDeclaratorStatement.getValue() != null) {
+            variableDeclaratorStatement.getValue().accept(this, scope);
+        }
+
+        variableDeclaratorStatement.getType().accept(this, scope);
 
         var type = variableDeclaratorStatement.getType().getType();
 
@@ -54,137 +67,97 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             if (variableDeclaratorStatement.getValue() == null) {
                 type = types.getErrorType("error");
             } else {
-                final var interferedType = resolveType(variableDeclaratorStatement.getValue());
+                final var interferedType = typeOf(variableDeclaratorStatement.getValue());
                 type = types.getVariableType(interferedType);
             }
             variableDeclaratorStatement.getType().setType(type);
         }
 
-        return null;
+        return defaultAnswer(variableDeclaratorStatement, scope);
     }
-
-    protected VariableSymbol createVariable(final VariableDeclarator variableDeclaratorStatement) {
-        final var identifier = variableDeclaratorStatement.getName();
-        var type = variableDeclaratorStatement.getType().getType();
-        final var modifiers = toModifiers(variableDeclaratorStatement.getFlags());
-
-        if (type instanceof VariableType) {
-            if (variableDeclaratorStatement.getValue() == null) {
-                type = types.getErrorType("error");
-            } else {
-                final var interferedType = resolveType(variableDeclaratorStatement.getValue());
-                type = types.getVariableType(interferedType);
-            }
-            variableDeclaratorStatement.getType().setType(type);
-        }
-
-        return (VariableSymbol) new VariableBuilder()
-                .kind(toElementKind(variableDeclaratorStatement.getKind()))
-                .name(identifier.getName())
-                .type(type)
-                .modifiers(modifiers)
-                .build();
-    }
-
-    Set<Modifier> toModifiers(final long flags) {
-        final var modifiers = new HashSet<Modifier>();
-        if (hasFlag(flags, Flags.ABSTRACT)) {
-            modifiers.add(Modifier.ABSTRACT);
-        }
-        if (hasFlag(flags, Flags.PUBLIC)) {
-            modifiers.add(Modifier.PUBLIC);
-        }
-        if (hasFlag(flags, Flags.PROTECTED)) {
-            modifiers.add(Modifier.PROTECTED);
-        }
-        if (hasFlag(flags, Flags.PRIVATE)) {
-            modifiers.add(Modifier.PRIVATE);
-        }
-        if (hasFlag(flags, Flags.STATIC)) {
-            modifiers.add(Modifier.STATIC);
-        }
-        if (hasFlag(flags, Flags.FINAL)) {
-            modifiers.add(Modifier.FINAL);
-        }
-        if (hasFlag(flags, Flags.SYNTHETIC)) {
-            modifiers.add(Modifier.SYNTHETIC);
-        }
-        return modifiers;
-    }
-
-    private boolean hasFlag(final long flags,
-                            final int flag) {
-        return (flags & flag) != 0;
-    }
-
 
     @Override
     public Object visitCastExpression(final CastExpressionTree castExpressionTree,
                                       final Scope scope) {
         castExpressionTree.getExpression().accept(this, scope);
         castExpressionTree.getTargetType().accept(this, scope);
-        return castExpressionTree;
+        return defaultAnswer(castExpressionTree, scope);
     }
 
     @Override
     public Object visitIdentifier(final IdentifierTree identifier,
                                   final Scope scope) {
-        final var symbol = scope.resolve(identifier.getName());
+        final var type = resolveType(identifier.getName(), scope);
 
-        if (symbol != null) {
-            identifier.setSymbol(symbol);
+        if (type != null) {
+            identifier.setType(type);
         } else {
-            final var resolver = new Resolver(
-                    loader,
-                    scope.getCompilationUnit().getImportScope()
-            );
-            final var resolvedClass = resolver.resolveClass(identifier.getName());
-            if (resolvedClass != null) {
-                identifier.setType(resolvedClass.asType());
-            } else {
-                final var type = scope.resolveType(identifier.getName());
+            final var symbol = scope.resolve(identifier.getName());
+            identifier.setSymbol(Objects.requireNonNullElseGet(symbol, () -> new ErrorSymbol(identifier.getName())));
+        }
 
-                if (type != null) {
-                    identifier.setType(type);
-                }
+        return defaultAnswer(identifier, scope);
+    }
+
+    private TypeMirror resolveType(final String name,
+                                   final Scope scope) {
+        TypeMirror type = scope.resolveType(name);
+
+        if (type == null) {
+            final var resolvedClass = loader.loadClass(
+                    scope.findModuleElement(),
+                    name
+            );
+
+            if (resolvedClass != null) {
+                type = resolvedClass.asType();
             }
         }
 
-        return identifier;
+        return type;
     }
 
     @Override
     public Object visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final Scope scope) {
-        if (wildCardExpression.getBoundKind() == BoundKind.UNBOUND) {
-            final var type = types.getWildcardType(null, null);
-            wildCardExpression.setType(type);
-            return wildCardExpression;
-        } else {
-            wildCardExpression.getBound().accept(this, scope);
-            throw new TodoException();
-        }
+        final TypeMirror type;
+
+        type = switch (wildCardExpression.getBoundKind()) {
+            case UNBOUND -> types.getWildcardType(null, null);
+            case EXTENDS -> {
+                final var extendsBound = (TypeMirror) wildCardExpression.getBound().accept(this, scope);
+                yield types.getWildcardType(extendsBound, null);
+
+            }
+            case SUPER -> {
+                final var superBound = (TypeMirror) wildCardExpression.getBound().accept(this, scope);
+                yield types.getWildcardType(null, superBound);
+            }
+        };
+
+        wildCardExpression.setType(type);
+        return defaultAnswer(wildCardExpression, scope);
     }
 
 
-    public Object visitIfStatement(final IfStatementTree ifStatementTree, final Scope param) {
+    public Object visitIfStatement(final IfStatementTree ifStatementTree, final Scope scope) {
         final var builder = ifStatementTree.builder();
-        final var expression = (ExpressionTree) ifStatementTree.getExpression().accept(this, param);
+        final var expression = (ExpressionTree) ifStatementTree.getExpression().accept(this, scope);
         builder.expression(expression);
 
-        ifStatementTree.getThenStatement().accept(this, param);
+        ifStatementTree.getThenStatement().accept(this, scope);
 
         if (ifStatementTree.getElseStatement() != null) {
-            ifStatementTree.getElseStatement().accept(this, param);
+            ifStatementTree.getElseStatement().accept(this, scope);
         }
 
         return builder.build();
     }
 
     @Override
-    public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope param) {
-        final var result = super.visitBinaryExpression(binaryExpression, param);
-        final var leftType = resolveType(binaryExpression.getLeft());
-        final var rightType = resolveType(binaryExpression.getRight());
+    public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
+        super.visitBinaryExpression(binaryExpression, scope);
+        final var leftType = typeOf(binaryExpression.getLeft());
+        final var rightType = typeOf(binaryExpression.getRight());
 
         if (leftType != null
                 && rightType != null) {
@@ -194,7 +167,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             }
         }
 
-        return result;
+        return defaultAnswer(binaryExpression, scope);
     }
 
     private BinaryExpressionTree transformBinaryExpression(final BinaryExpressionTree binaryExpression,
@@ -237,7 +210,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     }
 
     @Override
-    public Object visitEnhancedForStatement(final EnhancedForStatement enhancedForStatement, final Scope scope) {
+    public Object visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Scope scope) {
         enhancedForStatement.getExpression().accept(this, scope);
 
         if (enhancedForStatement.getLocalVariable().getType() instanceof VariableTypeTree variableTypeTree) {
@@ -249,7 +222,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
 
         enhancedForStatement.getLocalVariable().accept(this, scope);
         enhancedForStatement.getStatement().accept(this, scope);
-        return enhancedForStatement;
+        return defaultAnswer(enhancedForStatement, scope);
     }
 
     protected ElementKind toElementKind(final Kind kind) {
@@ -259,16 +232,13 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
-        final var name = typeIdentifier.getName();
-        final var resolver = new Resolver(loader, scope.getCompilationUnit().getImportScope());
+        final var clazz = typeIdentifier.getClazz();
+        final var name = TreeUtils.getClassName(clazz);
 
-        final var resolvedClass = resolver.resolveClass(name);
-        TypeMirror type;
+        TypeMirror type = resolveType(name, scope);
 
-        if (resolvedClass == null) {
+        if (type == null) {
             type = loader.getTypes().getErrorType(name);
-        } else {
-            type = resolvedClass.asType();
         }
 
         if (typeIdentifier.getTypeParameters() != null) {
@@ -276,15 +246,17 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
                     .map(typeParam -> typeParam.accept(this, scope))
                     .map(typeParam -> (ExpressionTree) typeParam)
                     .map(ExpressionTree::getType)
-                    .toList();
+                    .toArray(TypeMirror[]::new);
 
-            final var classType = (CClassType) type;
-            type = classType.withTypeArguments(typeParams);
+            type = types.getDeclaredType(
+                    type.asTypeElement(),
+                    typeParams
+            );
         }
 
         typeIdentifier.setType(type);
 
-        return typeIdentifier;
+        return defaultAnswer(typeIdentifier, scope);
     }
 
     @Override
@@ -293,19 +265,19 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         lambdaExpression.getVariables().forEach(variable -> variable.accept(this, scope));
         final var lambdaScope = new LocalScope(scope);
         lambdaExpression.getBody().accept(this, lambdaScope);
-        return null;
+        return defaultAnswer(lambdaExpression, scope);
     }
 
     @Override
-    public Object visitWhileStatement(final WhileStatement whileStatement, final Scope scope) {
+    public Object visitWhileStatement(final WhileStatementTree whileStatement, final Scope scope) {
         super.visitWhileStatement(whileStatement, scope);
-        return whileStatement;
+        return defaultAnswer(whileStatement, scope);
     }
 
     @Override
-    public Object visitDoWhileStatement(final DoWhileStatement doWhileStatement, final Scope scope) {
+    public Object visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final Scope scope) {
         super.visitDoWhileStatement(doWhileStatement, scope);
-        return doWhileStatement;
+        return defaultAnswer(doWhileStatement, scope);
     }
 
     @Override
@@ -321,7 +293,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             final DeclaredType declaredType = asDeclaredType(varType);
             final var symbolScope = new SymbolScope(
                     declaredType,
-                    scope.getGlobalScope()
+                    scope
             );
             fieldAccessExpression.getField().accept(this, symbolScope);
         } else if (target.getType() != null) {
@@ -335,7 +307,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             fieldAccessExpression.getField().accept(this, classScope);
         }
 
-        return null;
+        return defaultAnswer(fieldAccessExpression, scope);
     }
 
     private DeclaredType asDeclaredType(final TypeMirror typeMirror) {

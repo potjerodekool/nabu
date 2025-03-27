@@ -1,8 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.ast.element;
 
-import io.github.potjerodekool.nabu.compiler.Flags;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.Types;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.List;
 import java.util.Set;
@@ -23,42 +22,19 @@ public interface Element extends AnnotatedConstruct {
 
     Set<Modifier> getModifiers();
 
-    default boolean hasFlag(final int flag) {
-        return false;
-    }
+    boolean isPublic();
 
-    default boolean isPublic() {
-        return hasFlag(Flags.PUBLIC);
-    }
+    boolean isPrivate();
 
-    default boolean isPrivate() {
-        return hasFlag(Flags.PRIVATE);
-    }
+    boolean isStatic();
 
-    default boolean isStatic() {
-        return hasFlag(Flags.STATIC);
-    }
+    boolean isFinal();
 
-    default boolean isFinal() {
-        return hasFlag(Flags.FINAL);
-    }
+    boolean isSynthetic();
 
-    default boolean isSynthentic() {
-        return hasFlag(Flags.SYNTHETIC);
-    }
+    boolean isAbstract();
 
-    default boolean isAbstract() {
-        return getModifiers().contains(Modifier.ABSTRACT);
-    }
-
-    default boolean isNative() {
-        return getModifiers().contains(Modifier.NATIVE);
-    }
-
-    <T> T getMetaData(ElementMetaData elementMetaData, Class<T> returnType);
-
-    void setMetaData(ElementMetaData elementMetaData,
-                     Object value);
+    boolean isNative();
 
     default TypeElement getClosestEnclosingClass() {
         Element element = this;
@@ -71,4 +47,9 @@ public interface Element extends AnnotatedConstruct {
     }
 
     TypeMirror erasure(final Types types);
+
+    default boolean exists() {
+        return true;
+    }
+
 }

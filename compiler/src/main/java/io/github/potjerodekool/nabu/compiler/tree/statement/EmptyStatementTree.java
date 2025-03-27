@@ -1,5 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement;
 
-public interface EmptyStatementTree extends Statement {
+public interface EmptyStatementTree extends StatementTree {
 
 }

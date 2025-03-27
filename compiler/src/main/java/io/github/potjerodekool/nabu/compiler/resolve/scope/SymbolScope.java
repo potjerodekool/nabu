@@ -1,11 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.scope;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.resolve.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.resolve.SymbolResolver;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
@@ -42,23 +39,35 @@ public class SymbolScope implements Scope {
 
         final var classSymbol = getCurrentClass();
 
-        final var fieldOptional = ElementFilter.fields(classSymbol).stream()
+        final var fieldOptional = ElementFilter.elements(
+                        classSymbol,
+                        element ->
+                                element.getKind() == ElementKind.FIELD
+                                        || element.getKind() == ElementKind.ENUM_CONSTANT,
+                        VariableElement.class
+                ).stream()
                 .filter(elem -> elem.getKind() == ElementKind.FIELD)
                 .filter(elem -> elem.getSimpleName().equals(name))
                 .findFirst();
 
         if (fieldOptional.isPresent()) {
             return fieldOptional.get();
-        } else {
+        } else if (parentScope != null) {
             return parentScope.resolve(name);
+        } else {
+            return null;
         }
     }
 
-    private Optional<SymbolResolver> findSymbolResolver(final TypeMirror searchType) {
+    private Optional<ElementResolver> findSymbolResolver(final TypeMirror searchType) {
         final var globalScope = getGlobalScope();
-        final var compilerContext = globalScope.getCompilerContext();
+        final var compilerContext = (CompilerContextImpl) globalScope.getCompilerContext();
         final var resolverRegistry = compilerContext.getResolverRegistry();
-        return resolverRegistry.findSymbolResolver(searchType);
+        return resolverRegistry.findSymbolResolver(
+                searchType,
+                compilerContext,
+                globalScope
+        );
     }
 
     @Override
@@ -68,6 +77,6 @@ public class SymbolScope implements Scope {
 
     @Override
     public TypeElement getCurrentClass() {
-        return declaredType.getTypeElement();
+        return declaredType.asTypeElement();
     }
 }

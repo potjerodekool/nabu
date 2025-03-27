@@ -1,11 +1,7 @@
 package io.github.potjerodekool.nabu.compiler;
 
-import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.Tree;
-import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.*;
+import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 
@@ -23,8 +19,140 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitUnknown(final Tree tree, final Object Param) {
-        throw new TodoException();
+    public Object visitCompilationUnit(final CompilationUnit compilationUnit, final Object param) {
+        if (compilationUnit.getPackageDeclaration() != null) {
+            compilationUnit.getPackageDeclaration().accept(this, param);
+            writeLine("");
+        }
+
+        if (!compilationUnit.getImportItems().isEmpty()) {
+            writeList(compilationUnit.getImportItems(), param, "\n");
+            writeLine("");
+        }
+
+        if (compilationUnit.getModuleDeclaration() != null) {
+            writeLine("");
+            compilationUnit.getModuleDeclaration().accept(this, param);
+        } else {
+            writeLine("");
+            compilationUnit.getClasses().forEach(c -> c.accept(this, param));
+        }
+
+        return null;
+    }
+
+    @Override
+    public Object visitModuleDeclaration(final ModuleDeclaration moduleDeclaration, final Object param) {
+        final var annotations = moduleDeclaration.getAnnotations();
+
+        if (!annotations.isEmpty()) {
+            writeList(annotations, param, "\n");
+            writeLine("");
+        }
+
+        if (moduleDeclaration.getKind() == ModuleDeclaration.ModuleKind.OPEN) {
+            write("open ");
+        }
+
+        write("module ");
+        moduleDeclaration.getIdentifier().accept(this, param);
+
+        writeLine(" {");
+
+        if (!moduleDeclaration.getDirectives().isEmpty()) {
+            writeList(moduleDeclaration.getDirectives(), param, "\n");
+            writeLine("");
+        }
+
+        write("}");
+        return null;
+    }
+
+    @Override
+    public Object visitRequires(final RequiresTree requiresTree, final Object param) {
+        write("requires");
+
+        if (requiresTree.isTransitive()) {
+            write(" transitive");
+        }
+
+        if (requiresTree.isStatic()) {
+            write(" static");
+        }
+
+        write(" ");
+        requiresTree.getModuleName().accept(this, param);
+        write(";");
+        return null;
+    }
+
+    @Override
+    public Object visitExports(final ExportsTree exportsTree, final Object param) {
+        write("exports ");
+        exportsTree.getPackageName().accept(this, param);
+
+        if (!exportsTree.getModuleNames().isEmpty()) {
+            write(" to ");
+            writeList(exportsTree.getModuleNames(), ", ");
+        }
+
+        write(";");
+        return null;
+    }
+
+    @Override
+    public Object visitOpens(final OpensTree opensTree, final Object param) {
+        write("opens ");
+        opensTree.getPackageName().accept(this, param);
+
+        if (!opensTree.getModuleNames().isEmpty()) {
+            write(" to ");
+            writeList(opensTree.getModuleNames(), param, ", ");
+        }
+
+        write(";");
+        return null;
+    }
+
+    @Override
+    public Object visitUses(final UsesTree usesTree, final Object param) {
+        write("uses ");
+        usesTree.getServiceName().accept(this, param);
+        write(";");
+        return null;
+    }
+
+    @Override
+    public Object visitProvides(final ProvidesTree providesTree, final Object param) {
+        write("provides ");
+        providesTree.getServiceName().accept(this, param);
+        write(" with ");
+        writeList(providesTree.getImplementationNames(), param, ", ");
+        write(";");
+        return null;
+    }
+
+    @Override
+    public Object visitPackageDeclaration(final PackageDeclaration packageDeclaration, final Object param) {
+        writeList(packageDeclaration.getAnnotations(), param, "\n");
+        write("package ")
+                .write(packageDeclaration.getQualifiedName())
+                .writeLine(";");
+        return null;
+    }
+
+    @Override
+    public Object visitImportItem(final ImportItem importItem, final Object param) {
+        write("import ");
+
+        if (importItem.isStatic()) {
+            write("static ");
+        }
+
+        importItem.getQualified().accept(this, param);
+
+        write(";");
+        return null;
     }
 
     @Override
@@ -65,7 +193,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitBlockStatement(final BlockStatement blockStatement,
+    public Object visitBlockStatement(final BlockStatementTree blockStatement,
                                       final Object param) {
         writeLine("{");
         blockStatement.getStatements().forEach(statement -> statement.accept(this, param));
@@ -75,7 +203,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitReturnStatement(final ReturnStatement returnStatement,
+    public Object visitReturnStatement(final ReturnStatementTree returnStatement,
                                        final Object param) {
         write("return ");
         returnStatement.getExpression().accept(this, param);
@@ -121,6 +249,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             fieldAccessExpression.getTarget().accept(this, param);
             write(".");
         }
+
         fieldAccessExpression.getField().accept(this, param);
         return null;
     }
@@ -163,7 +292,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier, final Object param) {
-        write(typeIdentifier.getName());
+        typeIdentifier.getClazz().accept(this, param);
 
         if (typeIdentifier.getTypeParameters() != null
                 && !typeIdentifier.getTypeParameters().isEmpty()) {
@@ -212,7 +341,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visiExpressionStatement(final ExpressionStatement expressionStatement, final Object param) {
+    public Object visiExpressionStatement(final ExpressionStatementTree expressionStatement, final Object param) {
         expressionStatement.getExpression().accept(this, param);
         write(";");
         return null;
@@ -230,9 +359,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write(">");
         }
 
-        if (classDeclaration.getExtends() != null) {
+        if (classDeclaration.getExtending() != null) {
             write(" extends ");
-            classDeclaration.getExtends().accept(this, param);
+            classDeclaration.getExtending().accept(this, param);
         }
 
         if (!classDeclaration.getImplementing().isEmpty()) {
@@ -269,14 +398,14 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitForStatement(final ForStatement forStatement, final Object param) {
+    public Object visitForStatement(final ForStatementTree forStatement, final Object param) {
         write("for (");
-        forStatement.getForInit().accept(this, param);
+        writeList(forStatement.getForInit(), param, ", ");
         forStatement.getExpression().accept(this, param);
         write(";");
 
-        if (forStatement.getForUpdate() != null) {
-            forStatement.getForUpdate().accept(this, param);
+        if (!forStatement.getForUpdate().isEmpty()) {
+            writeList(forStatement.getForUpdate(), param, ", ");
             write(";");
         }
         write(")");
@@ -286,7 +415,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitVariableDeclaratorStatement(final VariableDeclarator variableDeclaratorStatement, final Object param) {
+    public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Object param) {
         if (variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
             if (variableDeclaratorStatement.getNameExpression() == null) {
                 write(variableDeclaratorStatement.getName().getName()).write(" : ");
@@ -294,7 +423,6 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                 variableDeclaratorStatement.getNameExpression().accept(this, param);
                 write(" : ");
             }
-
 
             variableDeclaratorStatement.getType().accept(this, param);
             return null;
@@ -309,7 +437,10 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             variableDeclaratorStatement.getValue().accept(this, param);
         }
 
-        writeLine(";");
+        if (variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE
+                || variableDeclaratorStatement.getKind() == Kind.FIELD) {
+            writeLine(";");
+        }
 
         return null;
     }
@@ -331,12 +462,18 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         write("(");
         writeList(newClassExpression.getArguments(), param);
         write(")");
-        newClassExpression.getBody().accept(this, param);
+
+        if (newClassExpression.getClassDeclaration() != null) {
+            write("{");
+            writeList(newClassExpression.getClassDeclaration().getEnclosedElements(), "\n");
+            write("}");
+        }
+
         return null;
     }
 
     @Override
-    public Object visitWhileStatement(final WhileStatement whileStatement, final Object param) {
+    public Object visitWhileStatement(final WhileStatementTree whileStatement, final Object param) {
         write("while(");
         whileStatement.getCondition().accept(this, param);
         writeLine(")");
@@ -369,9 +506,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitEnhancedForStatement(final EnhancedForStatement enhancedForStatement, final Object param) {
+    public Object visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Object param) {
         write("for (");
-        enhancedForStatement.getLocalVariable().accept(this, param);
+        visitLocalVariable(enhancedForStatement.getLocalVariable(), param);
         write(" : ");
         enhancedForStatement.getExpression().accept(this, param);
         writeLine(")");
@@ -379,8 +516,15 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         return null;
     }
 
+    private void visitLocalVariable(final VariableDeclaratorTree localVariable,
+                                    final Object param) {
+        localVariable.getType().accept(this, param);
+        write(" ");
+        localVariable.getName().accept(this, param);
+    }
+
     @Override
-    public Object visitDoWhileStatement(final DoWhileStatement doWhileStatement, final Object param) {
+    public Object visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final Object param) {
         writeLine("do");
         doWhileStatement.getBody().accept(this, param);
         write("while (");
@@ -407,38 +551,22 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     @Override
     public Object visitAnnotatedType(final AnnotatedTypeTree annotatedType, final Object param) {
-        /*
-        if (annotatedType.getClazz() instanceof ArrayTypeTree arrayTypeTree) {
-            final var componentType = arrayTypeTree.getComponentType();
-            componentType.accept(this, param);
+        final var clazz = annotatedType.getClazz();
+
+        if (clazz instanceof ArrayTypeTree arrayTypeTree) {
+            arrayTypeTree.getComponentType().accept(this, param);
+
+            write(" ");
             writeList(annotatedType.getAnnotations(), param, " ");
+
             write("[]");
-            //printArrayTypeComponent(arrayTypeTree, param);
-            //printArrayTypeAnnotations(annotatedType, param);
-            //writeList(annotatedType.getAnnotations(), param, " ");
-            //writeList(annotatedType.getArguments(), param, " ");
             return null;
-        } else if (annotatedType.getClazz() instanceof AnnotatedTypeTree) {
+        } else {
+            writeList(annotatedType.getAnnotations(), param, " ");
+            write(" ");
             annotatedType.getClazz().accept(this, param);
 
             return null;
-        } else {
-            return super.visitAnnotatedType(annotatedType, param);
-        }
-         */
-        if (annotatedType.getClazz() instanceof ArrayTypeTree arrayTypeTree) {
-            arrayTypeTree.getComponentType().accept(this, param);
-
-            if (!annotatedType.getAnnotations().isEmpty()) {
-                write(" ");
-                writeList(annotatedType.getAnnotations(), param, " ");
-            }
-
-
-            write("[]");
-            return null;
-        } else {
-            return super.visitAnnotatedType(annotatedType, param);
         }
     }
 
@@ -487,10 +615,10 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitAssignment(final AssignmentExpression assignmentExpression, final Object param) {
-        assignmentExpression.getLeft().accept(this, param);
+    public Object visitAssignment(final AssignmentExpressionTree assignmentExpressionTree, final Object param) {
+        assignmentExpressionTree.getLeft().accept(this, param);
         write(" = ");
-        assignmentExpression.getRight().accept(this, param);
+        assignmentExpressionTree.getRight().accept(this, param);
         return null;
     }
 
@@ -504,13 +632,58 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitArrayAccess(final ArrayAccessExpression arrayAccessExpression, final Object param) {
-        if (arrayAccessExpression.getExpression() != null) {
-            arrayAccessExpression.getExpression().accept(this, param);
+    public Object visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree, final Object param) {
+        if (arrayAccessExpressionTree.getExpression() != null) {
+            arrayAccessExpressionTree.getExpression().accept(this, param);
         }
         write("[");
-        arrayAccessExpression.getIndex().accept(this, param);
+        arrayAccessExpressionTree.getIndex().accept(this, param);
         write("]");
+        return null;
+    }
+
+    @Override
+    public Object visitMemberReference(final MemberReference memberReference, final Object param) {
+        write("::");
+
+        if (!memberReference.getTypeArguments().isEmpty()) {
+            write("<");
+            writeList(memberReference.getTypeArguments(), param, ", ");
+            write(">");
+        }
+
+        memberReference.getExpression().accept(this, param);
+
+        return null;
+    }
+
+    @Override
+    public Object visitTryStatement(final TryStatementTree tryStatementTree, final Object param) {
+        write("try ");
+
+        if (!tryStatementTree.getResources().isEmpty()) {
+            write("(");
+            writeList(tryStatementTree.getResources(), param, "; ");
+            write(") ");
+        }
+
+        tryStatementTree.getBody().accept(this, param);
+
+        writeList(tryStatementTree.getCatchers(), param);
+
+        if (tryStatementTree.getFinalizer() != null) {
+            tryStatementTree.getFinalizer().accept(this, param);
+        }
+
+        return null;
+    }
+
+    @Override
+    public Object visitCatch(final CatchTree catchTree, final Object param) {
+        write("catch (");
+        catchTree.getVariable().accept(this, param);
+        write(")");
+        catchTree.getBody().accept(this, param);
         return null;
     }
 

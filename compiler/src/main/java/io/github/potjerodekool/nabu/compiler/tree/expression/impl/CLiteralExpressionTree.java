@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.tree.expression.impl;
 
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.builder.ExpressionBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.LiteralExpressionTreeBuilder;
 
 import java.util.Objects;
 
@@ -19,7 +19,7 @@ public class CLiteralExpressionTree extends CExpressionTree implements LiteralEx
 
     public CLiteralExpressionTree(final LiteralExpressionTreeBuilder builder) {
         super(builder);
-        this.literal = builder.literal;
+        this.literal = builder.getLiteral();
         this.literalKind = Kind.resolveKind(literal);
     }
 
@@ -58,7 +58,7 @@ public class CLiteralExpressionTree extends CExpressionTree implements LiteralEx
     }
 
     @Override
-    public CLiteralExpressionTree negate() {
+    public LiteralExpressionTree negate() {
         final Number negated = switch (literal) {
             case Byte b -> -b;
             case Double d -> -d;
@@ -88,28 +88,4 @@ public class CLiteralExpressionTree extends CExpressionTree implements LiteralEx
         return new LiteralExpressionTreeBuilder(this);
     }
 
-    public static class LiteralExpressionTreeBuilder extends ExpressionBuilder<CLiteralExpressionTree> {
-
-        private Object literal;
-
-        public LiteralExpressionTreeBuilder(final CLiteralExpressionTree literalExpressionTree) {
-            super(literalExpressionTree);
-            this.literal = literalExpressionTree.getLiteral();
-        }
-
-        @Override
-        public ExpressionBuilder<CLiteralExpressionTree> self() {
-            return this;
-        }
-
-        public LiteralExpressionTreeBuilder literal(final Object literal) {
-            this.literal = literal;
-            return this;
-        }
-
-        @Override
-        public CLiteralExpressionTree build() {
-            return new CLiteralExpressionTree(this);
-        }
-    }
 }

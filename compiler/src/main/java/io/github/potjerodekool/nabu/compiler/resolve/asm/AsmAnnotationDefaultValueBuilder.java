@@ -2,9 +2,11 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.CompoundAttribute;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.CArrayAttributeProxy;
+import io.github.potjerodekool.nabu.compiler.ast.element.impl.CCompoundAttribute;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import org.objectweb.asm.AnnotationVisitor;
@@ -19,8 +21,9 @@ public class AsmAnnotationDefaultValueBuilder extends AbstractAsmAnnotationDefau
 
     public AsmAnnotationDefaultValueBuilder(final int api,
                                             final ClassElementLoader loader,
-                                            final MethodSymbol method) {
-        super(api, loader);
+                                            final MethodSymbol method,
+                                            final ModuleSymbol moduleSymbol) {
+        super(api, loader, moduleSymbol);
         this.methodSymbol = method;
     }
 
@@ -34,16 +37,19 @@ public class AsmAnnotationDefaultValueBuilder extends AbstractAsmAnnotationDefau
 abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisitor {
 
     protected final ClassElementLoader loader;
+    private final ModuleSymbol moduleSymbol;
 
     protected AbstractAsmAnnotationDefaultValueBuilder(final int api,
-                                                       final ClassElementLoader loader) {
+                                                       final ClassElementLoader loader,
+                                                       final ModuleSymbol moduleSymbol) {
         super(api);
         this.loader = loader;
+        this.moduleSymbol = moduleSymbol;
     }
 
     private DeclaredType loadTypeFromDescriptor(final String descriptor) {
         final var asmType = Type.getType(descriptor);
-        return (DeclaredType) loader.loadClass(asmType.getClassName()).asType();
+        return (DeclaredType) loader.loadClass(moduleSymbol, asmType.getClassName()).asType();
     }
 
     protected abstract void addAttribute(final String name,
@@ -60,7 +66,7 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
                           final String descriptor,
                           final String value) {
         final var enumType = loadTypeFromDescriptor(descriptor);
-        final var enumConstant = new VariableBuilder()
+        final var enumConstant = SymbolBuilders.variableSymbolBuilder()
                 .kind(ElementKind.ENUM_CONSTANT)
                 .name(value)
                 .type(enumType)
@@ -74,25 +80,27 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
     public AnnotationVisitor visitAnnotation(final String name,
                                              final String descriptor) {
         final var type = loadTypeFromDescriptor(descriptor);
-        final var annotation = new CompoundAttribute(type, Map.of());
+        final var annotation = new CCompoundAttribute(type, Map.of());
         addAttribute(name, annotation);
 
         return new AsmAnnotationDefaultValueAnnotationBuilder(
                 api,
                 loader,
-                annotation
+                annotation,
+                moduleSymbol
         );
     }
 
     @Override
     public AnnotationVisitor visitArray(final String name) {
-        final var attribute = new ArrayAttributeProxy(List.of());
+        final var attribute = new CArrayAttributeProxy(List.of());
 
         addAttribute(name, attribute);
         return new AsmAnnotationDefaultValueArrayBuilder(
                 api,
                 loader,
-                attribute
+                attribute,
+                moduleSymbol
         );
     }
 
@@ -100,12 +108,13 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
 
 class AsmAnnotationDefaultValueArrayBuilder extends AbstractAsmAnnotationDefaultValueBuilder {
 
-    private final ArrayAttributeProxy arrayAttribute;
+    private final CArrayAttributeProxy arrayAttribute;
 
     protected AsmAnnotationDefaultValueArrayBuilder(final int api,
                                                     final ClassElementLoader loader,
-                                                    final ArrayAttributeProxy attribute) {
-        super(api, loader);
+                                                    final CArrayAttributeProxy attribute,
+                                                    final ModuleSymbol moduleSymbol) {
+        super(api, loader, moduleSymbol);
         this.arrayAttribute = attribute;
     }
 
@@ -118,12 +127,13 @@ class AsmAnnotationDefaultValueArrayBuilder extends AbstractAsmAnnotationDefault
 
 class AsmAnnotationDefaultValueAnnotationBuilder extends AbstractAsmAnnotationDefaultValueBuilder {
 
-    private final CompoundAttribute annotation;
+    private final CCompoundAttribute annotation;
 
     protected AsmAnnotationDefaultValueAnnotationBuilder(final int api,
-                                                       final ClassElementLoader loader,
-                                                       final CompoundAttribute annotation) {
-        super(api, loader);
+                                                         final ClassElementLoader loader,
+                                                         final CCompoundAttribute annotation,
+                                                         final ModuleSymbol moduleSymbol) {
+        super(api, loader, moduleSymbol);
         this.annotation = annotation;
     }
 

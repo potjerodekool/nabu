@@ -8,8 +8,8 @@ import io.github.potjerodekool.nabu.compiler.tree.builder.TreeBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatement;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclarator;
+import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,13 +20,13 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
     private Kind kind;
     private CModifiers modifiers;
     private final List<TypeParameterTree> typeParameters = new ArrayList<>();
-    private final List<VariableDeclarator> parameters = new ArrayList<>();
+    private final List<VariableDeclaratorTree> parameters = new ArrayList<>();
     private ExpressionTree returnType;
-    private BlockStatement body;
+    private BlockStatementTree body;
     private ExecutableElement methodSymbol;
     private ExpressionTree defaultValue;
     private final List<Tree> thrownTypes = new ArrayList<>();
-    private VariableDeclarator receiverParameter;
+    private VariableDeclaratorTree receiverParameter;
 
     public FunctionBuilder() {
         this.modifiers = new CModifiers();
@@ -66,7 +66,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         return typeParameters;
     }
 
-    public List<VariableDeclarator> getParameters() {
+    public List<VariableDeclaratorTree> getParameters() {
         return parameters;
     }
 
@@ -78,7 +78,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         return thrownTypes;
     }
 
-    public BlockStatement getBody() {
+    public BlockStatementTree getBody() {
         return body;
     }
 
@@ -91,7 +91,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         return this;
     }
 
-    public FunctionBuilder body(final BlockStatement body) {
+    public FunctionBuilder body(final BlockStatementTree body) {
         this.body = body;
         return this;
     }
@@ -111,7 +111,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         return this;
     }
 
-    public FunctionBuilder parameters(final List<VariableDeclarator> parameters) {
+    public FunctionBuilder parameters(final List<VariableDeclaratorTree> parameters) {
         this.parameters.addAll(parameters);
         return this;
     }
@@ -147,11 +147,11 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         return this;
     }
 
-    public VariableDeclarator getReceiverParameter() {
+    public VariableDeclaratorTree getReceiverParameter() {
         return receiverParameter;
     }
 
-    public FunctionBuilder receiver(final VariableDeclarator receiverParameter) {
+    public FunctionBuilder receiver(final VariableDeclaratorTree receiverParameter) {
         this.receiverParameter = receiverParameter;
         return this;
     }

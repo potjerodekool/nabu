@@ -2,40 +2,50 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.Symbol;
-import io.github.potjerodekool.nabu.compiler.resolve.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
+import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import org.objectweb.asm.*;
 import org.objectweb.asm.Attribute;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 
 class AsmClassBuilder extends ClassVisitor {
 
     private final SymbolTable symbolTable;
 
-    private final AsmClassElementLoader classElementLoader;
+    private final ClassElementLoader classElementLoader;
 
     private final AsmTypeResolver asmTypeResolver;
 
     private final TypeBuilder typeBuilder;
 
-    private ClassSymbol clazz;
+    private final Types types;
+
+    private final ClassSymbol clazz;
+
+    private final ModuleSymbol moduleSymbol;
 
     public TypeElement getClazz() {
         return clazz;
     }
 
     protected AsmClassBuilder(final SymbolTable symbolTable,
-                              final AsmClassElementLoader classElementLoader) {
+                              final ClassElementLoader classElementLoader,
+                              final ClassSymbol classSymbol,
+                              final ModuleSymbol moduleSymbol) {
         super(Opcodes.ASM9);
         this.symbolTable = symbolTable;
         this.classElementLoader = classElementLoader;
-        this.asmTypeResolver = new AsmTypeResolver(classElementLoader);
-        this.typeBuilder = new TypeBuilder(asmTypeResolver);
+        this.asmTypeResolver = new AsmTypeResolver(classElementLoader, moduleSymbol);
+        this.typeBuilder = new TypeBuilder();
+        this.types = classElementLoader.getTypes();
+        this.clazz = classSymbol;
+        this.moduleSymbol = moduleSymbol;
     }
 
     @Override
@@ -58,7 +68,7 @@ class AsmClassBuilder extends ClassVisitor {
             final var simpleNameStart = sepIndex + 1;
             simpleName = name.substring(simpleNameStart);
             final var outerName = name.substring(0, sepIndex);
-            enclosingElement = (Symbol) classElementLoader.loadClass(outerName);
+            enclosingElement = (Symbol) classElementLoader.loadClass(moduleSymbol, outerName);
         } else {
             nestingKind = NestingKind.TOP_LEVEL;
 
@@ -67,49 +77,80 @@ class AsmClassBuilder extends ClassVisitor {
 
             if (packageEnd > -1) {
                 final var packageName = qualifiedName.substring(0, packageEnd);
-                enclosingElement = (Symbol) symbolTable.findOrCreatePackage(packageName);
+                enclosingElement = symbolTable.lookupPackage(
+                        moduleSymbol,
+                        packageName
+                );
             } else {
                 enclosingElement = null;
             }
             simpleName = qualifiedName.substring(packageEnd + 1);
         }
 
-        clazz = new ClassSymbol(kind, nestingKind, 0, simpleName, enclosingElement, List.of());
-
-        if (enclosingElement != null) {
-            enclosingElement.addEnclosedElement(clazz);
+        if (enclosingElement instanceof PackageSymbol packageSymbol) {
+            packageSymbol.setModuleSymbol(moduleSymbol);
         }
 
-        this.symbolTable.addClassSymbol(name, clazz);
+        clazz.setKind(kind);
+        clazz.setNestingKind(nestingKind);
+        clazz.setSimpleName(simpleName);
+
+        if (enclosingElement instanceof PackageSymbol packageSymbol) {
+            packageSymbol.addEnclosedElement(clazz);
+        } else if (enclosingElement instanceof ClassSymbol enclosingClass) {
+            enclosingClass.addEnclosedElement(clazz);
+        }
 
         if (signature != null) {
-            typeBuilder.parseClassSignature(signature, clazz);
+            typeBuilder.parseClassSignature(signature, clazz, asmTypeResolver, clazz.resolveModuleSymbol());
         } else {
+            final TypeMirror outerType;
+
+            if (nestingKind == NestingKind.MEMBER) {
+                outerType = enclosingElement.asType();
+            } else {
+                outerType = null;
+            }
+
             final var type = new CClassType(
-                    null,
+                    outerType,
                     clazz,
                     List.of()
             );
             clazz.setType(type);
 
             if (superName != null) {
-                final var superType = classElementLoader.loadClass(superName).asType();
+                var superElement = classElementLoader.loadClass(moduleSymbol, superName);
+
+                if (superElement == null) {
+                    superElement = classElementLoader.loadClass(moduleSymbol, superName);
+                }
+
+                final var superType = superElement.asType();
                 clazz.setSuperClass(superType);
             }
 
             if (interfaces != null) {
-                Arrays.stream(interfaces)
-                        .map(classElementLoader::loadClass)
-                        .map(Element::asType)
-                        .filter(Objects::nonNull)
-                        .forEach(interfaceType -> clazz.addInterface(interfaceType));
+                final var interfaceTypes = Arrays.stream(interfaces)
+                        .map(interfaceName -> {
+                            final var interfaceClass = classElementLoader.loadClass(moduleSymbol, interfaceName);
+
+                            if (interfaceClass != null) {
+                                return interfaceClass.asType();
+                            } else {
+                                return types.getErrorType(interfaceName);
+                            }
+                        })
+                        .toList();
+
+                clazz.setInterfaces(interfaceTypes);
             }
         }
     }
 
     private ElementKind resolveKind(final int access) {
         if (has(access, Opcodes.ACC_ANNOTATION)) {
-            return ElementKind.ANNOTATION;
+            return ElementKind.ANNOTATION_TYPE;
         } else if (has(access, Opcodes.ACC_ENUM)) {
             return ElementKind.ENUM;
         } else if (has(access, Opcodes.ACC_RECORD)) {
@@ -148,7 +189,8 @@ class AsmClassBuilder extends ClassVisitor {
                 exceptions,
                 clazz,
                 asmTypeResolver,
-                typeBuilder
+                typeBuilder,
+                moduleSymbol
         );
     }
 
@@ -169,7 +211,7 @@ class AsmClassBuilder extends ClassVisitor {
 
     @Override
     public AnnotationVisitor visitAnnotation(final String descriptor, final boolean visible) {
-        return AsmAnnotationBuilder.createBuilder(api, descriptor, visible, clazz, classElementLoader);
+        return AsmAnnotationBuilder.createBuilder(api, descriptor, visible, clazz, classElementLoader, moduleSymbol);
     }
 
     @Override
@@ -179,12 +221,20 @@ class AsmClassBuilder extends ClassVisitor {
 
     @Override
     public void visitAttribute(final Attribute attribute) {
-        throw new TodoException();
     }
 
     @Override
-    public void visitEnd() {
-        super.visitEnd();
+    public ModuleVisitor visitModule(final String name, final int access, final String version) {
+        if (moduleSymbol == null) {
+            return null;
+        } else {
+            return new AsmModuleBuilder(
+                    api,
+                    this.moduleSymbol,
+                    symbolTable
+            );
+        }
     }
+
 }
 

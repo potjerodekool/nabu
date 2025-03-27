@@ -1,27 +1,28 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.Types;
-import org.junit.jupiter.api.BeforeEach;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class BoxerTest {
 
-    private final ClassElementLoader loader = new AsmClassElementLoader();
+    private final CompilerContextImpl compilerContext = new CompilerContextImpl(
+            new ApplicationContext(),
+            new NabuCFileManager()
+    );
+    private final ClassElementLoader loader = compilerContext.getClassElementLoader();
     private final Types types = loader.getTypes();
     private final MethodResolver methodResolver = new MethodResolver(types);
     private final Boxer boxer = new Boxer(loader, methodResolver);
-
-    @BeforeEach
-    void setup() {
-        loader.postInit();
-    }
 
     @Test
     void visitDeclaredType() {
@@ -57,9 +58,14 @@ class BoxerTest {
 
     private IdentifierTree createIdentifier(final String name,
                                             final String className) {
-        final var type = loader.loadClass(className).asType();
+        final var type = loader.loadClass(getModule(), className).asType();
         final var identifier = IdentifierTree.create(name);
         identifier.setType(type);
         return identifier;
+    }
+
+    private ModuleSymbol getModule() {
+        final var asmLoader = (AsmClassElementLoader) loader;
+        return asmLoader.getSymbolTable().getUnnamedModule();
     }
 }

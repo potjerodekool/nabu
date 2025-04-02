@@ -7,7 +7,4 @@ public final class SymbolBuilders {
     private SymbolBuilders() {
     }
 
-    public static <E extends VariableSymbol, EB extends VariableSymbolBuilder<E, EB>> VariableSymbolBuilder<E, EB> variableSymbolBuilder() {
-        return (EB) new VariableSymbolBuilderImpl<VariableSymbol>();
-    }
 }

@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteCodeGenerator;
@@ -32,14 +31,9 @@ class AsmMethodByteCodeGeneratorTest {
         return writer;
     }
 
-    private MethodSymbol createMethod(final Frame frame,
-                                      final List<IStatement> statements) {
+    private MethodSymbol createMethod(final List<IStatement> statements) {
         final var frag = new ProcFrag(
-                Flags.STATIC,
-                "SomeMethod",
-                IPrimitiveType.VOID,
-                frame,
-                statements
+                Seq.seq(statements)
         );
 
         final var method = new MethodSymbolBuilderImpl()
@@ -62,8 +56,6 @@ class AsmMethodByteCodeGeneratorTest {
 
     @Test
     void generate() {
-        final var frame = new Frame();
-
         final var call = new IExpressionStatement(new Call(
                 InvocationType.STATIC,
                 new Name("OtherClass"),
@@ -79,7 +71,6 @@ class AsmMethodByteCodeGeneratorTest {
         ));
 
         final var method = createMethod(
-                frame,
                 List.of(call)
         );
 
@@ -114,7 +105,7 @@ class AsmMethodByteCodeGeneratorTest {
         statements.add(
                 new CJump(
                         Tag.EQ,
-                        new TempExpr(varIndex, frame, IPrimitiveType.BOOLEAN),
+                        new TempExpr(varIndex, IPrimitiveType.BOOLEAN),
                         new Const(1),
                         trueLabel,
                         falseLabel
@@ -123,28 +114,36 @@ class AsmMethodByteCodeGeneratorTest {
         statements.add(new ILabelStatement(trueLabel));
         statements.add(new Move(
                 new Const(1),
-                new TempExpr(frame.rv().getIndex(), frame, null)
+                new TempExpr(frame.rv())
         ));
         statements.add(new ILabelStatement(falseLabel));
         statements.add(new Move(
                 new Const(0),
-                new TempExpr(frame.rv().getIndex(), frame, null)
+                new TempExpr(frame.rv())
         ));
         statements.add(endLabel);
 
-        final var method = createMethod(frame, statements);
+        final var method = createMethod(statements);
         final var methodGenerator = createMethodWriter();
 
         methodGenerator.generate(method);
-        final var actual =asString(methodGenerator.getTextifier().getText());
+        final var actual = asString(methodGenerator.getTextifier().getText());
 
         final var expected = """
-                       L0
-                       L0
-                        LOCALVARIABLE this LSomeClass; L0 L0 0
-                        MAXSTACK = -1
-                        MAXLOCALS = -1
-                    """;
+                   L0
+                    ILOAD 0
+                    IFNE L1
+                   L1
+                    ICONST_1
+                    IRETURN
+                   L2
+                    ICONST_0
+                    IRETURN
+                   L3
+                    LOCALVARIABLE this LSomeClass; L0 L3 0
+                    MAXSTACK = -1
+                    MAXLOCALS = -1
+                """;
 
         assertEquals(
                 expected,
@@ -189,7 +188,7 @@ class AsmMethodByteCodeGeneratorTest {
 
         final List<IStatement> statements = List.of(new IExpressionStatement(binOp));
 
-        final var method = createMethod(frame, statements);
+        final var method = createMethod(statements);
         final var methodGenerator = createMethodWriter();
 
         methodGenerator.generate(method);
@@ -214,19 +213,21 @@ class AsmMethodByteCodeGeneratorTest {
     void stringConcat() {
         final var frame = new Frame();
 
+        final var thisType = IReferenceType.createClassType(
+                null,
+                "SomeClass",
+                List.of()
+        );
+
         frame.allocateLocal(
                 "this",
-                IReferenceType.createClassType(
-                        null,
-                        "SomeClass",
-                        List.of()
-            ),
+                thisType,
                 false
         );
 
         final var thisExp = new TempExpr(
                 0,
-                frame
+                thisType
         );
 
         final var stringConst = new Const("Hello");
@@ -255,7 +256,7 @@ class AsmMethodByteCodeGeneratorTest {
 
         final List<IStatement> statements = List.of(new IExpressionStatement(binOp));
 
-        final var method = createMethod(frame, statements);
+        final var method = createMethod(statements);
         final var methodGenerator = createMethodWriter();
 
         methodGenerator.generate(method);

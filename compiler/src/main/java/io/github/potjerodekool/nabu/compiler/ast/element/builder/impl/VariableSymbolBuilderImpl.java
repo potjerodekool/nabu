@@ -1,15 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableElementBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
-public class VariableSymbolBuilderImpl<VE extends VariableElement> extends AbstractSymbolBuilder<VE, VariableSymbolBuilderImpl<VE>>
-        implements
-        VariableSymbolBuilder<VE, VariableSymbolBuilderImpl<VE>>
-{
+public class VariableSymbolBuilderImpl extends AbstractSymbolBuilder<VariableSymbol, VariableSymbolBuilderImpl>
+        implements VariableElementBuilder<VariableSymbolBuilderImpl> {
 
     private TypeMirror type;
 
@@ -26,25 +24,25 @@ public class VariableSymbolBuilderImpl<VE extends VariableElement> extends Abstr
     }
 
     @Override
-    protected VariableSymbolBuilderImpl<VE> self() {
+    protected VariableSymbolBuilderImpl self() {
         return this;
     }
 
     @Override
-    public VariableSymbolBuilderImpl<VE> type(final TypeMirror type) {
+    public VariableSymbolBuilderImpl type(final TypeMirror type) {
         this.type = type;
         return this;
     }
 
     @Override
-    public VariableSymbolBuilderImpl<VE> constantValue(final Object constantValue) {
+    public VariableSymbolBuilderImpl constantValue(final Object constantValue) {
         this.constantValue = constantValue;
         return this;
     }
 
     @Override
-    public VE build() {
-        return (VE) new VariableSymbol(
+    public VariableSymbol build() {
+        return new VariableSymbol(
                 kind,
                 getFlags(),
                 name,

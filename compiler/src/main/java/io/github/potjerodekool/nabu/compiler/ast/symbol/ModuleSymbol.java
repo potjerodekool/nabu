@@ -3,13 +3,15 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol;
 import io.github.potjerodekool.nabu.compiler.io.FileManager.Location;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.type.impl.ModuleTypeImpl;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ModuleSymbol extends Symbol implements ModuleElement {
+public class ModuleSymbol extends TypeSymbol implements ModuleElement {
 
     public ClassSymbol moduleInfo;
 
@@ -32,7 +34,13 @@ public class ModuleSymbol extends Symbol implements ModuleElement {
     public ModuleSymbol(final long flags,
                         final String name,
                         final Symbol owner) {
-        super(ElementKind.MODULE, flags, name, null, owner);
+        super(
+                ElementKind.MODULE,
+                flags,
+                name,
+                new ModuleTypeImpl(null),
+                owner
+        );
     }
 
     public static ModuleSymbol create(final String name,
@@ -43,7 +51,11 @@ public class ModuleSymbol extends Symbol implements ModuleElement {
                 NestingKind.TOP_LEVEL,
                 Flags.MODULE,
                 moduleInfo,
-                null,
+                new CClassType(
+                        null,
+                        null,
+                        List.of()
+                ),
                 module,
                 List.of(),
                 List.of()

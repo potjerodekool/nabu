@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
-import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
@@ -22,13 +21,14 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
 
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration, final Object param) {
-        conditionalGenerateConstructor(classDeclaration);
-        conditionalInvokeSuper(classDeclaration);
+        //conditionalGenerateConstructor(classDeclaration);
+        //conditionalInvokeSuper(classDeclaration);
         return super.visitClass(classDeclaration, param);
     }
 
     private void conditionalGenerateConstructor(final ClassDeclaration classDeclaration) {
-        if (classDeclaration.getKind() == Kind.INTERFACE) {
+        if (classDeclaration.getKind() == Kind.INTERFACE
+                || classDeclaration.getKind() == Kind.ENUM) {
             return;
         }
 
@@ -47,9 +47,7 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
             statements.add(TreeMaker.expressionStatement(superCall, superCall.getLineNumber(), superCall.getColumnNumber()));
             statements.add(TreeMaker.returnStatement(null, -1, -1));
 
-            final var accessFlag = classDeclaration.getKind() == Kind.ENUM
-                    ? Flags.PRIVATE
-                    : Flags.PUBLIC;
+            final var accessFlag = Flags.PUBLIC;
 
             final var body = TreeMaker.blockStatement(
                     statements,
@@ -70,22 +68,15 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
     }
 
     private void conditionalInvokeSuper(final ClassDeclaration classDeclaration) {
-        final var newEnclosingElements = new ArrayList<Tree>();
-
-        classDeclaration.getEnclosedElements().forEach(enclosingElement -> {
-            if (enclosingElement instanceof Function constructor
-                    && constructor.getKind() == Kind.CONSTRUCTOR) {
-                newEnclosingElements.add(conditionalInvokeSuper(constructor));
-            } else {
-                newEnclosingElements.add(enclosingElement);
-            }
-        });
-
-        classDeclaration.enclosedElements(newEnclosingElements);
+        classDeclaration.getEnclosedElements().stream()
+                .flatMap(CollectionUtils.mapOnly(Function.class))
+                .filter(function -> function.getKind() == Kind.CONSTRUCTOR)
+                .forEach(this::conditionalInvokeSuper);
     }
 
-    private Function conditionalInvokeSuper(final Function constructor) {
+    private void conditionalInvokeSuper(final Function constructor) {
         final var body = constructor.getBody();
+
         final var newStatements = new ArrayList<StatementTree>();
         boolean hasConstructorInvocation = false;
 
@@ -115,11 +106,8 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
             final var newBody = body.builder()
                     .statements(newStatements)
                     .build();
-            return constructor.builder()
-                    .body(newBody)
-                    .build();
-        } else {
-            return constructor;
+
+            constructor.setBody(newBody);
         }
     }
 
@@ -160,6 +148,4 @@ public class Enhancer extends AbstractTreeVisitor<Object, Object> {
                 .flatMap(CollectionUtils.mapOnly(Function.class))
                 .anyMatch(e -> e.getKind() == Kind.CONSTRUCTOR);
     }
-
-
 }

@@ -5,6 +5,7 @@ public enum Kind {
     LOCAL_VARIABLE,
     FIELD,
     RESOURCE_VARIABLE,
+    RECORD_COMPONENT,
     CONSTRUCTOR,
     METHOD,
     STATIC_INIT,

@@ -94,7 +94,7 @@ public interface CodeVisitor<P> {
         visitUnknown(variableDeclaratorStatement, param);
     }
 
-    default Temp visitCastExpression(CastExpression castExpression, P param) {
-        return visitUnknown(castExpression, param);
+    default Temp visitTypeExpression(ITypeExpression typeExpression, P param) {
+        return visitUnknown(typeExpression, param);
     }
 }

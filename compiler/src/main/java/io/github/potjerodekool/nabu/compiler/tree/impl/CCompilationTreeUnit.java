@@ -1,8 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.tree.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.CompositeScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.NamedImportScope;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
@@ -15,6 +18,12 @@ public class CCompilationTreeUnit extends CTree implements CompilationUnit {
     private final List<Tree> definitions = new ArrayList<>();
 
     private final NamedImportScope namedImportScope = new NamedImportScope();
+
+    private final CompositeScope compositeImportScope = new CompositeScope(
+            namedImportScope
+    );
+
+    private CompositeScope globalScope;
 
     private final List<ImportItem> importItems = new ArrayList<>();
 
@@ -93,6 +102,47 @@ public class CCompilationTreeUnit extends CTree implements CompilationUnit {
     @Override
     public NamedImportScope getNamedImportScope() {
         return namedImportScope;
+    }
+
+    @Override
+    public CompositeScope getCompositeImportScope() {
+        return compositeImportScope;
+    }
+
+    @Override
+    public Scope getScope() {
+        final var globalScope = getGlobalScope();
+
+        if (globalScope != null) {
+            return globalScope;
+        } else {
+            return compositeImportScope;
+        }
+    }
+
+    private Scope getGlobalScope() {
+        if (globalScope != null) {
+            return globalScope;
+        }
+
+        final var packageDeclaration = getPackageDeclaration();
+
+        if (packageDeclaration == null) {
+            return null;
+        }
+
+        final var packageElement = (PackageSymbol) packageDeclaration.getPackageElement();
+
+        if (packageElement == null) {
+            return null;
+        }
+
+        globalScope = new CompositeScope(
+                packageElement.getMembers(),
+                compositeImportScope
+        );
+
+        return globalScope;
     }
 
     public FileObject getFileObject() {

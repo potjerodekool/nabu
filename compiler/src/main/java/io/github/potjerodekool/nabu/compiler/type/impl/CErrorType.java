@@ -7,15 +7,13 @@ import java.util.List;
 
 public class CErrorType extends CClassType implements ErrorType {
 
-    private final String className;
 
     public CErrorType(final ErrorSymbol symbol) {
         super(null, symbol, List.of());
-        this.className = symbol.getSimpleName();
     }
 
     @Override
     public String getClassName() {
-        return className;
+        return asElement().getQualifiedName();
     }
 }

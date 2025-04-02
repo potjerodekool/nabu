@@ -69,4 +69,8 @@ public interface TypeVisitor<R, P> {
     default R visitUnionType(UnionType unionType, P param) {
         return visitUnknownType(unionType, param);
     }
+
+    default R visitModule(ModuleType moduleType, P param) {
+        return visitUnknownType(moduleType, param);
+    }
 }

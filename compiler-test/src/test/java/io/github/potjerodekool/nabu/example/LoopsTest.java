@@ -9,17 +9,31 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class LoopsTest {
 
-    @Test
-    void forLoop() {
-        final var loops = new Loops();
-        final var result = loops.forLoop(10);
-        assertEquals(20, result);
+
+    private void print(final List<Object> list) {
+        for (var item : list) {
+            if (item instanceof String s) {
+                System.out.print(s);
+            } else if (item instanceof List<?> subList) {
+                print((List<Object>) subList);
+            } else {
+                throw new IllegalArgumentException();
+            }
+        }
     }
 
     @Test
-    void forLoop2() {
+    void forLoop() throws NoSuchMethodException {
         final var loops = new Loops();
-        final var result = loops.forLoop(List.of(10, 20, 30));
+        final var result = loops.forLoop(10);
+        assertEquals(20, result);
+        System.out.println("for loop result " + result);
+    }
+
+    @Test
+    void forEachLoop() {
+        final var loops = new Loops();
+        final var result = loops.forEachLoop(List.of(10, 20, 30));
         assertEquals(60, result);
     }
 

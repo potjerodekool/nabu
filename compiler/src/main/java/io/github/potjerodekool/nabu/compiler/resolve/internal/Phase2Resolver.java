@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
@@ -74,17 +74,14 @@ public class Phase2Resolver extends AbstractResolver {
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Scope scope) {
         final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
+        clazz.complete();
+
         final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
-        final TypeMirror superType;
-
         if (classDeclaration.getExtending() != null) {
-            classDeclaration.getExtending().accept(this, scope);
-            superType = classDeclaration.getExtending().getType();
-        } else {
-            superType = loader.loadClass(scope.findModuleElement(), Constants.OBJECT).asType();
+            final var superType = classDeclaration.getExtending().getType();
+            //TODO check if this is a valid super type for the giving kind.
+            //Supertype is already set in TypeEnter.
         }
-
-        clazz.setSuperClass(superType);
 
         final var interfaces = classDeclaration.getImplementing().stream()
                 .map(it -> {
@@ -119,7 +116,7 @@ public class Phase2Resolver extends AbstractResolver {
         if (!method.isStatic()) {
             final var type = method.getEnclosingElement().asType();
 
-            final var thisVariable = SymbolBuilders.variableSymbolBuilder()
+            final var thisVariable = new VariableSymbolBuilderImpl()
                     .kind(ElementKind.LOCAL_VARIABLE)
                     .name(Constants.THIS)
                     .type(type)
@@ -210,4 +207,10 @@ public class Phase2Resolver extends AbstractResolver {
         return null;
     }
 
+    @Override
+    public Object visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final Scope scope) {
+        instanceOfExpression.getExpression().accept(this, scope);
+        instanceOfExpression.getTypeExpression().accept(this, scope);
+        return null;
+    }
 }

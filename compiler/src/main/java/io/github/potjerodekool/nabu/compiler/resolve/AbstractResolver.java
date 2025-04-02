@@ -1,7 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
+import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValue;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ErrorSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
@@ -11,9 +14,11 @@ import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.util.Pair;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.typeOf;
 
@@ -317,5 +322,23 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             final var variableType = (VariableType) typeMirror;
             return (DeclaredType) variableType.getInterferedType();
         }
+    }
+
+    @Override
+    public Object visitAnnotation(final AnnotationTree annotationTree, final Scope scope) {
+        annotationTree.getName().accept(this, scope);
+        final var annotationType = (DeclaredType) annotationTree.getName().getType();
+
+        final var values = annotationTree.getArguments().stream()
+                .map(it -> (Pair<ExecutableElement, AnnotationValue>) it.accept(this, scope))
+                .collect(Collectors.toMap(
+                        Pair::first,
+                        Pair::second
+                ));
+
+        return AnnotationBuilder.createAnnotation(
+                annotationType,
+                values
+        );
     }
 }

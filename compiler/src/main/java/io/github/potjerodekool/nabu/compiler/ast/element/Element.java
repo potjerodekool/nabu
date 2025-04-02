@@ -36,6 +36,10 @@ public interface Element extends AnnotatedConstruct {
 
     boolean isNative();
 
+    default boolean isType() {
+        return false;
+    }
+
     default TypeElement getClosestEnclosingClass() {
         Element element = this;
 

@@ -10,6 +10,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassFinder;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.TypeEnter;
 import io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.spi.internal.ElementResolverRegistry;
 import io.github.potjerodekool.nabu.compiler.util.Elements;
@@ -22,6 +23,7 @@ public class CompilerContextImpl implements CompilerContext {
     private final MethodResolver methodResolver;
     private final ArgumentBoxer argumentBoxer;
     private final ElementResolverRegistry resolverRegistry;
+    private final TypeEnter typeEnter;
 
     public CompilerContextImpl(final ApplicationContext applicationContext,
                                final FileManager fileManager) {
@@ -59,6 +61,7 @@ public class CompilerContextImpl implements CompilerContext {
                 classElementLoader,
                 methodResolver
         );
+        this.typeEnter = new TypeEnter(this);
     }
 
     private ElementResolverRegistry createSymbolResolverRegistry(final ApplicationContext applicationContext) {
@@ -92,5 +95,9 @@ public class CompilerContextImpl implements CompilerContext {
     @Override
     public void close() throws Exception {
         this.classElementLoader.close();
+    }
+
+    public TypeEnter getTypeEnter() {
+        return typeEnter;
     }
 }

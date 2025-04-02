@@ -21,4 +21,5 @@ module io.github.potjerodekool.nabu.compiler {
     requires org.objectweb.asm.util;
 
     requires io.github.potjerodekool.dependency;
+    requires jdk.compiler;
 }

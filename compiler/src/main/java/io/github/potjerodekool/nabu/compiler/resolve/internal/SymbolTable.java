@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
@@ -50,9 +51,10 @@ public class SymbolTable {
             return true;
         }
     };
-    public final ModuleSymbol DEFAULT_MODEL = new ModuleSymbol(0, "", null);
 
-    public TypeMirror objectType;
+    private TypeMirror objectType;
+    private TypeMirror enumType;
+    private TypeMirror recordType;
 
     public ModuleSymbol getJavaBase() {
         return javaBase;
@@ -76,6 +78,8 @@ public class SymbolTable {
 
     public void loadPredefinedClasses() {
         objectType = enterClass(Constants.OBJECT);
+        enumType = enterClass(Constants.ENUM);
+        recordType = enterClass(Constants.RECORD);
     }
 
     private void loadBoxes() {
@@ -87,6 +91,18 @@ public class SymbolTable {
         enterClass(Constants.CHARACTER);
         enterClass(Constants.FLOAT);
         enterClass(Constants.DOUBLE);
+    }
+
+    public TypeMirror getObjectType() {
+        return objectType;
+    }
+
+    public TypeMirror getEnumType() {
+        return enumType;
+    }
+
+    public TypeMirror getRecordType() {
+        return recordType;
     }
 
     private TypeMirror enterClass(final String name) {
@@ -110,10 +126,16 @@ public class SymbolTable {
                               final ClassSymbol classSymbol) {
         final var flatName = classSymbol.getFlatName();
 
-        classesMap.computeIfAbsent(
+        final var map = classesMap.computeIfAbsent(
                 flatName,
                 n -> new HashMap<>()
-        ).put(module, classSymbol);
+        );
+
+        if (map.containsKey(module)) {
+            throw new TodoException();
+        } else {
+            map.put(module, classSymbol);
+        }
     }
 
     private ClassSymbol defineClass(final String name,

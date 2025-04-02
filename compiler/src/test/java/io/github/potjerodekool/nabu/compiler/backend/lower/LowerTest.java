@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
@@ -208,9 +208,8 @@ class LowerTest {
 
         assertEquals(
                 """
-                        for (java.util.Iterator $p0 = list.iterator();
-                        $p0.hasNext();){
-                        java.lang.String s = (java.lang.String) $p0.next();
+                        for (java.util.Iterator $p0 = list.iterator();$p0.hasNext();){
+                            java.lang.String s = (java.lang.String) $p0.next(); 
                         }
                         """,
                 actual
@@ -221,7 +220,7 @@ class LowerTest {
                                                      final TypeMirror typeMirror) {
         final var identifierTree = IdentifierTree.create(name);
 
-        final var paramElement = SymbolBuilders.variableSymbolBuilder()
+        final var paramElement = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .name(name)
                 .type(typeMirror)

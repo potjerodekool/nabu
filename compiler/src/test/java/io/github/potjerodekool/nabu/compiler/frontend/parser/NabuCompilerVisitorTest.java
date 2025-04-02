@@ -26,12 +26,12 @@ class NabuCompilerVisitorTest {
  
                 @Module
                 open module some.mymodule {
-                requires transitive static other.theremodule;
-                exports mystuff;
-                exports myotherstuff to foo, bar;
-                opens myotherstuff to foo, bar;
-                uses SomeThings;
-                provides SomeInterface with StandardSomeThing, AdvancedSomeThing;
+                    requires transitive static other.theremodule;
+                    exports mystuff;
+                    exports myotherstuff to foo, bar;
+                    opens myotherstuff to foo, bar;
+                    uses SomeThings;
+                    provides SomeInterface with StandardSomeThing, AdvancedSomeThing;
                 }""", NabuParser::modularCompilationUnit);
     }
 
@@ -112,6 +112,7 @@ class NabuCompilerVisitorTest {
         parseAndAssert("""
                 while(true)
                 {
+                
                 }
                 """, NabuParser::whileStatementNoShortIf);
     }
@@ -149,10 +150,12 @@ class NabuCompilerVisitorTest {
     void functionDeclarationWithLambda(){
         parseAndAssert("""
                 fun findCompanyByEmployeeFirstName(employeeFirstName : String): JpaPredicate<Company> {
-                return (c : Root<Company>, q : CriteriaQuery<?>, cb : CriteriaBuilder) -> {
-                var e = (InnerJoin<Company, Employee>) c.employees;
-                return e.firstName == employeeFirstName;}
-                ;}
+                    return (c : Root<Company>, q : CriteriaQuery<?>, cb : CriteriaBuilder) -> {
+                        var e = (InnerJoin<Company, Employee>) c.employees;
+                        return e.firstName == employeeFirstName;
+                    }
+                    ;
+                }
                 """, NabuParser::functionDeclaration);
     }
 
@@ -201,6 +204,7 @@ class NabuCompilerVisitorTest {
     void functionDeclaration() {
         parseAndAssert("""
             fun fail(): String throws IOException, IllegalStateException {
+            
             }
             """, NabuParser::functionDeclaration);
     }
@@ -209,11 +213,13 @@ class NabuCompilerVisitorTest {
     void functionDeclarationWithReceiver() {
         parseAndAssert("""
             fun fail(this : MyClass, other : String): String {
+            
             }
             """, NabuParser::functionDeclaration);
 
         parseAndAssert("""
             fun fail(MyClass.this : MyClass, other : String): String {
+            
             }
             """, NabuParser::functionDeclaration);
     }
@@ -228,6 +234,7 @@ class NabuCompilerVisitorTest {
     void tryWithResourcesStatement() {
         parseAndAssert("""
             try (FileInputStream fis = new FileInputStream(file.txt)) {
+            
             }
             """, NabuParser::tryWithResourcesStatement);
     }
@@ -254,8 +261,152 @@ class NabuCompilerVisitorTest {
         parseAndAssert("""
             for (var e : list)
             {
+            
             }
             """, NabuParser::enhancedForStatement);
+    }
+
+    @Test
+    void recordDeclaration() {
+        parseAndAssert("""
+                public record IdAndName<ID>(ID id, String name) implements WithId {
+                    fun nameLength(): int {
+                        return name.length();
+                    }
+                
+                }
+                """, NabuParser::recordDeclaration);
+    }
+
+    @Test
+    void interfaceDeclaration() {
+        parseAndAssert("""
+            public interface Action {
+            }
+            """, NabuParser::interfaceDeclaration);
+    }
+
+    @Test
+    void enumDeclaration() {
+        parseAndAssert("""
+            public enum State {
+                OPENED,
+                CLOSED
+            }
+            """, NabuParser::enumDeclaration);
+
+        parseAndAssert("""
+            public enum State {
+                OPENED("opened"),
+                CLOSED("closed")
+            }
+            """, NabuParser::enumDeclaration);
+
+        parseAndAssert("""
+            public enum State {
+                OPENED(){},
+                CLOSED
+            }
+            """, NabuParser::enumDeclaration);
+    }
+
+    @Test
+    void labeledStatement() {
+        parseAndAssert("""
+            label : while(true)
+            {
+                break;
+            }
+            """,
+                NabuParser::labeledStatement);
+    }
+
+    @Test
+    void continueStatement() {
+        parseAndAssert("""
+            continue loop;""",
+                NabuParser::continueStatement);
+    }
+
+    @Test
+    void synchronizedStatement() {
+        parseAndAssert("""
+                synchronized(this){
+                    if(this.someField == null){
+                        this.someField = "SomeValue";
+                    }
+                
+                }
+                """, NabuParser::synchronizedStatement);
+    }
+
+    @Test
+    void throwStatement() {
+        parseAndAssert("""
+                throw new RuntimeException("Failed");""", NabuParser::throwStatement);
+    }
+
+    @Test
+    void tryStatement() {
+        parseAndAssert("""
+                try {
+                    call();
+                }
+                catch (CallFailedException e){
+                
+                }
+                catch (Exception e){
+                
+                }
+                finally {
+                    cleanUp();
+                }
+                """, NabuParser::tryStatement);
+    }
+
+    @Test
+    void yieldStatement() {
+        parseAndAssert("""
+                yield 10;""", NabuParser::yieldStatement);
+    }
+
+    @Test
+    void assertStatement() {
+        parseAndAssert(
+                """
+                        assert i > 10: "i should be greater than 10";""", NabuParser::assertStatement
+        );
+    }
+
+    @Test
+    void switchStatement() {
+        parseAndAssert("""
+                switch(i)
+                {
+                    case 1, 3 -> System.out.println("One or Three");
+                    case 2 -> {
+                        System.out.println("Two");
+                    }
+                
+                    case null -> throw new NullPointerException();
+                    default -> System.out.println("Other");
+                }
+                """, NabuParser::switchStatement);
+    }
+
+    @Test
+    void switchStatementWithBlockStatementGroup() {
+        parseAndAssert("""
+                switch(i)
+                {
+                    case 1 : case 3 : {
+                        System.out.println("One or Three");
+                    }
+                
+                    case 2 : case null : throw new NullPointerException();
+                    default : System.out.println("Other");
+                }
+                """, NabuParser::switchStatement);
     }
 
 }

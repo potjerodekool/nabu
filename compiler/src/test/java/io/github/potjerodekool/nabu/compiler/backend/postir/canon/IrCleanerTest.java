@@ -16,7 +16,6 @@ class IrCleanerTest {
 
     @Test
     void cleanUp() {
-        final var frame = new Frame();
         final var body = new ArrayList<IStatement>();
 
         final var trueLabel = new ILabel();
@@ -30,7 +29,7 @@ class IrCleanerTest {
                                 new Seq(
                                         new CJump(
                                                 Tag.EQ,
-                                                new TempExpr(1, frame),
+                                                new TempExpr(1, IPrimitiveType.INT),
                                                 new Const(1),
                                                 trueLabel,
                                                 falseLabel
@@ -42,7 +41,7 @@ class IrCleanerTest {
                                                                 new ILabelStatement(),
                                                                 new Move(
                                                                         new Const(true),
-                                                                        new TempExpr(Frame.RV, frame)
+                                                                        new TempExpr(Frame.V0)
                                                                 )
                                                         )
                                                 ),
@@ -56,10 +55,6 @@ class IrCleanerTest {
         ));
 
         final var frag = new ProcFrag(
-                0,
-                "isTrue",
-                IPrimitiveType.BOOLEAN,
-                frame,
                 body
         );
         IrCleaner.cleanUp(frag);
@@ -68,7 +63,6 @@ class IrCleanerTest {
 
     @Test
     void doCleanUp() {
-        final var frame = new Frame();
         final var body = new ArrayList<IStatement>();
 
         final var trueLabel = new ILabel();
@@ -79,7 +73,7 @@ class IrCleanerTest {
         body.add(new ILabelStatement());
         body.add(new CJump(
                 Tag.EQ,
-                new TempExpr(1, frame),
+                new TempExpr(1, IPrimitiveType.INT),
                 new Const(1),
                 trueLabel,
                 falseLabel
@@ -87,13 +81,13 @@ class IrCleanerTest {
         body.add(new ILabelStatement(trueLabel));
         body.add(new Move(
                 new Const(true),
-                new TempExpr(Frame.RV, frame)
+                new TempExpr(Frame.V0)
         ));
         body.add(new Jump(endLabel));
         body.add(new ILabelStatement(falseLabel));
         body.add(new Move(
                 new Const(false),
-                new TempExpr(Frame.RV, frame)
+                new TempExpr(Frame.V0)
         ));
         body.add(new ILabelStatement());
         body.add(new Jump(endLabel));
@@ -101,10 +95,6 @@ class IrCleanerTest {
         body.add(new ILabelStatement());
 
         var frag = new ProcFrag(
-                0,
-                "isTrue",
-                IPrimitiveType.BOOLEAN,
-                frame,
                 body
         );
 
@@ -115,23 +105,18 @@ class IrCleanerTest {
 
     @Test
     void testCleanUp() {
-        final var frame = new Frame();
         final var body = new ArrayList<IStatement>();
 
         body.add(new Move(
                 new Const(10),
-                new TempExpr(1, frame)
+                new TempExpr(1, IPrimitiveType.INT)
         ));
         body.add(new Move(
                 new TempExpr(),
-                new TempExpr(Frame.RV, frame)
+                new TempExpr(Frame.V0)
         ));
 
         var frag = new ProcFrag(
-                0,
-                "empty",
-                IPrimitiveType.VOID,
-                frame,
                 body
         );
 

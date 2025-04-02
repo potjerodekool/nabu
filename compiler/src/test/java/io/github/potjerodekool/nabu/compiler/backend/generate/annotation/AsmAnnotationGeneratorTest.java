@@ -3,9 +3,9 @@ package io.github.potjerodekool.nabu.compiler.backend.generate.annotation;
 import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValue;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import org.junit.jupiter.api.Test;
@@ -84,7 +84,7 @@ class AsmAnnotationGeneratorTest {
                                 .build(),
                         AnnotationBuilder.createEnumValue(
                                 (DeclaredType) txTypeType,
-                                SymbolBuilders.variableSymbolBuilder()
+                                new VariableSymbolBuilderImpl()
                                         .name("REQUIRED")
                                         .type(transactionalClass.asType())
                                         .enclosingElement(txTypeType.asTypeElement())

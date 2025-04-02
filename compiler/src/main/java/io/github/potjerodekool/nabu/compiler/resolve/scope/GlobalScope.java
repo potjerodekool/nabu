@@ -76,18 +76,15 @@ public class GlobalScope implements Scope {
 
     @Override
     public TypeMirror resolveType(final String name) {
-        var type = compilationUnit.getNamedImportScope().resolveType(name);
-
-        if (type != null) {
-            return type;
-        }
-
         final var members = getMembers();
+        if (members != null) {
+            final var type = members.resolveType(name);
 
-        if (members == null) {
-            return null;
-        } else {
-            return members.resolveType(name);
+            if (type != null) {
+                return type;
+            }
         }
+
+        return compilationUnit.getCompositeImportScope().resolveType(name);
     }
 }

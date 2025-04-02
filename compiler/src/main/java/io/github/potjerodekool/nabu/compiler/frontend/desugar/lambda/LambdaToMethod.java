@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
@@ -123,7 +123,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
             final var originalElement = scope.resolve(localName);
             final var typeMirror = originalElement.asType();
 
-            final var parameterElement = SymbolBuilders.variableSymbolBuilder()
+            final var parameterElement = new VariableSymbolBuilderImpl()
                     .kind(ElementKind.PARAMETER)
                     .name(localName)
                     .type(typeMirror)

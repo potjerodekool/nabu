@@ -11,6 +11,7 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDecl
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 
 import java.util.List;
+import java.util.Objects;
 
 public class CVariableDeclaratorTree extends CStatementTree implements VariableDeclaratorTree {
 
@@ -31,6 +32,7 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
                                    final int charPositionInLine) {
         super(lineNumber, charPositionInLine);
         this.kind = kind;
+        Objects.requireNonNull(modifiers);
         this.modifiers = modifiers;
         this.type = type;
         this.name = name;
@@ -42,6 +44,7 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
         super(builder);
         this.kind = builder.getKind();
         this.modifiers = builder.getModifiers();
+        Objects.requireNonNull(modifiers);
         this.type = builder.getType();
         this.name = builder.getName();
         this.nameExpression = builder.getNameExpression();

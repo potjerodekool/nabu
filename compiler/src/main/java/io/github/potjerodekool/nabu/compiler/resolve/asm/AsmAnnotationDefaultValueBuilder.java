@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.CArrayAttributeProxy;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.CCompoundAttribute;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
@@ -66,7 +66,7 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
                           final String descriptor,
                           final String value) {
         final var enumType = loadTypeFromDescriptor(descriptor);
-        final var enumConstant = SymbolBuilders.variableSymbolBuilder()
+        final var enumConstant = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.ENUM_CONSTANT)
                 .name(value)
                 .type(enumType)

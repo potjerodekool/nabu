@@ -11,6 +11,10 @@
 
     <artifactId>compiler-test</artifactId>
 
+    <properties>
+        <asm.version>9.7.1</asm.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.potjerodekool</groupId>
@@ -59,6 +63,19 @@
             <groupId>org.hibernate.orm</groupId>
             <artifactId>hibernate-core</artifactId>
             <version>6.5.2.Final</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>${asm.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>${asm.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Objects;
 
 public class MethodSymbol extends Symbol implements ExecutableElement {
-    private final List<VariableElement> parameters = new ArrayList<>();
+    private final List<VariableSymbol> parameters = new ArrayList<>();
     private final List<TypeParameterElement> typeParameters = new ArrayList<>();
     private final boolean isDefaultMethod;
     private AnnotationValue defaultValue;
@@ -27,7 +27,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
                         final TypeMirror returnType,
                         final List<TypeMirror> argumentTypes,
                         final List<TypeMirror> thrownTypes,
-                        final List<VariableElement> parameters,
+                        final List<VariableSymbol> parameters,
                         final List<AnnotationMirror> annotations) {
         super(kind, flags, name, null, owner);
         this.typeParameters.addAll(typeParameters);
@@ -44,9 +44,8 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         );
         setType(methodType);
 
-        parameters.forEach(Objects::requireNonNull);
+        parameters.forEach(this::addParameter);
 
-        this.parameters.addAll(parameters);
         this.isDefaultMethod = isDefaultMethod(owner);
     }
 
@@ -74,7 +73,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         return asType().getReturnType();
     }
 
-    public List<VariableElement> getParameters() {
+    public List<VariableSymbol> getParameters() {
         return parameters;
     }
 
@@ -107,8 +106,15 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         this.defaultValue = defaultValue;
     }
 
-    public void addParameter(final VariableElement parameter) {
+    public void addParameter(final VariableSymbol parameter) {
         Objects.requireNonNull(parameter);
+
+        this.parameters.forEach(p -> {
+            if (p.getSimpleName().equals(parameter.getSimpleName())) {
+                throw new IllegalArgumentException();
+            }
+        });
+
         this.parameters.add(parameter);
     }
 

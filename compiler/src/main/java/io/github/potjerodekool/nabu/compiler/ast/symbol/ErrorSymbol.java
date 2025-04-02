@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementVisitor;
 import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CErrorType;
 
 import java.util.List;
 
@@ -15,7 +16,7 @@ public class ErrorSymbol extends ClassSymbol {
                 NestingKind.TOP_LEVEL,
                 0,
                 name,
-                new CClassType(null, null, List.of()),
+                new CErrorType(null),
                 null,
                 List.of(),
                 List.of()

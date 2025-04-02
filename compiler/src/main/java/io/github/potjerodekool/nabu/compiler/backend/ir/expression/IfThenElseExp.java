@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.ir.expression;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 
 import static io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement.seq;
 
@@ -123,6 +124,6 @@ public class IfThenElseExp implements Exp {
     }
 
     private IExpression temp(final Temp t) {
-        return new TempExpr(t.getIndex(), null);
+        return new TempExpr(t.getIndex(), (IType) null);
     }
 }

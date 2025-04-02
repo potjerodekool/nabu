@@ -18,10 +18,12 @@ public class CInstanceOfExpression extends CExpressionTree implements InstanceOf
         this.typeExpression = typeExpression;
     }
 
+    @Override
     public ExpressionTree getExpression() {
         return expression;
     }
 
+    @Override
     public ExpressionTree getTypeExpression() {
         return typeExpression;
     }

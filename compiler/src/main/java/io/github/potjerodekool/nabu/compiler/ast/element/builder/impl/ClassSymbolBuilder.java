@@ -69,7 +69,7 @@ public class ClassSymbolBuilder extends AbstractSymbolBuilder<Symbol, ClassSymbo
                 .map(it -> (AbstractType) it.asType())
                 .toList();
 
-        final AbstractType type;
+        final CClassType type;
         final ClassSymbol clazz;
 
         if (errorType) {
@@ -79,32 +79,33 @@ public class ClassSymbolBuilder extends AbstractSymbolBuilder<Symbol, ClassSymbo
             errorSymbol.setEnclosingElement((Symbol) getEnclosingElement());
             errorSymbol.setEnclosedElements(getEnclosedElements());
             errorSymbol.setAnnotations(getAnnotations());
-            type = new CErrorType(errorSymbol);
             clazz = errorSymbol;
+            type = (CClassType) errorSymbol.asType();
         } else {
             clazz = new ClassSymbol(
                     getKind(),
                     nestingKind,
                     getFlags(),
                     getName(),
-                    null,
+                    new CClassType(
+                            null,
+                            null,
+                            List.of()
+                    ),
                     (Symbol) getEnclosingElement(),
                     getEnclosedElements(),
                     getAnnotations()
             );
 
-
-            type = new CClassType(
-                    outerType,
-                    clazz,
-                    typeArguments);
+            type = (CClassType) clazz.asType();
+            type.setOuterType(outerType);
+            type.setTypeArguments(typeArguments);
         }
 
         clazz.setInterfaces(interfaces);
 
         typeParameters.forEach(tp -> Objects.requireNonNull(tp.asType()));
 
-        clazz.setType(type);
         clazz.setSuperClass(superclass);
         return clazz;
     }

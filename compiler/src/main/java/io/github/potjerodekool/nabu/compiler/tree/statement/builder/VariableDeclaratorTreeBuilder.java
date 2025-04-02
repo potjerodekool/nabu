@@ -21,6 +21,7 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
 
     public VariableDeclaratorTreeBuilder() {
         super();
+        this.modifiers = new CModifiers();
     }
 
     public VariableDeclaratorTreeBuilder(final VariableDeclaratorTree original) {
@@ -48,10 +49,6 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
         return name;
     }
 
-    public ExpressionTree getNameExpression() {
-        return nameExpression;
-    }
-
     public Tree getValue() {
         return value;
     }
@@ -69,11 +66,6 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
 
     public VariableDeclaratorTreeBuilder name(final IdentifierTree name) {
         this.name = name;
-        return this;
-    }
-
-    public VariableDeclaratorTreeBuilder nameExpression(final ExpressionTree nameExpression) {
-        this.nameExpression = nameExpression;
         return this;
     }
 
@@ -95,5 +87,14 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
     @Override
     public VariableDeclaratorTree build() {
         return new CVariableDeclaratorTree(this);
+    }
+
+    public ExpressionTree getNameExpression() {
+        return nameExpression;
+    }
+
+    public VariableDeclaratorTreeBuilder nameExpresion(final ExpressionTree nameExpression) {
+        this.nameExpression = nameExpression;
+        return this;
     }
 }

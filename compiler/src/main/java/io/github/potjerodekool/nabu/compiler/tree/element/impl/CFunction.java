@@ -26,7 +26,7 @@ public class CFunction extends CTree implements Function {
     private final List<VariableDeclaratorTree> parameters = new ArrayList<>();
     private final ExpressionTree returnType;
     private final List<Tree> thrownTypes = new ArrayList<>();
-    private final BlockStatementTree body;
+    private BlockStatementTree body;
     private final ExpressionTree defaultValue;
 
     private ExecutableElement methodSymbol;
@@ -117,6 +117,11 @@ public class CFunction extends CTree implements Function {
 
     public BlockStatementTree getBody() {
         return body;
+    }
+
+    @Override
+    public void setBody(final BlockStatementTree body) {
+        this.body = body;
     }
 
     public List<TypeParameterTree> getTypeParameters() {

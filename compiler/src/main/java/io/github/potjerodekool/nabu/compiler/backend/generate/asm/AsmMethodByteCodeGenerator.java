@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
@@ -21,7 +20,6 @@ import io.github.potjerodekool.nabu.compiler.backend.postir.canon.MoveCall;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import org.objectweb.asm.*;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceMethodVisitor;
@@ -41,7 +39,6 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     private final ClassWriter classWriter;
     private final String owner;
     private final Textifier textifier = new Textifier();
-    private final ToIType toIType = new ToIType();
     private final Map<String, Label> labelMap = new HashMap<>();
 
     private AsmWithStackMethodVisitor methodWriter;
@@ -75,37 +72,19 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         final var frame = new Frame();
 
         if (!methodSymbol.isStatic() && !methodSymbol.isAbstract()) {
-            frame.allocateLocal("this", IReferenceType.createClassType(null, owner, List.of()), false);
+            if (frame.indexOf(Constants.THIS) == -1) {
+                frame.allocateLocal(Constants.THIS, IReferenceType.createClassType(null, owner, List.of()), false);
+            }
         }
 
         final var procFrag = methodSymbol.getFrag();
-        final List<IStatement> body;
-
-        if (procFrag != null) {
-            final var frag = IrCleaner.cleanUp(procFrag);
-            body = frag.getBody();
-        } else {
-            final var clazz = (TypeElement) methodSymbol.getEnclosingElement();
-            final var superTypes = (DeclaredType) clazz.getSuperclass();
-            final var superClassName = superTypes.asTypeElement().getQualifiedName();
-
-            body = List.of(new Move(
-                    new Call(
-                            InvocationType.SPECIAL,
-                            new Name(superClassName),
-                            new Name("super"),
-                            IPrimitiveType.VOID,
-                            List.of(),
-                            List.of()
-                    ),
-                    new TempExpr(Frame.V0.getIndex(), frame)
-            ));
-        }
 
         visitParameters(methodHeader, frame);
         visitAnnotations(methodSymbol);
 
         if (!methodSymbol.isAbstract()) {
+            final var frag = IrCleaner.cleanUp(procFrag);
+            final var body = frag.getBody();
             visitBody(body, frame);
         }
 
@@ -120,7 +99,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 .map(parameter -> {
                     final var name = parameter.getSimpleName();
                     final var type = parameter.asType();
-                    return new Parameter(name, type.accept(toIType, null));
+                    return new Parameter(name, type.accept(ToIType.INSTANCE, null));
                 })
                 .toList();
 
@@ -130,7 +109,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             returnType = IPrimitiveType.VOID;
         } else {
             returnType = executableElement.getReturnType()
-                    .accept(toIType, null);
+                    .accept(ToIType.INSTANCE, null);
         }
 
         return new MethodHeader(parameters, returnType);
@@ -613,10 +592,15 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     }
 
     @Override
-    public Temp visitCastExpression(final CastExpression castExpression, final Frame param) {
-        castExpression.getExpression().accept(this, param);
-        final var internalName = getInternalName(castExpression.getName());
-        methodWriter.visitTypeInsn(Opcodes.CHECKCAST, internalName);
+    public Temp visitTypeExpression(final ITypeExpression typeExpression, final Frame frame) {
+        final var opcode = switch (typeExpression.getKind()) {
+            case CAST -> Opcodes.CHECKCAST;
+            case INSTANCEOF -> Opcodes.INSTANCEOF;
+        };
+
+        typeExpression.getExpression().accept(this, frame);
+        final var internalName = getInternalName(typeExpression.getName());
+        methodWriter.visitTypeInsn(opcode, internalName);
         return null;
     }
 
@@ -650,7 +634,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         final var temp = tempExp.getTemp();
         final var index = temp.getIndex();
-        final var type = tempExp.getFrame().get(index).type();
+        final var type = tempExp.getType();
 
         if (type instanceof IReferenceType) {
             methodWriter.visitVarInsn(Opcodes.ALOAD, index);
@@ -668,7 +652,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         final var index = temp.getIndex();
 
         if (index > -1) {
-            final var type = tempExpr.getFrame().get(index).type();
+            final var type = tempExpr.getType();
             Objects.requireNonNull(type);
 
             final var opcode = switch (type.getKind()) {
@@ -1010,9 +994,6 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         binOp.accept(visitor, frame);
 
-        //TODO generate descriptor from types.
-        //final var descriptor = "(Ljava/lang/String;I)Ljava/lang/String;";
-
         final var handle = new Handle(Opcodes.H_INVOKESTATIC,
                 "java/lang/invoke/StringConcatFactory",
                 "makeConcatWithConstants",
@@ -1075,7 +1056,6 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             throw new TodoException();
         }
     }
-
 }
 
 record MethodHeader(List<Parameter> parameters,

@@ -12,7 +12,7 @@ fun forLoop(times: int): int {
     return result;
 }
 
-fun forLoop(list: List<Integer>): int {
+fun forEachLoop(list: List<Integer>): int {
     var result = 0;
 
     for(var number : list) {

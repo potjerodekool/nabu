@@ -57,6 +57,7 @@ class AsmClassBuilder extends ClassVisitor {
                       final String[] interfaces) {
 
         final var kind = resolveKind(access);
+        final var flags = AccessUtils.parseClassAccessToFlags(access);
         final NestingKind nestingKind;
 
         final String simpleName;
@@ -91,6 +92,7 @@ class AsmClassBuilder extends ClassVisitor {
             packageSymbol.setModuleSymbol(moduleSymbol);
         }
 
+        clazz.setFlags(flags);
         clazz.setKind(kind);
         clazz.setNestingKind(nestingKind);
         clazz.setSimpleName(simpleName);
@@ -112,12 +114,8 @@ class AsmClassBuilder extends ClassVisitor {
                 outerType = null;
             }
 
-            final var type = new CClassType(
-                    outerType,
-                    clazz,
-                    List.of()
-            );
-            clazz.setType(type);
+            final var type = (CClassType) clazz.asType();
+            type.setOuterType(outerType);
 
             if (superName != null) {
                 var superElement = classElementLoader.loadClass(moduleSymbol, superName);

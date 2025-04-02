@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
+import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
@@ -168,11 +170,11 @@ public class MethodResolver {
                                            final List<TypeMirror> argumentTypes, final boolean isStaticCall) {
         final ExecutableType methodType;
 
-        final var clazz = (TypeElement) type.asElement();
+        final var clazz = (ClassSymbol) type.asElement();
         final List<ExecutableElement> methods;
 
         if (Constants.THIS.equals(methodName)) {
-            methods = ElementFilter.constructors(clazz);
+            methods = ElementFilter.constructorsIn(clazz.getMembers().elements());
         } else {
             methods = ElementFilter.methods(clazz).stream()
                     .filter(element -> methodFilter(element, methodName, isStaticCall))
@@ -187,7 +189,9 @@ public class MethodResolver {
 
         if (methodTypes.size() == 1) {
             methodType = methodTypes.getFirst();
-        } else if (methodTypes.isEmpty()) {
+        } else if (methodTypes.size() > 1) {
+            throw new TodoException("Found multiple candidates for method " + methodName + " in " + clazz.getSimpleName());
+        } else {
             final var interfaceMethodOptional = clazz.getInterfaces().stream()
                     .map(interfaceType -> doResolveMethod(
                             (DeclaredType) interfaceType,
@@ -214,9 +218,8 @@ public class MethodResolver {
                             isStaticCall);
                 }
             }
-        } else {
-            methodType = null;
         }
+
         return methodType;
     }
 

@@ -17,6 +17,7 @@ public final class Constants {
     public static final String SERIALIZABLE = "java.io.Serializable";
     public static final String CLAZZ = "java.lang.Class";
     public static final String ENUM = "java.lang.Enum";
+    public static final String RECORD = "java.lang.Record";
     public static final String STRING = "java.lang.String";
     public static final String BOOLEAN = "java.lang.Boolean";
     public static final String BYTE = "java.lang.Byte";
@@ -31,6 +32,8 @@ public final class Constants {
     public static final String ITERATOR = "java.util.Iterator";
     public static final String STRING_BUILDER = "java.lang.StringBuilder";
     public static final String NUMBER = "java.lang.Number";
+
+
 
     public static final String PRIMITIVE_BOOLEAN = "boolean";
     public static final String PRIMITIVE_SHORT = "short";

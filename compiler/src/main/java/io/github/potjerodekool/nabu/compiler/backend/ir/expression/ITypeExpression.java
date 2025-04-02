@@ -5,14 +5,27 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 
 import java.util.List;
 
-public class CastExpression extends IExpression {
+public class ITypeExpression extends IExpression {
 
     private final String name;
     private final IExpression expression;
+    private final Kind kind;
 
-    public CastExpression(final String name, final IExpression expression) {
+    public enum Kind {
+        CAST,
+        INSTANCEOF
+    }
+
+    public ITypeExpression(final Kind kind,
+                           final String name,
+                           final IExpression expression) {
+        this.kind = kind;
         this.name = name;
         this.expression = expression;
+    }
+
+    public Kind getKind() {
+        return kind;
     }
 
     public String getName() {
@@ -25,7 +38,7 @@ public class CastExpression extends IExpression {
 
     @Override
     public <P> Temp accept(final CodeVisitor<P> visitor, final P param) {
-        return visitor.visitCastExpression(this, param);
+        return visitor.visitTypeExpression(this, param);
     }
 
     @Override

@@ -44,6 +44,7 @@ public abstract class Symbol implements Element {
                   final String name,
                   final AbstractType type,
                   final Symbol owner) {
+
         this.kind = kind;
         this.flags = flags;
         setSimpleName(name);

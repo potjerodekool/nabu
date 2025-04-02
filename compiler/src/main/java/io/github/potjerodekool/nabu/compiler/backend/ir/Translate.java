@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
+import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
@@ -30,7 +31,6 @@ import static io.github.potjerodekool.nabu.compiler.backend.ir.expression.Eseq.e
 public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     private final TypeResolver typeResolver = new TypeResolver();
-    private final ToIType toIType = new ToIType();
     private final Types types;
 
     public Translate(final Types types) {
@@ -39,12 +39,17 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitUnknown(final Tree tree, final TranslateContext Param) {
-        return null;
+        throw new TodoException(tree.getClass().getName());
     }
 
     @Override
     public Exp visitCompilationUnit(final CompilationUnit compilationUnit, final TranslateContext context) {
         return super.visitCompilationUnit(compilationUnit, new TranslateContext());
+    }
+
+    @Override
+    public Exp visitPackageDeclaration(final PackageDeclaration packageDeclaration, final TranslateContext param) {
+        return null;
     }
 
     @Override
@@ -72,8 +77,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         if (!method.isStatic()
                 && !method.isAbstract()
-            && !method.isNative()) {
-            frame.allocateLocal(Constants.THIS, IReferenceType.createClassType( null, className, List.of()), false);
+                && !method.isNative()) {
+            frame.allocateLocal(Constants.THIS, IReferenceType.createClassType(null, className, List.of()), false);
         }
 
         function.getParameters().forEach(p -> p.accept(this, context));
@@ -90,29 +95,17 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             }
             exp = body.accept(this, context);
         } else {
-            exp = new Nx(new Move(new TempExpr(), new TempExpr(Frame.RV, frame, null)));
+            exp = new Nx(new Move(new TempExpr(), new TempExpr(Frame.V0)));
         }
 
         var bodyStm = exp.unNx();
 
         if (bodyStm instanceof IExpressionStatement expressionStatement) {
             final var expr = expressionStatement.getExp();
-            bodyStm = new Move(expr, new TempExpr(Frame.RV, frame, null));
+            bodyStm = new Move(expr, new TempExpr(Frame.V0));
         }
 
-        final var returnType = function.getReturnType();
-        final IType retType = returnType != null
-                ? returnType.accept(typeResolver, frame)
-                : null;
-
-
-        final var name = function.getSimpleName();
-
         final var procFrag = new ProcFrag(
-                method.getFlags(),
-                name,
-                retType,
-                frame,
                 bodyStm
         );
 
@@ -223,7 +216,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     public Exp visitIdentifier(final IdentifierTree identifier, final TranslateContext context) {
         final var frame = context.frame;
         final var local = frame.get(identifier.getName());
-        return new Ex(new TempExpr(local.index(), frame, local.type()));
+        return new Ex(new TempExpr(local.index(), local.type()));
     }
 
     @Override
@@ -296,8 +289,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         final IType returnType =
                 invokedMethod.getKind() == ElementKind.CONSTRUCTOR
-                ? IPrimitiveType.VOID
-                : toIType(originalMethodType.getReturnType());
+                        ? IPrimitiveType.VOID
+                        : toIType(originalMethodType.getReturnType());
 
         final var argumentTypes = originalMethodType.getParameterTypes();
 
@@ -350,7 +343,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         return new Nx(
                 new Move(
                         expr,
-                        new TempExpr(Frame.RV, context.frame, null)
+                        new TempExpr(Frame.V0)
                 )
         );
     }
@@ -399,7 +392,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         final var arguments = new ArrayList<IExpression>();
 
         for (Local local : locals) {
-            arguments.add(new TempExpr(local.index(), frame, local.type()));
+            arguments.add(new TempExpr(local.index(), local.type()));
         }
 
         final var lambdaType = (DeclaredType) lambdaExpression.getType();
@@ -503,7 +496,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             return null;
         }
 
-        return typeMirror.accept(toIType, null);
+        return typeMirror.accept(ToIType.INSTANCE, null);
     }
 
     @Override
@@ -517,6 +510,9 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                     variableDeclaratorStatement.getName().getName(),
                     type,
                     variableDeclaratorStatement.getKind() == Kind.PARAMETER);
+            return null;
+        } else if (variableDeclaratorStatement.getKind() == Kind.FIELD
+            || variableDeclaratorStatement.getKind() == Kind.RECORD_COMPONENT) {
             return null;
         }
 
@@ -541,7 +537,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                     (VariableElement) identifier.getSymbol(),
                     varType,
                     src,
-                    new TempExpr(index, context.frame, varType)
+                    new TempExpr(index, varType)
             );
             vds.setLineNumber(variableDeclaratorStatement.getLineNumber());
 
@@ -629,7 +625,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visiExpressionStatement(final ExpressionStatementTree expressionStatement, final TranslateContext context) {
+    public Exp visitExpressionStatement(final ExpressionStatementTree expressionStatement, final TranslateContext context) {
         final var expr = expressionStatement.getExpression().accept(this, context).unEx();
         final var es = new IExpressionStatement(expr);
         es.setLineNumber(expressionStatement.getLineNumber());
@@ -640,8 +636,11 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     public Exp visitCastExpression(final CastExpressionTree castExpression, final TranslateContext param) {
         final var expression = castExpression.getExpression().accept(this, param).unEx();
         final var targetType = (IdentifierTree) castExpression.getTargetType();
-        return new Ex(new CastExpression(
-                targetType.getName(),
+        final var className = targetType.getType().getClassName();
+
+        return new Ex(new ITypeExpression(
+                ITypeExpression.Kind.CAST,
+                className,
                 expression
         ));
     }
@@ -668,4 +667,16 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         );
     }
 
+    @Override
+    public Exp visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final TranslateContext param) {
+        final var expression = instanceOfExpression.getExpression().accept(this, param).unEx();
+        final var targetType = (IdentifierTree) instanceOfExpression.getTypeExpression();
+        final var className = targetType.getType().getClassName();
+
+        return new Ex(new ITypeExpression(
+                ITypeExpression.Kind.INSTANCEOF,
+                className,
+                expression
+        ));
+    }
 }

@@ -1,11 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
 import io.github.potjerodekool.nabu.compiler.resolve.Boxer;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
@@ -50,6 +50,12 @@ public class Lower extends AbstractTreeTranslator {
         this.caster = new Caster();
         this.wideningConverter = new WideningConverter(types);
         this.methodResolver = compilerContext.getMethodResolver();
+    }
+
+    @Override
+    public Tree visitUnknown(final Tree tree,
+                             final Scope scope) {
+        return tree;
     }
 
     @Override
@@ -116,7 +122,7 @@ public class Lower extends AbstractTreeTranslator {
 
         final var iteratorType = types.getDeclaredType(iteratorClassElement, localVariableType);
 
-        final var localVariableElement = SymbolBuilders.variableSymbolBuilder()
+        final var localVariableElement = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name(iteratorName)
                 .type(iteratorType)
@@ -170,7 +176,7 @@ public class Lower extends AbstractTreeTranslator {
 
         final var castTypeTree = IdentifierTree.create(typeTree.getName());
 
-        castTypeTree.setType(iteratorType);
+        castTypeTree.setType(typeTree.getType());
 
         final var cast = TreeMaker.castExpressionTree(
                 castTypeTree,

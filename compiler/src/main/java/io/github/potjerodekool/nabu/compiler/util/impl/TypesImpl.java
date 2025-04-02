@@ -291,7 +291,7 @@ public class TypesImpl implements Types {
 
         if (extendsBound == null && superBound == null) {
             kind = BoundKind.UNBOUND;
-            bound = symbolTable.objectType;
+            bound = symbolTable.getObjectType();
         } else if (extendsBound != null) {
             kind = BoundKind.EXTENDS;
             bound = extendsBound;

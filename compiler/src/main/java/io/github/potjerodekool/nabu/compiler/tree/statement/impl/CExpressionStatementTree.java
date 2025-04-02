@@ -27,7 +27,7 @@ public class CExpressionStatementTree extends CStatementTree implements Expressi
 
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
-        return visitor.visiExpressionStatement(this, param);
+        return visitor.visitExpressionStatement(this, param);
     }
 
     @Override

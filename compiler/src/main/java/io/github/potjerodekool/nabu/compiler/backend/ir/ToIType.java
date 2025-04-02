@@ -7,7 +7,9 @@ import io.github.potjerodekool.nabu.compiler.type.*;
 
 public class ToIType implements TypeVisitor<IType, Void> {
 
-    public ToIType() {
+    public static final ToIType INSTANCE = new ToIType();
+
+    private ToIType() {
     }
 
     @Override

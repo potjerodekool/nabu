@@ -23,8 +23,7 @@ public final class IrCleaner {
 
     public static void doCleanUp(final ProcFrag frag) {
         final var flowGraph = IRFlowGraphBuilder.build(
-                frag.getBody(),
-                frag.getFrame()
+                frag.getBody()
         );
 
         final var statements = frag.getBody();
@@ -82,10 +81,6 @@ public final class IrCleaner {
             newBody.forEach(Objects::requireNonNull);
 
             return new ProcFrag(
-                    procFrag.getFlags(),
-                    procFrag.getName(),
-                    procFrag.getReturnType(),
-                    procFrag.getFrame(),
                     newBody
             );
         }
@@ -99,10 +94,6 @@ public final class IrCleaner {
             final var traceSchedule = new TraceSchedule(basicBlocks);
 
             return new ProcFrag(
-                    procFrag.getFlags(),
-                    procFrag.getName(),
-                    procFrag.getReturnType(),
-                    procFrag.getFrame(),
                     traceSchedule.getProgram()
             );
         }

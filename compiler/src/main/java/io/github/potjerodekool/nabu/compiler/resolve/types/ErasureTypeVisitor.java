@@ -80,7 +80,7 @@ public class ErasureTypeVisitor implements TypeVisitor<TypeMirror, Boolean> {
             if (wildcardType.isSuperBound()) {
                 return wildcardType.getBound() != null
                         ? wildcardType.getBound().getUpperBound()
-                        : symbolTable.objectType;
+                        : symbolTable.getObjectType();
             } else {
                 return wildUpperBound(wildcardType.getBound());
             }

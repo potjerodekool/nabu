@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import org.objectweb.asm.FieldVisitor;
@@ -29,7 +30,7 @@ public class FieldBuilder extends FieldVisitor {
             type = typeBuilder.parseFieldSignature(signature, asmTypeResolver, clazz.resolveModuleSymbol());
         }
 
-        final var field = SymbolBuilders.variableSymbolBuilder()
+        final var field = new VariableSymbolBuilderImpl()
                 .kind(elementKind)
                 .name(name)
                 .enclosingElement(clazz)

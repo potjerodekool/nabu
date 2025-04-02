@@ -61,8 +61,6 @@ public class TypeBuilder {
         final var type = (CClassType) classSymbol.asType();
         type.setOuterType(outerType);
         type.setTypeArguments(formalTypeParameters);
-
-        classSymbol.setType(type);
     }
 
     public TypeMirror build(final String signature,

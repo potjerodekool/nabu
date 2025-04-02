@@ -148,7 +148,7 @@ public class ElementsImpl implements Elements {
             final var superclass = (AbstractType) ((ClassSymbol) symbol).getSuperclass();
 
             if (superclass.isError()
-                    || superclass.asTypeElement() == symbolTable.objectType.asTypeElement()) {
+                    || superclass.asTypeElement() == symbolTable.getObjectType().asTypeElement()) {
                 break;
             }
 

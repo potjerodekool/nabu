@@ -44,8 +44,8 @@ public final class ElementFilter {
         return elements(classSymbol, ElementKind.METHOD, ExecutableElement.class);
     }
 
-    public static List<ExecutableElement> constructors(final TypeElement classSymbol) {
-        return elements(classSymbol, ElementKind.CONSTRUCTOR, ExecutableElement.class);
+    public static List<ExecutableElement> constructorsIn(final Iterable<? extends Element> elements) {
+        return listFilter(elements, Set.of(ElementKind.CONSTRUCTOR), ExecutableElement.class);
     }
 
     public static List<VariableElement> enumValues(final TypeElement classSymbol) {

@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.ThrowStatement;
 
 public interface TreeVisitor<R, P> {
 
@@ -52,7 +53,7 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(literalExpression, param);
     }
 
-    default R visiExpressionStatement(ExpressionStatementTree expressionStatement, P param) {
+    default R visitExpressionStatement(ExpressionStatementTree expressionStatement, P param) {
         return visitUnknown(expressionStatement, param);
     }
 
@@ -206,5 +207,49 @@ public interface TreeVisitor<R, P> {
 
     default R visitOpens(OpensTree opensTree, P param) {
         return visitUnknown(opensTree, param);
+    }
+
+    default R visitLabeledStatement(LabeledStatement labeledStatement, P param) {
+        return visitUnknown(labeledStatement, param);
+    }
+
+    default R visitBreakStatement(BreakStatement breakStatement, P param) {
+        return visitUnknown(breakStatement, param);
+    }
+
+    default R visitContinueStatement(ContinueStatement continueStatement, P param) {
+        return visitUnknown(continueStatement, param);
+    }
+
+    default R visitSynchronizedStatement(SynchronizedStatement synchronizedStatement, P param) {
+        return visitUnknown(synchronizedStatement, param);
+    }
+
+    default R visitThrowStatement(ThrowStatement throwStatement, P param) {
+        return visitUnknown(throwStatement, param);
+    }
+
+    default R visitYieldStatement(YieldStatement yieldStatement, P param) {
+        return visitUnknown(yieldStatement, param);
+    }
+
+    default R visitAssertStatement(AssertStatement assertStatement, P param) {
+        return visitUnknown(assertStatement, param);
+    }
+
+    default R visitCaseStatement(CaseStatement caseStatement, P param) {
+        return visitUnknown(caseStatement, param);
+    }
+
+    default R visitConstantCaseLabel(ConstantCaseLabel constantCaseLabel, P param) {
+        return visitUnknown(constantCaseLabel, param);
+    }
+
+    default R visitDefaultCaseLabel(DefaultCaseLabel defaultCaseLabel, P param) {
+        return visitUnknown(defaultCaseLabel, param);
+    }
+
+    default R visitSwitchStatement(SwitchStatement switchStatement, P param) {
+        return visitUnknown(switchStatement, param);
     }
 }

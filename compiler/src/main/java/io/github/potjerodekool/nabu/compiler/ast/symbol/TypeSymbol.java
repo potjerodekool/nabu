@@ -14,6 +14,10 @@ public abstract class TypeSymbol extends Symbol {
                       final AbstractType type,
                       final Symbol owner) {
         super(kind, flags, name, type, owner);
+
+        if (type != null) {
+            type.setElement(this);
+        }
     }
 
     @Override

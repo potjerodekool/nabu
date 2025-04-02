@@ -9,7 +9,7 @@ import java.util.function.Consumer;
 
 public interface ExecutableElementBuilder<E extends ExecutableElement, EB extends ExecutableElementBuilder<E, EB>> extends ElementBuilder<ExecutableElement, EB> {
 
-    EB parameter(Consumer<VariableElementBuilder<?,?>> consumer);
+    EB parameter(Consumer<VariableElementBuilder<?>> consumer);
 
     EB returnType(TypeMirror returnType);
 

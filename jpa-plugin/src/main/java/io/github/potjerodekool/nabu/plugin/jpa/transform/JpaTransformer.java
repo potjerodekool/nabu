@@ -310,7 +310,7 @@ public class JpaTransformer extends AbstractJpaTransformer implements CodeTransf
     }
 
     @Override
-    public Object visiExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
+    public Object visitExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
         final var newExpression = (ExpressionTree) expressionStatement.getExpression().accept(this, scope);
 
         if (newExpression != expressionStatement.getExpression()) {

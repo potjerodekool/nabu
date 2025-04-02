@@ -3,11 +3,11 @@ package io.github.potjerodekool.nabu.compiler.ast.element.builder;
 import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
-public interface VariableElementBuilder<E extends VariableElement, EB extends VariableElementBuilder<E, EB>>
-        extends ElementBuilder<E, EB> {
+public interface VariableElementBuilder<EB extends VariableElementBuilder<EB>>
+        extends ElementBuilder<VariableElement, EB> {
 
-    VariableElementBuilder<E, EB> type(TypeMirror type);
+    VariableElementBuilder<EB> type(TypeMirror type);
 
-    VariableElementBuilder<E, EB> constantValue(Object constantValue);
+    VariableElementBuilder<EB> constantValue(Object constantValue);
 
 }

@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.ast.element.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.EnumAttribute;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 
@@ -13,7 +13,7 @@ public final class CEnumAttributeProxy extends AbstractAttribute implements Enum
     public CEnumAttributeProxy(final DeclaredType type,
                                final String name) {
         this.type = type;
-        this.value = SymbolBuilders.variableSymbolBuilder()
+        this.value = new VariableSymbolBuilderImpl()
                 .name(name)
                 .type(type)
                 .build();

@@ -196,5 +196,19 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
     public void visitIincInsn(final int varIndex, final int increment) {
         super.visitIincInsn(varIndex, increment);
     }
+
+    @Override
+    public void visitTypeInsn(final int opcode, final String type) {
+        super.visitTypeInsn(opcode, type);
+        pop();
+
+        if (opcode == Opcodes.CHECKCAST) {
+            push(Type.getObjectType(type));
+        } else if (opcode == Opcodes.INSTANCEOF) {
+            push(Type.BOOLEAN_TYPE);
+        } else {
+            throw new TodoException();
+        }
+    }
 }
 

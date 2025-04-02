@@ -34,6 +34,8 @@ public interface Function extends Tree {
 
     BlockStatementTree getBody();
 
+    void setBody(final BlockStatementTree body);
+
     default boolean hasFlag(final long flag) {
         return getModifiers().hasFlag(flag);
     }

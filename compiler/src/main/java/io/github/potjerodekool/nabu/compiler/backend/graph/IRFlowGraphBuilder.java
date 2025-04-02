@@ -16,13 +16,11 @@ public class IRFlowGraphBuilder {
     private IRFlowGraphBuilder() {
     }
 
-    public static IRFlowGraph build(final IStatement statement,
-                                    final Frame frame) {
-        return build(List.of(statement), frame);
+    public static IRFlowGraph build(final IStatement statement) {
+        return build(List.of(statement));
     }
 
-    public static IRFlowGraph build(final List<IStatement> statements,
-                                    final Frame frame) {
+    public static IRFlowGraph build(final List<IStatement> statements) {
         final IRFlowGraph flowGraph = new IRFlowGraph();
 
         final Map<ILabel, IStatement> labelInstrMap = new HashMap<>();
@@ -44,7 +42,7 @@ public class IRFlowGraphBuilder {
                 if (move.getDst() instanceof TempExpr tempExpr) {
                     final int index = tempExpr.getTemp().getIndex();
 
-                    if (index == frame.rv().getIndex()) {
+                    if (index == Frame.RV) {
                         continue;
                     }
                 }

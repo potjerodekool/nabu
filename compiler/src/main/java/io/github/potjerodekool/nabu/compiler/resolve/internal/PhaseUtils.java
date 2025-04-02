@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
@@ -32,7 +32,7 @@ public final class PhaseUtils {
             variableDeclaratorStatement.getType().setType(type);
         }
 
-        return SymbolBuilders.variableSymbolBuilder()
+        return new VariableSymbolBuilderImpl()
                 .kind(toElementKind(variableDeclaratorStatement.getKind()))
                 .name(identifier.getName())
                 .type(type)

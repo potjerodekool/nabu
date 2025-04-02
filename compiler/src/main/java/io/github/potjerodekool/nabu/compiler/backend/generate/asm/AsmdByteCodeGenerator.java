@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.generate.RecordFiller;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
@@ -14,6 +14,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.compiler.util.Elements;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -21,26 +22,35 @@ import org.objectweb.asm.Type;
 import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator.toAsmType;
 import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;
 
-public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Void, CompilerOptions> {
+public class AsmdByteCodeGenerator implements ByteCodeGenerator,
+        SymbolVisitor<Void, Object> {
 
-    private final ClassWriter classWriter = new ClassWriter(
+    protected final ClassWriter classWriter = new ClassWriter(
             ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
     );
 
+    private final RecordFiller recordFiller;
+
     private String internalName;
 
-    private final ToIType toIType = new ToIType();
+    private final CompilerOptions options;
+
+    public AsmdByteCodeGenerator(final Elements elements,
+                                 final CompilerOptions options) {
+        this.recordFiller = new RecordFiller(elements);
+        this.options = options;
+    }
 
     @Override
     public void generate(final ClassDeclaration clazz,
-                         final CompilerOptions options) {
+                         final Object options) {
         final var symbol = (Symbol) clazz.getClassSymbol();
         symbol.accept(this, options);
     }
 
     @Override
     public void generate(final ModuleDeclaration moduleDeclaration,
-                         final CompilerOptions options) {
+                         final Object options) {
         final var symbol = (Symbol) moduleDeclaration.getModuleSymbol();
         symbol.accept(this, options);
     }
@@ -48,9 +58,16 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
     private int resolveAccess(final ClassSymbol classSymbol) {
         int access = AccessUtils.flagsToAccess(classSymbol.getFlags());
 
-        if (classSymbol.getKind() == ElementKind.INTERFACE
-                && !Flags.hasFlag(classSymbol.getFlags(), Flags.INTERFACE)) {
-            access += Opcodes.ACC_INTERFACE;
+        access += switch (classSymbol.getKind()) {
+            case INTERFACE -> Opcodes.ACC_INTERFACE;
+            case ENUM -> Opcodes.ACC_ENUM;
+            case RECORD -> Opcodes.ACC_RECORD;
+            case ANNOTATION_TYPE -> Opcodes.ACC_ANNOTATION;
+            default -> 0;
+        };
+
+        if (classSymbol.getKind() == ElementKind.CLASS) {
+            access += Opcodes.ACC_SUPER;
         }
 
         return access;
@@ -75,7 +92,7 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
     }
 
     @Override
-    public Void visitModule(final ModuleSymbol moduleSymbol, final CompilerOptions options) {
+    public Void visitModule(final ModuleSymbol moduleSymbol, final Object param) {
         var access = moduleSymbol.isSynthetic()
                 ? Opcodes.ACC_SYNTHETIC
                 : Opcodes.ACC_MANDATED;
@@ -102,7 +119,7 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
     }
 
     @Override
-    public Void visitClass(final ClassSymbol classSymbol, final CompilerOptions options) {
+    public Void visitClass(final ClassSymbol classSymbol, final Object param) {
         final var fileObject = classSymbol.getSourceFile();
         final var fileName = fileObject.getFileName();
 
@@ -110,11 +127,10 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
         internalName = getInternalName(classSymbol.getQualifiedName());
         final String signature = SignatureGenerator.getClassSignature(classSymbol);
 
-
-        final var superType = classSymbol.getSuperclass().accept(toIType, null);
+        final var superType = classSymbol.getSuperclass().accept(ToIType.INSTANCE, null);
         final var superName = toAsmType(superType).getInternalName();
         final var interfaces = classSymbol.getInterfaces().stream()
-                .map(it -> it.accept(toIType, null))
+                .map(it -> it.accept(ToIType.INSTANCE, null))
                 .map(AsmISignatureGenerator::toAsmType)
                 .map(Type::getInternalName)
                 .toArray(String[]::new);
@@ -128,27 +144,48 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator, SymbolVisitor<Vo
         generateAnnotations(classSymbol);
         generatePermittedSubClasses(classSymbol);
 
+        beforeProcessClassMembers(classSymbol);
+
         classSymbol.getMembers().elements().stream()
                 .map(it -> (Symbol) it)
                 .forEach(e -> e.accept(this, null));
+
+        afterProcessClassMembers(classSymbol);
+
         classWriter.visitEnd();
         return null;
     }
 
+    private void beforeProcessClassMembers(final ClassSymbol classSymbol) {
+        if (classSymbol.getKind() == ElementKind.RECORD) {
+            recordFiller.fillRecord(classSymbol);
+        }
+    }
+
+    public void afterProcessClassMembers(final ClassSymbol classSymbol) {
+        if (classSymbol.getKind() == ElementKind.RECORD) {
+            new AsmRecordMethodsGenerator()
+                    .generateMethods(classWriter, classSymbol);
+        } else if (classSymbol.getKind() == ElementKind.ENUM) {
+            new AsmEnumMethodGenerator()
+                    .generateEnumFieldAndMethods(classWriter, classSymbol);
+        }
+    }
 
     @Override
-    public Void visitUnknown(final Symbol symbol, final CompilerOptions options) {
+    public Void visitUnknown(final Symbol symbol, final Object param) {
         return null;
     }
 
     @Override
-    public Void visitMethod(final MethodSymbol methodSymbol, final CompilerOptions options) {
-        new AsmMethodByteCodeGenerator(classWriter, internalName).generate(methodSymbol);
+    public Void visitMethod(final MethodSymbol methodSymbol, final Object param) {
+        final var generator = new AsmMethodByteCodeGenerator(classWriter, internalName);
+        generator.generate(methodSymbol);
         return null;
     }
 
     @Override
-    public Void visitVariable(final VariableSymbol variableSymbol, final CompilerOptions options) {
+    public Void visitVariable(final VariableSymbol variableSymbol, final Object param) {
         new AsmFieldByteCodeGenerator(classWriter).generate(variableSymbol);
         return null;
     }

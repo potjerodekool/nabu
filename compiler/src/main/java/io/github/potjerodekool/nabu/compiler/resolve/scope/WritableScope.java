@@ -30,6 +30,11 @@ public class WritableScope implements Scope {
         this.elements.add(element);
     }
 
+    public void define(final int index,
+                       final Element element) {
+        this.elements.add(element);
+    }
+
     @Override
     public Element resolve(final String name) {
         if (!name.contains("$")) {

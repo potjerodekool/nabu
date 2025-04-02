@@ -3,9 +3,9 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
@@ -47,7 +47,7 @@ class MethodResolverTest {
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
 
-        final var listVariable = SymbolBuilders.variableSymbolBuilder()
+        final var listVariable = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name("list")
                 .type(stringListType)
@@ -60,7 +60,7 @@ class MethodResolverTest {
         indexArg.setType(intType);
 
         final var elementArg = IdentifierTree.create("value");
-        final var variable = SymbolBuilders.variableSymbolBuilder()
+        final var variable = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name("value")
                 .type(stringClass.asType())
@@ -116,7 +116,7 @@ class MethodResolverTest {
                 .kind(ElementKind.CLASS)
                 .name("Person")
                 .enclosedElement(
-                        SymbolBuilders.variableSymbolBuilder()
+                        new VariableSymbolBuilderImpl()
                                 .kind(ElementKind.FIELD)
                                 .name("birthDay")
                                 .type(localDateClass.asType())
@@ -136,7 +136,7 @@ class MethodResolverTest {
                 .argumentTypes(stringClass.asType())
                 .name("get")
                 .parameter(
-                        SymbolBuilders.variableSymbolBuilder()
+                        new VariableSymbolBuilderImpl()
                                 .name("attributeName")
                                 .type(stringClass.asType())
                                 .build()
@@ -151,7 +151,7 @@ class MethodResolverTest {
                 personClass.asType()
         ));
 
-        final var pathVariable = SymbolBuilders.variableSymbolBuilder()
+        final var pathVariable = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .name("list")
                 .type(types.getDeclaredType(

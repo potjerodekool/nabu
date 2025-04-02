@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler;
 import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.dependencyinjection.ClassPathScanner;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmdByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Translate;
 import io.github.potjerodekool.nabu.compiler.backend.lower.Lower;
 import io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda.LambdaToMethod;
@@ -23,7 +23,7 @@ import io.github.potjerodekool.nabu.compiler.io.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.resolve.*;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.Phase1Resolver;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.EnterClasses;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.Phase2Resolver;
 import io.github.potjerodekool.nabu.compiler.transform.CodeTransformer;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
@@ -63,7 +63,11 @@ public class NabuCompiler {
             final var nabuSourceFiles = resolveSourceFiles(fileManager);
             final var compilationUnits = processFiles(nabuSourceFiles, compilerContext);
 
-            final var exitCode = generate(compilationUnits, compilerOptions);
+            final var exitCode = generate(
+                    compilationUnits,
+                    compilerOptions,
+                    compilerContext
+            );
 
             if (exitCode != 0) {
                 System.exit(exitCode);
@@ -94,7 +98,8 @@ public class NabuCompiler {
     }
 
     private int generate(final List<CompilationUnit> compilationUnits,
-                         final CompilerOptions compilerOptions) {
+                         final CompilerOptions compilerOptions,
+                         final CompilerContext compilerContext) {
         if (errorCapture.getErrorCount() > 0) {
             logger.log(LogLevel.ERROR,
                     "Compilation failed with " + errorCapture.getErrorCount() + " errors"
@@ -103,14 +108,18 @@ public class NabuCompiler {
         }
 
         compilationUnits.forEach(compilationUnit ->
-                generate(compilationUnit, compilerOptions));
+                doGenerate(compilationUnit, compilerOptions, compilerContext));
 
         return 0;
     }
 
-    private void generate(final CompilationUnit compilationUnit,
-                          final CompilerOptions compilerOptions) {
-        final ByteCodeGenerator generator = new AsmByteCodeGenerator();
+    private void doGenerate(final CompilationUnit compilationUnit,
+                            final CompilerOptions compilerOptions,
+                            final CompilerContext compilerContext) {
+        final ByteCodeGenerator generator = new AsmdByteCodeGenerator(
+                compilerContext.getElements(),
+                compilerOptions
+        );
 
         final var moduleDeclaration = compilationUnit.getModuleDeclaration();
         final var classes = compilationUnit.getClasses();
@@ -118,13 +127,13 @@ public class NabuCompiler {
         final String name;
 
         if (moduleDeclaration != null) {
-            generator.generate(moduleDeclaration, compilerOptions);
+            generator.generate(moduleDeclaration, null);
             name = "module-info";
             packageName = null;
         } else if (!classes.isEmpty()) {
             final var clazz = classes.getFirst();
             final var packageDeclaration = compilationUnit.getPackageDeclaration();
-            generator.generate(clazz, compilerOptions);
+            generator.generate(clazz, null);
             name = clazz.getSimpleName();
             packageName = packageDeclaration.getQualifiedName();
         } else {
@@ -233,7 +242,7 @@ public class NabuCompiler {
         final var fileObject = fileObjectAndCompilationUnit.fileObject();
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 
-        final var phase1Resolver = new Phase1Resolver(
+        final var phase1Resolver = new EnterClasses(
                 compilerContext
         );
         compilationUnit.accept(phase1Resolver, null);

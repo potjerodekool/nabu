@@ -80,6 +80,11 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     }
 
     @Override
+    public boolean isType() {
+        return true;
+    }
+
+    @Override
     public ElementKind getKind() {
         complete();
         return super.getKind();
@@ -96,11 +101,22 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     }
 
     public void addEnclosedElement(final Symbol enclosedElement) {
+        initMembersIfNeeded();
+        members.define(enclosedElement);
+        enclosedElement.setEnclosingElement(this);
+    }
+
+    public void addEnclosedElement(final int index,
+                                   final Symbol enclosedElement) {
+        initMembersIfNeeded();
+        members.define(index, enclosedElement);
+        enclosedElement.setEnclosingElement(this);
+    }
+
+    private void initMembersIfNeeded() {
         if (members == null) {
             members = new WritableScope();
         }
-        members.define(enclosedElement);
-        enclosedElement.setEnclosingElement(this);
     }
 
     public void setEnclosedElements(final List<Symbol> elements) {

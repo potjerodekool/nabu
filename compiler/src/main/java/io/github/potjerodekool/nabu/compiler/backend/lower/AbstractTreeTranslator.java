@@ -10,7 +10,7 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope> {
 
     @Override
-    public Tree visitUnknown(final Tree tree, final Scope Param) {
+    public Tree visitUnknown(final Tree tree, final Scope scope) {
         return null;
     }
 
@@ -117,7 +117,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visiExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
+    public Tree visitExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
         final var expression = expressionStatement.getExpression();
         final var newExpression = (ExpressionTree) expression.accept(this, scope);
 
@@ -251,12 +251,12 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
 
     @Override
     public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final Scope scope) {
-        return null;
+        return visitUnknown(instanceOfExpression, scope);
     }
 
     @Override
     public Tree visitNewClass(final NewClassExpression newClassExpression, final Scope scope) {
-        return null;
+        return visitUnknown(newClassExpression, scope);
     }
 
     @Override
@@ -280,7 +280,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitTypeParameter(final TypeParameterTree typeParameterTree, final Scope param) {
-        return null;
+    public Tree visitTypeParameter(final TypeParameterTree typeParameterTree, final Scope scope) {
+        return visitUnknown(typeParameterTree, scope);
     }
 }

@@ -2,9 +2,11 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
@@ -14,12 +16,15 @@ import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 public class AsmMethodBuilder extends MethodVisitor {
 
     private final MethodSymbol method;
+    private int parameterIndex = 0;
+
     private final ClassElementLoader loader;
     private final ModuleSymbol moduleSymbol;
 
@@ -58,11 +63,8 @@ public class AsmMethodBuilder extends MethodVisitor {
                     .map(asmTypeResolver::asTypeMirror)
                     .toList();
 
-            final var argCount = Type.getMethodType(descriptor).getArgumentCount();
 
-            if (argCount != argumentTypes.size()) {
-                throw new IllegalStateException();
-            }
+
 
             final var returnType = asmTypeResolver.asTypeMirror(asmMethodType.getReturnType());
 
@@ -86,6 +88,13 @@ public class AsmMethodBuilder extends MethodVisitor {
             );
         }
 
+        final var parameters = new ArrayList<VariableSymbol>();
+        final var argumentTypes = methodSignature.argumentTypes();
+
+        for (var i = 0; i < argumentTypes.size(); i++) {
+            parameters.add(createParameter("p" + i,  argumentTypes.get(i)));
+        }
+
         this.method = new MethodSymbolBuilderImpl()
                 .kind(elementKind)
                 .name(name)
@@ -97,11 +106,37 @@ public class AsmMethodBuilder extends MethodVisitor {
                 )
                 .returnType(methodSignature.returnType())
                 .argumentTypes(methodSignature.argumentTypes())
+                .parameters(parameters)
                 .thrownTypes(methodSignature.thrownTypes())
                 .flags(flags)
                 .build();
 
         clazz.addEnclosedElement(method);
+    }
+
+    private VariableSymbol createParameter(final String name,
+                                           final TypeMirror argType) {
+        return new VariableSymbolBuilderImpl()
+                .kind(ElementKind.PARAMETER)
+                .name(name)
+                .type(argType)
+                .build();
+    }
+
+    @Override
+    public void visitParameter(final String name, final int access) {
+        final var flags = AccessUtils.parseMethodAccessToFlags(access);
+        final var parameters = method.getParameters();
+
+        if (parameterIndex == parameters.size()) {
+            return;
+        }
+
+        final var parameter = parameters.get(parameterIndex++);
+        if (name != null) {
+            parameter.setSimpleName(name);
+        }
+        parameter.setFlags(flags);
     }
 
     private TypeMirror typeOrError(final TypeElement typeElement,

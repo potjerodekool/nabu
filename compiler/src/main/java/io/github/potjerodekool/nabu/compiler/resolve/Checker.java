@@ -13,9 +13,8 @@ import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.tree.ImportItem;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.TypeApplyTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.ErrorType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
@@ -172,19 +171,53 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
         if (isNullOrErrorType(typeIdentifier.getType())) {
-            final var clazz = typeIdentifier.getClazz();
-            final var className = clazz.toString();
-
-            listener.report(new DefaultDiagnostic(
-                    Diagnostic.Kind.ERROR,
-                    "Failed to resolve " + className,
-                    getCompilationUnit(scope).getFileObject()));
+            reportFailedToResolveType(
+                    typeIdentifier.getClazz(),
+                    scope
+            );
         }
 
         return super.visitTypeIdentifier(typeIdentifier, scope);
     }
 
+    private void reportFailedToResolveType(final ExpressionTree expressionTree,
+                                           final Scope scope) {
+        final var className = new StringBuilder();
+        resolveClassName(expressionTree, className);
+
+        listener.report(new DefaultDiagnostic(
+                Diagnostic.Kind.ERROR,
+                "Failed to resolve " + className,
+                getCompilationUnit(scope).getFileObject()));
+    }
+
     private boolean isNullOrErrorType(final TypeMirror typeMirror) {
         return typeMirror == null || typeMirror instanceof ErrorType;
+    }
+
+    @Override
+    public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
+        final var type = variableDeclaratorStatement.getType().getType();
+
+        if (isNullOrErrorType(type)) {
+          reportFailedToResolveType(variableDeclaratorStatement.getType(), scope);
+        }
+
+        if (variableDeclaratorStatement.getValue() != null) {
+            variableDeclaratorStatement.getValue().accept(this, scope);
+        }
+
+        return null;
+    }
+
+    private void resolveClassName(final ExpressionTree expressionTree,
+                                  final StringBuilder builder) {
+        if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            resolveClassName(fieldAccessExpressionTree.getTarget(), builder);
+            builder.append(".");
+            resolveClassName(fieldAccessExpressionTree.getField(), builder);
+        } else if (expressionTree instanceof IdentifierTree identifierTree) {
+            builder.append(identifierTree.getName());
+        }
     }
 }

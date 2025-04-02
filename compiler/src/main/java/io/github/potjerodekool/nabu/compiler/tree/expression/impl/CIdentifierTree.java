@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.tree.expression.impl;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.IdentifierTreeBuilder;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 public class CIdentifierTree extends CExpressionTree implements IdentifierTree {
 

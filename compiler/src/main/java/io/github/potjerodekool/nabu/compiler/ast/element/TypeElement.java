@@ -20,4 +20,5 @@ public interface TypeElement extends Element, QualifiedNameable {
         return List.of();
     }
 
+    TypeMirror getErasureField();
 }

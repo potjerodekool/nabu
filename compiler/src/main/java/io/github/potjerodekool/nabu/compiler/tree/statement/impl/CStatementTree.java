@@ -7,8 +7,8 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.builder.StatementTre
 public abstract class CStatementTree extends CTree implements StatementTree {
 
     public CStatementTree(final int lineNumber,
-                          final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                          final int columnNumber) {
+        super(lineNumber, columnNumber);
     }
 
     public CStatementTree(final StatementTreeBuilder<? extends StatementTree, ? extends StatementTreeBuilder<?, ?>> builder) {

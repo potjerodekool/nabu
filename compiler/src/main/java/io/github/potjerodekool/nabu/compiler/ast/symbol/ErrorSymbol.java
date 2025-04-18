@@ -3,12 +3,14 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementVisitor;
 import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
-import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.compiler.type.impl.CErrorType;
 
 import java.util.List;
 
 public class ErrorSymbol extends ClassSymbol {
+
+    private static final WritableScope members = new WritableScope();
 
     public ErrorSymbol(final String name) {
         super(
@@ -42,5 +44,10 @@ public class ErrorSymbol extends ClassSymbol {
     @Override
     public boolean isError() {
         return true;
+    }
+
+    @Override
+    public WritableScope getMembers() {
+        return members;
     }
 }

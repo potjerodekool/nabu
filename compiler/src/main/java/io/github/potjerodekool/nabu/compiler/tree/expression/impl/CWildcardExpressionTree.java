@@ -13,8 +13,8 @@ public class CWildcardExpressionTree extends CExpressionTree implements Wildcard
     public CWildcardExpressionTree(final BoundKind boundKind,
                                    final ExpressionTree bound,
                                    final int lineNumber,
-                                   final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                   final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.boundKind = boundKind;
         this.bound = bound;
     }

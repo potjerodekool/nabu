@@ -10,8 +10,8 @@ public class CYieldStatement extends CStatementTree implements YieldStatement {
 
     public CYieldStatement(final ExpressionTree expression,
                            final int lineNumber,
-                           final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                           final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.expression = expression;
     }
 

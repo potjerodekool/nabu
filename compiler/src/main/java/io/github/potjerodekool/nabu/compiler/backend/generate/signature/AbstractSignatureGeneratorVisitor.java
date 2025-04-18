@@ -40,4 +40,10 @@ public abstract class AbstractSignatureGeneratorVisitor implements ITypeVisitor<
     public String visitWildcardType(final IWildcardType wildcardType, final Void param) {
         return "*";
     }
+
+    @Override
+    public String visitArrayType(final IArrayType arrayType, final Void param) {
+        final var componentType = arrayType.getComponentType().accept(this, param);
+        return "[" + componentType;
+    }
 }

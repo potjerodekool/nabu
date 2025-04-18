@@ -1,30 +1,29 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 
-public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope> {
+public abstract class AbstractTreeTranslator<P> implements TreeVisitor<Tree, P> {
 
     @Override
-    public Tree visitUnknown(final Tree tree, final Scope scope) {
+    public Tree visitUnknown(final Tree tree, final P param) {
         return null;
     }
 
     @Override
-    public Tree visitCompilationUnit(final CompilationUnit compilationUnit, final Scope scope) {
+    public Tree visitCompilationUnit(final CompilationUnit compilationUnit, final P param) {
         compilationUnit.getClasses()
-                .forEach(classDeclaration -> classDeclaration.accept(this, scope));
+                .forEach(classDeclaration -> classDeclaration.accept(this, param));
         return compilationUnit;
     }
 
     @Override
-    public Tree visitFunction(final Function function, final Scope scope) {
+    public Tree visitFunction(final Function function, final P param) {
         final var body = function.getBody();
-        final BlockStatementTree newBody = accept(body, scope);
+        final BlockStatementTree newBody = accept(body, param);
 
         if (newBody != body) {
             return function.builder()
@@ -36,9 +35,9 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitBlockStatement(final BlockStatementTree blockStatement, final Scope scope) {
+    public Tree visitBlockStatement(final BlockStatementTree blockStatement, final P param) {
         final var newStatements = blockStatement.getStatements().stream()
-                .map(statement -> (StatementTree) statement.accept(this, scope))
+                .map(statement -> (StatementTree) statement.accept(this, param))
                 .toList();
         return blockStatement.builder()
                 .statements(newStatements)
@@ -46,14 +45,14 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitReturnStatement(final ReturnStatementTree returnStatement, final Scope scope) {
+    public Tree visitReturnStatement(final ReturnStatementTree returnStatement, final P param) {
         final var expression = returnStatement.getExpression();
 
         if (expression == null) {
             return returnStatement;
         }
 
-        final var newExpression = (ExpressionTree) expression.accept(this, scope);
+        final var newExpression = (ExpressionTree) expression.accept(this, param);
 
         if (newExpression != expression) {
             return returnStatement.builder()
@@ -65,17 +64,17 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitIdentifier(final IdentifierTree identifier, final Scope scope) {
+    public Tree visitIdentifier(final IdentifierTree identifier, final P param) {
         return identifier;
     }
 
     @Override
-    public Tree visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final Scope scope) {
+    public Tree visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final P param) {
         final var variables = lambdaExpression.getVariables().stream()
-                .map(it -> (VariableDeclaratorTree) it.accept(this, scope))
+                .map(it -> (VariableDeclaratorTree) it.accept(this, param))
                 .toList();
 
-        final var body = (StatementTree) lambdaExpression.getBody().accept(this, scope);
+        final var body = (StatementTree) lambdaExpression.getBody().accept(this, param);
 
         return lambdaExpression.builder()
                 .variables(variables)
@@ -85,41 +84,41 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
 
     @Override
     public Tree visitBinaryExpression(final BinaryExpressionTree binaryExpression,
-                                      final Scope scope) {
+                                      final P param) {
         return binaryExpression;
     }
 
     @Override
-    public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final Scope scope) {
+    public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final P param) {
         return fieldAccessExpression;
     }
 
     @Override
-    public Tree visitClass(final ClassDeclaration classDeclaration, final Scope scope) {
+    public Tree visitClass(final ClassDeclaration classDeclaration, final P param) {
         final var enclosedElements = classDeclaration.getEnclosedElements();
 
         for (int i = 0; i < enclosedElements.size(); i++) {
             var enclosedElement = enclosedElements.get(i);
-            enclosedElement = enclosedElement.accept(this, scope);
+            enclosedElement = enclosedElement.accept(this, param);
             enclosedElements.set(i, enclosedElement);
         }
         return classDeclaration;
     }
 
     @Override
-    public Tree visitMethodInvocation(final MethodInvocationTree methodInvocation, final Scope scope) {
+    public Tree visitMethodInvocation(final MethodInvocationTree methodInvocation, final P param) {
         return methodInvocation;
     }
 
     @Override
-    public Tree visitLiteralExpression(final LiteralExpressionTree literalExpression, final Scope scope) {
+    public Tree visitLiteralExpression(final LiteralExpressionTree literalExpression, final P param) {
         return literalExpression;
     }
 
     @Override
-    public Tree visitExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
+    public Tree visitExpressionStatement(final ExpressionStatementTree expressionStatement, final P param) {
         final var expression = expressionStatement.getExpression();
-        final var newExpression = (ExpressionTree) expression.accept(this, scope);
+        final var newExpression = (ExpressionTree) expression.accept(this, param);
 
         if (newExpression != expression) {
             return expressionStatement.builder()
@@ -131,65 +130,65 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
+    public Tree visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final P param) {
         return variableDeclaratorStatement;
     }
 
     @Override
-    public Tree visitPackageDeclaration(final PackageDeclaration packageDeclaration, final Scope scope) {
+    public Tree visitPackageDeclaration(final PackageDeclaration packageDeclaration, final P param) {
         return packageDeclaration;
     }
 
     @Override
-    public Tree visitImportItem(final ImportItem importItem, final Scope scope) {
+    public Tree visitImportItem(final ImportItem importItem, final P param) {
         return importItem;
     }
 
     @Override
-    public Tree visitPrimitiveType(final PrimitiveTypeTree primitiveType, final Scope scope) {
+    public Tree visitPrimitiveType(final PrimitiveTypeTree primitiveType, final P param) {
         return primitiveType;
     }
 
     @Override
-    public Tree visitUnaryExpression(final UnaryExpressionTree unaryExpression, final Scope scope) {
+    public Tree visitUnaryExpression(final UnaryExpressionTree unaryExpression, final P param) {
         return unaryExpression;
     }
 
     @Override
-    public Tree visitTypeIdentifier(final TypeApplyTree typeIdentifier, final Scope scope) {
+    public Tree visitTypeIdentifier(final TypeApplyTree typeIdentifier, final P param) {
         return typeIdentifier;
     }
 
     @Override
-    public Tree visitAnnotatedType(final AnnotatedTypeTree annotatedType, final Scope scope) {
+    public Tree visitAnnotatedType(final AnnotatedTypeTree annotatedType, final P param) {
         return annotatedType;
     }
 
     @Override
-    public Tree visitTypeNameExpression(final TypeNameExpressionTree typeNameExpression, final Scope scope) {
+    public Tree visitTypeNameExpression(final TypeNameExpressionTree typeNameExpression, final P param) {
         return typeNameExpression;
     }
 
     @Override
-    public Tree visitVariableType(final VariableTypeTree variableType, final Scope scope) {
+    public Tree visitVariableType(final VariableTypeTree variableType, final P param) {
         return variableType;
     }
 
     @Override
-    public Tree visitCastExpression(final CastExpressionTree castExpressionTree, final Scope scope) {
+    public Tree visitCastExpression(final CastExpressionTree castExpressionTree, final P param) {
         return castExpressionTree;
     }
 
     @Override
-    public Tree visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final Scope scope) {
+    public Tree visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final P param) {
         return wildCardExpression;
     }
 
     @Override
-    public Tree visitIfStatement(final IfStatementTree ifStatementTree, final Scope scope) {
-        final var expression = (ExpressionTree) ifStatementTree.getExpression().accept(this, scope);
-        final var thenStatement = (StatementTree) ifStatementTree.getThenStatement().accept(this, scope);
-        final StatementTree elseStatement = accept(ifStatementTree.getElseStatement(), scope);
+    public Tree visitIfStatement(final IfStatementTree ifStatementTree, final P param) {
+        final var expression = (ExpressionTree) ifStatementTree.getExpression().accept(this, param);
+        final var thenStatement = (StatementTree) ifStatementTree.getThenStatement().accept(this, param);
+        final StatementTree elseStatement = accept(ifStatementTree.getElseStatement(), param);
 
         return ifStatementTree.builder()
                 .expression(expression)
@@ -199,29 +198,29 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitEmptyStatement(final EmptyStatementTree emptyStatementTree, final Scope scope) {
+    public Tree visitEmptyStatement(final EmptyStatementTree emptyStatementTree, final P param) {
         return emptyStatementTree;
     }
 
     protected <T extends Tree> T accept(final T tree,
-                                        final Scope scope) {
+                                        final P param) {
         return tree != null
-                ? (T) tree.accept(this, scope)
+                ? (T) tree.accept(this, param)
                 : null;
     }
 
     @Override
-    public Tree visitForStatement(final ForStatementTree forStatement, final Scope scope) {
+    public Tree visitForStatement(final ForStatementTree forStatement, final P param) {
         final var newInit = forStatement.getForInit().stream()
-                .map(it -> (StatementTree) it.accept(this, scope))
+                .map(it -> (StatementTree) it.accept(this, param))
                 .toList();
 
-        final ExpressionTree newExpression = accept(forStatement.getExpression(), scope);
+        final ExpressionTree newExpression = accept(forStatement.getExpression(), param);
         final var newUpdate = forStatement.getForUpdate().stream()
-                .map(it -> (StatementTree) it.accept(this, scope))
+                .map(it -> (StatementTree) it.accept(this, param))
                 .toList();
 
-        final var newStatement = (StatementTree) forStatement.getStatement().accept(this, scope);
+        final var newStatement = (StatementTree) forStatement.getStatement().accept(this, param);
 
         return forStatement.builder()
                 .forInit(newInit)
@@ -232,10 +231,10 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Scope scope) {
-        final var newExpression = (ExpressionTree) enhancedForStatement.getExpression().accept(this, scope);
-        final var newLocalVariable = (VariableDeclaratorTree) enhancedForStatement.getLocalVariable().accept(this, scope);
-        final var newStatement = (StatementTree) enhancedForStatement.getStatement().accept(this, scope);
+    public Tree visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final P param) {
+        final var newExpression = (ExpressionTree) enhancedForStatement.getExpression().accept(this, param);
+        final var newLocalVariable = (VariableDeclaratorTree) enhancedForStatement.getLocalVariable().accept(this, param);
+        final var newStatement = (StatementTree) enhancedForStatement.getStatement().accept(this, param);
 
         return enhancedForStatement.builder()
                 .localVariable(newLocalVariable)
@@ -245,24 +244,24 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitAnnotation(final AnnotationTree annotationTree, final Scope scope) {
+    public Tree visitAnnotation(final AnnotationTree annotationTree, final P param) {
         return annotationTree;
     }
 
     @Override
-    public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final Scope scope) {
-        return visitUnknown(instanceOfExpression, scope);
+    public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final P param) {
+        return visitUnknown(instanceOfExpression, param);
     }
 
     @Override
-    public Tree visitNewClass(final NewClassExpression newClassExpression, final Scope scope) {
-        return visitUnknown(newClassExpression, scope);
+    public Tree visitNewClass(final NewClassExpression newClassExpression, final P param) {
+        return visitUnknown(newClassExpression, param);
     }
 
     @Override
-    public Tree visitWhileStatement(final WhileStatementTree whileStatement, final Scope scope) {
-        final var condition = (ExpressionTree) whileStatement.getCondition().accept(this, scope);
-        final var body = (StatementTree) whileStatement.getBody().accept(this, scope);
+    public Tree visitWhileStatement(final WhileStatementTree whileStatement, final P param) {
+        final var condition = (ExpressionTree) whileStatement.getCondition().accept(this, param);
+        final var body = (StatementTree) whileStatement.getBody().accept(this, param);
         return whileStatement.builder()
                 .condition(condition)
                 .body(body)
@@ -270,9 +269,9 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final Scope scope) {
-        final var body = (StatementTree) doWhileStatement.getBody().accept(this, scope);
-        final var condition = (ExpressionTree) doWhileStatement.getCondition().accept(this, scope);
+    public Tree visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final P param) {
+        final var body = (StatementTree) doWhileStatement.getBody().accept(this, param);
+        final var condition = (ExpressionTree) doWhileStatement.getCondition().accept(this, param);
         return doWhileStatement.builder()
                 .body(body)
                 .condition(condition)
@@ -280,7 +279,7 @@ public abstract class AbstractTreeTranslator implements TreeVisitor<Tree, Scope>
     }
 
     @Override
-    public Tree visitTypeParameter(final TypeParameterTree typeParameterTree, final Scope scope) {
-        return visitUnknown(typeParameterTree, scope);
+    public Tree visitTypeParameter(final TypeParameterTree typeParameterTree, final P param) {
+        return visitUnknown(typeParameterTree, param);
     }
 }

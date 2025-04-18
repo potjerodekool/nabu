@@ -14,8 +14,8 @@ public class CIntersectionTypeTree extends CExpressionTree implements Intersecti
 
     public CIntersectionTypeTree(final List<? extends Tree> bounds,
                                  final int lineNumber,
-                                 final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                 final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.bounds.addAll(bounds);
     }
 

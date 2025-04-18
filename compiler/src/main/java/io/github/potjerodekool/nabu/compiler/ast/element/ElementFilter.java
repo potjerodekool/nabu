@@ -36,12 +36,12 @@ public final class ElementFilter {
                 .toList();
     }
 
-    public static List<VariableElement> fields(final TypeElement classSymbol) {
-        return elements(classSymbol, ElementKind.FIELD, VariableElement.class);
+    public static List<VariableElement> fieldsIn(final Iterable<? extends Element> elements) {
+        return listFilter(elements, Set.of(ElementKind.FIELD), VariableElement.class);
     }
 
-    public static List<ExecutableElement> methods(final TypeElement classSymbol) {
-        return elements(classSymbol, ElementKind.METHOD, ExecutableElement.class);
+    public static List<ExecutableElement> methodsIn(final Iterable<? extends Element> elements) {
+        return listFilter(elements, Set.of(ElementKind.METHOD), ExecutableElement.class);
     }
 
     public static List<ExecutableElement> constructorsIn(final Iterable<? extends Element> elements) {

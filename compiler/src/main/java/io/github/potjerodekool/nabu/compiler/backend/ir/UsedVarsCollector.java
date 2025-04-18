@@ -17,7 +17,7 @@ class UsedVarsCollector extends AbstractTreeVisitor<Object, TranslateContext> {
 
     @Override
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final TranslateContext context) {
-        fieldAccessExpression.getTarget().accept(this, context);
+        fieldAccessExpression.getSelected().accept(this, context);
         return null;
     }
 

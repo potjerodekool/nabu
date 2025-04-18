@@ -16,8 +16,8 @@ public class CImportItemTree extends CTree implements ImportItem {
     public CImportItemTree(final FieldAccessExpressionTree qualified,
                            final boolean isStatic,
                            final int lineNumber,
-                           final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                           final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.qualified = qualified;
         this.isStatic = isStatic;
     }
@@ -44,14 +44,27 @@ public class CImportItemTree extends CTree implements ImportItem {
 
     @Override
     public boolean isStarImport() {
-        final var field = (IdentifierTree) qualified.getField();
-        return field.getName().equals("*");
+        final var fieldName = getFieldName(qualified);
+        return fieldName.equals("*");
     }
+
+    private String getFieldName(final FieldAccessExpressionTree fieldAccessExpressionTree) {
+        final var field = fieldAccessExpressionTree.getField();
+
+        if (field instanceof IdentifierTree identifierTree) {
+            return identifierTree.getName();
+        } else if (field instanceof FieldAccessExpressionTree sub) {
+            return getFieldName(sub);
+        } else {
+            return "";
+        }
+    }
+
 
     @Override
     public String getClassOrPackageName() {
         return isStarImport()
-                ? getClassName(qualified.getTarget())
+                ? getClassName(qualified.getSelected())
                 : getClassName(qualified);
     }
 
@@ -60,7 +73,7 @@ public class CImportItemTree extends CTree implements ImportItem {
             return identifierTree.getName();
         } else {
             final var fieldAccess = (FieldAccessExpressionTree) expressionTree;
-            final var packageName = getClassName(fieldAccess.getTarget());
+            final var packageName = getClassName(fieldAccess.getSelected());
             final var className = getClassName(fieldAccess.getField());
             return packageName + "." + className;
         }

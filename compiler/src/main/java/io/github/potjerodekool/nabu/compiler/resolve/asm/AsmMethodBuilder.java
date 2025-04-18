@@ -63,9 +63,6 @@ public class AsmMethodBuilder extends MethodVisitor {
                     .map(asmTypeResolver::asTypeMirror)
                     .toList();
 
-
-
-
             final var returnType = asmTypeResolver.asTypeMirror(asmMethodType.getReturnType());
 
             final List<TypeMirror> thrownTypes;
@@ -92,12 +89,12 @@ public class AsmMethodBuilder extends MethodVisitor {
         final var argumentTypes = methodSignature.argumentTypes();
 
         for (var i = 0; i < argumentTypes.size(); i++) {
-            parameters.add(createParameter("p" + i,  argumentTypes.get(i)));
+            parameters.add(createParameter("arg" + i, argumentTypes.get(i)));
         }
 
         this.method = new MethodSymbolBuilderImpl()
                 .kind(elementKind)
-                .name(name)
+                .simpleName(name)
                 .enclosingElement(clazz)
                 .typeParameters(
                         methodSignature.typeVariables().stream()
@@ -105,7 +102,6 @@ public class AsmMethodBuilder extends MethodVisitor {
                                 .toList()
                 )
                 .returnType(methodSignature.returnType())
-                .argumentTypes(methodSignature.argumentTypes())
                 .parameters(parameters)
                 .thrownTypes(methodSignature.thrownTypes())
                 .flags(flags)
@@ -118,7 +114,7 @@ public class AsmMethodBuilder extends MethodVisitor {
                                            final TypeMirror argType) {
         return new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
-                .name(name)
+                .simpleName(name)
                 .type(argType)
                 .build();
     }

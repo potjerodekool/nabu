@@ -20,8 +20,8 @@ public class CPackageDeclarationTree extends CTree implements PackageDeclaration
     public CPackageDeclarationTree(final List<AnnotationTree> annotations,
                                    final ExpressionTree identifier,
                                    final int line,
-                                   final int charPositionInLine) {
-        super(line, charPositionInLine);
+                                   final int columnNumber) {
+        super(line, columnNumber);
         this.annotations.addAll(annotations);
         this.identifier = identifier;
     }

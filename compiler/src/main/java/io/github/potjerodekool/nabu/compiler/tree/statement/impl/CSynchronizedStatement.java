@@ -12,8 +12,9 @@ public class CSynchronizedStatement extends CStatementTree implements Synchroniz
 
     public CSynchronizedStatement(final ExpressionTree expression,
                                   final BlockStatementTree body,
-                                  final int lineNumber, final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                  final int lineNumber,
+                                  final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.expression = expression;
         this.body = body;
     }

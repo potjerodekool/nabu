@@ -1,9 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.CompilerOption;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -12,6 +14,8 @@ import org.mockito.invocation.InvocationOnMock;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.stream.Stream;
+
+import static org.mockito.Mockito.mock;
 
 class ClassFinderTest {
 
@@ -27,10 +31,13 @@ class ClassFinderTest {
             fileManager.processOptions(compilerOptions);
             final var symbolTable = new SymbolTable();
 
+            final var compilerContext = mock(CompilerContextImpl.class);
+
             final var finder = new ClassFinder(
                     symbolTable,
                     fileManager,
-                    null
+                    null,
+                    compilerContext
             );
 
             final var moduleSymbol = new ModuleSymbol(

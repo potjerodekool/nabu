@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.frontend.parser;
+package io.github.potjerodekool.nabu.compiler.frontend.parser.nabu;
 
 import io.github.potjerodekool.nabu.NabuLexer;
 import io.github.potjerodekool.nabu.NabuParser;
@@ -10,9 +10,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.BitSet;
 
-public class NabuCompilerParser {
+public final class NabuCompilerParser {
 
-    public NabuParser.CompilationUnitContext parse(final InputStream inputStream) throws IOException {
+    private NabuCompilerParser() {
+    }
+
+    public static NabuParser.CompilationUnitContext parse(final InputStream inputStream) throws IOException {
         final var inputSteam = CharStreams.fromStream(inputStream);
         final var lexer = new NabuLexer(inputSteam);
         final var tokens = new CommonTokenStream(lexer);

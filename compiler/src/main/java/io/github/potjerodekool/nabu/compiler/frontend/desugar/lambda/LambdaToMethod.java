@@ -98,7 +98,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         final var lambdaClass = (TypeElement) lambdaType.asElement();
 
         final var method = new MethodSymbolBuilderImpl()
-                .name(lambdaFunctionName)
+                .simpleName(lambdaFunctionName)
                 .enclosingElement(classSymbol)
                 .returnType(lambdaClass.findFunctionalMethod().getReturnType())
                 .flags(
@@ -125,7 +125,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
 
             final var parameterElement = new VariableSymbolBuilderImpl()
                     .kind(ElementKind.PARAMETER)
-                    .name(localName)
+                    .simpleName(localName)
                     .type(typeMirror)
                     .enclosingElement(method)
                     .build();

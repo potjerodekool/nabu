@@ -16,8 +16,8 @@ public class CAnnotationTree extends CExpressionTree implements AnnotationTree {
     public CAnnotationTree(final IdentifierTree name,
                            final List<ExpressionTree> arguments,
                            final int lineNumber,
-                           final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                           final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.name = name;
         this.arguments.addAll(arguments);
     }

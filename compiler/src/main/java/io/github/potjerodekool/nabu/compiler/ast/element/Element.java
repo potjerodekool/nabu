@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.element;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 
@@ -55,5 +56,7 @@ public interface Element extends AnnotatedConstruct {
     default boolean exists() {
         return true;
     }
+
+    CompoundAttribute attribute(TypeElement typeElement);
 
 }

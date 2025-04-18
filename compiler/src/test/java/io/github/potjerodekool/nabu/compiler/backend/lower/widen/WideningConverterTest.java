@@ -6,14 +6,11 @@ import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -132,7 +129,7 @@ class TypeAsserter implements TypeVisitor<Void, TypeMirror> {
 
     @Override
     public Void visitUnknownType(final TypeMirror typeMirror, final TypeMirror param) {
-        throw new TodoException();
+        throw new UnsupportedOperationException();
     }
 
     @Override

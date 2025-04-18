@@ -19,7 +19,7 @@ public class Call extends IExpression {
     protected final List<IExpression> args;
 
     // non dynamic
-    protected final Name owner;
+    protected final IType owner;
 
     //lambda
     protected final Call lambdaFunctionCall;
@@ -35,7 +35,7 @@ public class Call extends IExpression {
      * @param args
      */
     public Call(final InvocationType invocationType,
-                final Name owner,
+                final IType owner,
                 final Name function,
                 final IType returnType,
                 final List<IType> paramTypes,
@@ -62,7 +62,7 @@ public class Call extends IExpression {
     }
 
     private Call(final InvocationType invocationType,
-                 final Name owner,
+                 final IType owner,
                  final Name function,
                  final IType returnType,
                  final List<IType> paramTypes,
@@ -99,7 +99,7 @@ public class Call extends IExpression {
         return args;
     }
 
-    public Name getOwner() {
+    public IType getOwner() {
         return owner;
     }
 

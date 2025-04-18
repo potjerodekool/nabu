@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.MethodInvocationTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
@@ -24,7 +25,10 @@ public abstract class AbstractBoxer {
             final var unboxed = unbox(expressionTree);
 
             if (unboxed instanceof MethodInvocationTree methodInvocation) {
-                final var methodType = methodResolver.resolveMethod(methodInvocation, null);
+                final var methodType = methodResolver.resolveMethod(methodInvocation)
+                                .get();
+                methodInvocation.getMethodSelector()
+                                .setType(methodType.getOwner().asType());
                 methodInvocation.setMethodType(methodType);
                 return methodInvocation;
             } else {
@@ -40,8 +44,10 @@ public abstract class AbstractBoxer {
     protected ExpressionTree unbox(final ExpressionTree expressionTree,
                                    final String methodName) {
         return TreeMaker.methodInvocationTree(
-                expressionTree,
-                IdentifierTree.create(methodName),
+                new CFieldAccessExpressionTree(
+                        expressionTree,
+                    IdentifierTree.create(methodName)
+                ),
                 List.of(),
                 List.of(),
                 -1,

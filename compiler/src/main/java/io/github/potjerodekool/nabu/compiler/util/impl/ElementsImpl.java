@@ -7,6 +7,8 @@ import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
@@ -57,7 +59,7 @@ public class ElementsImpl implements Elements {
 
         final var annotationType = a.getAnnotationType();
 
-        for (final var method : ElementFilter.methods(annotationType.asTypeElement())) {
+        for (final var method : ElementFilter.methodsIn(annotationType.asTypeElement().getEnclosedElements())) {
             final var defaultValue = method.getDefaultValue();
 
             if (defaultValue != null && !elementValues.containsKey(method)) {
@@ -107,14 +109,10 @@ public class ElementsImpl implements Elements {
         }
     }
 
-
-    //TODO filter local and anonymous classes.
     @Override
     public List<? extends Element> getAllMembers(final TypeElement typeElement) {
         final var allMembers = new ArrayList<Element>();
         collectAllMembers(typeElement, allMembers);
-
-
         return allMembers;
     }
 
@@ -122,12 +120,24 @@ public class ElementsImpl implements Elements {
                                    final List<Element> allMembers) {
         final var symbol = (Symbol) typeElement;
 
-        final var elements = symbol.getMembers().elements();
+        final var elements = symbol.getMembers().elements().stream()
+                .filter(this::noLocalOrAnonymous)
+                .toList();
         allMembers.addAll(elements);
 
         addAllMembers(typeElement.getSuperclass(), allMembers);
         typeElement.getInterfaces().forEach(interfaceType ->
                 addAllMembers(interfaceType, allMembers));
+    }
+
+    private boolean noLocalOrAnonymous(final Element element) {
+        if (element instanceof TypeElement typeElement) {
+            final var nestingKing = typeElement.getNestingKind();
+            return nestingKing == NestingKind.LOCAL
+                    || nestingKing == NestingKind.ANONYMOUS;
+        } else {
+            return true;
+        }
     }
 
     private void addAllMembers(final TypeMirror typeMirror,
@@ -154,10 +164,9 @@ public class ElementsImpl implements Elements {
 
             symbol = (Symbol) superclass.asElement();
             for (final var annotation : symbol.getAnnotationMirrors()) {
-                final var type = (CompoundAttribute) annotation.getType();
-                if (isInherited(type)
-                        && !containsAnnotationType(annotationMirrors, type)) {
-                    annotationMirrors.addFirst(type);
+                if (isInherited(annotation.getType())
+                        && !containsAnnotationType(annotationMirrors, annotation.getType())) {
+                    annotationMirrors.addFirst(annotation);
                 }
             }
         }
@@ -165,23 +174,47 @@ public class ElementsImpl implements Elements {
         return annotationMirrors;
     }
 
-    //TODO implement
-    private boolean isInherited(final CompoundAttribute annotationType) {
-        return false;
+    private boolean isInherited(final DeclaredType annotationType) {
+        return annotationType.asTypeElement()
+                .attribute(symbolTable.getInheritedType().asTypeElement()) != null;
     }
 
     private boolean containsAnnotationType(final List<CompoundAttribute> annotations,
-                                           final CompoundAttribute type) {
-        final var annotationElement = ((AbstractType) type).asElement();
-
+                                           final TypeMirror type) {
+        final var annotationElement = type.asElement();
         return annotations.stream()
                 .anyMatch(annotation ->
                         annotation.getType().asTypeElement() == annotationElement);
     }
 
     @Override
-    public boolean hides(final Element hider, final Element hidden) {
-        return false;
+    public boolean hides(final Element hider,
+                         final Element hidden) {
+        if (hider == hidden
+                || hider.getKind() != hidden.getKind()
+                || !(hider.getSimpleName().equals(hidden.getSimpleName()))) {
+            return false;
+        }
+
+        if (hider.getKind() == ElementKind.METHOD) {
+            if (!hider.isStatic()
+                || !types.isSubsignature((ExecutableType) hider.asType(), (ExecutableType) hidden.asType())) {
+                return false;
+            }
+        }
+
+        final var hiderClass = (Symbol) hider.getEnclosingElement().getClosestEnclosingClass();
+        final var hiddenClass = (Symbol) hidden.getEnclosingElement().getClosestEnclosingClass();
+
+        if (hiderClass == null
+                || hiddenClass == null
+                | !hiderClass.isSubClass(hiddenClass, types)) {
+            return false;
+        }
+
+        final var hiddenSymbol = (Symbol) hidden;
+
+        return hiddenSymbol.isAccessibleIn(hiderClass, types);
     }
 
     @Override

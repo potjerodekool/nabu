@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
-import io.github.potjerodekool.nabu.compiler.backend.generate.RecordFiller;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
@@ -14,7 +13,6 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.util.Elements;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -29,15 +27,11 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
             ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
     );
 
-    private final RecordFiller recordFiller;
-
     private String internalName;
 
     private final CompilerOptions options;
 
-    public AsmdByteCodeGenerator(final Elements elements,
-                                 final CompilerOptions options) {
-        this.recordFiller = new RecordFiller(elements);
+    public AsmdByteCodeGenerator(final CompilerOptions options) {
         this.options = options;
     }
 
@@ -127,10 +121,10 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
         internalName = getInternalName(classSymbol.getQualifiedName());
         final String signature = SignatureGenerator.getClassSignature(classSymbol);
 
-        final var superType = classSymbol.getSuperclass().accept(ToIType.INSTANCE, null);
+        final var superType = ToIType.toIType(classSymbol.getSuperclass());
         final var superName = toAsmType(superType).getInternalName();
         final var interfaces = classSymbol.getInterfaces().stream()
-                .map(it -> it.accept(ToIType.INSTANCE, null))
+                .map(ToIType::toIType)
                 .map(AsmISignatureGenerator::toAsmType)
                 .map(Type::getInternalName)
                 .toArray(String[]::new);
@@ -144,8 +138,6 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
         generateAnnotations(classSymbol);
         generatePermittedSubClasses(classSymbol);
 
-        beforeProcessClassMembers(classSymbol);
-
         classSymbol.getMembers().elements().stream()
                 .map(it -> (Symbol) it)
                 .forEach(e -> e.accept(this, null));
@@ -155,20 +147,10 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
         classWriter.visitEnd();
         return null;
     }
-
-    private void beforeProcessClassMembers(final ClassSymbol classSymbol) {
-        if (classSymbol.getKind() == ElementKind.RECORD) {
-            recordFiller.fillRecord(classSymbol);
-        }
-    }
-
     public void afterProcessClassMembers(final ClassSymbol classSymbol) {
         if (classSymbol.getKind() == ElementKind.RECORD) {
             new AsmRecordMethodsGenerator()
                     .generateMethods(classWriter, classSymbol);
-        } else if (classSymbol.getKind() == ElementKind.ENUM) {
-            new AsmEnumMethodGenerator()
-                    .generateEnumFieldAndMethods(classWriter, classSymbol);
         }
     }
 

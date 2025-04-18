@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
@@ -115,8 +115,8 @@ public class CClassType extends AbstractType implements DeclaredType {
     }
 
     @Override
-    public ClassSymbol asTypeElement() {
-        return (ClassSymbol) DeclaredType.super.asTypeElement();
+    public TypeElement asTypeElement() {
+        return DeclaredType.super.asTypeElement();
     }
 
     public TypeMirror getSupertypeField() {
@@ -135,5 +135,29 @@ public class CClassType extends AbstractType implements DeclaredType {
     @Override
     public String getClassName() {
         return element.getQualifiedName();
+    }
+
+    @Override
+    public boolean equals(final Object obj) {
+        if (obj instanceof CClassType other) {
+            return Objects.equals(outerType, other.outerType)
+                    && Objects.equals(typeArguments, other.typeArguments)
+                    && Objects.equals(allParameters, other.allParameters)
+                    && Objects.equals(supertypeField, other.supertypeField)
+                    && Objects.equals(interfacesField, other.interfacesField);
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+                outerType,
+                typeArguments,
+                allParameters,
+                supertypeField,
+                interfacesField
+        );
     }
 }

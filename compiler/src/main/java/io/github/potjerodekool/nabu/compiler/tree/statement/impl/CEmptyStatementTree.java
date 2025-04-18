@@ -6,8 +6,8 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.EmptyStatementTree;
 public class CEmptyStatementTree extends CStatementTree implements EmptyStatementTree {
 
     public CEmptyStatementTree(final int lineNumber,
-                               final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                               final int columnNumber) {
+        super(lineNumber, columnNumber);
     }
 
     @Override

@@ -39,6 +39,7 @@ public class VariableSymbol extends Symbol implements VariableElement {
         return false;
     }
 
+    @Override
     public VariableSymbolBuilderImpl builder() {
         return new VariableSymbolBuilderImpl(this);
     }

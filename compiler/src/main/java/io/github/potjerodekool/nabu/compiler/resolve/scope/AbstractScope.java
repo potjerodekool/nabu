@@ -26,7 +26,8 @@ public abstract class AbstractScope implements Scope {
         return locals.keySet();
     }
 
-    protected Collection<Element> elements() {
+    @Override
+    public Collection<Element> elements() {
         return locals.values();
     }
 

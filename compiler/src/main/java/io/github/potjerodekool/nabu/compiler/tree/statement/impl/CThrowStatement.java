@@ -11,8 +11,8 @@ public class CThrowStatement extends CStatementTree implements ThrowStatement {
 
     public CThrowStatement(final ExpressionTree expression,
                            final int lineNumber,
-                           final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                           final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.expression = expression;
     }
 

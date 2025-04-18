@@ -4,11 +4,11 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccess
 
 public interface FieldAccessExpressionTree extends ExpressionTree {
 
-    ExpressionTree getTarget();
+    ExpressionTree getSelected();
 
     ExpressionTree getField();
 
-    FieldAccessExpressionTree target(ExpressionTree newTarget);
+    FieldAccessExpressionTree selected(ExpressionTree selected);
 
     FieldAccessExpressionBuilder builder();
 }

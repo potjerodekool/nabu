@@ -4,6 +4,5 @@ public interface PackageElement extends Element, QualifiedNameable {
 
     ModuleElement getModuleSymbol();
 
-
     boolean isUnnamed();
 }

@@ -15,6 +15,10 @@ public class CModifiers {
         this.flags = 0;
     }
 
+    public CModifiers(final long flags) {
+        this(List.of(), flags);
+    }
+
     public CModifiers(final List<? extends AnnotationTree> annotations,
                       final long flags) {
         this.annotations.addAll(annotations);

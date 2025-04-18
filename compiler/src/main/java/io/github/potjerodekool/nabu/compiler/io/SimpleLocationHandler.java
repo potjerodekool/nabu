@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 
 public class SimpleLocationHandler extends BasicLocationHandler {
 
-    protected Collection<Path> searchPath;
+    protected Collection<Path> searchPath = List.of();
 
     public SimpleLocationHandler(final FileManager.Location location,
                                  final CompilerOption... supportedCompilerOptions) {
@@ -28,7 +28,7 @@ public class SimpleLocationHandler extends BasicLocationHandler {
     public void processOption(final CompilerOption compilerOption, final String value) {
         searchPath = value != null
                 ? createPaths(value)
-                : null;
+                : List.of();
     }
 
     private Collection<Path> createPaths(final String value) {

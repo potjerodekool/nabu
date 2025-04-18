@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.type.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class CMethodType extends AbstractType implements ExecutableType {
 
@@ -13,7 +14,7 @@ public class CMethodType extends AbstractType implements ExecutableType {
 
     private final TypeMirror returnType;
 
-    private final List<TypeMirror> argumentTypes = new ArrayList<>();
+    private List<TypeMirror> parameterTypes = new ArrayList<>();
 
     private final List<TypeVariable> typeVariables = new ArrayList<>();
 
@@ -25,20 +26,24 @@ public class CMethodType extends AbstractType implements ExecutableType {
                        final TypeMirror receiverType,
                        final List<? extends TypeVariable> typeVariables,
                        final TypeMirror returnType,
-                       final List<? extends TypeMirror> argumentTypes,
+                       final List<? extends TypeMirror> parameterTypes,
                        final List<? extends TypeMirror> thrownTypes) {
         super(null);
         this.methodSymbol = methodSymbol;
         this.receiverType = receiverType;
         this.typeVariables.addAll(typeVariables);
         this.returnType = returnType;
-        this.argumentTypes.addAll(argumentTypes);
+        this.parameterTypes.addAll(parameterTypes);
         this.thrownTypes.addAll(thrownTypes);
     }
 
     @Override
     public List<? extends TypeMirror> getParameterTypes() {
-        return argumentTypes;
+        return parameterTypes;
+    }
+
+    public void setParameterTypes(final List<TypeMirror> parameterTypes) {
+        this.parameterTypes = parameterTypes;
     }
 
     @Override
@@ -85,5 +90,29 @@ public class CMethodType extends AbstractType implements ExecutableType {
     public <R, P> R accept(final TypeVisitor<R, P> visitor,
                            final P param) {
         return visitor.visitMethodType(this, param);
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (!(o instanceof final CMethodType that)) {
+            return false;
+        }
+        return Objects.equals(receiverType, that.receiverType)
+                && Objects.equals(returnType, that.returnType)
+                && Objects.equals(parameterTypes, that.parameterTypes)
+                && Objects.equals(typeVariables, that.typeVariables)
+                && Objects.equals(thrownTypes, that.thrownTypes)
+                && Objects.equals(methodSymbol, that.methodSymbol);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+                receiverType,
+                returnType,
+                parameterTypes,
+                typeVariables,
+                thrownTypes,
+                methodSymbol);
     }
 }

@@ -20,8 +20,8 @@ public class CForStatementTree extends CStatementTree implements ForStatementTre
                              final List<StatementTree> forUpdate,
                              final StatementTree statement,
                              final int lineNumber,
-                             final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                             final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.forInit = forInit;
         this.expression = expression;
         this.forUpdate = forUpdate;

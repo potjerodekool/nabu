@@ -3,12 +3,14 @@ package io.github.potjerodekool.nabu.compiler.backend.generate;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteCodeGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.InvocationType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ProcFrag;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
+import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
@@ -37,7 +39,7 @@ class AsmMethodByteCodeGeneratorTest {
         );
 
         final var method = new MethodSymbolBuilderImpl()
-                .name("someMethod")
+                .simpleName("someMethod")
                 .returnType(new CVoidType())
                 .build();
 
@@ -58,7 +60,11 @@ class AsmMethodByteCodeGeneratorTest {
     void generate() {
         final var call = new IExpressionStatement(new Call(
                 InvocationType.STATIC,
-                new Name("OtherClass"),
+                IReferenceType.createClassType(
+                        null,
+                        "OtherClass",
+                        List.of()
+                ),
                 new Name("someMethod"),
                 IPrimitiveType.VOID,
                 List.of(
@@ -153,18 +159,19 @@ class AsmMethodByteCodeGeneratorTest {
 
     @Test
     void classLiteral() {
-        final var fieldAccess = new IFieldAccess(
-                "java.lang.String",
-                "class",
-                IReferenceType.createClassType(
-                        null,
-                        "java.lang.Class",
-                        List.of()
-                ),
-                true
+        final var thisType = IReferenceType.createClassType(
+                null,
+                "SomeClass",
+                List.of()
         );
 
         final var frame = new Frame();
+        frame.allocateLocal(
+                Constants.THIS,
+                thisType,
+                false
+        );
+
         frame.allocateLocal(
                 "stringType",
                 IReferenceType.createClassType(
@@ -175,15 +182,30 @@ class AsmMethodByteCodeGeneratorTest {
                 false
         );
 
+
+        final var right = new ExpList(
+                new TempExpr(0, thisType),
+                new IFieldAccess(
+                        new Name("java.lang.String"),
+                        "class",
+                        IReferenceType.createClassType(
+                                null,
+                                "java.lang.Class",
+                                List.of()
+                        ),
+                        true
+                )
+        );
+
         final var binOp = new BinOp(
                 new IFieldAccess(
-                        "SomeClass",
+                        new Name("SomeClass"),
                         "stringType",
                         IReferenceType.createClassType(null, "java.lang.class", List.of()),
                         false
                 ),
                 Tag.ASSIGN,
-                fieldAccess
+                right
         );
 
         final List<IStatement> statements = List.of(new IExpressionStatement(binOp));
@@ -242,7 +264,11 @@ class AsmMethodByteCodeGeneratorTest {
                 Tag.ADD,
                 new Call(
                         InvocationType.VIRTUAL,
-                        new Name("SomeClass"),
+                        IReferenceType.createClassType(
+                                null,
+                                "SomeClass",
+                                List.of()
+                        ),
                         new Name("getName"),
                         IReferenceType.createClassType(
                                 null,
@@ -290,5 +316,96 @@ class AsmMethodByteCodeGeneratorTest {
                 .map(Object::toString)
                 .collect(Collectors.joining(""));
     }
+
+    @Test
+    void newArray() {
+        final var methodGenerator = createMethodWriter();
+
+        final var newArrayExpression = new ITypeExpression(
+                ITypeExpression.Kind.NEWARRAY,
+                IReferenceType.createClassType(
+                        null,
+                        "java.lang.String",
+                        List.of()
+                ),
+                new Const(2)
+        );
+
+        final var statements = List.<IStatement>of(
+                new IExpressionStatement(newArrayExpression),
+                new IExpressionStatement(InstExpression.dup()),
+                new IExpressionStatement(new Const(0)),
+                new IExpressionStatement(new Const("Hello")),
+                new IExpressionStatement(InstExpression.arrayStore()),
+                new IExpressionStatement(InstExpression.dup()),
+                new IExpressionStatement(new Const(1)),
+                new IExpressionStatement(new Const("World")),
+                new IExpressionStatement(InstExpression.arrayStore())
+        );
+
+        final var method = createMethod(statements);
+        methodGenerator.generate(method);
+
+        methodGenerator.getTextifier().getText().forEach(System.out::print);
+    }
+
+    @Test
+    void visitFieldAccess() {
+        final var methodGenerator = createMethodWriter();
+
+        final var fieldAccess = new IFieldAccess(
+                new Name("SomeClass"),
+                "text",
+                IReferenceType.createClassType(
+                        null,
+                        "java.lang.String",
+                        List.of()
+                ),
+                false
+        );
+
+        final var statements = List.of(
+                new IExpressionStatement(fieldAccess),
+                new Move(
+                        new TempExpr(),
+                        new TempExpr(new Temp(Frame.RV))
+                )
+        );
+
+        final var method = createMethod(statements);
+        methodGenerator.generate(method);
+
+        methodGenerator.getTextifier().getText().forEach(System.out::print);
+    }
+
+    @Test
+    void visitFieldAccess2() {
+        final var methodGenerator = createMethodWriter();
+
+        final var fieldAccess = new IFieldAccess(
+                new TempExpr(0, IReferenceType.createClassType(null, "SomeClass", List.of())),
+                "text",
+                IReferenceType.createClassType(
+                        null,
+                        "java.lang.String",
+                        List.of()
+                ),
+                false
+        );
+
+        final var statements = List.of(
+                new IExpressionStatement(fieldAccess),
+                new Move(
+                        new TempExpr(),
+                        new TempExpr(new Temp(Frame.RV))
+                )
+        );
+
+        final var method = createMethod(statements);
+        methodGenerator.generate(method);
+
+        methodGenerator.getTextifier().getText().forEach(System.out::print);
+    }
+
 }
 

@@ -10,10 +10,15 @@ public class CAssignmentExpressionTree extends CExpressionTree implements Assign
     private final ExpressionTree right;
 
     public CAssignmentExpressionTree(final ExpressionTree left,
+                                     final ExpressionTree right) {
+        this(left, right, -1, -1);
+    }
+
+    public CAssignmentExpressionTree(final ExpressionTree left,
                                      final ExpressionTree right,
                                      final int lineNumber,
-                                     final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                     final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.left = left;
         this.right = right;
     }

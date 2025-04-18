@@ -11,6 +11,11 @@ public class CArrayAccessExpressionTree extends CExpressionTree implements Array
     private final ExpressionTree index;
 
     public CArrayAccessExpressionTree(final ExpressionTree expression,
+                                      final ExpressionTree index) {
+        this(expression, index, -1, -1);
+    }
+
+    public CArrayAccessExpressionTree(final ExpressionTree expression,
                                       final ExpressionTree index,
                                       final int lineNumber,
                                       final int columnNumber) {

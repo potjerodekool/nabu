@@ -8,9 +8,7 @@ import java.util.List;
 
 public interface MethodInvocationTree extends ExpressionTree {
 
-    ExpressionTree getTarget();
-
-    ExpressionTree getName();
+    ExpressionTree getMethodSelector();
 
     List<ExpressionTree> getArguments();
 

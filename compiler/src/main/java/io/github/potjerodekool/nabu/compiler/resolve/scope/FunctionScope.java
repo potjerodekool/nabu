@@ -11,6 +11,10 @@ public class FunctionScope extends AbstractScope {
                          final ExecutableElement owner) {
         super(parent);
         this.owner = owner;
+
+        if (owner != null) {
+            owner.getParameters().forEach(this::define);
+        }
     }
 
     @Override

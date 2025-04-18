@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 
 import java.util.List;
@@ -57,4 +58,7 @@ public abstract class TypeSymbol extends Symbol {
         }
     }
 
+    protected TypeMirror getErasureField() {
+        return null;
+    }
 }

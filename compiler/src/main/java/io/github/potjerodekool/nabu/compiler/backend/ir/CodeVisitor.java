@@ -97,4 +97,8 @@ public interface CodeVisitor<P> {
     default Temp visitTypeExpression(ITypeExpression typeExpression, P param) {
         return visitUnknown(typeExpression, param);
     }
+
+    default Temp visitInstExpression(InstExpression instExpression, P param) {
+        return visitUnknown(instExpression, param);
+    }
 }

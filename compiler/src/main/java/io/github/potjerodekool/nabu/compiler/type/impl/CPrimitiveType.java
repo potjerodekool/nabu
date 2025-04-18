@@ -51,4 +51,15 @@ public class CPrimitiveType extends AbstractType implements PrimitiveType {
     public boolean isPrimitiveType() {
         return true;
     }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CPrimitiveType other
+                && getKind() == other.getKind();
+    }
+
+    @Override
+    public int hashCode() {
+        return getKind().hashCode();
+    }
 }

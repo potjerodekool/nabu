@@ -8,13 +8,35 @@ import java.util.List;
 
 public class CNewArrayExpression extends CExpressionTree implements NewArrayExpression {
 
+    private final ExpressionTree elementType;
+    private final List<ExpressionTree> dimensions;
     private final List<ExpressionTree> elements;
 
-    public CNewArrayExpression(final List<ExpressionTree> elements,
+    public CNewArrayExpression(final ExpressionTree elementType,
+                               final List<ExpressionTree> dimensions,
+                               final List<ExpressionTree> elements) {
+        this(elementType, dimensions, elements, -1, -1);
+    }
+
+    public CNewArrayExpression(final ExpressionTree elementType,
+                               final List<ExpressionTree> dimensions,
+                               final List<ExpressionTree> elements,
                                final int lineNumber,
-                               final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                               final int columnNumber) {
+        super(lineNumber, columnNumber);
+        this.elementType = elementType;
+        this.dimensions = dimensions;
         this.elements = elements;
+    }
+
+    @Override
+    public ExpressionTree getElementType() {
+        return elementType;
+    }
+
+    @Override
+    public List<ExpressionTree> getDimensions() {
+        return dimensions;
     }
 
     public List<ExpressionTree> getElements() {

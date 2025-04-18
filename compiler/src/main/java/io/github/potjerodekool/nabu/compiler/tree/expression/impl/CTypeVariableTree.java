@@ -16,8 +16,8 @@ public class CTypeVariableTree extends CTree implements TypeVariableTree {
     public CTypeVariableTree(final List<AnnotationTree> annotations,
                              final IdentifierTree identifier,
                              final int lineNumber,
-                             final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                             final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.annotations = annotations;
         this.identifier = identifier;
     }

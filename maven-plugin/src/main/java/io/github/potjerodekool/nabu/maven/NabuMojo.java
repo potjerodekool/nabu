@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 @Mojo(
         name = "compile",
         defaultPhase = LifecyclePhase.COMPILE,
-        requiresDependencyCollection = ResolutionScope.COMPILE_PLUS_RUNTIME
+        requiresDependencyCollection = ResolutionScope.COMPILE
 )
 public class NabuMojo extends AbstractMojo {
 

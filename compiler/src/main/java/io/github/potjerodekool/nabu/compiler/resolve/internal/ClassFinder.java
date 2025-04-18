@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.FileManager;
 import io.github.potjerodekool.nabu.compiler.io.FileManager.Location;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
@@ -20,13 +21,19 @@ public class ClassFinder {
     private final SymbolTable symbolTable;
     private final FileManager fileManager;
     private final ClassSymbolLoader classElementLoader;
-
     private final Completer completer = this::complete;
+    private final SourceTypeEnter sourceTypeEnter;
+    private final CompilerContextImpl compilerContext;
 
-    public ClassFinder(final SymbolTable symbolTable, final FileManager fileManager, final ClassSymbolLoader classElementLoader) {
+    public ClassFinder(final SymbolTable symbolTable,
+                       final FileManager fileManager,
+                       final ClassSymbolLoader classElementLoader,
+                       final CompilerContextImpl compilerContext) {
         this.symbolTable = symbolTable;
         this.fileManager = fileManager;
         this.classElementLoader = classElementLoader;
+        this.sourceTypeEnter = new SourceTypeEnter(compilerContext);
+        this.compilerContext = compilerContext;
     }
 
     public Completer getCompleter() {
@@ -34,7 +41,7 @@ public class ClassFinder {
     }
 
     protected EnumSet<FileObject.Kind> getPackageFileKinds() {
-        return EnumSet.of(FileObject.Kind.CLASS, FileObject.Kind.SOURCE);
+        return EnumSet.of(FileObject.Kind.CLASS, FileObject.Kind.SOURCE_NABU);
     }
 
     private void complete(final Symbol symbol) {
@@ -120,10 +127,14 @@ public class ClassFinder {
     }
 
     private void fillInClass(final ClassSymbol classSymbol) {
-        if (classSymbol.getClassFile() == null) {
-            return;
+        if (classSymbol.getSourceFile() != null) {
+            fillInClassFromSource(classSymbol);
+        } else if (classSymbol.getClassFile() != null) {
+            fillInClassFromClass(classSymbol);
         }
+    }
 
+    private void fillInClassFromClass(final ClassSymbol classSymbol) {
         final var packageSymbol = findPackageSymbol(classSymbol.getEnclosingElement());
 
         try (final var inputStream = classSymbol.getClassFile().openInputStream()) {
@@ -131,6 +142,10 @@ public class ClassFinder {
         } catch (final IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private void fillInClassFromSource(final ClassSymbol classSymbol) {
+        sourceTypeEnter.fill(classSymbol);
     }
 
     private PackageSymbol findPackageSymbol(final Symbol symbol) {
@@ -152,7 +167,10 @@ public class ClassFinder {
         final var module = packageSymbol.getModuleSymbol();
 
         if (module.getClassLocation() == StandardLocation.CLASS_PATH) {
-            scanUserPaths(packageSymbol);
+            scanUserPaths(
+                    packageSymbol,
+                    module.getSourceLocation() == StandardLocation.SOURCE_PATH
+            );
 
             //TODO TODO: Add support for user source files. For now, we only scan the module path.
             //User source files are currently not found, so we need to scan the module path as well.
@@ -171,7 +189,7 @@ public class ClassFinder {
         final var kinds = getPackageFileKinds();
 
         final var classKinds = EnumSet.copyOf(kinds);
-        classKinds.remove(FileObject.Kind.SOURCE);
+        classKinds.remove(FileObject.Kind.SOURCE_NABU);
 
         final var files = list(location, packageSymbol.getFullName(), classKinds);
 
@@ -190,27 +208,92 @@ public class ClassFinder {
                     || "package-info".equals(className)) {
                 final var clazz = symbolTable.enterClass(packageSymbol.getModuleSymbol(), className, packageSymbol);
 
-                if (clazz.getClassFile() == null) {
-                    clazz.setClassFile(file);
+                if (file.getKind().isSource()) {
+                    if (clazz.getSourceFile() == null) {
+                        clazz.setSourceFile(file);
+
+                        if (file.getKind() != FileObject.Kind.SOURCE_NABU) {
+                            enterSource(clazz);
+                        }
+
+                    }
+                } else {
+                    if (clazz.getClassFile() == null) {
+                        clazz.setClassFile(file);
+                    }
                 }
 
                 if (clazz.getEnclosingElement() == packageSymbol) {
                     members.define(clazz);
                 }
             } else {
-                System.out.println();
+                throw new IllegalArgumentException("Invalid classname" + className);
             }
         });
     }
 
+    private void enterSource(final ClassSymbol classSymbol) {
+        final var enterClasses = new EnterClasses(
+                compilerContext
+        );
+        final var sourceEnterClasses = new SourceEnterClasses(enterClasses);
+        final var compilationUnit = sourceEnterClasses.enter(classSymbol);
+        final var classes = compilationUnit.getClasses();
+        final var classDeclaration = classes.getFirst();
+
+        final var typeEnter = compilerContext.getTypeEnter();
+
+        typeEnter.put(classSymbol, classDeclaration, compilationUnit);
+        classSymbol.setCompleter(typeEnter);
+    }
+
     private boolean isValidIdentifier(final String className) {
+        if (Character.isDigit(className.charAt(0))) {
+            return false;
+        }
+
+        for (final var c : className.toCharArray()) {
+            if (!(Character.isDigit(c)
+                    || Character.isLetter(c)
+                    || '$' == c
+                    || '_' == c
+            )) {
+                return false;
+            }
+        }
+
         return true;
     }
 
-    private void scanUserPaths(final PackageSymbol packageSymbol) {
-        final var files = list(StandardLocation.CLASS_PATH, packageSymbol.getFullName(), EnumSet.noneOf(FileObject.Kind.class));
+    private void scanUserPaths(final PackageSymbol packageSymbol,
+                               final boolean includeSourcePath) {
+        final var kinds = EnumSet.of(
+                FileObject.Kind.CLASS,
+                FileObject.Kind.SOURCE_NABU,
+                FileObject.Kind.SOURCE_JAVA
+        );
 
-        fillInPackage(packageSymbol, StandardLocation.CLASS_PATH, files);
+        fillInPackage(
+                packageSymbol,
+                StandardLocation.CLASS_PATH,
+                list(
+                        StandardLocation.CLASS_PATH,
+                        packageSymbol.getFullName(),
+                        kinds
+                )
+        );
+
+        if (includeSourcePath && fileManager.hasLocation(StandardLocation.SOURCE_PATH)) {
+            fillInPackage(
+                    packageSymbol,
+                    StandardLocation.SOURCE_PATH,
+                    list(
+                            StandardLocation.SOURCE_PATH,
+                            packageSymbol.getFullName(),
+                            kinds
+                    )
+            );
+        }
     }
 
     private Iterable<? extends FileObject> list(final Location location, final String packageName, final EnumSet<FileObject.Kind> kinds) {

@@ -34,7 +34,7 @@ public final class PhaseUtils {
 
         return new VariableSymbolBuilderImpl()
                 .kind(toElementKind(variableDeclaratorStatement.getKind()))
-                .name(identifier.getName())
+                .simpleName(identifier.getName())
                 .type(type)
                 .flags(variableDeclaratorStatement.getFlags())
                 .build();

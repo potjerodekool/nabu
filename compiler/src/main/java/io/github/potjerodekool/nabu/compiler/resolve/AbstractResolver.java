@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValue;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ErrorSymbol;
@@ -10,7 +9,6 @@ import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
@@ -32,6 +30,10 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
         this.types = loader.getTypes();
+    }
+
+    public CompilerContext getCompilerContext() {
+        return compilerContext;
     }
 
     @Override
@@ -96,6 +98,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
 
         if (type != null) {
             identifier.setType(type);
+            identifier.setSymbol(null);
         } else {
             final var symbol = scope.resolve(identifier.getName());
             identifier.setSymbol(Objects.requireNonNullElseGet(symbol, () -> new ErrorSymbol(identifier.getName())));
@@ -230,10 +233,6 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         return defaultAnswer(enhancedForStatement, scope);
     }
 
-    protected ElementKind toElementKind(final Kind kind) {
-        return ElementKind.valueOf(kind.name());
-    }
-
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
@@ -288,10 +287,10 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     @Override
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Scope scope) {
-        final var target = fieldAccessExpression.getTarget();
-        target.accept(this, scope);
+        final var selected = fieldAccessExpression.getSelected();
+        selected.accept(this, scope);
 
-        final var varElement = TreeUtils.getSymbol(target);
+        final var varElement = TreeUtils.getSymbol(selected);
 
         if (varElement != null) {
             final var varType = varElement.asType();
@@ -301,8 +300,8 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
                     scope
             );
             fieldAccessExpression.getField().accept(this, symbolScope);
-        } else if (target.getType() != null) {
-            final DeclaredType declaredType = asDeclaredType(target.getType());
+        } else if (selected.getType() != null) {
+            final DeclaredType declaredType = asDeclaredType(selected.getType());
             final var classScope = new ClassScope(
                     declaredType,
                     null,

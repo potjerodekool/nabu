@@ -26,7 +26,7 @@ import org.objectweb.asm.util.TraceMethodVisitor;
 
 import java.util.*;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;
+import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator.toAsmType;
 
 public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
@@ -99,7 +99,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 .map(parameter -> {
                     final var name = parameter.getSimpleName();
                     final var type = parameter.asType();
-                    return new Parameter(name, type.accept(ToIType.INSTANCE, null));
+                    return new Parameter(name, ToIType.toIType(type));
                 })
                 .toList();
 
@@ -108,8 +108,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         if (executableElement.getKind() == ElementKind.CONSTRUCTOR) {
             returnType = IPrimitiveType.VOID;
         } else {
-            returnType = executableElement.getReturnType()
-                    .accept(ToIType.INSTANCE, null);
+            returnType = ToIType.toIType(executableElement.getReturnType());
         }
 
         return new MethodHeader(parameters, returnType);
@@ -163,22 +162,20 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             final var start = local.getStart();
             final var end = local.getEnd();
 
-            if (start != null && end != null) {
-                final var fromLabel = getOrCreateLabel(start);
-                final var toLabel = getOrCreateLabel(end);
-                final var signature = hasTypeArgs(type)
-                        ? AsmISignatureGenerator.INSTANCE.getSignature(local.type())
-                        : null;
+            final var fromLabel = getOrCreateLabel(start);
+            final var toLabel = getOrCreateLabel(end);
+            final var signature = hasTypeArgs(type)
+                    ? AsmISignatureGenerator.INSTANCE.getSignature(local.type())
+                    : null;
 
-                methodWriter.visitLocalVariable(
-                        localName,
-                        descriptor,
-                        signature,
-                        fromLabel,
-                        toLabel,
-                        localIndex
-                );
-            }
+            methodWriter.visitLocalVariable(
+                    localName,
+                    descriptor,
+                    signature,
+                    fromLabel,
+                    toLabel,
+                    localIndex
+            );
         });
     }
 
@@ -444,6 +441,10 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         return methodWriter.peek();
     }
 
+    private Type peek(final int index) {
+        return methodWriter.peek(index);
+    }
+
     private void visitCJumpNotImmediateLong(final CJump cJump) {
         final Label label = getOrCreateLabel(cJump.getTrueLabel());
 
@@ -593,14 +594,38 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
     @Override
     public Temp visitTypeExpression(final ITypeExpression typeExpression, final Frame frame) {
-        final var opcode = switch (typeExpression.getKind()) {
-            case CAST -> Opcodes.CHECKCAST;
-            case INSTANCEOF -> Opcodes.INSTANCEOF;
-        };
+        switch (typeExpression.getKind()) {
+            case CAST, INSTANCEOF -> {
+                final var opcode = typeExpression.getKind() == ITypeExpression.Kind.CAST
+                        ? Opcodes.CHECKCAST
+                        : Opcodes.INSTANCEOF;
 
-        typeExpression.getExpression().accept(this, frame);
-        final var internalName = getInternalName(typeExpression.getName());
-        methodWriter.visitTypeInsn(opcode, internalName);
+                typeExpression.getExpression().accept(this, frame);
+                final var internalName = toAsmType(typeExpression.getClazz())
+                        .getInternalName();
+                methodWriter.visitTypeInsn(opcode, internalName);
+            }
+            case NEW -> {
+                final var internalName = toAsmType(typeExpression.getClazz())
+                        .getInternalName();
+                methodWriter.visitTypeInsn(Opcodes.NEW, internalName);
+                methodWriter.visitInsn(Opcodes.DUP);
+
+                final var expression = typeExpression.getExpression();
+                if (expression != null) {
+                    expression.accept(this, frame);
+                }
+            }
+            case NEWARRAY -> {
+                final var expression = typeExpression.getExpression();
+                expression.accept(this, frame);
+                final var internalName = toAsmType(typeExpression.getClazz())
+                        .getInternalName();
+                final var opcode = Opcodes.ANEWARRAY;
+                methodWriter.visitTypeInsn(opcode, internalName);
+            }
+        }
+
         return null;
     }
 
@@ -611,7 +636,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             opcode = Opcodes.RETURN;
         } else {
             opcode = switch (type.getSort()) {
-                case Type.OBJECT -> Opcodes.ARETURN;
+                case Type.OBJECT, Type.ARRAY -> Opcodes.ARETURN;
                 case Type.SHORT,
                      Type.INT,
                      Type.BYTE,
@@ -683,9 +708,10 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     private Temp visitDefaultCall(final Call call,
                                   final Frame frame) {
         final var opcode = invocationTypeToOpcode(call.getInvocationType());
-        final var owner = call.getOwner() != null ?
-                ClassUtils.getInternalName(call.getOwner().getLabel().getName())
+        final var owner = call.getOwner() != null
+                ? toAsmType(call.getOwner()).getInternalName()
                 : null;
+
         var name = call.getFunction().getLabel().getName();
 
         if ("super".equals(name) || "this".equals(name)) {
@@ -828,26 +854,54 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 store(index, frame);
             }
         } else if (tag == Tag.ASSIGN) {
-            final var left = (IFieldAccess) binOp.getLeft();
+            final var left = binOp.getLeft();
+            final var right = binOp.getRight();
 
-            if (!left.isStatic()) {
-                methodWriter.visitVarInsn(Opcodes.ALOAD, 0);
+            if (left instanceof IFieldAccess fieldAccess) {
+                right.accept(this, frame);
+
+                final var owner = ClassUtils.getInternalName(getNameString(fieldAccess.getSelected()));
+
+                final var name = fieldAccess.getName();
+                final var fieldType = fieldAccess.getFieldType();
+                final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldType);
+                final var opcode = fieldAccess.isStatic()
+                        ? Opcodes.PUTSTATIC
+                        : Opcodes.PUTFIELD;
+                methodWriter.visitFieldInsn(
+                        opcode,
+                        owner,
+                        name,
+                        descriptor
+                );
+            } else if (left instanceof ExpList expList) {
+                final var list = expList.getList();
+                list.getFirst().accept(this, frame);
+                right.accept(this, frame);
+
+                final var last = list.getLast();
+
+                if (last instanceof IFieldAccess fieldAccess) {
+                    final var owner = ClassUtils.getInternalName(getNameString(fieldAccess.getSelected()));
+
+                    final var name = fieldAccess.getName();
+                    final var fieldType = fieldAccess.getFieldType();
+                    final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldType);
+                    final var opcode = fieldAccess.isStatic()
+                            ? Opcodes.PUTSTATIC
+                            : Opcodes.PUTFIELD;
+                    methodWriter.visitFieldInsn(
+                            opcode,
+                            owner,
+                            name,
+                            descriptor
+                    );
+                } else {
+                    throw new TodoException();
+                }
+            } else {
+                throw new TodoException();
             }
-
-            binOp.getRight().accept(this, frame);
-            final var owner = ClassUtils.getInternalName(left.getOwner());
-            final var name = left.getName();
-            final var fieldType = left.getFieldType();
-            final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldType);
-            final var opcode = left.isStatic()
-                    ? Opcodes.PUTSTATIC
-                    : Opcodes.PUTFIELD;
-            methodWriter.visitFieldInsn(
-                    opcode,
-                    owner,
-                    name,
-                    descriptor
-            );
         } else {
             binOp.getLeft().accept(this, frame);
             binOp.getRight().accept(this, frame);
@@ -856,10 +910,14 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         return new Temp(-1);
     }
 
+    private String getNameString(final IExpression expression) {
+        return ((Name) expression).getLabel().getName();
+    }
+
     private boolean isStringConcat(final BinOp binOp) {
         if (binOp.getTag() == Tag.ADD) {
             if (isStringConstant(binOp.getLeft())
-                || binOp.getLeft() instanceof BinOp left && isStringConstant(left)) {
+                    || binOp.getLeft() instanceof BinOp left && isStringConstant(left)) {
                 return true;
             } else {
                 return isStringConstant(binOp.getRight())
@@ -930,14 +988,27 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     @Override
     public Temp visitFieldAccess(final IFieldAccess fieldAccess, final Frame frame) {
         if ("class".equals(fieldAccess.getName())) {
-            final var type = Type.getType(ClassUtils.getClassDescriptor(fieldAccess.getOwner()));
+            final var type = Type.getType(ClassUtils.getClassDescriptor(getNameString(fieldAccess.getSelected())));
             methodWriter.visitLdcInsn(type);
         } else {
             final var opcode = fieldAccess.isStatic()
                     ? Opcodes.GETSTATIC
                     : Opcodes.GETFIELD;
 
-            final var owner = ClassUtils.getInternalName(fieldAccess.getOwner());
+            final var selected = fieldAccess.getSelected();
+            final String owner;
+
+            if (selected instanceof Name name) {
+                owner = ClassUtils.getInternalName(name.getLabel().getName());
+            } else {
+                final var tempExpr = (TempExpr) selected;
+                tempExpr.accept(this, frame);
+                final var type = toAsmType(tempExpr.getType());
+                methodWriter.pop();
+                methodWriter.push(type);
+                owner = type.getInternalName();
+            }
+
             final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldAccess.getFieldType());
 
             methodWriter.visitFieldInsn(
@@ -1056,6 +1127,22 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             throw new TodoException();
         }
     }
+
+    @Override
+    public Temp visitInstExpression(final InstExpression instExpression, final Frame param) {
+        final var opcode = switch (instExpression.getKind()) {
+            case DUP -> Opcodes.DUP;
+            case ARRAY_STORE -> {
+                final var top = peek(2);
+                yield top.getElementType().getSort() == Type.OBJECT
+                        ? Opcodes.AASTORE
+                        : Opcodes.ASTORE;
+            }
+        };
+
+        methodWriter.visitInsn(opcode);
+        return null;
+    }
 }
 
 record MethodHeader(List<Parameter> parameters,
@@ -1097,4 +1184,5 @@ class StringConcatCodeVisitor implements CodeVisitor<Frame> {
     public Temp visitCall(final Call call, final Frame frame) {
         return call.accept(visitor, frame);
     }
+
 }

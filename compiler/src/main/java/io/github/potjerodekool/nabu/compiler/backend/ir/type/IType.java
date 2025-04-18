@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 
 import java.util.List;
 
-public sealed abstract class IType permits IIntersectionType, IPrimitiveType, IReferenceType, ITypeVariable, IWildcardType {
+public sealed abstract class IType permits IArrayType, IIntersectionType, IPrimitiveType, IReferenceType, ITypeVariable, IWildcardType {
 
     private final ITypeKind kind;
 
@@ -40,15 +40,12 @@ public sealed abstract class IType permits IIntersectionType, IPrimitiveType, IR
         } else if (!(o instanceof IType)) {
             return false;
         }
-        final IType othterType = (IType) o;
-        return kind == othterType.kind;
-
+        final IType otherType = (IType) o;
+        return kind == otherType.kind;
     }
 
     @Override
-    public int hashCode() {
-        return 0;
-    }
+    public abstract int hashCode();
 
     public static IType getType(final Object value) {
         IType type = IPrimitiveType.getType(value);

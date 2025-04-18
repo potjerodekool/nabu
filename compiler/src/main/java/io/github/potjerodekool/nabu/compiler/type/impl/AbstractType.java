@@ -20,9 +20,10 @@ public abstract class AbstractType implements TypeMirror {
     }
 
     @Override
-    public boolean equals(final Object obj) {
-        return false;
-    }
+    public abstract boolean equals(Object obj);
+
+    @Override
+    public abstract int hashCode();
 
     @Override
     public List<AbstractType> getTypeArguments() {
@@ -40,4 +41,6 @@ public abstract class AbstractType implements TypeMirror {
 
         return element.isError();
     }
+
+
 }

@@ -9,10 +9,14 @@ public class CExpressionStatementTree extends CStatementTree implements Expressi
 
     final ExpressionTree expression;
 
+    public CExpressionStatementTree(final ExpressionTree expression) {
+        this(expression, -1, -1);
+    }
+
     public CExpressionStatementTree(final ExpressionTree expression,
                                     final int line,
-                                    final int charPositionInLine) {
-        super(line, charPositionInLine);
+                                    final int columnNumber) {
+        super(line, columnNumber);
         this.expression = expression;
     }
 

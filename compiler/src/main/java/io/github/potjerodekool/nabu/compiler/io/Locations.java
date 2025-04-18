@@ -115,5 +115,8 @@ public class Locations implements AutoCloseable {
         }
     }
 
+    public boolean hasLocation(final Location location) {
+        return handlersForLocation.containsKey(location);
+    }
 }
 

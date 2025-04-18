@@ -10,7 +10,7 @@ import java.util.List;
 
 public abstract class AbstractSymbolBuilder<E, EB extends AbstractSymbolBuilder<E, EB>> {
 
-    protected String name;
+    protected String simpleName;
     protected ElementKind kind;
     protected Element enclosingElement;
     private final List<E> enclosedElements = new ArrayList<>();
@@ -21,7 +21,7 @@ public abstract class AbstractSymbolBuilder<E, EB extends AbstractSymbolBuilder<
     }
 
     protected AbstractSymbolBuilder(final Symbol original) {
-        this.name = original.getSimpleName();
+        this.simpleName = original.getSimpleName();
         this.kind = original.getKind();
         this.enclosingElement = original.getEnclosingElement();
         this.flags = original.getFlags();
@@ -46,12 +46,12 @@ public abstract class AbstractSymbolBuilder<E, EB extends AbstractSymbolBuilder<
         return self();
     }
 
-    public String getName() {
-        return name;
+    public String getSimpleName() {
+        return simpleName;
     }
 
-    public EB name(final String name) {
-        this.name = name;
+    public EB simpleName(final String name) {
+        this.simpleName = name;
         return self();
     }
 

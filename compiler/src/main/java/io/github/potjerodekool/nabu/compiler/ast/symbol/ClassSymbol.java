@@ -113,6 +113,12 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         enclosedElement.setEnclosingElement(this);
     }
 
+    public void removeEnclosedElement(final Symbol enclosedElement) {
+        initMembersIfNeeded();
+        members.remove(enclosedElement);
+        enclosedElement.setEnclosingElement(null);
+    }
+
     private void initMembersIfNeeded() {
         if (members == null) {
             members = new WritableScope();
@@ -170,7 +176,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
 
         final var enclosing = getEnclosingElement();
 
-        if (enclosing != null) {
+        if (enclosing != null && !isUnnamed(enclosing)) {
             final var enclosingName = enclosing instanceof QualifiedNameable qn
                     ? qn.getQualifiedName()
                     : enclosing.getSimpleName();
@@ -178,6 +184,11 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         } else {
             qualifiedName = getSimpleName();
         }
+    }
+
+    private boolean isUnnamed(final Symbol symbol) {
+        return symbol instanceof PackageSymbol packageSymbol
+                && packageSymbol.isUnnamed();
     }
 
     @Override

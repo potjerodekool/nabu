@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ProcFrag;
@@ -9,7 +10,6 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 public class MethodSymbol extends Symbol implements ExecutableElement {
     private final List<VariableSymbol> parameters = new ArrayList<>();
@@ -25,12 +25,16 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
                         final TypeMirror receiverType,
                         final List<TypeParameterElement> typeParameters,
                         final TypeMirror returnType,
-                        final List<TypeMirror> argumentTypes,
                         final List<TypeMirror> thrownTypes,
                         final List<VariableSymbol> parameters,
                         final List<AnnotationMirror> annotations) {
         super(kind, flags, name, null, owner);
         this.typeParameters.addAll(typeParameters);
+
+        final var parameterTypes = parameters.stream()
+                .map(Symbol::asType)
+                .toList();
+
         this.setAnnotations(annotations);
         final var methodType = new CMethodType(
                 this,
@@ -39,7 +43,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
                         .map(it -> (TypeVariable) it.asType())
                         .toList(),
                 returnType,
-                argumentTypes,
+                parameterTypes,
                 thrownTypes
         );
         setType(methodType);
@@ -107,8 +111,6 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
     }
 
     public void addParameter(final VariableSymbol parameter) {
-        Objects.requireNonNull(parameter);
-
         this.parameters.forEach(p -> {
             if (p.getSimpleName().equals(parameter.getSimpleName())) {
                 throw new IllegalArgumentException();
@@ -130,5 +132,9 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
     @Override
     public <R, P> R accept(final SymbolVisitor<R, P> v, final P p) {
         return v.visitMethod(this, p);
+    }
+
+    public MethodSymbolBuilderImpl builder() {
+        return new MethodSymbolBuilderImpl(this);
     }
 }

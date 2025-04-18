@@ -3,6 +3,8 @@ package io.github.potjerodekool.nabu.compiler.type.impl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
+import java.util.Objects;
+
 public class CWildcardType extends AbstractType implements WildcardType {
 
     private final TypeMirror type;
@@ -66,5 +68,22 @@ public class CWildcardType extends AbstractType implements WildcardType {
             case EXTENDS -> "? extends " + type.getClassName();
             case SUPER -> "? super " + type.getClassName();
         };
+    }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CWildcardType other
+                && Objects.equals(type, other.type)
+                && Objects.equals(kind, other.kind)
+                && Objects.equals(bound, other.bound);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+                type,
+                kind,
+                bound
+        );
     }
 }

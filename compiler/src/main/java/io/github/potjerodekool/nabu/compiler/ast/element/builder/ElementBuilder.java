@@ -9,9 +9,11 @@ public interface ElementBuilder<E extends Element, EB extends ElementBuilder<E, 
 
     EB enclosingElement(Element enclosedElement);
 
-    EB name(String name);
+    EB simpleName(String name);
 
     E build();
 
     EB kind(ElementKind elementKind);
+
+    EB flags(long flags);
 }

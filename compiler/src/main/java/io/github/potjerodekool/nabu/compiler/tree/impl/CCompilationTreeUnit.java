@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.CompositeScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.NamedImportScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.StartImportScope;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
@@ -19,8 +20,11 @@ public class CCompilationTreeUnit extends CTree implements CompilationUnit {
 
     private final NamedImportScope namedImportScope = new NamedImportScope();
 
+    private final StartImportScope startImportScope = new StartImportScope();
+
     private final CompositeScope compositeImportScope = new CompositeScope(
-            namedImportScope
+            namedImportScope,
+            startImportScope
     );
 
     private CompositeScope globalScope;
@@ -37,8 +41,8 @@ public class CCompilationTreeUnit extends CTree implements CompilationUnit {
                                 final List<ImportItem> importItems,
                                 final List<Tree> declarations,
                                 final int lineNumber,
-                                final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.fileObject = fileObject;
         this.importItems.addAll(importItems);
         this.definitions.addAll(declarations);
@@ -102,6 +106,11 @@ public class CCompilationTreeUnit extends CTree implements CompilationUnit {
     @Override
     public NamedImportScope getNamedImportScope() {
         return namedImportScope;
+    }
+
+    @Override
+    public StartImportScope getStartImportScope() {
+        return startImportScope;
     }
 
     @Override

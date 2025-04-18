@@ -5,15 +5,19 @@ import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmTypeResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.TypeBuilder;
+import io.github.potjerodekool.nabu.compiler.type.BoundKind;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.Test;
@@ -57,10 +61,15 @@ class TypesImplTest {
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
         final var method = new MethodSymbolBuilderImpl()
-                .name("add")
+                .simpleName("add")
                 .enclosingElement(setClass)
                 .returnType(types.getNoType(TypeKind.VOID))
-                .argumentTypes(List.of(intType, types.getTypeVariable("E",objectType, null)))
+                .parameters(
+                        List.of(
+                                createParameter("index", intType),
+                                createParameter("element",  types.getTypeVariable("E",objectType, null))
+                        )
+                )
                 .build();
 
         final var methodType = types.asMemberOf(
@@ -73,6 +82,15 @@ class TypesImplTest {
         final var actual = printer.getText();
 
         assertEquals("void (int, java.lang.String)", actual);
+    }
+
+    private VariableSymbol createParameter(final String name,
+                                           final TypeMirror type) {
+        return new VariableSymbolBuilderImpl()
+                .kind(ElementKind.PARAMETER)
+                .simpleName(name)
+                .type(type)
+                .build();
     }
 
     @Test
@@ -217,7 +235,7 @@ class TypesImplTest {
         var classSpecializerType = types.getDeclaredType(new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .enclosingElement(PackageElementBuilder.createFromName("java.lang.invoke"))
-                .name("ClassSpecializer")
+                .simpleName("ClassSpecializer")
                 .typeParameters(List.of(
                         new CTypeVariable("T", null, null).asElement(),
                         new CTypeVariable("K", null, null).asElement(),
@@ -239,7 +257,7 @@ class TypesImplTest {
                 .kind(ElementKind.CLASS)
                 .nestingKind(NestingKind.MEMBER)
                 .enclosingElement(classSpecializerType.asElement())
-                .name("Factory")
+                .simpleName("Factory")
                 .outerType(classSpecializerType)
                 .build());
 
@@ -260,7 +278,7 @@ class TypesImplTest {
         final var configurationClass = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .enclosingElement(PackageElementBuilder.createFromName("java.lang.module"))
-                .name("Configuration")
+                .simpleName("Configuration")
                 .build();
 
         final var expected = types.getDeclaredType(
@@ -306,6 +324,25 @@ class TypesImplTest {
         );
 
         assertTrue(types.isSameType(expected, actual));
+    }
+
+    @Test
+    void getWildcardType() {
+        var wildcard = types.getWildcardType(null, null);
+        assertEquals(BoundKind.UNBOUND, wildcard.getBoundKind());
+
+        final var stringClass = loader.loadClass(null, Constants.STRING)
+                .asType();
+        wildcard = types.getWildcardType(stringClass, null);
+        assertEquals(BoundKind.EXTENDS, wildcard.getBoundKind());
+        assertEquals(stringClass, wildcard.getExtendsBound());
+
+        wildcard = types.getWildcardType(null, stringClass);
+        assertEquals(BoundKind.SUPER, wildcard.getBoundKind());
+        assertEquals(stringClass, wildcard.getSuperBound());
+
+        assertThrows(IllegalArgumentException.class, () ->
+                types.getWildcardType(stringClass, stringClass));
     }
 
 }

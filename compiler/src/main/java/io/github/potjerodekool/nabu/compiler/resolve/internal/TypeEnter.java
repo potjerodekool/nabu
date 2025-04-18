@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.backend.lower.SymbolCreator;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
@@ -17,10 +17,13 @@ import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccessExpressionBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CPrimitiveTypeTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.ExpressionStatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.ReturnStatementTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
@@ -46,18 +49,21 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
     private final Map<ClassSymbol, ClassDeclaration> symbolToTreeMap = new HashMap<>();
     private final Map<Tree, CompilationUnit> treeToCompilationUnitMap = new HashMap<>();
 
-    private final PhaseUtils phaseUtils;
     private final ClassSymbolLoader loader;
     private final Types types;
-    private final Elements elements;
     private final SymbolTable symbolTable;
+    private final SymbolCreator symbolCreator = new SymbolCreator();
+    private final Map<ElementKind, Completer> typeEnterMap = new HashMap<>();
 
     public TypeEnter(final CompilerContextImpl compilerContext) {
         this.loader = compilerContext.getClassElementLoader();
         this.types = loader.getTypes();
-        this.elements = compilerContext.getElements();
         this.symbolTable = loader.getSymbolTable();
-        this.phaseUtils = new PhaseUtils(loader.getTypes());
+        this.fillTypeEnters(compilerContext.getElements());
+    }
+
+    private void fillTypeEnters(final Elements elements) {
+        typeEnterMap.put(ElementKind.RECORD, new RecordTypeEnter(elements));
     }
 
     public void put(final ClassSymbol symbol,
@@ -85,7 +91,12 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
             }
 
             classDeclaration.accept(this, currentClass);
-            fillRecord(currentClass);
+
+            final var typeEnter = this.typeEnterMap.get(currentClass.getKind());
+
+            if (typeEnter != null) {
+                typeEnter.complete(currentClass);
+            }
 
             completeClass(currentClass, classDeclaration);
         }
@@ -153,45 +164,125 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
 
         if (isStatic) {
             if (isStarImport) {
-                throw new TodoException("Implement static start import");
+                //import static java.util.List.*;
+                final var elements = importStaticImport(moduleElement, classOrPackageName, compilationUnit);
+
+                for (final var element : elements) {
+                    compilationUnit.getNamedImportScope().define(element);
+                }
+
             } else {
-                throw new TodoException("Implement static import");
+                //import static java.util.List.of;
+                final var symbol = importStaticSingleImport(moduleElement, classOrPackageName, compilationUnit);
+
+                if (symbol != null) {
+                    compilationUnit.getNamedImportScope().define(symbol);
+                    importItem.setSymbol(symbol);
+                }
             }
+
         } else {
             if (isStarImport) {
-                importStarImport(moduleElement, classOrPackageName, compilationUnit);
+                //import java.util.*;
+                final var packageSymbol = importStarImport(moduleElement, classOrPackageName, compilationUnit);
+
+                if (packageSymbol != null) {
+                    packageSymbol.getMembers().elements().forEach(element -> {
+                        compilationUnit.getNamedImportScope().define(element);
+                    });
+                    importItem.setSymbol(packageSymbol);
+                }
+
             } else {
-                importSingleImport(moduleElement, classOrPackageName, compilationUnit);
+                //import java.util.List;
+                final var clazz = importSingleImport(moduleElement, classOrPackageName, compilationUnit);
+
+                if (clazz != null) {
+                    compilationUnit.getNamedImportScope().define(clazz);
+                    importItem.setSymbol(clazz);
+                }
             }
+
+
         }
     }
 
-    private void importSingleImport(final ModuleElement moduleElement,
-                                    final String classOrPackageName,
-                                    final CompilationUnit compilationUnit) {
-        final var clazz = loader.loadClass(moduleElement, classOrPackageName);
+    private Symbol importStaticSingleImport(final ModuleElement moduleElement,
+                                            final String classOrPackageName,
+                                            final CompilationUnit compilationUnit) {
+        final var sepIndex = classOrPackageName.lastIndexOf('.');
+        final var className = classOrPackageName.substring(0, sepIndex);
+        final var memberName = classOrPackageName.substring(sepIndex + 1);
+        final var clazz = importSingleImport(moduleElement, className, compilationUnit);
+
+        if (clazz != null) {
+            final var symbol = clazz.getEnclosedElements().stream()
+                    .filter(it -> it.getSimpleName().equals(memberName))
+                    .findFirst()
+                    .orElse(null);
+
+            if (symbol != null) {
+                compilationUnit.getNamedImportScope().define(symbol);
+            }
+
+            return symbol;
+        }
+
+        return null;
+    }
+
+    private List<? extends Element> importStaticImport(final ModuleElement moduleElement,
+                                                       final String classOrPackageName,
+                                                       final CompilationUnit compilationUnit) {
+        var clazz = loader.loadClass(moduleElement, classOrPackageName);
+
+        if (clazz == null) {
+            return List.of();
+        } else {
+            final var enclosedElements = clazz.getEnclosedElements();
+
+            for (final var enclosedElement : enclosedElements) {
+                compilationUnit.getNamedImportScope().define(enclosedElement);
+            }
+
+            return enclosedElements;
+        }
+
+    }
+
+    private ClassSymbol importSingleImport(final ModuleElement moduleElement,
+                                           final String classOrPackageName,
+                                           final CompilationUnit compilationUnit) {
+        var clazz = loader.loadClass(moduleElement, classOrPackageName);
 
         if (clazz != null) {
             compilationUnit.getNamedImportScope().define(clazz);
+        } else {
+            clazz = loader.getTypes()
+                    .getErrorType(classOrPackageName)
+                    .asTypeElement();
         }
+
+        return (ClassSymbol) clazz;
     }
 
-    private void importStarImport(final ModuleElement moduleElement,
-                                  final String classOrPackageName,
-                                  final CompilationUnit compilationUnit) {
+    private PackageSymbol importStarImport(final ModuleElement moduleElement,
+                                           final String classOrPackageName,
+                                           final CompilationUnit compilationUnit) {
         final var packageSymbol = loader.getSymbolTable().lookupPackage(
                 (ModuleSymbol) moduleElement,
                 classOrPackageName
         );
 
         if (packageSymbol != null) {
-            final var scope = compilationUnit.getNamedImportScope();
+            final var scope = compilationUnit.getStartImportScope();
 
             packageSymbol.getMembers().elements().stream()
                     .filter(Element::isType)
                     .forEach(scope::define);
-
         }
+
+        return packageSymbol;
     }
 
     @Override
@@ -210,6 +301,8 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
 
         final var type = (CClassType) currentClass.asType();
         type.setTypeArguments(typeArguments);
+
+        final var name = classDeclaration.getSimpleName();
 
         classDeclaration.getEnclosedElements().forEach(enclosedElement -> enclosedElement.accept(this, currentClass));
         return classDeclaration;
@@ -247,26 +340,27 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
             receiverType = null;
         }
 
+
+        function.getParameters().forEach(it ->
+                it.accept(this, currentClass));
+
+        final var parameters = function.getParameters().stream()
+                .map(param -> (VariableSymbol) param.getName().getSymbol())
+                .toList();
+
         final var method = new MethodSymbolBuilderImpl()
                 .kind(toElementKind(function.getKind()))
-                .name(function.getSimpleName())
+                .simpleName(function.getSimpleName())
                 .enclosingElement(currentClass)
                 .returnType(returnType)
+                .parameters(parameters)
                 .receiverType(receiverType)
                 .flags(flags)
                 .annotations(annotations)
                 .build();
 
         currentClass.addEnclosedElement(method);
-
         function.setMethodSymbol(method);
-
-        function.getParameters().forEach(it ->
-                it.accept(this, currentClass));
-
-        function.getParameters().stream()
-                .map(param -> (VariableSymbol) param.getName().getSymbol())
-                .forEach(method::addParameter);
 
         return function;
     }
@@ -276,15 +370,54 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                                                  final ClassSymbol currentClass) {
         variableDeclaratorStatement.getType().accept(this, currentClass);
 
-        final var symbol = phaseUtils.createVariable(variableDeclaratorStatement);
+        final var symbol = createVariable(variableDeclaratorStatement);
         variableDeclaratorStatement.getName().setSymbol(symbol);
 
         if (symbol.getKind() == ElementKind.FIELD
-                || symbol.getKind() == ElementKind.ENUM_CONSTANT) {
+                || symbol.getKind() == ElementKind.ENUM_CONSTANT
+                || symbol.getKind() == ElementKind.RECORD_COMPONENT) {
             currentClass.addEnclosedElement(symbol);
         }
 
         return null;
+    }
+
+    private VariableSymbol createVariable(final VariableDeclaratorTree variableDeclaratorTree) {
+        final var type = variableDeclaratorTree.getType().getType();
+        final Object constantValue;
+
+        if (Flags.hasFlag(variableDeclaratorTree.getFlags(), Flags.FINAL)) {
+            constantValue = getConstantValue(variableDeclaratorTree.getValue());
+        } else {
+            constantValue = null;
+        }
+
+        return new VariableSymbolBuilderImpl()
+                .kind(ElementKind.valueOf(variableDeclaratorTree.getKind().name()))
+                .simpleName(variableDeclaratorTree.getName().getName())
+                .type(type)
+                .flags(variableDeclaratorTree.getFlags())
+                .constantValue(constantValue)
+                .build();
+    }
+
+    private Object getConstantValue(final Tree tree) {
+        if (tree instanceof LiteralExpressionTree literalExpressionTree) {
+            return switch (literalExpressionTree.getLiteralKind()) {
+                case BYTE,
+                     BOOLEAN,
+                     CHAR,
+                     DOUBLE,
+                     FLOAT,
+                     INTEGER,
+                     LONG,
+                     STRING,
+                     SHORT -> literalExpressionTree.getLiteral();
+                default -> null;
+            };
+        } else {
+            return null;
+        }
     }
 
     @Override
@@ -426,7 +559,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
         final AnnotationValue annotationValue = toAnnotationValue(assignmentExpressionTree.getRight());
 
         final var executableElement = new MethodSymbolBuilderImpl()
-                .name(name)
+                .simpleName(name)
                 .build();
 
         return new Pair<>(
@@ -440,7 +573,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
             case LiteralExpressionTree literalExpressionTree ->
                     AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
             case FieldAccessExpressionTree fieldAccessExpressionTree -> {
-                final var type = (DeclaredType) fieldAccessExpressionTree.getTarget().getType();
+                final var type = (DeclaredType) fieldAccessExpressionTree.getSelected().getType();
                 final var value = (VariableElement) fieldAccessExpressionTree.getField().getSymbol();
                 yield AnnotationBuilder.createEnumValue(
                         type,
@@ -506,68 +639,6 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
         ).asElement();
     }
 
-    private void fillRecord(final ClassSymbol currentClass) {
-        if (currentClass.getKind() != ElementKind.RECORD) {
-            return;
-        }
-
-        final var compactConstructorOptional = ElementFilter.constructorsIn(currentClass.getEnclosedElements()).stream()
-                .filter(elements::isCompactConstructor)
-                .findFirst();
-
-        compactConstructorOptional.ifPresent(compactConstructor -> {
-            addRecordComponents(compactConstructor, currentClass);
-            addRecordFields(compactConstructor, currentClass);
-            addRecordComponentAccessMethods(compactConstructor, currentClass);
-        });
-    }
-
-    private void addRecordComponentAccessMethods(final ExecutableElement compactConstructor,
-                                                 final ClassSymbol currentClass) {
-        compactConstructor.getParameters().forEach(parameter -> {
-            final var method = new MethodSymbolBuilderImpl()
-                    .flags(Flags.PUBLIC)
-                    .kind(ElementKind.METHOD)
-                    .name(parameter.getSimpleName())
-                    .returnType(parameter.asType())
-                    .build();
-            currentClass.addEnclosedElement(method);
-        });
-    }
-
-    private void addRecordComponents(final ExecutableElement compactConstructor,
-                                     final ClassSymbol currentClass) {
-        final var recordComponents = compactConstructor.getParameters().stream()
-                .map(param -> createRecordComponent(param, ElementKind.RECORD_COMPONENT))
-                .toList();
-
-        CollectionUtils.forEachIndexed(recordComponents, currentClass::addEnclosedElement);
-    }
-
-    private void addRecordFields(final ExecutableElement compactConstructor,
-                                 final ClassSymbol currentClass) {
-        final var fields = compactConstructor.getParameters().stream()
-                .map(param -> createRecordComponent(
-                        param,
-                        ElementKind.FIELD
-                ))
-                .toList();
-        //Place the fields after record components.
-        final var offset = fields.size();
-
-        CollectionUtils.forEachIndexed(fields, (index, field) ->
-                currentClass.addEnclosedElement(offset + index, field));
-    }
-
-    private VariableSymbol createRecordComponent(final VariableElement parameter,
-                                                 final ElementKind kind) {
-        return new VariableSymbolBuilderImpl()
-                .kind(kind)
-                .type(parameter.asType())
-                .name(parameter.getSimpleName())
-                .build();
-    }
-
     private void generateConstructor(final ClassSymbol classSymbol,
                                      final ClassDeclaration classDeclaration) {
         if (classSymbol.getKind() == ElementKind.INTERFACE) {
@@ -583,44 +654,23 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
         classDeclaration.getEnclosedElements().stream()
                 .flatMap(CollectionUtils.mapOnly(Function.class))
                 .filter(function -> function.getKind() == Kind.CONSTRUCTOR)
-                .forEach(this::conditionalInvokeSuper);
+                .map(constructor -> (CFunction) constructor)
+                .forEach(constructor -> conditionalInvokeSuper(
+                        classSymbol,
+                        classDeclaration,
+                        constructor
+                ));
     }
 
     private void addConstructor(final ClassSymbol classSymbol,
                                 final ClassDeclaration classDeclaration) {
         final var superclass = classSymbol.getSuperclass();
-        final List<ExpressionTree> arguments;
-        final var superConstructor = findConstructor(superclass.asTypeElement());
-
-        if (superclass == symbolTable.getObjectType()) {
-            arguments = List.of();
-        } else if (superConstructor != null) {
-            arguments = superConstructor.getParameters().stream()
-                    .map(parameter -> {
-                        final var identifier = IdentifierTree.create(parameter.getSimpleName());
-                        identifier.setType(parameter.asType());
-                        return (ExpressionTree) identifier;
-                    })
-                    .toList();
-        } else {
-            return;
-        }
-
-        final var superCall = TreeMaker.methodInvocationTree(
-                IdentifierTree.create(Constants.THIS),
-                IdentifierTree.create(Constants.SUPER),
-                List.of(),
-                arguments,
-                classDeclaration.getLineNumber(),
-                classDeclaration.getColumnNumber()
-        );
-
         final var statements = new ArrayList<StatementTree>();
 
-        statements.add(TreeMaker.expressionStatement(superCall, superCall.getLineNumber(), superCall.getColumnNumber()));
-        statements.add(TreeMaker.returnStatement(null, -1, -1));
-
-        final var accessFlag = Flags.PUBLIC;
+        final var accessFlags =
+                Constants.ENUM.equals(superclass.asTypeElement().getQualifiedName())
+                        ? Flags.PRIVATE
+                        : Flags.PUBLIC;
 
         final var body = TreeMaker.blockStatement(
                 statements,
@@ -628,50 +678,33 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                 -1
         );
 
-        final var parameterTrees = arguments.stream()
+        final var returnType = TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.VOID, -1, -1);
+        returnType.setType(types.getNoType(TypeKind.VOID));
+
+        final var constructor = new FunctionBuilder()
+                .simpleName(Constants.INIT)
+                .kind(Kind.CONSTRUCTOR)
+                .returnType(returnType)
+                .modifiers(new CModifiers(List.of(), accessFlags))
+                .body(body)
+                .build();
+
+        classDeclaration.enclosedElement(constructor);
+    }
+
+    private List<VariableDeclaratorTree> createParameters(final ClassSymbol classSymbol,
+                                                          final List<ExpressionTree> arguments) {
+        return arguments.stream()
                 .map(argument -> {
                     final var identifier = (IdentifierTree) argument;
                     final var param = new VariableDeclaratorTreeBuilder()
-                            .type(createTypeTree(identifier.getType()))
+                            .type(createTypeTree(argument.getType()))
                             .kind(Kind.PARAMETER)
                             .name(identifier)
                             .build();
                     param.accept(this, classSymbol);
                     return param;
                 }).toList();
-
-        final var parameters = parameterTrees.stream()
-                .map(param -> (VariableSymbol) param.getName().getSymbol()).toList();
-
-
-        final var constructor = new FunctionBuilder()
-                .simpleName(Constants.INIT)
-                .kind(Kind.CONSTRUCTOR)
-                .returnType(TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.VOID, -1, -1))
-                .modifiers(new CModifiers(List.of(), accessFlag))
-                .parameters(parameterTrees)
-                .body(body)
-                .build();
-
-        final var accessFlags =
-                Constants.ENUM.equals(superclass.asTypeElement().getQualifiedName())
-                        ? Flags.PRIVATE
-                        : Flags.PUBLIC;
-
-        final var constructorSymbol = new MethodSymbolBuilderImpl()
-                .kind(ElementKind.CONSTRUCTOR)
-                .name(Constants.INIT)
-                .returnType(classSymbol.asType())
-                .parameters(parameters)
-                //.flags(accessFlags + Flags.SYNTHETIC)
-                .flags(accessFlags)
-                .enclosingElement(classSymbol)
-                .build();
-
-        constructor.setMethodSymbol(constructorSymbol);
-        classDeclaration.enclosedElement(constructor);
-
-        classSymbol.addEnclosedElement(constructorSymbol);
     }
 
     private ExecutableElement findConstructor(final TypeElement typeElement) {
@@ -693,86 +726,143 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
 
     private ExpressionTree createTypeTree(final TypeMirror typeMirror) {
         if (typeMirror instanceof DeclaredType declaredType) {
-            final var qualifiedName = declaredType.asTypeElement().getQualifiedName();
-            final var names = qualifiedName.split("\\.");
-            ExpressionTree expressionTree = IdentifierTree.create(names[0]);
-
-            for (var index = 1; index < names.length; index++) {
-                final var identifier = IdentifierTree.create(names[index]);
-                expressionTree = new FieldAccessExpressionBuilder()
-                        .target(expressionTree)
-                        .field(identifier)
-                        .build();
-            }
-
-            expressionTree.setType(declaredType);
-            return expressionTree;
+            return createDeclaredTypeTree(declaredType);
         } else if (typeMirror instanceof PrimitiveType primitiveType) {
-            final var kind = switch (primitiveType.getKind()) {
-                case VOID -> PrimitiveTypeTree.Kind.VOID;
-                case BOOLEAN -> PrimitiveTypeTree.Kind.BOOLEAN;
-                case CHAR -> PrimitiveTypeTree.Kind.CHAR;
-                case BYTE -> PrimitiveTypeTree.Kind.BYTE;
-                case SHORT -> PrimitiveTypeTree.Kind.SHORT;
-                case INT -> PrimitiveTypeTree.Kind.INT;
-                case FLOAT -> PrimitiveTypeTree.Kind.FLOAT;
-                case LONG -> PrimitiveTypeTree.Kind.LONG;
-                case DOUBLE -> PrimitiveTypeTree.Kind.DOUBLE;
-                default -> null;
-            };
-
-            final var primitiveTypeTree = new CPrimitiveTypeTree(
-                    kind,
-                    -1,
-                    -1
-            );
-            primitiveTypeTree.setType(primitiveType);
-            return primitiveTypeTree;
+            return createPrimitiveTypeTree(primitiveType);
         } else {
             throw new UnsupportedOperationException();
         }
     }
 
-    private void conditionalInvokeSuper(final Function constructor) {
-        final var body = constructor.getBody();
-        final var newStatements = new ArrayList<StatementTree>();
-        boolean hasConstructorInvocation = false;
+    private ExpressionTree createDeclaredTypeTree(final DeclaredType declaredType) {
+        final var qualifiedName = declaredType.asTypeElement().getQualifiedName();
+        final var names = qualifiedName.split("\\.");
+        ExpressionTree expressionTree = IdentifierTree.create(names[0]);
 
-        for (final var statement : body.getStatements()) {
-            if (hasConstructorInvocation) {
-                newStatements.add(statement);
-            } else {
-                if (!isConstructorInvocation(statement)) {
-                    final var constructorInvocation = TreeMaker.methodInvocationTree(
-                            null,
-                            IdentifierTree.create(Constants.SUPER),
-                            List.of(),
-                            List.of(),
-                            -1,
-                            -1
-                    );
-
-                    newStatements.add(TreeMaker.expressionStatement(constructorInvocation, -1, -1));
-
-                }
-                hasConstructorInvocation = true;
-                newStatements.add(statement);
-            }
+        for (var index = 1; index < names.length; index++) {
+            final var identifier = IdentifierTree.create(names[index]);
+            expressionTree = new FieldAccessExpressionBuilder()
+                    .selected(expressionTree)
+                    .field(identifier)
+                    .build();
         }
 
-        if (newStatements.size() > body.getStatements().size()) {
-            final var newBody = body.builder()
-                    .statements(newStatements)
-                    .build();
+        expressionTree.setType(declaredType);
+        return expressionTree;
+    }
 
+    private ExpressionTree createPrimitiveTypeTree(final PrimitiveType primitiveType) {
+        final var kind = switch (primitiveType.getKind()) {
+            case VOID -> PrimitiveTypeTree.Kind.VOID;
+            case BOOLEAN -> PrimitiveTypeTree.Kind.BOOLEAN;
+            case CHAR -> PrimitiveTypeTree.Kind.CHAR;
+            case BYTE -> PrimitiveTypeTree.Kind.BYTE;
+            case SHORT -> PrimitiveTypeTree.Kind.SHORT;
+            case INT -> PrimitiveTypeTree.Kind.INT;
+            case FLOAT -> PrimitiveTypeTree.Kind.FLOAT;
+            case LONG -> PrimitiveTypeTree.Kind.LONG;
+            case DOUBLE -> PrimitiveTypeTree.Kind.DOUBLE;
+            default -> null;
+        };
+
+        final var primitiveTypeTree = new CPrimitiveTypeTree(
+                kind,
+                -1,
+                -1
+        );
+        primitiveTypeTree.setType(primitiveType);
+        return primitiveTypeTree;
+    }
+
+    private void conditionalInvokeSuper(final ClassSymbol classSymbol,
+                                        final ClassDeclaration classDeclaration,
+                                        final CFunction constructor) {
+        final var body = constructor.getBody();
+        final var statements = new ArrayList<>(body.getStatements());
+        final var statementCount = statements.size();
+
+        final var addConstructorInvocation = statements.stream()
+                .noneMatch(this::isConstructorInvocation);
+
+        final var arguments = createConstructorArguments(classSymbol);
+        addParametersToConstructorIfNeeded(classSymbol, constructor, arguments);
+
+        if (addConstructorInvocation) {
+            final var superCall = TreeMaker.methodInvocationTree(
+                    new CFieldAccessExpressionTree(
+                            IdentifierTree.create(Constants.THIS),
+                            IdentifierTree.create(Constants.SUPER)
+                    ),
+                    List.of(),
+                    arguments,
+                    classDeclaration.getLineNumber(),
+                    classDeclaration.getColumnNumber()
+            );
+
+            statements.addFirst(TreeMaker.expressionStatement(superCall, superCall.getLineNumber(), superCall.getColumnNumber()));
+        }
+
+        final var lastStatement = statements.getLast();
+
+        if (!(lastStatement instanceof ReturnStatementTree)) {
+            statements.add(TreeMaker.returnStatement(null, -1, -1));
+        }
+
+        if (statements.size() > statementCount) {
+            final var newBody = body.builder()
+                    .statements(statements)
+                    .build();
             constructor.setBody(newBody);
         }
+
+        if (constructor.getMethodSymbol() != null) {
+            classSymbol.removeEnclosedElement((Symbol) constructor.getMethodSymbol());
+            constructor.setMethodSymbol(null);
+        }
+
+        final var method = symbolCreator.createMethod(constructor);
+        constructor.setMethodSymbol(method);
+        classSymbol.addEnclosedElement(method);
+    }
+
+    private void addParametersToConstructorIfNeeded(final ClassSymbol classSymbol,
+                                                    final CFunction constructor,
+                                                    final List<ExpressionTree> arguments) {
+        if (shouldAddArgumentsAsConstructorParameter(classSymbol)) {
+            constructor.addParameters(0, createParameters(classSymbol, arguments));
+        }
+    }
+
+    private boolean shouldAddArgumentsAsConstructorParameter(final ClassSymbol classSymbol) {
+        return classSymbol.getKind() == ElementKind.ENUM;
+    }
+
+    private List<ExpressionTree> createConstructorArguments(final ClassSymbol classSymbol) {
+        final var superclass = classSymbol.getSuperclass();
+        final List<ExpressionTree> arguments;
+        final var superConstructor = findConstructor(superclass.asTypeElement());
+
+        if (superclass == symbolTable.getObjectType()) {
+            arguments = List.of();
+        } else if (superConstructor != null) {
+            arguments = superConstructor.getParameters().stream()
+                    .map(parameter -> {
+                        final var identifier = IdentifierTree.create(parameter.getSimpleName());
+                        identifier.setType(parameter.asType());
+                        return (ExpressionTree) identifier;
+                    })
+                    .toList();
+        } else {
+            arguments = List.of();
+        }
+
+        return arguments;
     }
 
     private boolean isConstructorInvocation(final StatementTree statement) {
         return statement instanceof ExpressionStatementTree expressionStatement
                 && expressionStatement.getExpression() instanceof MethodInvocationTree methodInvocationTree
-                && isThisOrSuper(methodInvocationTree.getName());
+                && isThisOrSuper(methodInvocationTree.getMethodSelector());
     }
 
     private boolean isThisOrSuper(final ExpressionTree expressionTree) {
@@ -780,9 +870,9 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
             return Constants.THIS.equals(identifierTree.getName())
                     || Constants.SUPER.equals(identifierTree.getName());
         } else if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-            final var target = fieldAccessExpressionTree.getTarget();
+            final var selected = fieldAccessExpressionTree.getSelected();
 
-            if (!(target instanceof IdentifierTree identifierTree)) {
+            if (!(selected instanceof IdentifierTree identifierTree)) {
                 return false;
             }
 

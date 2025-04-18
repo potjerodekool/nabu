@@ -267,7 +267,7 @@ public class TypesImpl implements Types {
         return (DeclaredType) new ClassSymbolBuilder()
                 .enclosingElement(enclosingElement)
                 .kind(ElementKind.CLASS)
-                .name(simpleName)
+                .simpleName(simpleName)
                 .nestingKind(NestingKind.TOP_LEVEL)
                 .buildError()
                 .asType();
@@ -289,17 +289,17 @@ public class TypesImpl implements Types {
         final BoundKind kind;
         TypeMirror bound;
 
-        if (extendsBound == null && superBound == null) {
+        if (extendsBound != null && superBound != null) {
+            throw new IllegalArgumentException("Invalid wildcard type. Can't have both extends and superBound");
+        } else if (extendsBound == null && superBound == null) {
             kind = BoundKind.UNBOUND;
             bound = symbolTable.getObjectType();
         } else if (extendsBound != null) {
             kind = BoundKind.EXTENDS;
             bound = extendsBound;
-        } else if (superBound != null) {
+        } else {
             kind = BoundKind.SUPER;
             bound = superBound;
-        } else {
-            throw new IllegalArgumentException("Invalid wildcard type. Can't have both extends and superBound");
         }
 
         switch (bound.getKind()) {
@@ -471,6 +471,14 @@ public class TypesImpl implements Types {
         return new CVariableType(interferedType);
     }
 
+    @Override
+    public TypeMirror supertype(final TypeMirror type) {
+        if (type instanceof DeclaredType declaredType) {
+            return declaredType.asTypeElement().getSuperclass();
+        }
+        return null;
+    }
+
     private PackageSymbol createPackageElement(final String packageName) {
         PackageSymbol packageElement = null;
 
@@ -487,6 +495,13 @@ public class TypesImpl implements Types {
                 parent,
                 packageName
         );
+    }
+
+    public List<AbstractType> interfaces(final AbstractType t) {
+        final var declared = (DeclaredType) t;
+        return declared.asTypeElement().getInterfaces().stream()
+                .map(it -> (AbstractType) it)
+                .toList();
     }
 }
 

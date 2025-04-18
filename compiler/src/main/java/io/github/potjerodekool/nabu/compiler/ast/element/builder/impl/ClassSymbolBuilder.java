@@ -7,7 +7,6 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
-import io.github.potjerodekool.nabu.compiler.type.impl.CErrorType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,15 +55,15 @@ public class ClassSymbolBuilder extends AbstractSymbolBuilder<Symbol, ClassSymbo
         return this;
     }
 
-    public TypeElement build() {
+    public ClassSymbol build() {
         return build(false);
     }
 
-    public TypeElement buildError() {
+    public ClassSymbol buildError() {
         return build(true);
     }
 
-    private TypeElement build(final boolean errorType) {
+    private ClassSymbol build(final boolean errorType) {
         final var typeArguments = typeParameters.stream()
                 .map(it -> (AbstractType) it.asType())
                 .toList();
@@ -73,20 +72,19 @@ public class ClassSymbolBuilder extends AbstractSymbolBuilder<Symbol, ClassSymbo
         final ClassSymbol clazz;
 
         if (errorType) {
-            final var errorSymbol = new ErrorSymbol(getName());
+            final var errorSymbol = new ErrorSymbol(getSimpleName());
             errorSymbol.setKind(getKind());
             errorSymbol.setNestingKind(nestingKind);
             errorSymbol.setEnclosingElement((Symbol) getEnclosingElement());
             errorSymbol.setEnclosedElements(getEnclosedElements());
             errorSymbol.setAnnotations(getAnnotations());
             clazz = errorSymbol;
-            type = (CClassType) errorSymbol.asType();
         } else {
             clazz = new ClassSymbol(
                     getKind(),
                     nestingKind,
                     getFlags(),
-                    getName(),
+                    getSimpleName(),
                     new CClassType(
                             null,
                             null,

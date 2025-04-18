@@ -14,8 +14,8 @@ public class CUnaryExpressionTree extends CExpressionTree implements UnaryExpres
     public CUnaryExpressionTree(final Tag tag,
                                 final ExpressionTree expression,
                                 final int lineNumber,
-                                final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.tag = tag;
         this.expression = expression;
     }

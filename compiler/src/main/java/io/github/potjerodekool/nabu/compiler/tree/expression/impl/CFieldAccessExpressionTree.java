@@ -8,32 +8,38 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccess
 
 public class CFieldAccessExpressionTree extends CExpressionTree implements FieldAccessExpressionTree {
 
-    private ExpressionTree target;
+    private ExpressionTree selected;
 
     private ExpressionTree field;
 
-    public CFieldAccessExpressionTree(final ExpressionTree target,
+    public CFieldAccessExpressionTree(final ExpressionTree selected,
+                                      final ExpressionTree field) {
+        this(selected, field, -1, -1);
+    }
+
+    public CFieldAccessExpressionTree(final ExpressionTree selected,
                                       final ExpressionTree field,
                                       final int lineNumber,
-                                      final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
-        this.target = target;
+                                      final int columnNumber) {
+        super(lineNumber, columnNumber);
+        this.selected = selected;
         this.field = field;
     }
 
     public CFieldAccessExpressionTree(final FieldAccessExpressionBuilder fieldAccessExpressionBuilder) {
         super(fieldAccessExpressionBuilder);
-        this.target = fieldAccessExpressionBuilder.getTarget();
+        this.selected = fieldAccessExpressionBuilder.getSelected();
         this.field = fieldAccessExpressionBuilder.getField();
     }
 
-    public ExpressionTree getTarget() {
-        return target;
+    @Override
+    public ExpressionTree getSelected() {
+        return selected;
     }
 
     @Override
-    public FieldAccessExpressionTree target(final ExpressionTree target) {
-        this.target = target;
+    public FieldAccessExpressionTree selected(final ExpressionTree selected) {
+        this.selected = selected;
         return this;
     }
 
@@ -59,12 +65,13 @@ public class CFieldAccessExpressionTree extends CExpressionTree implements Field
 
     @Override
     public String toString() {
-        if (target == null) {
+        if (selected == null) {
             return field.toString();
         } else {
-            final var targetStr = target.toString();
+            final var selectedStr = selected.toString();
             final var fieldStr = field.toString();
-            return String.format("%s.%s", targetStr, fieldStr);
+            return String.format("%s.%s", selectedStr, fieldStr);
         }
     }
+
 }

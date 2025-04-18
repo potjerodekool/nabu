@@ -25,4 +25,14 @@ public class CVoidType extends AbstractType implements NoType {
     public String getClassName() {
         return "void";
     }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CVoidType;
+    }
+
+    @Override
+    public int hashCode() {
+        return 32;
+    }
 }

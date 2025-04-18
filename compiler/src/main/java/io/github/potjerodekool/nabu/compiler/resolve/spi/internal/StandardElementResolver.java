@@ -16,7 +16,7 @@ public class StandardElementResolver implements ElementResolver {
         if (searchType instanceof DeclaredType declaredType) {
             final var typeElement = (TypeElement) declaredType.asElement();
 
-            return ElementFilter.fields(typeElement).stream()
+            return ElementFilter.fieldsIn(typeElement.getEnclosedElements()).stream()
                     .filter(elem -> elem.getSimpleName().equals(name))
                     .findFirst()
                     .orElse(null);

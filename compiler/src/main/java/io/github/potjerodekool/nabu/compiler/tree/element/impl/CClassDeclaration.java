@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.element.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
@@ -25,7 +25,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
 
     private final CModifiers modifiers;
 
-    private TypeElement typeElement;
+    private ClassSymbol classSymbol;
 
     private final List<TypeParameterTree> typeParameters = new ArrayList<>();
 
@@ -44,8 +44,8 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
                              final ExpressionTree extending,
                              final List<IdentifierTree> permits,
                              final int lineNumber,
-                             final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                             final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.kind = kind;
         this.modifiers = modifiers;
         this.simpleName = simpleName;
@@ -108,6 +108,11 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         return this;
     }
 
+    public ClassDeclaration removeEnclosedElements(final List<? extends Tree> enclosedElements) {
+        this.enclosedElements.removeAll(enclosedElements);
+        return this;
+    }
+
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
         return visitor.visitClass(this, param);
@@ -131,13 +136,12 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
     }
 
     @Override
-    public TypeElement getClassSymbol() {
-        return typeElement;
+    public ClassSymbol getClassSymbol() {
+        return classSymbol;
     }
 
-    @Override
-    public void setClassSymbol(final TypeElement typeElement) {
-        this.typeElement = typeElement;
+    public void setClassSymbol(final ClassSymbol classSymbol) {
+        this.classSymbol = classSymbol;
     }
 
 }

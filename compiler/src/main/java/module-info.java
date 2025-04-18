@@ -22,4 +22,5 @@ module io.github.potjerodekool.nabu.compiler {
 
     requires io.github.potjerodekool.dependency;
     requires jdk.compiler;
+    requires java.sql;
 }

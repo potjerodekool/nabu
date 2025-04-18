@@ -6,7 +6,7 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CPackageType;
 
 public class PackageSymbol extends TypeSymbol implements PackageElement {
 
-    private static final PackageElement UNNAMED_PACKAGE = new PackageSymbol(
+    public static final PackageSymbol UNNAMED_PACKAGE = new PackageSymbol(
             null,
             ""
     );

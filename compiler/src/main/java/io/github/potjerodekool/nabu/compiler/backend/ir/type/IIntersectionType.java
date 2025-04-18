@@ -20,4 +20,18 @@ public final class IIntersectionType extends IType {
     public <R, P> R accept(final ITypeVisitor<R, P> visitor, final P param) {
         return visitor.visitIntersectionType(this, param);
     }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (o instanceof IIntersectionType otherType) {
+            return bounds.equals(otherType.bounds);
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public int hashCode() {
+        return bounds.hashCode();
+    }
 }

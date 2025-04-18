@@ -1,0 +1,5 @@
+package io.github.potjerodekool.nabu.example;
+
+public record IdAndName(id : String, name : String) {
+
+}

@@ -15,6 +15,12 @@ public class BinOp extends IExpression {
     public BinOp(final IExpression left,
                  final Tag tag,
                  final IExpression right) {
+
+        if (tag == Tag.ASSIGN && left instanceof TempExpr leftTemp
+            && leftTemp.getTemp().getIndex() == -1) {
+            throw new IllegalArgumentException();
+        }
+
         this.tag = tag;
         this.left = left;
         this.right = right;

@@ -1,11 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
@@ -18,28 +17,20 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.ReturnStatementTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.*;
-import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
-import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 import static io.github.potjerodekool.nabu.compiler.backend.ir.expression.Eseq.eseq;
 
 public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     private final TypeResolver typeResolver = new TypeResolver();
-    private final Types types;
-
-    public Translate(final Types types) {
-        this.types = types;
-    }
 
     @Override
     public Exp visitUnknown(final Tree tree, final TranslateContext Param) {
-        throw new TodoException(tree.getClass().getName());
+        throw new UnsupportedOperationException(tree.getClass().getName());
     }
 
     @Override
@@ -57,10 +48,6 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         final var parentClass = context.classDeclaration;
         context.classDeclaration = classDeclaration;
         final var result = super.visitClass(classDeclaration, context);
-        final var clientInitOptional = generateClientInit(classDeclaration);
-
-        clientInitOptional.ifPresent(clientInit -> clientInit.accept(this, context));
-
         context.classDeclaration = parentClass;
         return result;
     }
@@ -113,110 +100,52 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         return null;
     }
 
-    private Optional<Function> generateClientInit(final ClassDeclaration classDeclaration) {
-        final var className = classDeclaration.getClassSymbol().getQualifiedName();
+    @Override
+    public Exp visitIdentifier(final IdentifierTree identifier, final TranslateContext context) {
+        final var type = identifier.getType();
+        final var symbol = (Symbol) identifier.getSymbol();
 
-        final var fields = TreeFilter.fields(classDeclaration).stream()
-                .filter(field -> field.hasFlag(Flags.STATIC))
-                .filter(field -> field.getValue() != null)
-                .toList();
+        if (Constants.THIS.equals(identifier.getName())) {
+            return new Ex(new TempExpr(0, ToIType.toIType(symbol.asType())));
+        }
 
-        Function clientInit = null;
-
-        for (final var field : fields) {
-            final var fieldValue = (ExpressionTree) field.getValue();
-
-            if (field.hasFlag(Flags.FINAL) != (fieldValue instanceof LiteralExpressionTree)) {
-                if (clientInit == null) {
-                    clientInit = findOrCreateClientInit(classDeclaration);
-                }
-
-                final var body = clientInit.getBody();
-
-                final var expressionTree = TreeMaker.binaryExpressionTree(
-                        TreeMaker.fieldAccessExpressionTree(
-                                IdentifierTree.create(
-                                        className
-                                ),
-                                field.getName(),
-                                -1,
-                                -1
-                        ),
-                        Tag.ASSIGN,
-                        fieldValue,
-                        -1,
-                        -1
-                );
-
-                body.addStatement(
-                        TreeMaker.expressionStatement(
-                                expressionTree,
-                                -1,
-                                -1
-                        )
-                );
+        if (type != null
+                && symbol == null
+                && type.isDeclaredType()) {
+            if ("class".equals(identifier.getName())) {
+                return new Ex(new Name("class"));
+            } else {
+                return new Ex(new Name(type.asTypeElement().getQualifiedName()));
             }
         }
 
-        if (clientInit != null) {
-            clientInit.getBody().addStatement(
-                    new ReturnStatementTreeBuilder()
-                            .build()
-            );
+        if (isNullOrError(symbol)) {
+            return new Nx(null);
         }
 
-        return Optional.ofNullable(clientInit);
-    }
+        if (symbol.getKind() == ElementKind.FIELD
+                || symbol.getKind() == ElementKind.ENUM_CONSTANT
+                || symbol.getKind() == ElementKind.RECORD_COMPONENT) {
+            final var clazz = (ClassSymbol) symbol.getEnclosingElement();
 
-    private Function findOrCreateClientInit(final ClassDeclaration classDeclaration) {
-        return classDeclaration.getEnclosedElements().stream()
-                .flatMap(CollectionUtils.mapOnly(Function.class))
-                .filter(function -> Constants.CLINIT.equals(function.getSimpleName()))
-                .findFirst()
-                .orElseGet(() -> {
-                    final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
+            return new Ex(new IFieldAccess(
+                    new Name(clazz.getQualifiedName()),
+                    symbol.getSimpleName(),
+                    ToIType.toIType(symbol.asType()),
+                    symbol.isStatic()
+            ));
+        } else if (symbol instanceof TypeElement) {
+            return new Nx(null);
+        }
 
-                    final var method = new MethodSymbolBuilderImpl()
-                            .kind(ElementKind.STATIC_INIT)
-                            .flags(Flags.STATIC)
-                            .name(Constants.CLINIT)
-                            .returnType(types.getNoType(TypeKind.VOID))
-                            .build();
-
-
-                    final var function = TreeMaker.function(
-                            Constants.CLINIT,
-                            Kind.STATIC_INIT,
-                            new CModifiers(
-                                    List.of(),
-                                    Flags.STATIC
-                            ),
-                            List.of(),
-                            null,
-                            List.of(),
-                            TreeMaker.primitiveTypeTree(
-                                    PrimitiveTypeTree.Kind.VOID,
-                                    -1,
-                                    -1
-                            ),
-                            List.of(),
-                            TreeMaker.blockStatement(List.of(), -1, -1),
-                            null,
-                            -1,
-                            -1
-                    );
-                    function.setMethodSymbol(method);
-                    clazz.addEnclosedElement(method);
-
-                    return function;
-                });
-    }
-
-    @Override
-    public Exp visitIdentifier(final IdentifierTree identifier, final TranslateContext context) {
         final var frame = context.frame;
         final var local = frame.get(identifier.getName());
         return new Ex(new TempExpr(local.index(), local.type()));
+    }
+
+    private boolean isNullOrError(final Symbol symbol) {
+        return symbol == null
+                || symbol.isError();
     }
 
     @Override
@@ -225,20 +154,74 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitMethodInvocation(final MethodInvocationTree methodInvocation, final TranslateContext context) {
-        final var arguments = new ArrayList<IExpression>();
+    public Exp visitMethodInvocation(final MethodInvocationTree methodInvocation,
+                                     final TranslateContext context) {
 
+        final var arguments = methodInvocationArguments(
+                methodInvocation,
+                context
+        );
+
+        final var methodType = methodInvocation.getMethodType();
+        final var methodSelector = methodInvocation.getMethodSelector();
+        final String methodName;
+
+        if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            methodName = ((IdentifierTree) fieldAccessExpressionTree.getField()).getName();
+        } else {
+            methodName = ((IdentifierTree) methodSelector).getName();
+        }
+
+        final var invokedMethod = methodType.getMethodSymbol();
+        final InvocationType invocationType = resolveInvocationType(methodType);
+        final var owner = ToIType.toIType(methodSelector.getType());
+        final var originalMethodType = (ExecutableType) methodType.getMethodSymbol().asType();
+
+        final IType returnType =
+                invokedMethod.getKind() == ElementKind.CONSTRUCTOR
+                        ? IPrimitiveType.VOID
+                        : toIType(originalMethodType.getReturnType());
+
+        final var argumentTypes = originalMethodType.getParameterTypes();
+
+        final List<IType> parameterTypes = argumentTypes.stream()
+                .map(this::toIType)
+                .toList();
+
+        final var call = new Call(
+                invocationType,
+                owner,
+                new Name(methodName),
+                returnType,
+                parameterTypes,
+                arguments
+        );
+
+        return new Ex(call);
+    }
+
+    private List<IExpression> methodInvocationArguments(final MethodInvocationTree methodInvocation,
+                                                        final TranslateContext context) {
+        final var arguments = new ArrayList<IExpression>();
         final var methodType = methodInvocation.getMethodType();
         final var isStatic = methodType.getMethodSymbol().isStatic();
 
-        if (methodInvocation.getTarget() != null
+        final var methodSelector = methodInvocation.getMethodSelector();
+        final ExpressionTree selected;
+
+        if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            selected = fieldAccessExpressionTree.getSelected();
+        } else {
+            selected = null;
+        }
+
+        if (selected != null
                 && !isStatic) {
+            final var exp = selected.accept(this, context);
+            final var targetExpression = exp.unEx();
 
-            final var exp = methodInvocation.getTarget().accept(this, context);
-            final var target = exp.unEx();
-
-            if (target != null) {
-                arguments.add(target);
+            if (targetExpression != null) {
+                arguments.add(targetExpression);
             } else {
                 final var stm = exp.unNx();
                 arguments.add(
@@ -271,43 +254,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             arguments.add(expression);
         });
 
-        final var name = ((IdentifierTree) methodInvocation.getName()).getName();
-
-        final var invokedMethod = methodType.getMethodSymbol();
-        final InvocationType invocationType = resolveInvocationType(methodType);
-        final String owner;
-
-        if (invokedMethod.getKind() == ElementKind.CONSTRUCTOR) {
-            final var ownerClass = (TypeElement) invokedMethod.getEnclosingElement();
-            owner = ownerClass.getQualifiedName();
-        } else {
-            final var ownerClass = methodType.getOwner();
-            owner = ownerClass.getQualifiedName();
-        }
-
-        final var originalMethodType = (ExecutableType) methodType.getMethodSymbol().asType();
-
-        final IType returnType =
-                invokedMethod.getKind() == ElementKind.CONSTRUCTOR
-                        ? IPrimitiveType.VOID
-                        : toIType(originalMethodType.getReturnType());
-
-        final var argumentTypes = originalMethodType.getParameterTypes();
-
-        final List<IType> parameterTypes = argumentTypes.stream()
-                .map(this::toIType)
-                .toList();
-
-        final var call = new Call(
-                invocationType,
-                new Name(owner),
-                new Name(name),
-                returnType,
-                parameterTypes,
-                arguments
-        );
-
-        return new Ex(call);
+        return arguments;
     }
 
     private InvocationType resolveInvocationType(final ExecutableType methodType) {
@@ -315,12 +262,12 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         final var ownerClass = methodType.getOwner();
         final var invokedMethod = methodType.getMethodSymbol();
 
-        if (invokedMethod.getKind() == ElementKind.CONSTRUCTOR || invokedMethod.isPrivate()) {
+        if (invokedMethod.isStatic()) {
+            invocationType = InvocationType.STATIC;
+        } else if (invokedMethod.getKind() == ElementKind.CONSTRUCTOR || invokedMethod.isPrivate()) {
             invocationType = InvocationType.SPECIAL;
         } else if (ownerClass.getKind() == ElementKind.INTERFACE) {
             invocationType = InvocationType.INTERFACE;
-        } else if (invokedMethod.isStatic()) {
-            invocationType = InvocationType.STATIC;
         } else {
             invocationType = InvocationType.VIRTUAL;
         }
@@ -493,10 +440,11 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     private IType toIType(final TypeMirror typeMirror) {
         if (typeMirror == null) {
+            //TODO Should not be null.
             return null;
         }
 
-        return typeMirror.accept(ToIType.INSTANCE, null);
+        return ToIType.toIType(typeMirror);
     }
 
     @Override
@@ -511,8 +459,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                     type,
                     variableDeclaratorStatement.getKind() == Kind.PARAMETER);
             return null;
-        } else if (variableDeclaratorStatement.getKind() == Kind.FIELD
-            || variableDeclaratorStatement.getKind() == Kind.RECORD_COMPONENT) {
+        } else if (variableDeclaratorStatement.getKind() != Kind.LOCAL_VARIABLE) {
             return null;
         }
 
@@ -587,15 +534,33 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final TranslateContext context) {
-        final var target = (IdentifierTree) fieldAccessExpression.getTarget();
+        final var selected = (IdentifierTree) fieldAccessExpression.getSelected();
         final var field = (IdentifierTree) fieldAccessExpression.getField();
         final var fieldType = toIType(TreeUtils.typeOf(field));
-        return new Ex(new IFieldAccess(
-                target.getName(),
-                field.getName(),
-                fieldType,
-                true
-        ));
+
+        final var selectedExpr = selected.accept(this, context).unEx();
+        final var fieldExpr = field.accept(this, context).unEx();
+
+        if (selectedExpr == null) {
+            return new Ex(fieldExpr);
+        }
+
+        if (selectedExpr instanceof IFieldAccess
+                || selectedExpr instanceof TempExpr) {
+            return new Ex(new ExpList(
+                    selectedExpr,
+                    fieldExpr
+            ));
+        } else if (fieldExpr instanceof Name name) {
+            return new Ex(new IFieldAccess(
+                    selectedExpr,
+                    name.getLabel().getName(),
+                    fieldType,
+                    true
+            ));
+        } else {
+            return new Ex(fieldExpr);
+        }
     }
 
     @Override
@@ -635,12 +600,11 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     @Override
     public Exp visitCastExpression(final CastExpressionTree castExpression, final TranslateContext param) {
         final var expression = castExpression.getExpression().accept(this, param).unEx();
-        final var targetType = (IdentifierTree) castExpression.getTargetType();
-        final var className = targetType.getType().getClassName();
-
+        final var targetType = castExpression.getTargetType();
+        final var castType = ToIType.toIType(targetType.getType());
         return new Ex(new ITypeExpression(
                 ITypeExpression.Kind.CAST,
-                className,
+                castType,
                 expression
         ));
     }
@@ -671,12 +635,96 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     public Exp visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final TranslateContext param) {
         final var expression = instanceOfExpression.getExpression().accept(this, param).unEx();
         final var targetType = (IdentifierTree) instanceOfExpression.getTypeExpression();
-        final var className = targetType.getType().getClassName();
+        final var clazz = ToIType.toIType(targetType.getType());
 
         return new Ex(new ITypeExpression(
                 ITypeExpression.Kind.INSTANCEOF,
-                className,
+                clazz,
                 expression
         ));
+    }
+
+    @Override
+    public Exp visitNewClass(final NewClassExpression newClassExpression,
+                             final TranslateContext param) {
+        final var owner = ToIType.toIType(
+                newClassExpression.getName().getType()
+        );
+
+        final var clazz = ToIType.toIType(newClassExpression.getName().getType());
+
+        final var parameterTypes = newClassExpression.getArguments().stream()
+                .map(ExpressionTree::getType)
+                .map(ToIType::toIType)
+                .toList();
+
+        final var arguments = newClassExpression.getArguments().stream()
+                .map(arg -> arg.accept(this, param))
+                .map(Exp::unEx)
+                .toList();
+
+        final var call = new Call(
+                InvocationType.SPECIAL,
+                owner,
+                new Name(Constants.INIT),
+                IPrimitiveType.VOID,
+                parameterTypes,
+                arguments
+        );
+
+        return new Ex(new ITypeExpression(
+                ITypeExpression.Kind.NEW,
+                clazz,
+                call
+        ));
+    }
+
+    @Override
+    public Exp visitNewArray(final NewArrayExpression newArrayExpression, final TranslateContext param) {
+        final var dimensions = newArrayExpression.getDimensions();
+
+        if (dimensions.size() != 1) {
+            throw new TodoException();
+        }
+
+        final var dimension = dimensions.getFirst();
+        final var dimExpr = dimension.accept(this, param);
+
+        final var type = (IdentifierTree) newArrayExpression.getElementType();
+        final var clazz = ToIType.toIType(type.getType());
+
+        final var newArrayExpr = new ITypeExpression(
+                ITypeExpression.Kind.NEWARRAY,
+                clazz,
+                dimExpr.unEx()
+        );
+
+        if (newArrayExpression.getElements() == null) {
+            return new Ex(newArrayExpr);
+        } else {
+            final var elements = newArrayExpression.getElements();
+            final var expressions = new ArrayList<IExpression>();
+
+            for (var index = 0; index < elements.size(); index++) {
+                final var exp = elements.get(index).accept(this, param).unEx();
+
+                expressions.add(new ExpList(
+                        InstExpression.dup(),
+                        new Const(index),
+                        exp,
+                        InstExpression.arrayStore()
+                ));
+            }
+
+            return new Ex(new ExpList(
+                    newArrayExpr,
+                    new ExpList(expressions)
+            ));
+        }
+    }
+
+    @Override
+    public Exp visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree, final TranslateContext param) {
+        throw new TodoException();
     }
 }

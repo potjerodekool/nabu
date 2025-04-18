@@ -24,4 +24,14 @@ public class CNoType extends AbstractType implements NoType {
     public String getClassName() {
         return "NO";
     }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CNoType;
+    }
+
+    @Override
+    public int hashCode() {
+        return 32;
+    }
 }

@@ -3,7 +3,11 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
@@ -12,6 +16,7 @@ import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -23,49 +28,35 @@ public class MethodResolver {
         this.types = types;
     }
 
-    public ExecutableType resolveMethod(final MethodInvocationTree methodInvocation,
-                                        final Element currentElement) {
-        return resolveMethod(methodInvocation, currentElement, true);
+    public Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocation) {
+        return resolveMethod(methodInvocation, null, null);
     }
 
-    private ExecutableType resolveMethod(final MethodInvocationTree methodInvocation,
-                                         final Element currentElement,
-                                         final boolean resolveDescriptor) {
-        /*
-         * TODO rename to onlyStaticCalls.
-         * If true then only resolve static calls else both static and non static calls.
-         */
-        final boolean isStaticCall;
-        final var target = methodInvocation.getTarget();
+    public Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocation,
+                                                  final Element currentElement,
+                                                  final Scope scope) {
+        return resolveMethod(methodInvocation, currentElement, true, scope);
+    }
 
-        final DeclaredType targetType;
+    private Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocation,
+                                                   final Element currentElement,
+                                                   final boolean resolveDescriptor,
+                                                   final Scope scope) {
+        final var methodSelector = methodInvocation.getMethodSelector();
+        final ExpressionTree selected;
+        final String methodName;
 
-        if (target == null) {
-            if (currentElement instanceof ExecutableElement executableElement) {
-                isStaticCall = executableElement.isStatic();
-                final var clazz = (TypeElement) executableElement.getEnclosingElement();
-                targetType = (DeclaredType) clazz.asType();
-            } else {
-                isStaticCall = false;
-                final var clazz = (TypeElement) currentElement;
-                targetType = (DeclaredType) clazz.asType();
-            }
+        if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            selected = fieldAccessExpressionTree.getSelected();
+            methodName = ((IdentifierTree) fieldAccessExpressionTree.getField()).getName();
         } else {
-            final var targetSymbol = target.getSymbol();
-
-            if (targetSymbol instanceof VariableElement variableElement) {
-                targetType = asClassType(variableElement.asType());
-                isStaticCall = false;
-            } else if (targetSymbol instanceof TypeElement) {
-                targetType = asClassType(targetSymbol.asType());
-                isStaticCall = true;
-            } else {
-                targetType = asClassType(target.getType());
-                isStaticCall = false;
-            }
+            selected = null;
+            methodName = ((IdentifierTree) methodSelector).getName();
         }
 
-        final var name = (IdentifierTree) methodInvocation.getName();
+        final DeclaredType targetType = resolveTargetType(selected, currentElement);
+        final boolean onlyStaticCalls = onlyStaticCalls(selected, currentElement);
+
         final var argumentTypes = methodInvocation.getArguments().stream()
                 .map(this::resolveType)
                 .toList();
@@ -76,18 +67,60 @@ public class MethodResolver {
 
         final var methodType = resolveMethod(
                 targetType,
-                name.getName(),
+                methodName,
                 typeArguments,
                 argumentTypes,
-                isStaticCall
+                onlyStaticCalls,
+                scope
         );
 
         if (methodType == null && resolveDescriptor) {
             resolveMethodDescriptor(methodInvocation);
-            resolveMethod(methodInvocation, null, false);
+            resolveMethod(methodInvocation, null, false, scope);
         }
 
-        return methodType;
+        return Optional.ofNullable(methodType);
+    }
+
+    private DeclaredType resolveTargetType(final ExpressionTree selected,
+                                           final Element currentElement) {
+        final DeclaredType targetType;
+
+        if (selected == null) {
+            if (currentElement instanceof ExecutableElement executableElement) {
+                final var clazz = (TypeElement) executableElement.getEnclosingElement();
+                targetType = (DeclaredType) clazz.asType();
+            } else {
+                final var clazz = (TypeElement) currentElement;
+                targetType = (DeclaredType) clazz.asType();
+            }
+        } else {
+            final var targetSymbol = selected.getSymbol();
+
+            if (targetSymbol instanceof VariableElement variableElement) {
+                targetType = asClassType(variableElement.asType());
+            } else if (targetSymbol instanceof TypeElement) {
+                targetType = asClassType(targetSymbol.asType());
+            } else {
+                final var type = resolveType(selected);
+                targetType = asClassType(type);
+            }
+        }
+
+        return targetType;
+    }
+
+
+    private boolean onlyStaticCalls(final ExpressionTree selected,
+                                    final Element currentElement) {
+        if (currentElement instanceof ExecutableElement executableElement) {
+            return executableElement.isStatic();
+        } else if (selected == null) {
+            return false;
+        } else {
+            final var targetSymbol = selected.getSymbol();
+            return targetSymbol instanceof TypeElement;
+        }
     }
 
     public DeclaredType asClassType(final TypeMirror typeMirror) {
@@ -101,13 +134,17 @@ public class MethodResolver {
     }
 
     private void resolveMethodDescriptor(final MethodInvocationTree methodInvocationTree) {
-        final var name = methodInvocationTree.getName();
+        final var methodSelector = methodInvocationTree.getMethodSelector();
+        final var methodName = methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree
+                ? ((IdentifierTree) fieldAccessExpressionTree.getField()).getName()
+                : ((IdentifierTree) methodSelector).getName();
+
         final var args = methodInvocationTree.getArguments().stream()
                 .map(this::resolveType)
                 .map(this::typeToString)
                 .collect(Collectors.joining(",", "(", ")"));
 
-        final var mt = name + args;
+        final var mt = methodName + args;
         System.out.println("method not found " + mt);
     }
 
@@ -143,7 +180,8 @@ public class MethodResolver {
                                          final String methodName,
                                          final List<TypeMirror> typeArguments,
                                          final List<TypeMirror> argumentTypes,
-                                         final boolean isStaticCall) {
+                                         final boolean onlyStaticCalls,
+                                         final Scope scope) {
         if ("super".equals(methodName)) {
             var clazz = (TypeElement) targetType.asElement();
             final var searchType = (DeclaredType) clazz.getSuperclass();
@@ -152,14 +190,16 @@ public class MethodResolver {
                     "this",
                     typeArguments,
                     argumentTypes,
-                    isStaticCall);
+                    onlyStaticCalls,
+                    null);
         } else {
             return doResolveMethod(
                     targetType,
                     methodName,
                     typeArguments,
                     argumentTypes,
-                    isStaticCall
+                    onlyStaticCalls,
+                    scope
             );
         }
     }
@@ -167,25 +207,32 @@ public class MethodResolver {
     private ExecutableType doResolveMethod(final DeclaredType type,
                                            final String methodName,
                                            final List<TypeMirror> typeArguments,
-                                           final List<TypeMirror> argumentTypes, final boolean isStaticCall) {
+                                           final List<TypeMirror> argumentTypes,
+                                           final boolean onlyStaticCalls,
+                                           final Scope scope) {
         final ExecutableType methodType;
 
         final var clazz = (ClassSymbol) type.asElement();
         final List<ExecutableElement> methods;
 
-        if (Constants.THIS.equals(methodName)) {
+        if (Constants.THIS.equals(methodName)
+                || Constants.INIT.equals(methodName)) {
             methods = ElementFilter.constructorsIn(clazz.getMembers().elements());
         } else {
-            methods = ElementFilter.methods(clazz).stream()
-                    .filter(element -> methodFilter(element, methodName, isStaticCall))
+            methods = ElementFilter.methodsIn(clazz.getEnclosedElements()).stream()
+                    .filter(element -> methodFilter(element, methodName, onlyStaticCalls))
                     .toList();
         }
 
-        final var methodTypes = methods.stream()
+        final var methodTypes = new ArrayList<>(methods.stream()
                 .map(method -> (ExecutableType) types.asMemberOf(type, method))
                 .map(mt -> transform(mt, typeArguments, argumentTypes))
                 .filter(method -> match(method, argumentTypes))
-                .toList();
+                .toList());
+
+        if (scope != null) {
+            resolveMethodInScope(methodName, scope).ifPresent(methodTypes::add);
+        }
 
         if (methodTypes.size() == 1) {
             methodType = methodTypes.getFirst();
@@ -198,7 +245,8 @@ public class MethodResolver {
                             methodName,
                             typeArguments,
                             argumentTypes,
-                            isStaticCall))
+                            onlyStaticCalls,
+                            null))
                     .filter(Objects::nonNull)
                     .findFirst();
 
@@ -215,7 +263,7 @@ public class MethodResolver {
                             methodName,
                             typeArguments,
                             argumentTypes,
-                            isStaticCall);
+                            onlyStaticCalls, null);
                 }
             }
         }
@@ -254,8 +302,8 @@ public class MethodResolver {
 
     private boolean methodFilter(final ExecutableElement method,
                                  final String methodName,
-                                 final boolean isStaticCall) {
-        if (isStaticCall && !method.isStatic()) {
+                                 final boolean onlyStaticCalls) {
+        if (onlyStaticCalls && !method.isStatic()) {
             return false;
         }
 
@@ -277,6 +325,45 @@ public class MethodResolver {
 
         return IntStream.range(0, argTypes.size())
                 .allMatch(index -> types.isAssignable(argumentTypes.get(index), argTypes.get(index)));
+    }
+
+    private Optional<ExecutableType> resolveMethodInScope(final String methodName,
+                                                          final Scope scope) {
+        final var namedImportScope = scope.getCompilationUnit().getNamedImportScope();
+        final var resolvedMethodOptional = resolveMethodInScope(methodName, namedImportScope);
+
+        if (resolvedMethodOptional.isPresent()) {
+            return resolvedMethodOptional;
+        } else {
+            final var startImportScope = scope.getCompilationUnit().getStartImportScope();
+            return resolveMethodInScope(methodName, startImportScope);
+        }
+    }
+
+    private Optional<ExecutableType> resolveMethodInScope(final String methodName,
+                                                          final ImportScope importScope) {
+        final var symbols = importScope.resolveByName(
+                methodName,
+                methodFilter()
+        );
+
+        final var iterator = symbols.iterator();
+
+        if (iterator.hasNext()) {
+            final var first = iterator.next();
+
+            if (iterator.hasNext()) {
+                return Optional.empty();
+            } else {
+                return Optional.of((ExecutableType) first.asType());
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private Predicate<Symbol> methodFilter() {
+        return symbol -> symbol instanceof MethodSymbol;
     }
 }
 

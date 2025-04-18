@@ -6,12 +6,17 @@ import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.ClassScope;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.MethodInvocationTreeBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CIdentifierTree;
+import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.util.Types;
@@ -46,10 +51,9 @@ class MethodResolverTest {
 
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
-
         final var listVariable = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
-                .name("list")
+                .simpleName("list")
                 .type(stringListType)
                 .build();
 
@@ -62,7 +66,7 @@ class MethodResolverTest {
         final var elementArg = IdentifierTree.create("value");
         final var variable = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
-                .name("value")
+                .simpleName("value")
                 .type(stringClass.asType())
                 .build();
 
@@ -70,15 +74,18 @@ class MethodResolverTest {
 
 
         final var methodInvocationTree = TreeMaker.methodInvocationTree(
-                target,
-                IdentifierTree.create("add"),
+                new CFieldAccessExpressionTree(
+                        target,
+                        IdentifierTree.create("add")
+                ),
                 List.of(),
                 List.of(indexArg, elementArg),
                 -1,
                 -1
         );
 
-        final var methodType = methodResolver.resolveMethod(methodInvocationTree, null);
+        final var methodType = methodResolver.resolveMethod(methodInvocationTree)
+                        .get();
         assertNotNull(methodType);
 
         final var printer = new TypePrinter();
@@ -99,26 +106,26 @@ class MethodResolverTest {
 
         final var objectType = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
-                .name("Object")
+                .simpleName("Object")
                 .build()
                 .asType();
 
         final var typeVar = types.getTypeVariable("Y", objectType, null);
 
 
-        final var pathClass = (ClassSymbol) new ClassSymbolBuilder()
+        final var pathClass = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
-                .name("Path")
+                .simpleName("Path")
                 .typeParameter((TypeParameterElement) types.getTypeVariable("X", objectType, null).asElement())
                 .build();
 
         final var personClass = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
-                .name("Person")
+                .simpleName("Person")
                 .enclosedElement(
                         new VariableSymbolBuilderImpl()
                                 .kind(ElementKind.FIELD)
-                                .name("birthDay")
+                                .simpleName("birthDay")
                                 .type(localDateClass.asType())
                                 .build()
                 ).build();
@@ -133,11 +140,10 @@ class MethodResolverTest {
                 .enclosingElement(pathClass)
                 .returnType(returnType)
                 .typeParameter((TypeParameterElement) typeVar.asElement())
-                .argumentTypes(stringClass.asType())
-                .name("get")
+                .simpleName("get")
                 .parameter(
                         new VariableSymbolBuilderImpl()
-                                .name("attributeName")
+                                .simpleName("attributeName")
                                 .type(stringClass.asType())
                                 .build()
                 )
@@ -153,7 +159,7 @@ class MethodResolverTest {
 
         final var pathVariable = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
-                .name("list")
+                .simpleName("list")
                 .type(types.getDeclaredType(
                         pathClass,
                         personClass.asType()
@@ -169,15 +175,18 @@ class MethodResolverTest {
         literal.setType(stringClass.asType());
 
         final var methodInvocationTree = TreeMaker.methodInvocationTree(
-                target,
-                IdentifierTree.create("get"),
+                new CFieldAccessExpressionTree(
+                        target,
+                    IdentifierTree.create("get")
+                ),
                 List.of(typeArg),
                 List.of(literal),
                 -1,
                 -1
         );
 
-        final var methodType = methodResolver.resolveMethod(methodInvocationTree, null);
+        final var methodType = methodResolver.resolveMethod(methodInvocationTree)
+                        .get();
         assertNotNull(methodType);
 
         final var printer = new TypePrinter();
@@ -196,7 +205,7 @@ class MethodResolverTest {
 
         final var objectType = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
-                .name("Object")
+                .simpleName("Object")
                 .build()
                 .asType();
 
@@ -215,12 +224,12 @@ class MethodResolverTest {
 
         final var predicateClass = new ClassSymbolBuilder()
                 .kind(ElementKind.INTERFACE)
-                .name("Predicate")
+                .simpleName("Predicate")
                 .build();
 
         final var expressionClass = new ClassSymbolBuilder()
                 .kind(ElementKind.INTERFACE)
-                .name("Expression")
+                .simpleName("Expression")
                 .typeParameter((TypeParameterElement) types.getTypeVariable("T", objectType, null).asElement())
                 .build();
 
@@ -250,7 +259,7 @@ class MethodResolverTest {
 
         final var pathClass = new ClassSymbolBuilder()
                 .kind(ElementKind.INTERFACE)
-                .name("Path")
+                .simpleName("Path")
                 .typeParameter((TypeParameterElement) types.getTypeVariable("T", objectType, null).asElement())
                 .build();
 
@@ -279,5 +288,51 @@ class MethodResolverTest {
         result.accept(printer, null);
         final var actual = printer.getText();
         assertEquals("Predicate (Expression<java.time.LocalDate>, java.time.LocalDate)", actual);
+    }
+
+    @Test
+    void resolveMethodStaticImport() {
+        final var methodInvocation = new MethodInvocationTreeBuilder()
+                .methodSelector(new CIdentifierTree("of"))
+                .build();
+
+        final var compilationUnit = new CCompilationTreeUnit(
+                null,
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
+
+        final var ofMethod = new MethodSymbolBuilderImpl()
+                .kind(ElementKind.METHOD)
+                .simpleName("of")
+                .build();
+
+        compilationUnit.getNamedImportScope().define(ofMethod);
+
+        final var globalScope = new GlobalScope(
+                compilationUnit,
+                null
+        );
+
+        final var classScope = new ClassScope(
+                null,
+                globalScope,
+                compilationUnit,
+                null
+        );
+
+        final var clazz = new ClassSymbolBuilder()
+                .build();
+
+        final var methodOptional = methodResolver.resolveMethod(methodInvocation, clazz, classScope);
+
+        assertTrue(methodOptional.isPresent());
+
+        final var resolvedMethod = methodOptional.get();
+
+        assertEquals(ofMethod.asType(), resolvedMethod);
+
     }
 }

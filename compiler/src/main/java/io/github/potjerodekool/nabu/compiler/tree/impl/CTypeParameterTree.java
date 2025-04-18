@@ -19,8 +19,8 @@ public class CTypeParameterTree extends CTree implements TypeParameterTree {
                               final IdentifierTree identifier,
                               final List<ExpressionTree> typeBound,
                               final int lineNumber,
-                              final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                              final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.annotations = annotations;
         this.identifier = identifier;
         this.typeBound.addAll(typeBound);

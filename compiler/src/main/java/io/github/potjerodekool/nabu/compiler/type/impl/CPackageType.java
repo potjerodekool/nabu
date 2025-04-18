@@ -5,6 +5,8 @@ import io.github.potjerodekool.nabu.compiler.type.PackageType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 
+import java.util.Objects;
+
 public class CPackageType extends AbstractType implements PackageType {
 
     public CPackageType(final PackageSymbol packageSymbol) {
@@ -24,5 +26,22 @@ public class CPackageType extends AbstractType implements PackageType {
     @Override
     public String getClassName() {
         return "Package";
+    }
+
+    @Override
+    public PackageSymbol asElement() {
+        return (PackageSymbol) super.asElement();
+    }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CPackageType other
+                && Objects.equals(asElement().getQualifiedName(), other.asElement().getQualifiedName());
+    }
+
+    @Override
+    public int hashCode() {
+
+        return asElement().getQualifiedName().hashCode();
     }
 }

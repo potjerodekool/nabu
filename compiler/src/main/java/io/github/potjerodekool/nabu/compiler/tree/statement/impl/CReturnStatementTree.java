@@ -11,10 +11,18 @@ public class CReturnStatementTree extends CStatementTree implements ReturnStatem
 
     private ExpressionTree expression;
 
+    public CReturnStatementTree() {
+        this(null, -1, -1);
+    }
+
+    public CReturnStatementTree(final ExpressionTree expression) {
+        this(expression, -1, -1);
+    }
+
     public CReturnStatementTree(final ExpressionTree expression,
                                 final int lineNumber,
-                                final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.expression = expression;
     }
 

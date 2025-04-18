@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.SymbolBuilders;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
@@ -32,7 +31,7 @@ public class FieldBuilder extends FieldVisitor {
 
         final var field = new VariableSymbolBuilderImpl()
                 .kind(elementKind)
-                .name(name)
+                .simpleName(name)
                 .enclosingElement(clazz)
                 .flags(AccessUtils.parseFieldAccessToFlags(access))
                 .type(type)

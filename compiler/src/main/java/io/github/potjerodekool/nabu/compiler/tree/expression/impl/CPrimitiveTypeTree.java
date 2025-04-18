@@ -9,8 +9,8 @@ public class CPrimitiveTypeTree extends CExpressionTree implements PrimitiveType
 
     public CPrimitiveTypeTree(final Kind kind,
                               final int lineNumber,
-                              final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                              final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.kind = kind;
     }
 

@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
@@ -46,12 +45,6 @@ public class SuperClassVisitor extends AbstractVisitor {
     protected void addTypeArgument(final MutableType type) {
         final var classType = (MutableClassType) parent.getSuperType();
         classType.addTypeArgument(type);
-    }
-
-    @Override
-    public void visitBaseType(final char descriptor) {
-        //parent.setSuperType(new MutablePrimitiveType(descriptor));
-        throw new TodoException();
     }
 
     @Override

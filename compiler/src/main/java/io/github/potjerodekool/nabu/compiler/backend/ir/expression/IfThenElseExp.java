@@ -124,6 +124,6 @@ public class IfThenElseExp implements Exp {
     }
 
     private IExpression temp(final Temp t) {
-        return new TempExpr(t.getIndex(), (IType) null);
+        return new TempExpr(t.getIndex(), null);
     }
 }

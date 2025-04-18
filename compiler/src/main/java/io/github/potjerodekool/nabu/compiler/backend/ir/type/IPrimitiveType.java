@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
+import java.util.Objects;
+
 public final class IPrimitiveType extends IType {
 
     public static final IType VOID = new IPrimitiveType(ITypeKind.VOID);
@@ -33,5 +35,16 @@ public final class IPrimitiveType extends IType {
     @Override
     public <R, P> R accept(final ITypeVisitor<R, P> visitor, final P param) {
         return visitor.visitPrimitiveType(this, param);
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        return o instanceof IPrimitiveType otherType
+                && getKind() == otherType.getKind();
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getKind());
     }
 }

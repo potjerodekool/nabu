@@ -1,90 +1,95 @@
 package io.github.potjerodekool.nabu.example;
 
+import java.util.List;
+import static java.util.List.of;
+
 public class Utils {
 
-static fun isTrue(b: boolean): boolean {
-    if (b) {
-        return true;
-    } else {
-        return false;
+    static fun isTrue(b: boolean): boolean {
+        if (b) {
+            return true;
+        } else {
+            return false;
+        }
     }
-}
 
-static fun isBiggerThenTen(value: int): boolean {
-    if (value > 10) {
-        return true;
-    } else {
-        return false;
+    static fun isBiggerThenTen(value: int): boolean {
+        if (value > 10) {
+            return true;
+        } else {
+            return false;
+        }
     }
-}
 
-static fun isBiggerThenTen(value: byte): boolean {
-    if (value > 10) {
-        return true;
-    } else {
-        return false;
+    static fun isBiggerThenTen(value: byte): boolean {
+        if (value > 10) {
+            return true;
+        } else {
+            return false;
+        }
     }
-}
 
-static fun isBiggerThenTenLong(longValue: long): boolean {
-    if (longValue > 10) {
-        return true;
-    } else {
-        return false;
+    static fun isBiggerThenTenLong(longValue: long): boolean {
+        if (longValue > 10) {
+            return true;
+        } else {
+            return false;
+        }
     }
-}
 
-static fun isBiggerThen180(value: int): boolean {
-    if (value > 180) {
-        return true;
-    } else {
-        return false;
+    static fun isBiggerThen180(value: int): boolean {
+        if (value > 180) {
+            return true;
+        } else {
+            return false;
+        }
     }
-}
 
-static fun compareToTenInt(value: int): int {
-    if (value < 10) {
-        return -1;
-    } else if (value > 10) {
-        return 1;
-    } else {
+    static fun compareToTenInt(value: int): int {
+        if (value < 10) {
+            return -1;
+        } else if (value > 10) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    static fun compareToTenLong(value: Long): long {
+        if (value < 10) {
+            return -1L;
+        } else if (value > 10) {
+            return 1L;
+        } else {
+            return 0L;
+        }
+    }
+
+    static fun compareToTenShort(value: Short): short {
+        if (value < 10) {
+            return -1;
+        } else if (value > 10) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    static fun someMethod(): int {
+        {
+            var a = 0;
+            a++;
+        }
+        {
+            var b = 0;
+            b++;
+        }
+
         return 0;
     }
-}
 
-static fun compareToTenLong(value: Long): long {
-    if (value < 10) {
-        return -1L;
-    } else if (value > 10) {
-        return 1L;
-    } else {
-        return 0L;
+    static fun emptyList() : List<String> {
+        return of();
     }
-}
-
-static fun compareToTenShort(value: Short): short {
-    if (value < 10) {
-        return -1;
-    } else if (value > 10) {
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-static fun someMethod(): int {
-    {
-        var a = 0;
-        a++;
-    }
-    {
-        var b = 0;
-        b++;
-    }
-
-    return 0;
-}
-
-
 }
 

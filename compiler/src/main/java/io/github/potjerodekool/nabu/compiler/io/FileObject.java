@@ -13,18 +13,25 @@ public interface FileObject {
     Kind getKind();
 
     enum Kind {
-        SOURCE(".nabu"),
-        SOURCE_JAVA(".java"),
-        CLASS(".class");
+        SOURCE_NABU(".nabu", true),
+        SOURCE_JAVA(".java", true),
+        CLASS(".class", false);
 
         private final String extension;
+        private final boolean isSource;
 
-        Kind(final String extension) {
+        Kind(final String extension,
+             final boolean isSource) {
             this.extension = extension;
+            this.isSource = isSource;
         }
 
         public String getExtension() {
             return extension;
+        }
+
+        public boolean isSource() {
+            return isSource;
         }
 
         public static Kind fromExtension(final String extension) {

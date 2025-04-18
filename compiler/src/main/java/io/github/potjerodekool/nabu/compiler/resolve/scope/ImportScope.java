@@ -1,4 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.scope;
 
-public interface ImportScope extends Scope {
+public abstract class ImportScope implements Scope {
+
 }

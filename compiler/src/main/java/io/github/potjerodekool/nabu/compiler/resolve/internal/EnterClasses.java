@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
+import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
 
 public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
@@ -75,7 +76,9 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
         clazz.setSimpleName(classDeclaration.getSimpleName());
         clazz.setEnclosingElement(packageElement);
 
-        classDeclaration.setClassSymbol(clazz);
+        final var classDecl = (CClassDeclaration) classDeclaration;
+
+        classDecl.setClassSymbol(clazz);
         packageElement.getMembers().define(clazz);
         clazz.setCompleter(typeEnter);
 

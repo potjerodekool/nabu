@@ -2,13 +2,13 @@ package io.github.potjerodekool.nabu.compiler.resolve.scope;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.QualifiedNameable;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
+import java.util.function.Predicate;
 
-public class NamedImportScope implements ImportScope {
+public class NamedImportScope extends ImportScope {
 
     private final Map<String, Element> elements = new HashMap<>();
 
@@ -60,5 +60,23 @@ public class NamedImportScope implements ImportScope {
         } else {
             return element.asType();
         }
+    }
+
+    @Override
+    public Iterable<Symbol> resolveByName(final String name, final Predicate<Symbol> filter) {
+        final var symbol = (Symbol) this.elements.get(name);
+
+        if (symbol != null) {
+            return filter.test(symbol)
+                    ? List.of(symbol)
+                    : List.of();
+        }
+
+        return List.of();
+    }
+
+    @Override
+    public Collection<? extends Element> elements() {
+        return elements.values();
     }
 }

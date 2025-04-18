@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.type;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 
 import java.util.List;
@@ -56,6 +57,10 @@ public interface TypeMirror {
         return null;
     }
 
+    default Element asElement() {
+        return null;
+    }
+
     default TypeElement asTypeElement() {
         return null;
     }
@@ -65,7 +70,7 @@ public interface TypeMirror {
     }
 
     default boolean isRaw() {
-        final var typeElement = asTypeElement();
+        final var typeElement = asElement();
         return this != typeElement.asType()
                 && !typeElement.asType().getAllParameters().isEmpty()
                 && getAllParameters().isEmpty();
@@ -84,4 +89,9 @@ public interface TypeMirror {
     }
 
     String getClassName();
+
+    default boolean isTypeVariable() {
+        return false;
+    }
+
 }

@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.type.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class CIntersectionType extends AbstractType implements IntersectionType {
@@ -35,5 +36,18 @@ public class CIntersectionType extends AbstractType implements IntersectionType 
         return bounds.stream()
                 .map(TypeMirror::getClassName)
                 .collect(Collectors.joining(" | "));
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (!(o instanceof final CIntersectionType that)) {
+            return false;
+        }
+        return Objects.equals(bounds, that.bounds);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(bounds);
     }
 }

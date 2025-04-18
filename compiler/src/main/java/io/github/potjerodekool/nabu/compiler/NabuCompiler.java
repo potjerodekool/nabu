@@ -11,10 +11,9 @@ import io.github.potjerodekool.nabu.compiler.diagnostic.ConsoleDiagnosticListene
 import io.github.potjerodekool.nabu.compiler.diagnostic.DelegateDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DiagnosticListener;
-import io.github.potjerodekool.nabu.compiler.enhance.Enhancer;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
-import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerParser;
-import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerVisitor;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.FileManager;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
@@ -43,8 +42,6 @@ public class NabuCompiler {
 
     private Path targetDirectory = Paths.get("output");
 
-    private final NabuCompilerParser parser = new NabuCompilerParser();
-
     private final ErrorCapture errorCapture = new ErrorCapture(
             new ConsoleDiagnosticListener()
     );
@@ -65,8 +62,7 @@ public class NabuCompiler {
 
             final var exitCode = generate(
                     compilationUnits,
-                    compilerOptions,
-                    compilerContext
+                    compilerOptions
             );
 
             if (exitCode != 0) {
@@ -93,13 +89,12 @@ public class NabuCompiler {
     private List<FileObject> resolveSourceFiles(final FileManager fileManager) {
         return fileManager.getFilesForLocation(
                 StandardLocation.SOURCE_PATH,
-                FileObject.Kind.SOURCE
+                FileObject.Kind.SOURCE_NABU
         );
     }
 
     private int generate(final List<CompilationUnit> compilationUnits,
-                         final CompilerOptions compilerOptions,
-                         final CompilerContext compilerContext) {
+                         final CompilerOptions compilerOptions) {
         if (errorCapture.getErrorCount() > 0) {
             logger.log(LogLevel.ERROR,
                     "Compilation failed with " + errorCapture.getErrorCount() + " errors"
@@ -108,16 +103,14 @@ public class NabuCompiler {
         }
 
         compilationUnits.forEach(compilationUnit ->
-                doGenerate(compilationUnit, compilerOptions, compilerContext));
+                doGenerate(compilationUnit, compilerOptions));
 
         return 0;
     }
 
     private void doGenerate(final CompilationUnit compilationUnit,
-                            final CompilerOptions compilerOptions,
-                            final CompilerContext compilerContext) {
+                            final CompilerOptions compilerOptions) {
         final ByteCodeGenerator generator = new AsmdByteCodeGenerator(
-                compilerContext.getElements(),
                 compilerOptions
         );
 
@@ -197,7 +190,6 @@ public class NabuCompiler {
     private List<CompilationUnit> processFiles(final List<FileObject> files,
                                                final CompilerContextImpl compilerContext) {
         var fileObjectAndCompilationUnits = parseFiles(files).stream()
-                .map(this::enchange)
                 .map(it -> resolvePhase1(it, compilerContext))
                 .toList();
 
@@ -214,7 +206,7 @@ public class NabuCompiler {
         return compilationUnits.stream()
                 .map(this::lambdaToMethod)
                 .map(cu -> lower(cu, compilerContext))
-                .map(cu -> this.ir(cu, compilerContext))
+                .map(this::ir)
                 .toList();
 
     }
@@ -229,7 +221,7 @@ public class NabuCompiler {
         logger.log(LogLevel.INFO, "Parsing " + fileObject.getFileName());
 
         try (var inputStream = fileObject.openInputStream()) {
-            final var compilationUnitContext = parser.parse(inputStream);
+            final var compilationUnitContext = NabuCompilerParser.parse(inputStream);
             final var visitor = new NabuCompilerVisitor(fileObject);
             return (CompilationUnit) compilationUnitContext.accept(visitor);
         } catch (final IOException e) {
@@ -242,10 +234,10 @@ public class NabuCompiler {
         final var fileObject = fileObjectAndCompilationUnit.fileObject();
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 
-        final var phase1Resolver = new EnterClasses(
+        final var enterClasses = new EnterClasses(
                 compilerContext
         );
-        compilationUnit.accept(phase1Resolver, null);
+        compilationUnit.accept(enterClasses, null);
 
         compilationUnit.getClasses().stream()
                 .map(ClassDeclaration::getClassSymbol)
@@ -279,13 +271,6 @@ public class NabuCompiler {
         return compilationUnit;
     }
 
-    private FileObjectAndCompilationUnit enchange(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit) {
-        final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
-        final var enhance = new Enhancer();
-        compilationUnit.accept(enhance, null);
-        return fileObjectAndCompilationUnit;
-    }
-
     private CompilationUnit lower(final CompilationUnit compilationUnit,
                                   final CompilerContextImpl compilerContext) {
         final var lower = new Lower(compilerContext);
@@ -293,9 +278,8 @@ public class NabuCompiler {
         return compilationUnit;
     }
 
-    private CompilationUnit ir(final CompilationUnit compilationUnit,
-                               final CompilerContextImpl compilerContext) {
-        final var translate = new Translate(compilerContext.getClassElementLoader().getTypes());
+    private CompilationUnit ir(final CompilationUnit compilationUnit) {
+        final var translate = new Translate();
         compilationUnit.accept(translate, null);
         return compilationUnit;
     }

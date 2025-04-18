@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
+import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
@@ -19,16 +20,19 @@ import io.github.potjerodekool.nabu.compiler.type.VariableType;
 import java.util.List;
 
 import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.getSymbol;
+import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.createBuilderCall;
+import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.resolvePathType;
 
-public class JoinConverter extends AbstractJpaTransformer {
+public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
 
+    private final CompilerContext compilerContext;
     private final ClassElementLoader loader;
     private final Types types;
     private final String joinType;
 
     protected JoinConverter(final CompilerContext compilerContext,
                             final String joinType) {
-        super(compilerContext);
+        this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
         this.types = loader.getTypes();
         this.joinType = joinType;
@@ -39,7 +43,7 @@ public class JoinConverter extends AbstractJpaTransformer {
                                              final Scope scope) {
         final var module = scope.findModuleElement();
 
-        final var target = (IdentifierTree) fieldAccessExpression.getTarget();
+        final var selected = (IdentifierTree) fieldAccessExpression.getSelected();
         final var field = (IdentifierTree) fieldAccessExpression.getField();
         final var targetScope = visitFieldAccessExpressionTarget(
                 fieldAccessExpression,
@@ -56,7 +60,7 @@ public class JoinConverter extends AbstractJpaTransformer {
         final var stringType = loader.loadClass(module, ClassNames.STRING_CLASS_NAME).asType();
         literalExpression.setType(stringType);
 
-        final var targetType = (DeclaredType) TreeUtils.typeOf(target);
+        final var targetType = (DeclaredType) TreeUtils.typeOf(selected);
         final var fieldType = (DeclaredType) TreeUtils.typeOf(field);
 
         final var fromType = (DeclaredType) targetType.getTypeArguments().getFirst();
@@ -92,8 +96,9 @@ public class JoinConverter extends AbstractJpaTransformer {
         );
 
         final var call = createBuilderCall(
+                compilerContext,
                 typeArguments,
-                target,
+                selected,
                 "join",
                 literalExpression,
                 joinTypeArg
@@ -108,13 +113,15 @@ public class JoinConverter extends AbstractJpaTransformer {
                 toType
         );
 
-        call.setMethodType(types.getExecutableType(
+        final var resolvedMethodType = types.getExecutableType(
                 methodType.getMethodSymbol(),
                 methodType.getTypeVariables(),
                 returnType,
                 methodType.getParameterTypes(),
                 methodType.getThrownTypes()
-        ));
+        );
+        call.getMethodSelector().setType(resolvedMethodType.getOwner().asType());
+        call.setMethodType(resolvedMethodType);
 
         return call;
     }
@@ -128,15 +135,15 @@ public class JoinConverter extends AbstractJpaTransformer {
 
     private Scope visitFieldAccessExpressionTarget(final FieldAccessExpressionTree fieldAccessExpression,
                                                    final Scope scope) {
-        final var target = fieldAccessExpression.getTarget();
-        target.accept(this, scope);
+        final var selected = fieldAccessExpression.getSelected();
+        selected.accept(this, scope);
 
-        final var targetSymbol = getSymbol(fieldAccessExpression.getTarget());
+        final var targetSymbol = getSymbol(fieldAccessExpression.getSelected());
         final DeclaredType declaredType = switch (targetSymbol) {
             case VariableElement variableElement -> {
                 var dt = asDeclaredType(variableElement.asType());
 
-                final var pathType = resolvePathType(scope);
+                final var pathType = resolvePathType(loader, scope);
 
                 if (types.isSubType(dt, pathType)) {
                     yield (DeclaredType) dt.getTypeArguments().getFirst();

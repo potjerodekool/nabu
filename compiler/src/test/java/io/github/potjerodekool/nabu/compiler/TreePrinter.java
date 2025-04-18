@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler;
 
+import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
@@ -347,8 +348,8 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Object param) {
-        if (fieldAccessExpression.getTarget() != null) {
-            fieldAccessExpression.getTarget().accept(this, param);
+        if (fieldAccessExpression.getSelected() != null) {
+            fieldAccessExpression.getSelected().accept(this, param);
             write(".");
         }
 
@@ -375,9 +376,15 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Object param) {
-        if (methodInvocation.getTarget() != null) {
-            methodInvocation.getTarget().accept(this, param);
+        final var methodSelector = methodInvocation.getMethodSelector();
+        final ExpressionTree methodName;
+
+        if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            fieldAccessExpressionTree.getSelected().accept(this, param);
             write(".");
+            methodName = fieldAccessExpressionTree.getField();
+        } else {
+            methodName = methodSelector;
         }
 
         if (methodInvocation.getTypeArguments() != null
@@ -387,7 +394,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write(">");
         }
 
-        methodInvocation.getName().accept(this, param);
+        methodName.accept(this, param);
 
         write("(");
         writeList(methodInvocation.getArguments(), param);
@@ -577,6 +584,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             }
 
             variableDeclaratorStatement.getType().accept(this, param);
+
+            if (Flags.hasFlag(variableDeclaratorStatement.getFlags(), Flags.VARARGS)) {
+                write("...");
+            }
+
             return null;
         }
 
@@ -594,6 +606,10 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             if (value instanceof MethodInvocationTree methodInvocationTree) {
                 write("(");
                 writeList(methodInvocationTree.getArguments(), param, ", ");
+                write(")");
+            } else if (value instanceof NewClassExpression newClassExpression) {
+                write("(");
+                writeList(newClassExpression.getArguments(), param, ", ");
                 write(")");
             } else if (value != null) {
                 value.accept(this, param);
@@ -636,8 +652,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         write(")");
 
         if (newClassExpression.getClassDeclaration() != null) {
+            final var enclosedElements = newClassExpression.getClassDeclaration().getEnclosedElements();
             write("{");
-            writeList(newClassExpression.getClassDeclaration().getEnclosedElements(), "\n");
+            writeList(enclosedElements, "\n");
             write("}");
         }
 
@@ -788,9 +805,23 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitNewArray(final NewArrayExpression newArrayExpression,
                                 final Object param) {
-        write("{ ");
-        writeList(newArrayExpression.getElements(), param, ", ");
-        write("}");
+        if (newArrayExpression.getElementType() != null) {
+            write("new ");
+            newArrayExpression.getElementType().accept(this, param);
+        }
+
+        newArrayExpression.getDimensions().forEach(dimension -> {
+            write("[");
+            dimension.accept(this, param);
+            write("]");
+        });
+
+        if (newArrayExpression.getElements() != null) {
+            write("{");
+            writeList(newArrayExpression.getElements(), param, ", ");
+            write("}");
+        }
+
         return null;
     }
 

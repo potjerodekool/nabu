@@ -24,8 +24,8 @@ public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpr
     public CLambdaExpressionTree(final List<VariableDeclaratorTree> parameters,
                                  final StatementTree body,
                                  final int lineNumber,
-                                 final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                 final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.variables.addAll(parameters);
         this.body = body;
     }

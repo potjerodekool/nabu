@@ -11,6 +11,9 @@ public class BinaryExpressionBuilder extends ExpressionBuilder<BinaryExpressionT
     private Tag tag;
     private ExpressionTree right;
 
+    public BinaryExpressionBuilder() {
+    }
+
     public BinaryExpressionBuilder(final BinaryExpressionTree binaryExpression) {
         super(binaryExpression);
         this.left = binaryExpression.getLeft();

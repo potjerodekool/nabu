@@ -38,7 +38,7 @@ public class AsmISignatureGenerator extends ISignatureGenerator {
 
     public static Type toAsmType(final IType type) {
         if (type == null) {
-            return Type.VOID_TYPE;
+            throw new NullPointerException();
         } else {
             return switch (type) {
                 case IReferenceType referenceType -> {
@@ -63,6 +63,10 @@ public class AsmISignatureGenerator extends ISignatureGenerator {
                 case ITypeVariable typeVariable -> typeVariable.getUpperBound() != null
                         ? toAsmType(typeVariable.getUpperBound())
                         : toAsmType(typeVariable.getLowerBound());
+                case IArrayType arrayType -> {
+                    final var componentType = toAsmType(arrayType.getComponentType());
+                    yield Type.getType("[" + componentType.getDescriptor());
+                }
                 default -> throw new IllegalArgumentException(type.getClass().getName());
             };
         }

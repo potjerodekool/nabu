@@ -31,7 +31,6 @@ class CasterTest {
     void visitPrimitiveType() {
         final var intType = types.getPrimitiveType(TypeKind.INT);
         final var methodInvocationTree = TreeMaker.methodInvocationTree(
-                null,
                 IdentifierTree.create("get"),
                 List.of(),
                 List.of(),

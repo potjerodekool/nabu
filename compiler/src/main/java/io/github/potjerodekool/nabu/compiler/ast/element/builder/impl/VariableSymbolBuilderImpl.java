@@ -45,7 +45,7 @@ public class VariableSymbolBuilderImpl extends AbstractSymbolBuilder<VariableSym
         return new VariableSymbol(
                 kind,
                 getFlags(),
-                name,
+                simpleName,
                 type,
                 (Symbol) getEnclosingElement(),
                 constantValue

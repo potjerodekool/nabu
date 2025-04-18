@@ -100,6 +100,11 @@ public class NabuCFileManager implements FileManager {
         return files;
     }
 
+    @Override
+    public boolean hasLocation(final Location location) {
+        return locations.hasLocation(location);
+    }
+
     public void use(final FileSystem fileSystem,
                     final Consumer<FileSystem> fileSystemConsumer) {
         try {
@@ -253,7 +258,7 @@ public class NabuCFileManager implements FileManager {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         locations.close();
         openFileSystems.values().forEach(fs -> {
             try {
@@ -295,7 +300,7 @@ class DirectoryVisitor implements FileVisitor<Path> {
         final var fileExtension = getFileExtension(file);
 
         if (fileExtension != null && this.sourceExtensions.contains(fileExtension)) {
-            sourceFiles.add(new NabuFileObject(FileObject.Kind.SOURCE, file));
+            sourceFiles.add(new NabuFileObject(FileObject.Kind.SOURCE_NABU, file));
         }
         return FileVisitResult.CONTINUE;
     }

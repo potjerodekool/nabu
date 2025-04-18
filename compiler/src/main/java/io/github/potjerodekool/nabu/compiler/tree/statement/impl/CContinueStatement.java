@@ -9,8 +9,9 @@ public class CContinueStatement extends CStatementTree implements ContinueStatem
     private final Tree target;
 
     public CContinueStatement(final Tree target,
-                              final int lineNumber, final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                              final int lineNumber,
+                              final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.target = target;
     }
 

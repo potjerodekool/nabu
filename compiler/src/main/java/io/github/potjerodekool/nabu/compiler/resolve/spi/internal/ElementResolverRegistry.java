@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.spi.internal;
 
+import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver;
@@ -13,13 +14,25 @@ public class ElementResolverRegistry {
 
     private final ElementResolver standardResolver = new StandardElementResolver();
 
-    public ElementResolverRegistry(final Set<ElementResolver> elementResolvers) {
-        this.resolvers.addAll(elementResolvers);
+    private final ApplicationContext applicationContext;
+
+    private boolean initResolvers = true;
+
+    public ElementResolverRegistry(final ApplicationContext applicationContext) {
+        this.applicationContext = applicationContext;
+    }
+
+    private void initResolvers() {
+        if (initResolvers) {
+            this.initResolvers = false;
+            this.resolvers.addAll(applicationContext.getBeansOfType(ElementResolver.class));
+        }
     }
 
     public Optional<ElementResolver> findSymbolResolver(final TypeMirror searchType,
                                                         final CompilerContext compilerContext,
                                                         final Scope scope) {
+        initResolvers();
         final var resolverOptional = resolvers.stream()
                 .filter(resolver -> resolver.supports(searchType, compilerContext, scope))
                 .findFirst();

@@ -12,10 +12,15 @@ public class CCastExpressionTree extends CExpressionTree implements CastExpressi
     private ExpressionTree targetType;
 
     public CCastExpressionTree(final ExpressionTree targetType,
+                               final ExpressionTree expression) {
+        this(targetType, expression, -1, -1);
+    }
+
+    public CCastExpressionTree(final ExpressionTree targetType,
                                final ExpressionTree expression,
                                final int lineNumber,
-                               final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                               final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.targetType = targetType;
         this.expression = expression;
     }

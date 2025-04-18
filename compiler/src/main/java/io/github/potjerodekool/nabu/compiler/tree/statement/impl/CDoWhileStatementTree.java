@@ -14,8 +14,8 @@ public class CDoWhileStatementTree extends CStatementTree implements DoWhileStat
     public CDoWhileStatementTree(final StatementTree body,
                                  final ExpressionTree condition,
                                  final int lineNumber,
-                                 final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                 final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.body = body;
         this.condition = condition;
     }

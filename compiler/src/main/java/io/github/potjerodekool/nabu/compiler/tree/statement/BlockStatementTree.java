@@ -10,5 +10,7 @@ public interface BlockStatementTree extends StatementTree {
 
     void addStatement(final StatementTree statement);
 
+    void addStatements(final List<StatementTree> statements);
+
     BlockStatementTreeBuilder builder();
 }

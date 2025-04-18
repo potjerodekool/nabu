@@ -53,7 +53,7 @@ public class AsmAnnotationBuilder extends AbstractAsmAnnotationBuilder {
 
         final var method = new MethodSymbolBuilderImpl()
                 .kind(ElementKind.METHOD)
-                .name(name)
+                .simpleName(name)
                 .returnType(returnType)
                 .build();
         this.annotation.addValue(method, attribute);

@@ -17,7 +17,7 @@ public class AnnotationDeProxyProcessor implements AnnotationValueVisitor<Attrib
 
     public CompoundAttribute process(final AnnotationMirror annotationMirror) {
         final var annotationType = annotationMirror.getAnnotationType();
-        final var methodMap = ElementFilter.methods(annotationType.asTypeElement()).stream()
+        final var methodMap = ElementFilter.methodsIn(annotationType.asTypeElement().getEnclosedElements()).stream()
                 .collect(Collectors.toMap(
                         Element::getSimpleName,
                         Function.identity()

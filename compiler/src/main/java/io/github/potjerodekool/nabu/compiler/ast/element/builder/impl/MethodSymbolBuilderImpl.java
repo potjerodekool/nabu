@@ -14,9 +14,19 @@ public class MethodSymbolBuilderImpl extends AbstractSymbolBuilder<Symbol, Metho
     private final List<VariableSymbol> parameters = new ArrayList<>();
     private TypeMirror returnType;
     private final List<TypeParameterElement> typeParameters = new ArrayList<>();
-    private final List<TypeMirror> argumentTypes = new ArrayList<>();
     private final List<TypeMirror> thrownTypes = new ArrayList<>();
     private TypeMirror receiverType;
+
+    public MethodSymbolBuilderImpl() {
+    }
+
+    public MethodSymbolBuilderImpl(final MethodSymbol original) {
+        this.parameters.addAll(original.getParameters());
+        this.returnType = original.getReturnType();
+        this.typeParameters.addAll(original.getTypeParameters());
+        this.thrownTypes.addAll(original.getThrownTypes());
+        this.receiverType = original.getReceiverType();
+    }
 
     @Override
     protected MethodSymbolBuilderImpl self() {
@@ -49,21 +59,6 @@ public class MethodSymbolBuilderImpl extends AbstractSymbolBuilder<Symbol, Metho
         return this;
     }
 
-    public MethodSymbolBuilderImpl argumentType(final TypeMirror argumentType) {
-        this.argumentTypes.add(argumentType);
-        return this;
-    }
-
-    public MethodSymbolBuilderImpl argumentTypes(final List<TypeMirror> argumentTypes) {
-        this.argumentTypes.clear();
-        this.argumentTypes.addAll(argumentTypes);
-        return this;
-    }
-
-    public MethodSymbolBuilderImpl argumentTypes(final TypeMirror... argumentTypes) {
-        return this.argumentTypes(List.of(argumentTypes));
-    }
-
     public MethodSymbolBuilderImpl thrownType(final TypeMirror thrownType) {
         thrownTypes.add(thrownType);
         return this;
@@ -84,12 +79,11 @@ public class MethodSymbolBuilderImpl extends AbstractSymbolBuilder<Symbol, Metho
         return new MethodSymbol(
                 kind,
                 getFlags(),
-                name,
+                simpleName,
                 (Symbol) getEnclosingElement(),
                 receiverType,
                 typeParameters,
                 returnType,
-                argumentTypes,
                 thrownTypes,
                 parameters,
                 annotations

@@ -26,14 +26,14 @@ class AsmAnnotationGeneratorTest {
     void generateAnnotationWithLiteral() {
         final var deprecatedClass = new ClassSymbolBuilder()
                 .kind(ElementKind.ANNOTATION_TYPE)
-                .name("Deprecated")
+                .simpleName("Deprecated")
                 .build();
 
         final var annotation = AnnotationBuilder.createAnnotation(
                 (DeclaredType) deprecatedClass.asType(),
                 Map.of(
                         new MethodSymbolBuilderImpl()
-                                .name("since")
+                                .simpleName("since")
                                 .build(),
                         AnnotationBuilder.createConstantValue("0.2")
                 )
@@ -67,12 +67,12 @@ class AsmAnnotationGeneratorTest {
     void generateAnnotationEnumValue() {
         final var transactionalClass = new ClassSymbolBuilder()
                 .kind(ElementKind.ANNOTATION_TYPE)
-                .name("Transactional")
+                .simpleName("Transactional")
                 .build();
 
         final var txTypeType = new ClassSymbolBuilder()
                 .kind(ElementKind.ENUM)
-                .name("TxType")
+                .simpleName("TxType")
                 .build()
                 .asType();
 
@@ -80,12 +80,12 @@ class AsmAnnotationGeneratorTest {
                 (DeclaredType) transactionalClass.asType(),
                 Map.of(
                         new MethodSymbolBuilderImpl()
-                                .name("value")
+                                .simpleName("value")
                                 .build(),
                         AnnotationBuilder.createEnumValue(
                                 (DeclaredType) txTypeType,
                                 new VariableSymbolBuilderImpl()
-                                        .name("REQUIRED")
+                                        .simpleName("REQUIRED")
                                         .type(transactionalClass.asType())
                                         .enclosingElement(txTypeType.asTypeElement())
                                         .build()
@@ -121,12 +121,12 @@ class AsmAnnotationGeneratorTest {
     void generateAnnotationArrayValue() {
         final var suppressWarningsClass = new ClassSymbolBuilder()
                 .kind(ElementKind.ANNOTATION_TYPE)
-                .name("SuppressWarnings")
+                .simpleName("SuppressWarnings")
                 .build();
 
         final var stringClazz = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
-                .name("String")
+                .simpleName("String")
                 .build();
 
         final var arrayValue = AnnotationBuilder.createArrayValue(
@@ -141,7 +141,7 @@ class AsmAnnotationGeneratorTest {
                 (DeclaredType) suppressWarningsClass.asType(),
                 Map.of(
                         new MethodSymbolBuilderImpl()
-                                .name("value")
+                                .simpleName("value")
                                 .build(),
                         arrayValue
                 )
@@ -175,12 +175,12 @@ class AsmAnnotationGeneratorTest {
     void generateAnnotationWithAnnotation() {
         final var parentClass = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
-                .name("Parent")
+                .simpleName("Parent")
                 .build();
 
         final var childClass = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
-                .name("Child")
+                .simpleName("Child")
                 .build();
 
         final AnnotationValue childAnnotation = AnnotationBuilder.createAnnotation(
@@ -192,7 +192,7 @@ class AsmAnnotationGeneratorTest {
                 (DeclaredType) parentClass.asType(),
                 Map.of(
                         new MethodSymbolBuilderImpl()
-                                .name("child")
+                                .simpleName("child")
                                 .build(),
                         childAnnotation
                 )

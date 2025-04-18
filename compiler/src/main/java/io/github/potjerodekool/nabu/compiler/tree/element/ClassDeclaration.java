@@ -30,8 +30,6 @@ public interface ClassDeclaration extends StatementTree {
 
     TypeElement getClassSymbol();
 
-    void setClassSymbol(TypeElement typeElement);
-
     ClassDeclaration enclosedElement(Tree tree);
 
     ClassDeclaration enclosedElement(Tree tree, int index);

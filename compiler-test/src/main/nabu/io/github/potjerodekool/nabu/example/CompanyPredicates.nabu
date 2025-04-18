@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.example;
 
-import io.github.potjerodekool.nabu.lang.jpa.support.JpaPredicate;
-import io.github.potjerodekool.nabu.lang.jpa.support.InnerJoin;
+import io.github.potjerodekool.nabu.lang.jpa.support.*;
 import io.github.potjerodekool.employee.Company;
 import io.github.potjerodekool.employee.Employee;
 

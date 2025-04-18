@@ -2,25 +2,28 @@ package io.github.potjerodekool.nabu.compiler.backend.ir.expression;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 
 import java.util.List;
 
 public class ITypeExpression extends IExpression {
 
-    private final String name;
+    private final IType clazz;
     private final IExpression expression;
     private final Kind kind;
 
     public enum Kind {
         CAST,
-        INSTANCEOF
+        INSTANCEOF,
+        NEW,
+        NEWARRAY
     }
 
     public ITypeExpression(final Kind kind,
-                           final String name,
+                           final IType clazz,
                            final IExpression expression) {
         this.kind = kind;
-        this.name = name;
+        this.clazz = clazz;
         this.expression = expression;
     }
 
@@ -28,8 +31,8 @@ public class ITypeExpression extends IExpression {
         return kind;
     }
 
-    public String getName() {
-        return name;
+    public IType getClazz() {
+        return clazz;
     }
 
     public IExpression getExpression() {

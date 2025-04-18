@@ -4,10 +4,11 @@ import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-public class CompositeScope implements ImportScope {
+public class CompositeScope implements Scope {
 
     private final List<Scope> scopes;
 
@@ -32,5 +33,12 @@ public class CompositeScope implements ImportScope {
                 .map(Optional::get)
                 .findFirst()
                 .orElse(null);
+    }
+
+    @Override
+    public Collection<? extends Element> elements() {
+        return scopes.stream()
+                .flatMap(it -> it.elements().stream())
+                .toList();
     }
 }

@@ -12,9 +12,13 @@ public class ToIType implements TypeVisitor<IType, Void> {
     private ToIType() {
     }
 
+    public static IType toIType(final TypeMirror typeMirror) {
+        return typeMirror.accept(INSTANCE, null);
+    }
+
     @Override
     public IType visitUnknownType(final TypeMirror typeMirror, final Void param) {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -89,7 +93,13 @@ public class ToIType implements TypeVisitor<IType, Void> {
             final var type = typeVariable.getLowerBound().accept(this, param);
             return new ITypeVariable(typeVariable.asElement().getSimpleName(), null, type);
         } else {
-            throw new IllegalArgumentException("Typevariable without upper or lowerbound");
+            throw new IllegalArgumentException("Type variable without upper or lower bound");
         }
+    }
+
+    @Override
+    public IType visitArrayType(final ArrayType arrayType, final Void param) {
+        final var componentType = arrayType.getComponentType().accept(this, param);
+        return new IArrayType(componentType);
     }
 }

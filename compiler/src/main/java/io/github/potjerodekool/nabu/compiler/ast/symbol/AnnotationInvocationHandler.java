@@ -22,7 +22,7 @@ class AnnotationInvocationHandler implements InvocationHandler {
         final var className = annotationType.asTypeElement().getQualifiedName();
         this.annotationClass = AnnotationUtils.loadClass(className, classLoader);
 
-        final var methodMap = ElementFilter.methods(annotationType.asTypeElement()).stream()
+        final var methodMap = ElementFilter.methodsIn(annotationType.asTypeElement().getEnclosedElements()).stream()
                 .collect(
                         Collectors.toMap(
                                 Element::getSimpleName,
@@ -31,7 +31,7 @@ class AnnotationInvocationHandler implements InvocationHandler {
                 );
 
         //First fill with default values
-        final var values = ElementFilter.methods(annotationType.asTypeElement()).stream()
+        final var values = ElementFilter.methodsIn(annotationType.asTypeElement().getEnclosedElements()).stream()
                 .filter(it -> Objects.nonNull(it.getDefaultValue()))
                 .collect(
                         Collectors.toMap(

@@ -61,8 +61,14 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Scope scope) {
+        final var clazz = classDeclaration.getClassSymbol();
+
+        if (clazz == null) {
+            return null;
+        }
+
         final var classScope = new SymbolScope(
-                (DeclaredType) classDeclaration.getClassSymbol().asType(),
+                (DeclaredType) clazz.asType(),
                 scope
         );
         return super.visitClass(classDeclaration, classScope);
@@ -71,12 +77,12 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Scope scope) {
-        if (methodInvocation.getTarget() != null) {
-            methodInvocation.getTarget().accept(this, scope);
-        }
-
         if (methodInvocation.getMethodType() == null) {
-            final var methodName = ((IdentifierTree) methodInvocation.getName()).getName();
+            final var methodSelector = methodInvocation.getMethodSelector();
+
+            final var methodName = methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree
+                    ? ((IdentifierTree) fieldAccessExpressionTree.getSelected()).getName()
+                    : ((IdentifierTree) methodSelector).getName();
 
             final var compilationUnit = getCompilationUnit(scope);
 
@@ -200,7 +206,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         final var type = variableDeclaratorStatement.getType().getType();
 
         if (isNullOrErrorType(type)) {
-          reportFailedToResolveType(variableDeclaratorStatement.getType(), scope);
+            reportFailedToResolveType(variableDeclaratorStatement.getType(), scope);
         }
 
         if (variableDeclaratorStatement.getValue() != null) {
@@ -213,7 +219,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     private void resolveClassName(final ExpressionTree expressionTree,
                                   final StringBuilder builder) {
         if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-            resolveClassName(fieldAccessExpressionTree.getTarget(), builder);
+            resolveClassName(fieldAccessExpressionTree.getSelected(), builder);
             builder.append(".");
             resolveClassName(fieldAccessExpressionTree.getField(), builder);
         } else if (expressionTree instanceof IdentifierTree identifierTree) {

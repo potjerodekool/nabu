@@ -40,10 +40,36 @@ public class CFunction extends CTree implements Function {
                      final ExpressionTree returnType,
                      final List<Tree> thrownTypes,
                      final BlockStatementTree body,
+                     final ExpressionTree defaultValue) {
+        this(
+                simpleName,
+                kind,
+                modifiers,
+                typeParameters,
+                receiverParameter,
+                parameters,
+                returnType,
+                thrownTypes,
+                body,
+                defaultValue,
+                -1,
+                -1
+        );
+    }
+
+    public CFunction(final String simpleName,
+                     final Kind kind,
+                     final CModifiers modifiers,
+                     final List<TypeParameterTree> typeParameters,
+                     final VariableDeclaratorTree receiverParameter,
+                     final List<VariableDeclaratorTree> parameters,
+                     final ExpressionTree returnType,
+                     final List<Tree> thrownTypes,
+                     final BlockStatementTree body,
                      final ExpressionTree defaultValue,
                      final int lineNumber,
-                     final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                     final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.simpleName = simpleName;
         this.kind = kind;
         this.modifiers = modifiers;
@@ -104,6 +130,15 @@ public class CFunction extends CTree implements Function {
 
     public List<VariableDeclaratorTree> getParameters() {
         return parameters;
+    }
+
+    public void addParameters(final List<VariableDeclaratorTree> parameters) {
+        this.parameters.addAll(parameters);
+    }
+
+    public void addParameters(final int index,
+                              final List<VariableDeclaratorTree> parameters) {
+        this.parameters.addAll(index, parameters);
     }
 
     public ExpressionTree getReturnType() {

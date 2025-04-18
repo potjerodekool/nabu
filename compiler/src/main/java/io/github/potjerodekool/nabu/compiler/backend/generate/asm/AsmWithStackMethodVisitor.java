@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import org.objectweb.asm.*;
 
 import java.util.ArrayList;
@@ -30,7 +31,8 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
     }
 
     @Override
-    public void visitVarInsn(final int opcode, final int varIndex) {
+    public void visitVarInsn(final int opcode,
+                             final int varIndex) {
         super.visitVarInsn(opcode, varIndex);
 
         switch (opcode) {
@@ -48,10 +50,15 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
     }
 
     @Override
-    public void visitMethodInsn(final int opcode, final String owner, final String name, final String descriptor, final boolean isInterface) {
+    public void visitMethodInsn(final int opcode,
+                                final String owner,
+                                final String name,
+                                final String descriptor,
+                                final boolean isInterface) {
         super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
 
-        if (opcode != Opcodes.INVOKESTATIC) {
+        if (opcode != Opcodes.INVOKESTATIC
+            && !Constants.INIT.equals(name)) {
             pop();
         }
 
@@ -63,11 +70,17 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
 
         if (returnType.getSort() != Type.VOID) {
             push(returnType);
+        } else if (Opcodes.INVOKESPECIAL == opcode
+            && Constants.INIT.equals(name)) {
+            pop();
         }
     }
 
     @Override
-    public void visitInvokeDynamicInsn(final String name, final String descriptor, final Handle bootstrapMethodHandle, final Object... bootstrapMethodArguments) {
+    public void visitInvokeDynamicInsn(final String name,
+                                       final String descriptor,
+                                       final Handle bootstrapMethodHandle,
+                                       final Object... bootstrapMethodArguments) {
         super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
 
         final var methodType = Type.getMethodType(descriptor);
@@ -102,11 +115,11 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
         push(type);
     }
 
-    private void push(final Type type) {
+    public void push(final Type type) {
         this.stack.add(type);
     }
 
-    private void pop() {
+    public void pop() {
         if (stack.isEmpty()) {
             throw new EmptyStackException();
         }
@@ -124,6 +137,14 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
             return null;
         } else {
             return stack.getLast();
+        }
+    }
+
+    public Type peek(final int index) {
+        if (stack.isEmpty()) {
+            return null;
+        } else {
+            return stack.get(stack.size() -1 - index);
         }
     }
 
@@ -161,13 +182,19 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
                 || opcode == Opcodes.CHECKCAST
                 || opcode == Opcodes.IADD) {
             //Do nothing
+        } else if (opcode == Opcodes.DUP) {
+            final var top = peek();
+            push(top);
+        } else if (opcode == Opcodes.AASTORE) {
+            pop(3);
         } else {
             throw new TodoException("" + opcode);
         }
     }
 
     @Override
-    public void visitIntInsn(final int opcode, final int operand) {
+    public void visitIntInsn(final int opcode,
+                             final int operand) {
         super.visitIntInsn(opcode, operand);
 
         if (opcode == Opcodes.BIPUSH) {
@@ -180,7 +207,10 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
     }
 
     @Override
-    public void visitFieldInsn(final int opcode, final String owner, final String name, final String descriptor) {
+    public void visitFieldInsn(final int opcode,
+                               final String owner,
+                               final String name,
+                               final String descriptor) {
         super.visitFieldInsn(opcode, owner, name, descriptor);
 
         if (opcode == Opcodes.GETSTATIC || opcode == Opcodes.GETFIELD) {
@@ -193,21 +223,29 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
     }
 
     @Override
-    public void visitIincInsn(final int varIndex, final int increment) {
+    public void visitIincInsn(final int varIndex,
+                              final int increment) {
         super.visitIincInsn(varIndex, increment);
     }
 
     @Override
-    public void visitTypeInsn(final int opcode, final String type) {
+    public void visitTypeInsn(final int opcode,
+                              final String type) {
         super.visitTypeInsn(opcode, type);
-        pop();
 
-        if (opcode == Opcodes.CHECKCAST) {
+        if (opcode == Opcodes.NEW) {
             push(Type.getObjectType(type));
-        } else if (opcode == Opcodes.INSTANCEOF) {
-            push(Type.BOOLEAN_TYPE);
         } else {
-            throw new TodoException();
+            pop();
+
+            if (opcode == Opcodes.CHECKCAST) {
+                push(Type.getObjectType(type));
+            } else if (opcode == Opcodes.INSTANCEOF) {
+                push(Type.BOOLEAN_TYPE);
+            } else if (opcode == Opcodes.ANEWARRAY) {
+                final var name = "[L" + type + ";";
+                push(Type.getType(name));
+            }
         }
     }
 }

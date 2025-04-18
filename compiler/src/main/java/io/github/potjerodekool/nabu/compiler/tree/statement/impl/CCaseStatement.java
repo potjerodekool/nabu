@@ -17,8 +17,8 @@ public class CCaseStatement extends CStatementTree implements CaseStatement {
                           final List<CaseLabel> labels,
                           final Tree body,
                           final int lineNumber,
-                          final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                          final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.caseKind = caseKind;
         this.labels = labels;
         this.body = body;

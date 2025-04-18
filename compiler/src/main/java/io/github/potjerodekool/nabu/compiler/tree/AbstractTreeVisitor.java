@@ -89,7 +89,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
 
     @Override
     public R visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final P param) {
-        fieldAccessExpression.getTarget().accept(this, param);
+        fieldAccessExpression.getSelected().accept(this, param);
         fieldAccessExpression.getField().accept(this, param);
         return defaultAnswer(fieldAccessExpression, param);
     }
@@ -102,11 +102,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
 
     @Override
     public R visitMethodInvocation(final MethodInvocationTree methodInvocation, final P param) {
-        final var target = methodInvocation.getTarget();
-        if (target != null) {
-            target.accept(this, param);
-        }
-        methodInvocation.getName().accept(this, param);
+        methodInvocation.getMethodSelector().accept(this, param);
         methodInvocation.getArguments().forEach(arg -> arg.accept(this, param));
         return defaultAnswer(methodInvocation, param);
     }
@@ -192,6 +188,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     public R visitNewClass(final NewClassExpression newClassExpression, final P param) {
         newClassExpression.getName().accept(this, param);
         newClassExpression.getClassDeclaration().accept(this, param);
+        newClassExpression.getArguments().forEach(arg -> arg.accept(this, param));
         return defaultAnswer(newClassExpression, param);
     }
 
@@ -222,4 +219,12 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         assignmentExpressionTree.getRight().accept(this, param);
         return defaultAnswer(assignmentExpressionTree, param);
     }
+
+    @Override
+    public R visitCastExpression(final CastExpressionTree castExpressionTree, final P param) {
+        castExpressionTree.getTargetType().accept(this, param);
+        castExpressionTree.getExpression().accept(this, param);
+        return defaultAnswer(castExpressionTree, param);
+    }
+
 }

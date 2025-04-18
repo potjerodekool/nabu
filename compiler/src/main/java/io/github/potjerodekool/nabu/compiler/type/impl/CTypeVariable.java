@@ -57,6 +57,11 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
     }
 
     @Override
+    public int hashCode() {
+        return 32;
+    }
+
+    @Override
     public String getClassName() {
         final var name = element.getSimpleName();
 

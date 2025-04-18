@@ -11,7 +11,6 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassFinder;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.TypeEnter;
-import io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.spi.internal.ElementResolverRegistry;
 import io.github.potjerodekool.nabu.compiler.util.Elements;
 import io.github.potjerodekool.nabu.compiler.util.impl.ElementsImpl;
@@ -24,6 +23,7 @@ public class CompilerContextImpl implements CompilerContext {
     private final ArgumentBoxer argumentBoxer;
     private final ElementResolverRegistry resolverRegistry;
     private final TypeEnter typeEnter;
+    private final ClassFinder classFinder;
 
     public CompilerContextImpl(final ApplicationContext applicationContext,
                                final FileManager fileManager) {
@@ -31,12 +31,13 @@ public class CompilerContextImpl implements CompilerContext {
         symbolTable.getUnnamedModule().setSourceLocation(StandardLocation.SOURCE_PATH);
         symbolTable.getUnnamedModule().setClassLocation(StandardLocation.CLASS_PATH);
 
-
         this.classElementLoader = new AsmClassElementLoader(symbolTable);
-        final var classFinder = new ClassFinder(
+
+        this.classFinder = new ClassFinder(
                 symbolTable,
                 fileManager,
-                classElementLoader
+                classElementLoader,
+                this
         );
 
         final var modules = new Modules(
@@ -52,6 +53,8 @@ public class CompilerContextImpl implements CompilerContext {
                 modules
         );
 
+        this.typeEnter = new TypeEnter(this);
+
         this.methodResolver = new MethodResolver(
                 classElementLoader.getTypes()
         );
@@ -61,12 +64,10 @@ public class CompilerContextImpl implements CompilerContext {
                 classElementLoader,
                 methodResolver
         );
-        this.typeEnter = new TypeEnter(this);
     }
 
     private ElementResolverRegistry createSymbolResolverRegistry(final ApplicationContext applicationContext) {
-        final var symbolResolvers = applicationContext.getBeansOfType(ElementResolver.class);
-        return new ElementResolverRegistry(symbolResolvers);
+        return new ElementResolverRegistry(applicationContext);
     }
 
     public ElementResolverRegistry getResolverRegistry() {
@@ -99,5 +100,9 @@ public class CompilerContextImpl implements CompilerContext {
 
     public TypeEnter getTypeEnter() {
         return typeEnter;
+    }
+
+    public ClassFinder getClassFinder() {
+        return classFinder;
     }
 }

@@ -12,8 +12,8 @@ public class CInstanceOfExpression extends CExpressionTree implements InstanceOf
     public CInstanceOfExpression(final ExpressionTree expression,
                                  final ExpressionTree typeExpression,
                                  final int lineNumber,
-                                 final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                 final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.expression = expression;
         this.typeExpression = typeExpression;
     }

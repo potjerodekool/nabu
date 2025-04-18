@@ -8,22 +8,22 @@ import java.util.List;
 
 public class IFieldAccess extends IExpression {
 
-    private final String owner;
+    private final IExpression selected;
     private final String name;
     private final boolean isStatic;
 
-    public IFieldAccess(final String owner,
+    public IFieldAccess(final IExpression selected,
                         final String name,
                         final IType fieldType,
                         final boolean isStatic) {
-        this.owner = owner;
+        this.selected = selected;
         this.name = name;
         setType(fieldType);
         this.isStatic = isStatic;
     }
 
-    public String getOwner() {
-        return owner;
+    public IExpression getSelected() {
+        return selected;
     }
 
     public String getName() {
@@ -51,7 +51,7 @@ public class IFieldAccess extends IExpression {
     @Override
     public IExpression build(final List<IExpression> kids) {
         return new IFieldAccess(
-                owner,
+                selected,
                 name,
                 getType(),
                 isStatic

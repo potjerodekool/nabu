@@ -12,8 +12,8 @@ public class CAssertStatement extends CStatementTree implements AssertStatement 
     public CAssertStatement(final ExpressionTree condition,
                             final ExpressionTree detail,
                             final int lineNumber,
-                            final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                            final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.condition = condition;
         this.detail = detail;
     }

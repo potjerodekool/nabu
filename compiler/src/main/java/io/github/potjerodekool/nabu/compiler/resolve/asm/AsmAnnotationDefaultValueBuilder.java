@@ -68,7 +68,7 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
         final var enumType = loadTypeFromDescriptor(descriptor);
         final var enumConstant = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.ENUM_CONSTANT)
-                .name(value)
+                .simpleName(value)
                 .type(enumType)
                 .build();
 

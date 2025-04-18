@@ -19,8 +19,8 @@ public class CMemberReference extends CExpressionTree implements MemberReference
                             final List<IdentifierTree> typeArguments,
                             final IdentifierTree expression,
                             final int lineNumber,
-                            final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                            final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.mode = mode;
         this.typeArguments.addAll(typeArguments);
         this.expression = expression;

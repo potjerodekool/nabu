@@ -10,4 +10,6 @@ public interface ITypeVisitor<R,P> {
     R visitTypeVariableType(ITypeVariable typeVariable, P param);
 
     R visitWildcardType(IWildcardType wildcardType, P param);
+
+    R visitArrayType(IArrayType arrayType, P param);
 }

@@ -16,8 +16,8 @@ public class CIfStatementTree extends CStatementTree implements IfStatementTree 
                             final StatementTree thenStatement,
                             final StatementTree elseStatement,
                             final int lineNumber,
-                            final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                            final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.expression = expression;
         this.thenStatement = thenStatement;
         this.elseStatement = elseStatement;

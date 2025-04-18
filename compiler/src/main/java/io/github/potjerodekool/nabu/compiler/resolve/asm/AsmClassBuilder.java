@@ -12,7 +12,6 @@ import org.objectweb.asm.*;
 import org.objectweb.asm.Attribute;
 
 import java.util.Arrays;
-import java.util.List;
 
 class AsmClassBuilder extends ClassVisitor {
 

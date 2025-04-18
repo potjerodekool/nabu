@@ -1,0 +1,9 @@
+package io.github.potjerodekool.nabu.example;
+
+import io.github.potjerodekool.Animal;
+
+public class Dog implements Animal {
+
+    fun talk(): void {
+    }
+}

@@ -8,10 +8,14 @@ public class CArrayTypeTree extends CExpressionTree implements ArrayTypeTree {
 
     private final Tree componentType;
 
+    public CArrayTypeTree(final Tree componentType) {
+        this(componentType, -1, -1);
+    }
+
     public CArrayTypeTree(final Tree componentType,
                           final int lineNumber,
-                          final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                          final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.componentType = componentType;
     }
 

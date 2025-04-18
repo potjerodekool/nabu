@@ -14,7 +14,7 @@ public final class CEnumAttributeProxy extends AbstractAttribute implements Enum
                                final String name) {
         this.type = type;
         this.value = new VariableSymbolBuilderImpl()
-                .name(name)
+                .simpleName(name)
                 .type(type)
                 .build();
     }

@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
@@ -24,7 +23,7 @@ public class AsmFieldByteCodeGenerator {
             access += Opcodes.ACC_ENUM;
         }
 
-        final var fieldType = variableElement.asType().accept(ToIType.INSTANCE, null);
+        final var fieldType = ToIType.toIType(variableElement.asType());
         final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldType);
         final var signature = AsmISignatureGenerator.INSTANCE.getFieldSignature(fieldType);
 

@@ -4,6 +4,10 @@ import java.util.List;
 
 public interface NewArrayExpression extends ExpressionTree {
 
-    List<ExpressionTree> getElements();
+    ExpressionTree getElementType();
+
+    List<ExpressionTree> getDimensions();
+
+    List<? extends ExpressionTree> getElements();
 
 }

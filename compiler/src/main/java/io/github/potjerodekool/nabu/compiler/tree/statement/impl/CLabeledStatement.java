@@ -12,8 +12,8 @@ public class CLabeledStatement extends CStatementTree implements LabeledStatemen
     public CLabeledStatement(final String label,
                              final StatementTree statement,
                              final int lineNumber,
-                             final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                             final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.label = label;
         this.statement = statement;
     }

@@ -6,7 +6,7 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessEx
 
 public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessExpressionTree, FieldAccessExpressionBuilder> {
 
-    private ExpressionTree target;
+    private ExpressionTree selected;
     private ExpressionTree field;
 
     public FieldAccessExpressionBuilder() {
@@ -15,7 +15,7 @@ public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessE
 
     public FieldAccessExpressionBuilder(final FieldAccessExpressionTree fieldAccessExpressionTree) {
         super(fieldAccessExpressionTree);
-        this.target = fieldAccessExpressionTree.getTarget();
+        this.selected = fieldAccessExpressionTree.getSelected();
         this.field = fieldAccessExpressionTree.getField();
     }
 
@@ -24,16 +24,16 @@ public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessE
         return this;
     }
 
-    public ExpressionTree getTarget() {
-        return target;
+    public ExpressionTree getSelected() {
+        return selected;
     }
 
     public ExpressionTree getField() {
         return field;
     }
 
-    public FieldAccessExpressionBuilder target(final ExpressionTree target) {
-        this.target = target;
+    public FieldAccessExpressionBuilder selected(final ExpressionTree selected) {
+        this.selected = selected;
         return this;
     }
 

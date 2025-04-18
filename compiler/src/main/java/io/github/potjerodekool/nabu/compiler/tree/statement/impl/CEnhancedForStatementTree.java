@@ -17,8 +17,8 @@ public class CEnhancedForStatementTree extends CStatementTree implements Enhance
                                      final ExpressionTree expression,
                                      final StatementTree statement,
                                      final int lineNumber,
-                                     final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                     final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.localVariable = localVariable;
         this.expression = expression;
         this.statement = statement;

@@ -16,12 +16,21 @@ public final class TreeFilter {
     }
 
     public static List<VariableDeclaratorTree> fields(final ClassDeclaration classDeclaration) {
-        return filter(classDeclaration, VariableDeclaratorTree.class)
+        return filter(classDeclaration, VariableDeclaratorTree.class, f -> f.getKind() == Kind.FIELD)
+                .toList();
+    }
+    public static List<VariableDeclaratorTree> enumConstants(final ClassDeclaration classDeclaration) {
+        return filter(classDeclaration, VariableDeclaratorTree.class, f -> f.getKind() == Kind.ENUM_CONSTANT)
                 .toList();
     }
 
     public static List<Function> constructors(final ClassDeclaration classDeclaration) {
         return filter(classDeclaration, Function.class, f -> f.getKind() == Kind.CONSTRUCTOR)
+                .toList();
+    }
+
+    public static List<Function> methods(final ClassDeclaration classDeclaration) {
+        return filter(classDeclaration, Function.class, f -> f.getKind() == Kind.METHOD)
                 .toList();
     }
 

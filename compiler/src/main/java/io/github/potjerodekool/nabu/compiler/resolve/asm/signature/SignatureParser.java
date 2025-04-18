@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
@@ -35,11 +34,6 @@ public class SignatureParser extends AbstractVisitor {
     public void visitFormalTypeParameter(final String name) {
         final var objectType = new MutableClassType(loadClass(Constants.OBJECT));
         formalTypeParameters.add(new MutableTypeVariable(name, objectType, null));
-    }
-
-    @Override
-    public void visitEnd() {
-        throw new TodoException();
     }
 
     @Override
@@ -81,10 +75,6 @@ public class SignatureParser extends AbstractVisitor {
 
     @Override
     protected void addParameterType(final MutableType type) {
-        if (type instanceof MutableClassType mt && mt.getElement() == null) {
-            throw new TodoException();
-        }
-
         this.parameterTypes.add(type);
     }
 

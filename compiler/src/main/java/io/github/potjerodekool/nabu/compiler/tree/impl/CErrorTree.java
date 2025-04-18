@@ -8,8 +8,8 @@ import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 public class CErrorTree extends CTree implements ErrorTree {
 
     public CErrorTree(final int lineNumber,
-                      final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                      final int columnNumber) {
+        super(lineNumber, columnNumber);
     }
     @Override
 

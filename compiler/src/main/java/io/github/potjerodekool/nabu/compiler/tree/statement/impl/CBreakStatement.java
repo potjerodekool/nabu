@@ -9,8 +9,9 @@ public class CBreakStatement extends CStatementTree implements BreakStatement {
     private final Tree target;
 
     public CBreakStatement(final Tree target,
-                           final int lineNumber, final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                           final int lineNumber,
+                           final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.target = target;
     }
 

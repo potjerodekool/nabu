@@ -13,8 +13,8 @@ public abstract class CExpressionTree extends CTree implements ExpressionTree {
     private TypeMirror type;
 
     public CExpressionTree(final int lineNumber,
-                           final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                           final int columnNumber) {
+        super(lineNumber, columnNumber);
     }
 
     public <E extends ExpressionTree,

@@ -14,8 +14,6 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.FunctionScope;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
@@ -31,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,25 +51,25 @@ class LowerTest {
         final var context = mock(CompilerContextImpl.class);
         final var methodResolver = mock(MethodResolver.class);
 
-        final var clazz = (ClassSymbol) new ClassSymbolBuilder()
+        final var clazz = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .nestingKind(NestingKind.TOP_LEVEL)
-                .name("SomeClass")
+                .simpleName("SomeClass")
                 .build();
 
         final var method = new MethodSymbolBuilderImpl()
-                .name("someMethod")
+                .simpleName("someMethod")
                 .enclosingElement(clazz)
                 .build();
 
-        when(methodResolver.resolveMethod(any(MethodInvocationTree.class), any()))
-                .thenReturn(types.getExecutableType(
+        when(methodResolver.resolveMethod(any(MethodInvocationTree.class)))
+                .thenReturn(Optional.of(types.getExecutableType(
                         method,
                         List.of(),
                         null,
                         List.of(),
                         new ArrayList<>()
-                ));
+                )));
 
         when(context.getClassElementLoader())
                 .thenReturn(loader);
@@ -193,23 +192,13 @@ class LowerTest {
         when(classType.asTypeElement())
                 .thenReturn(clazz);
 
-        final var symbolScope = new SymbolScope(
-                classType,
-                null
-        );
-
-        final var functionScope = new FunctionScope(
-                symbolScope,
-                method
-        );
-
-        final var result = enhancedForStatement.accept(lower, functionScope);
+        final var result = enhancedForStatement.accept(lower, null);
         final var actual = TreePrinter.print(result);
 
         assertEquals(
                 """
                         for (java.util.Iterator $p0 = list.iterator();$p0.hasNext();){
-                            java.lang.String s = (java.lang.String) $p0.next(); 
+                            java.lang.String s = (java.lang.String) $p0.next();
                         }
                         """,
                 actual
@@ -222,7 +211,7 @@ class LowerTest {
 
         final var paramElement = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
-                .name(name)
+                .simpleName(name)
                 .type(typeMirror)
                 .build();
 

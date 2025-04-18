@@ -1,0 +1,16 @@
+package io.github.potjerodekool.nabu.example;
+
+public enum Status {
+    ON("On"),
+    OFF("Off");
+
+    private final String text;
+
+    private Status(final text : String ) {
+        this.text = text;
+    }
+
+    public fun getText() : String {
+        return text;
+    }
+}

@@ -52,7 +52,15 @@ public final class TreeUtils {
     public static Element getSymbol(final ExpressionTree expression) {
         return switch (expression) {
             case FieldAccessExpressionTree fieldAccessExpressionTree -> getSymbol(fieldAccessExpressionTree.getField());
-            case MethodInvocationTree methodInvocationTree -> getSymbol(methodInvocationTree.getTarget());
+            case MethodInvocationTree methodInvocationTree -> {
+                final var methodSelector = methodInvocationTree.getMethodSelector();
+
+                if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+                    yield getSymbol(fieldAccessExpressionTree.getSelected());
+                } else {
+                    yield null;
+                }
+            }
             default -> expression.getSymbol();
         };
     }
@@ -63,9 +71,9 @@ public final class TreeUtils {
                 return identifierTree.getName();
             }
             case FieldAccessExpressionTree fieldAccessExpressionTree -> {
-                final var targetName = getClassName(fieldAccessExpressionTree.getTarget());
+                final var selectedName = getClassName(fieldAccessExpressionTree.getSelected());
                 final var fieldName = getClassName(fieldAccessExpressionTree.getField());
-                return targetName + "." + fieldName;
+                return selectedName + "." + fieldName;
             }
             case AnnotatedTypeTree annotatedTypeTree -> {
                 return getClassName(annotatedTypeTree.getClazz());

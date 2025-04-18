@@ -21,8 +21,8 @@ public class CAnnotatedTypeTree extends CExpressionTree implements AnnotatedType
                               final ExpressionTree clazz,
                               final List<ExpressionTree> arguments,
                               final int lineNumber,
-                              final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                              final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.annotations.addAll(annotations);
         this.clazz = clazz;
         this.arguments.addAll(arguments);

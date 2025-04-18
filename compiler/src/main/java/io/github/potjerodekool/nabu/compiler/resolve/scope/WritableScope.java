@@ -21,6 +21,7 @@ public class WritableScope implements Scope {
         return this.elements.isEmpty();
     }
 
+    @Override
     public Collection<? extends Element> elements() {
         return this.elements;
     }
@@ -33,6 +34,10 @@ public class WritableScope implements Scope {
     public void define(final int index,
                        final Element element) {
         this.elements.add(element);
+    }
+
+    public void remove(final Element element) {
+        this.elements.remove(element);
     }
 
     @Override

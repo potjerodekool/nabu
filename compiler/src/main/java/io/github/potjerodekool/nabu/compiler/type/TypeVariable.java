@@ -12,4 +12,8 @@ public interface TypeVariable extends ReferenceType {
 
     boolean isCaptured();
 
+    @Override
+    default boolean isTypeVariable() {
+        return true;
+    }
 }

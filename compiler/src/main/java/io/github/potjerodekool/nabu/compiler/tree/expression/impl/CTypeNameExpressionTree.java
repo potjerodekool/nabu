@@ -12,8 +12,8 @@ public class CTypeNameExpressionTree extends CExpressionTree implements TypeName
     public CTypeNameExpressionTree(final ExpressionTree packageName,
                                    final ExpressionTree idenifier,
                                    final int lineNumber,
-                                   final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                   final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.packageName = packageName;
         this.idenifier = idenifier;
     }

@@ -22,8 +22,8 @@ public class CTryStatementTree extends CStatementTree implements TryStatementTre
                              final BlockStatementTree finalizer,
                              final List<Tree> resources,
                              final int lineNumber,
-                             final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                             final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.body = body;
         this.catchers.addAll(catchers);
         this.finalizer = finalizer;

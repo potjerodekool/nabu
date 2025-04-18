@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
@@ -53,8 +52,11 @@ public class SymbolTable {
     };
 
     private TypeMirror objectType;
+    private TypeMirror classType;
+    private TypeMirror stringType;
     private TypeMirror enumType;
     private TypeMirror recordType;
+    private TypeMirror inheritedType;
 
     public ModuleSymbol getJavaBase() {
         return javaBase;
@@ -78,8 +80,11 @@ public class SymbolTable {
 
     public void loadPredefinedClasses() {
         objectType = enterClass(Constants.OBJECT);
+        classType = enterClass(Constants.CLAZZ);
+        stringType = enterClass(Constants.STRING);
         enumType = enterClass(Constants.ENUM);
         recordType = enterClass(Constants.RECORD);
+        inheritedType = enterClass("java.lang.annotation.Inherited");
     }
 
     private void loadBoxes() {
@@ -97,12 +102,24 @@ public class SymbolTable {
         return objectType;
     }
 
+    public TypeMirror getClassType() {
+        return classType;
+    }
+
+    public TypeMirror getStringType() {
+        return stringType;
+    }
+
     public TypeMirror getEnumType() {
         return enumType;
     }
 
     public TypeMirror getRecordType() {
         return recordType;
+    }
+
+    public TypeMirror getInheritedType() {
+        return inheritedType;
     }
 
     private TypeMirror enterClass(final String name) {
@@ -131,11 +148,7 @@ public class SymbolTable {
                 n -> new HashMap<>()
         );
 
-        if (map.containsKey(module)) {
-            throw new TodoException();
-        } else {
-            map.put(module, classSymbol);
-        }
+        map.put(module, classSymbol);
     }
 
     private ClassSymbol defineClass(final String name,

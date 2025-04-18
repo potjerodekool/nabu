@@ -15,8 +15,8 @@ public class CSwitchStatement extends CStatementTree implements SwitchStatement 
     public CSwitchStatement(final ExpressionTree selector,
                             final List<CaseStatement> cases,
                             final int lineNumber,
-                            final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                            final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.selector = selector;
         this.cases = cases;
     }

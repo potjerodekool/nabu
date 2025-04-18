@@ -5,6 +5,8 @@ import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 import io.github.potjerodekool.nabu.compiler.type.VariableType;
 
+import java.util.Objects;
+
 public class CVariableType extends AbstractType implements VariableType {
 
     private final TypeMirror interferedType;
@@ -39,5 +41,16 @@ public class CVariableType extends AbstractType implements VariableType {
     @Override
     public String toString() {
         return getClassName();
+    }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CVariableType other
+                && Objects.equals(interferedType, other.interferedType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(interferedType);
     }
 }

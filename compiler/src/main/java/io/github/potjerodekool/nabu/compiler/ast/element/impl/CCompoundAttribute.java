@@ -26,7 +26,7 @@ public final class CCompoundAttribute extends AbstractAttribute implements Compo
     }
 
     @Override
-    public TypeMirror getType() {
+    public DeclaredType getType() {
         return getAnnotationType();
     }
 

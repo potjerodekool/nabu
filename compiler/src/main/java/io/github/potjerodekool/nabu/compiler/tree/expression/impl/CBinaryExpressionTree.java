@@ -6,6 +6,8 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.BinaryExpressionTre
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.BinaryExpressionBuilder;
 
+import java.util.Objects;
+
 public class CBinaryExpressionTree extends CExpressionTree implements BinaryExpressionTree {
 
     private final ExpressionTree left;
@@ -14,10 +16,19 @@ public class CBinaryExpressionTree extends CExpressionTree implements BinaryExpr
 
     public CBinaryExpressionTree(final ExpressionTree left,
                                  final Tag tag,
+                                 final ExpressionTree right) {
+        this(left, tag, right, -1, -1);
+    }
+
+    public CBinaryExpressionTree(final ExpressionTree left,
+                                 final Tag tag,
                                  final ExpressionTree right,
                                  final int lineNumber,
-                                 final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                 final int columnNumber) {
+        super(lineNumber, columnNumber);
+        Objects.requireNonNull(left);
+        Objects.requireNonNull(right);
+
         this.left = left;
         this.tag = tag;
         this.right = right;
@@ -28,6 +39,9 @@ public class CBinaryExpressionTree extends CExpressionTree implements BinaryExpr
         this.left = builder.getLeft();
         this.tag = builder.getTag();
         this.right = builder.getRight();
+        Objects.requireNonNull(left);
+        Objects.requireNonNull(right);
+
     }
 
     public ExpressionTree getLeft() {

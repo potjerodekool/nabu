@@ -30,7 +30,7 @@ public class JpaElementResolver implements ElementResolver {
         }
 
         final var classSymbol = (TypeElement) parameterType.asElement();
-        return ElementFilter.fields(classSymbol).stream()
+        return ElementFilter.fieldsIn(classSymbol.getEnclosedElements()).stream()
                 .filter(elem -> elem.getSimpleName().equals(name))
                 .findFirst()
                 .orElse(null);

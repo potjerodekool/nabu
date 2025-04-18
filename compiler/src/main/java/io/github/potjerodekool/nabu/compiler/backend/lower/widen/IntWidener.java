@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
@@ -25,7 +24,7 @@ public class IntWidener {
                     .type(type)
                     .build();
         } else {
-            throw new TodoException();
+            throw new UnsupportedOperationException();
         }
     }
 

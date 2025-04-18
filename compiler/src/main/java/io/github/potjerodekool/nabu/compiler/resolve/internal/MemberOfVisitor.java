@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
@@ -19,7 +18,7 @@ public class MemberOfVisitor implements TypeVisitor<TypeMirror, Element> {
 
     @Override
     public TypeMirror visitUnknownType(final TypeMirror typeMirror, final Element param) {
-        throw new TodoException();
+        throw new UnsupportedOperationException();
     }
 
     @Override

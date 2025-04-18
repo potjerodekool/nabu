@@ -11,10 +11,14 @@ public class CLiteralExpressionTree extends CExpressionTree implements LiteralEx
     private Object literal;
     private Kind literalKind;
 
+    public CLiteralExpressionTree(final Object literal) {
+        this(literal, -1, -1);
+    }
+
     public CLiteralExpressionTree(final Object literal,
                                   final int lineNumber,
-                                  final int charPositionInLine) {
-        this(literal, Kind.resolveKind(literal), lineNumber, charPositionInLine);
+                                  final int columnNumber) {
+        this(literal, Kind.resolveKind(literal), lineNumber, columnNumber);
     }
 
     public CLiteralExpressionTree(final LiteralExpressionTreeBuilder builder) {
@@ -26,8 +30,8 @@ public class CLiteralExpressionTree extends CExpressionTree implements LiteralEx
     public CLiteralExpressionTree(final Object literal,
                                   final Kind kind,
                                   final int lineNumber,
-                                  final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                  final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.literal = literal;
         this.literalKind = kind;
     }

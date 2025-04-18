@@ -24,4 +24,14 @@ public class CNullType extends AbstractType implements NullType {
     public String getClassName() {
         return "null";
     }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CNullType;
+    }
+
+    @Override
+    public int hashCode() {
+        return 32;
+    }
 }

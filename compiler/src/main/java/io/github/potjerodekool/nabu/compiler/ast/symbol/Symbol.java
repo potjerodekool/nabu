@@ -9,6 +9,7 @@ import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 
 import java.lang.annotation.Annotation;
 import java.util.*;
@@ -111,6 +112,10 @@ public abstract class Symbol implements Element {
     }
 
     public void setClassFile(final FileObject classFile) {
+        if (classFile.getKind() != FileObject.Kind.CLASS) {
+            throw new UnsupportedOperationException();
+        }
+
         this.classFile = classFile;
     }
 
@@ -120,10 +125,6 @@ public abstract class Symbol implements Element {
     }
 
     public void setEnclosingElement(final Symbol enclosingElement) {
-        if (enclosingElement == null && this.owner != null) {
-            throw new IllegalStateException();
-        }
-
         this.owner = enclosingElement;
         onEnclosingChanged();
     }
@@ -246,6 +247,14 @@ public abstract class Symbol implements Element {
         return null;
     }
 
+    @Override
+    public CompoundAttribute attribute(final TypeElement typeElement) {
+        return getAnnotationMirrors().stream()
+                .filter(it -> it.getType().asTypeElement() == typeElement)
+                .findFirst()
+                .orElse(null);
+    }
+
     public abstract <R, P> R accept(SymbolVisitor<R, P> v, P p);
 
     public boolean isNoModule() {
@@ -270,5 +279,66 @@ public abstract class Symbol implements Element {
 
     public WritableScope getMembers() {
         return null;
+    }
+
+    public boolean isAccessibleIn(final Symbol clazz,
+                                  final Types types) {
+        if (Flags.hasFlag(flags, Flags.PUBLIC)) {
+            return true;
+        } else if (Flags.hasFlag(flags, Flags.PRIVATE)) {
+            return this.getEnclosingElement() == clazz;
+        } else if (Flags.hasFlag(flags, Flags.PROTECTED)) {
+            return !Flags.hasFlag(flags, Flags.INTERFACE);
+        } else {
+            final var packageSymbol = this.findPackageSymbol();
+
+            for (var symbol = clazz;
+                 symbol != null && symbol != this.getEnclosingElement();
+                 symbol = (Symbol) types.supertype(symbol.type).asElement()) {
+
+                while (symbol.type.isTypeVariable()) {
+                    symbol = (Symbol) symbol.type.getUpperBound().asElement();
+                }
+
+                if (symbol.type.isError()) {
+                    return true;
+                } else if (symbol.findPackageSymbol() != packageSymbol) {
+                    return false;
+                }
+            }
+
+            return !clazz.hasFlag(Flags.INTERFACE);
+        }
+    }
+
+    public PackageSymbol findPackageSymbol() {
+        var symbol = this;
+
+        while (symbol.getKind() != ElementKind.PACKAGE) {
+            symbol = symbol.getEnclosingElement();
+        }
+
+        return (PackageSymbol) symbol;
+    }
+
+    public boolean isSubClass(final Symbol base,
+                              final TypesImpl types) {
+        if (this == base) {
+            return true;
+        } else if (base.hasFlag(Flags.INTERFACE)) {
+            for (var t = type; t.isDeclaredType(); types.supertype(t)) {
+                if (types.interfaces(t).stream()
+                        .anyMatch(it -> ((Symbol)it.asElement()).isSubClass(base, types))) {
+                    return true;
+                }
+            }
+        } else {
+            for (var t = type; t.isDeclaredType(); types.supertype(t)) {
+                if (t.asElement() == base) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

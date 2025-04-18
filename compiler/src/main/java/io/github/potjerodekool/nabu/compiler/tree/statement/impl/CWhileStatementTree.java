@@ -14,8 +14,8 @@ public class CWhileStatementTree extends CStatementTree implements WhileStatemen
     public CWhileStatementTree(final ExpressionTree condition,
                                final StatementTree body,
                                final int lineNumber,
-                               final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                               final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.condition = condition;
         this.body = body;
     }

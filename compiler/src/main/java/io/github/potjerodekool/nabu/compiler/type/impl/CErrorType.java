@@ -16,4 +16,14 @@ public class CErrorType extends CClassType implements ErrorType {
     public String getClassName() {
         return asElement().getQualifiedName();
     }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
+    }
 }

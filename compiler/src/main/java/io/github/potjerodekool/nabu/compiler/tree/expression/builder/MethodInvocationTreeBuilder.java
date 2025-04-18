@@ -11,9 +11,7 @@ import java.util.List;
 
 public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocationTree, MethodInvocationTreeBuilder> {
 
-    private ExpressionTree target;
-
-    private ExpressionTree name;
+    private ExpressionTree methodSelector;
 
     private final List<IdentifierTree> typeArguments = new ArrayList<>();
 
@@ -26,8 +24,7 @@ public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocat
 
     public MethodInvocationTreeBuilder(final MethodInvocationTree original) {
         super(original);
-        this.target = original.getTarget();
-        this.name = original.getName();
+        this.methodSelector = original.getMethodSelector();
         this.typeArguments.addAll(original.getTypeArguments());
         this.arguments.addAll(original.getArguments());
         this.methodType = original.getMethodType();
@@ -38,21 +35,13 @@ public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocat
         return this;
     }
 
-    public ExpressionTree getTarget() {
-        return target;
+
+    public ExpressionTree getMethodSelector() {
+        return methodSelector;
     }
 
-    public MethodInvocationTreeBuilder target(final ExpressionTree target) {
-        this.target = target;
-        return this;
-    }
-
-    public ExpressionTree getName() {
-        return name;
-    }
-
-    public MethodInvocationTreeBuilder name(final ExpressionTree name) {
-        this.name = name;
+    public MethodInvocationTreeBuilder methodSelector(final ExpressionTree methodSelector) {
+        this.methodSelector = methodSelector;
         return this;
     }
 

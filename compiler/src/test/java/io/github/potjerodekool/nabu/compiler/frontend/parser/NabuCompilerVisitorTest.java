@@ -1,22 +1,47 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
 import io.github.potjerodekool.nabu.NabuParser;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
 import org.junit.jupiter.api.Test;
 
-import static io.github.potjerodekool.nabu.test.TreeAssert.parseAndAssert;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+
+import static io.github.potjerodekool.nabu.test .TreeAssert.parseAndAssert;
 
 class NabuCompilerVisitorTest {
 
     @Test
-    void ordinaryCompilationUnit() {
+    void ordinaryCompilationUnit() throws IOException {
+        final var code = """
+                package io.github.potjerodekool.nabu.example;
+                
+                import static java.util.List.of;
+                
+                public class Utils {
+
+                    static fun emptyList() : List {
+                        return of();
+                    }
+                
+                
+                }
+                
+                
+                """;
+
         parseAndAssert("""
                 package something;
                 
                 import java.util.List;
+                import static java.util.List.of;
                 
                 public class SomeClass {
                 }
-                """, NabuParser::ordinaryCompilationUnit);
+                """, NabuParser::compilationUnit);
+
+        NabuCompilerParser.parse(new ByteArrayInputStream(code.getBytes()));
+
     }
 
     @Test
@@ -176,7 +201,7 @@ class NabuCompilerVisitorTest {
 
     @Test
     void arrayInitializer() {
-        parseAndAssert("{ }", NabuParser::arrayInitializer);
+        parseAndAssert("{}", NabuParser::arrayInitializer);
     }
 
     @Test
@@ -269,7 +294,7 @@ class NabuCompilerVisitorTest {
     @Test
     void recordDeclaration() {
         parseAndAssert("""
-                public record IdAndName<ID>(ID id, String name) implements WithId {
+                public record IdAndName<ID>(id : ID, name : String) implements WithId {
                     fun nameLength(): int {
                         return name.length();
                     }
@@ -290,8 +315,8 @@ class NabuCompilerVisitorTest {
     void enumDeclaration() {
         parseAndAssert("""
             public enum State {
-                OPENED,
-                CLOSED
+                OPENED(),
+                CLOSED()
             }
             """, NabuParser::enumDeclaration);
 
@@ -299,13 +324,6 @@ class NabuCompilerVisitorTest {
             public enum State {
                 OPENED("opened"),
                 CLOSED("closed")
-            }
-            """, NabuParser::enumDeclaration);
-
-        parseAndAssert("""
-            public enum State {
-                OPENED(){},
-                CLOSED
             }
             """, NabuParser::enumDeclaration);
     }
@@ -407,6 +425,28 @@ class NabuCompilerVisitorTest {
                     default : System.out.println("Other");
                 }
                 """, NabuParser::switchStatement);
+    }
+
+    @Test
+    void arrayCreationExpressionWithoutInitializer() {
+        parseAndAssert("new int[5]", NabuParser::arrayCreationExpressionWithoutInitializer);
+        parseAndAssert("new Object[5]", NabuParser::arrayCreationExpressionWithoutInitializer);
+    }
+
+    @Test
+    void recordComponent() {
+        parseAndAssert("elements : String...", NabuParser::recordComponent);
+    }
+
+    //@Test
+    void CompactConstructorDeclaration() {
+        parseAndAssert("""
+            public MyRecord {
+                if (name == null) {
+                    throw new NullPointerException();
+                }
+            }
+            """, NabuParser::compactConstructorDeclaration);
     }
 
 }

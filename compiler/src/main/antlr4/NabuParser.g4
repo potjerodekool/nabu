@@ -671,12 +671,12 @@ recordComponentList
     ;
 
 recordComponent
-    : recordComponentModifier* unannType identifier
+    : identifier ':' recordComponentModifier* unannType
     | variableArityRecordComponent
     ;
 
 variableArityRecordComponent
-    : recordComponentModifier* unannType annotation* '...' identifier
+    : identifier ':' recordComponentModifier* annotation* unannType '...'
     ;
 
 recordComponentModifier

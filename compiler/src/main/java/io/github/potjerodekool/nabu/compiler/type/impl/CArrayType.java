@@ -2,6 +2,8 @@ package io.github.potjerodekool.nabu.compiler.type.impl;
 
 import io.github.potjerodekool.nabu.compiler.type.*;
 
+import java.util.Objects;
+
 public class CArrayType extends AbstractType implements ArrayType {
 
     private final TypeMirror componentType;
@@ -33,6 +35,11 @@ public class CArrayType extends AbstractType implements ArrayType {
             return componentType.equals(otherArrayType.getComponentType());
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(componentType);
     }
 
     @Override

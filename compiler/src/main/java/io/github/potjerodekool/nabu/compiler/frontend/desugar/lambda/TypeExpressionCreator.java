@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
-class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object> {
+public class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object> {
 
     @Override
     public ExpressionTree visitUnknownType(final TypeMirror typeMirror, final Object param) {

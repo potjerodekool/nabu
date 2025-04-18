@@ -5,17 +5,25 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class ExpList extends IExpression {
 
     private final List<IExpression> list;
 
-    public ExpList(final IExpression a, final IExpression b) {
+    public ExpList(final IExpression a,
+                   final IExpression b) {
         this(Arrays.asList(a,b));
     }
 
-    private ExpList(final List<IExpression> list) {
+    public ExpList(final IExpression... expressions) {
+        this(Arrays.asList(expressions));
+    }
+
+    public ExpList(final List<IExpression> list) {
+        Objects.requireNonNull(list);
+        list.forEach(Objects::requireNonNull);
         this.list = list;
     }
 

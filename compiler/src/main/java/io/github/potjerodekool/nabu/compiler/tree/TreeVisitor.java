@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.ThrowStatement;
 
 public interface TreeVisitor<R, P> {
 

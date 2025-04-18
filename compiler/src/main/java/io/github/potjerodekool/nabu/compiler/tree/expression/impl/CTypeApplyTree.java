@@ -16,8 +16,8 @@ public class CTypeApplyTree extends CExpressionTree implements TypeApplyTree {
     public CTypeApplyTree(final ExpressionTree clazz,
                           final List<? extends ExpressionTree> typeParameters,
                           final int lineNumber,
-                          final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                          final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.clazz = clazz;
         this.typeParameters.addAll(typeParameters);
     }

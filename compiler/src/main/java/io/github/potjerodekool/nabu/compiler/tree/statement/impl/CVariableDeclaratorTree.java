@@ -20,7 +20,16 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
     private final ExpressionTree type;
     private final IdentifierTree name;
     private final ExpressionTree nameExpression;
-    private final Tree value;
+    private Tree value;
+
+    public CVariableDeclaratorTree(final Kind kind,
+                                   final CModifiers modifiers,
+                                   final ExpressionTree type,
+                                   final IdentifierTree name,
+                                   final ExpressionTree nameExpression,
+                                   final Tree value) {
+        this(kind, modifiers, type, name, nameExpression, value, -1, -1);
+    }
 
     public CVariableDeclaratorTree(final Kind kind,
                                    final CModifiers modifiers,
@@ -29,8 +38,8 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
                                    final ExpressionTree nameExpression,
                                    final Tree value,
                                    final int lineNumber,
-                                   final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                                   final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.kind = kind;
         Objects.requireNonNull(modifiers);
         this.modifiers = modifiers;
@@ -44,7 +53,6 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
         super(builder);
         this.kind = builder.getKind();
         this.modifiers = builder.getModifiers();
-        Objects.requireNonNull(modifiers);
         this.type = builder.getType();
         this.name = builder.getName();
         this.nameExpression = builder.getNameExpression();
@@ -89,6 +97,10 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
     @Override
     public Tree getValue() {
         return value;
+    }
+
+    public void setValue(final Tree value) {
+        this.value = value;
     }
 
     @Override

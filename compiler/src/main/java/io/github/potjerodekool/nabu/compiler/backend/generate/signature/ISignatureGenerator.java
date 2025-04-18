@@ -51,6 +51,7 @@ public abstract class ISignatureGenerator {
             case IWildcardType wildcardType -> getSignature(wildcardType);
             case ITypeVariable typeVariable -> getSignature(typeVariable);
             case IIntersectionType intersectionType -> getSignature(intersectionType);
+            case IArrayType arrayType -> getSignature(arrayType);
         };
     }
 
@@ -108,6 +109,11 @@ public abstract class ISignatureGenerator {
         } else {
             return "T" + name + ";";
         }
+    }
+
+    public String getSignature(final IArrayType arrayType) {
+        final var componentSignature = getSignature(arrayType.getComponentType());
+        return "[" + componentSignature;
     }
 
 }

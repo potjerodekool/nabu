@@ -33,6 +33,7 @@ public interface FileManager extends AutoCloseable {
     List<FileObject> getFilesForLocation(Location location,
                                          FileObject.Kind... kinds);
 
+    boolean hasLocation(Location location);
 
 
     interface Location {

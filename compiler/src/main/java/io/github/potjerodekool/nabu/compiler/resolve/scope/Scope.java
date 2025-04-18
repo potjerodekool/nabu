@@ -1,9 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.scope;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -24,6 +27,10 @@ public interface Scope {
         return getGlobalScope().getCompilationUnit();
     }
 
+    default Collection<? extends Element> elements() {
+        return List.of();
+    }
+
     void define(Element element);
 
     Element resolve(String name);
@@ -31,6 +38,11 @@ public interface Scope {
     default Element resolve(String name,
                     Predicate<Element> filter) {
         return resolve(name);
+    }
+
+    default Iterable<Symbol> resolveByName(final String name,
+                                           final Predicate<Symbol> filter) {
+        return List.of();
     }
 
     default TypeMirror resolveType(String name) {

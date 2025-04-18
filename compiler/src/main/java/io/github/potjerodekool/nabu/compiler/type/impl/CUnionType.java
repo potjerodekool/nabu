@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 import io.github.potjerodekool.nabu.compiler.type.UnionType;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class CUnionType extends AbstractType implements UnionType {
@@ -43,5 +44,16 @@ public class CUnionType extends AbstractType implements UnionType {
         return alternatives.stream()
                 .map(TypeMirror::getClassName)
                 .collect(Collectors.joining(" & "));
+    }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj instanceof CUnionType other
+                    && Objects.equals(alternatives, other.alternatives);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(alternatives);
     }
 }

@@ -15,10 +15,14 @@ public class CBlockStatementTree extends CStatementTree implements BlockStatemen
 
     private final List<StatementTree> statements = new ArrayList<>();
 
+    public CBlockStatementTree(final List<StatementTree> statements) {
+        this(statements, -1, -1);
+    }
+
     public CBlockStatementTree(final List<StatementTree> statements,
                                final int lineNumber,
-                               final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
+                               final int columnNumber) {
+        super(lineNumber, columnNumber);
         this.statements.addAll(statements);
     }
 
@@ -56,6 +60,11 @@ public class CBlockStatementTree extends CStatementTree implements BlockStatemen
     @Override
     public void addStatement(final StatementTree statement) {
         this.statements.add(statement);
+    }
+
+    @Override
+    public void addStatements(final List<StatementTree> statements) {
+        this.statements.addAll(statements);
     }
 
     @Override

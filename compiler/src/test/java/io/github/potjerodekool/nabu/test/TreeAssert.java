@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.NabuLexer;
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
-import io.github.potjerodekool.nabu.compiler.frontend.parser.NabuCompilerVisitor;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.io.NabuFileObject;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
@@ -39,7 +39,7 @@ public final class TreeAssert {
                                       final String actualPrefix) {
         final var parser = createParser(code);
         final var fileObject = new NabuFileObject(
-                FileObject.Kind.SOURCE,
+                FileObject.Kind.SOURCE_NABU,
                 Paths.get("SomeClass.class")
         );
 

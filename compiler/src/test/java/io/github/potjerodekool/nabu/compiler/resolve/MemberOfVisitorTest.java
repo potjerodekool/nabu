@@ -7,13 +7,16 @@ import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.MemberOfVisitor;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +53,7 @@ class MemberOfVisitorTest {
         final var clazz = (ClassSymbol) new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .nestingKind(NestingKind.TOP_LEVEL)
-                .name("SomeClass")
+                .simpleName("SomeClass")
                 .build();
 
         final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
@@ -62,13 +65,22 @@ class MemberOfVisitorTest {
         );
 
         final var method = new MethodSymbolBuilderImpl()
-                .name("get")
+                .simpleName("get")
                 .enclosingElement(clazz)
                 .returnType(typeVar)
-                .argumentType(intType)
+                .parameter(createParameter("index", intType))
                 .typeParameter((TypeParameterElement) typeVar.asElement())
                 .build();
 
         classType.accept(visitor, method);
+    }
+
+    private VariableSymbol createParameter(final String name,
+                                           final TypeMirror type) {
+        return new VariableSymbolBuilderImpl()
+                .kind(ElementKind.PARAMETER)
+                .simpleName(name)
+                .type(type)
+                .build();
     }
 }

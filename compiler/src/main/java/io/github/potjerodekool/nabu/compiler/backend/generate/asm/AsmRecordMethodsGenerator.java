@@ -25,7 +25,7 @@ public class AsmRecordMethodsGenerator {
 
     void generateToStringMethod(final ClassWriter classWriter,
                                 final ClassSymbol classSymbol) {
-        if (ElementFilter.methods(classSymbol).stream()
+        if (ElementFilter.methodsIn(classSymbol.getEnclosedElements()).stream()
                 .filter(method -> "toString".equals(method.getSimpleName()))
                 .anyMatch(method -> method.asType().getParameterTypes().isEmpty())) {
             //record contains a toString method. No need to generate it.
@@ -34,7 +34,7 @@ public class AsmRecordMethodsGenerator {
 
         final var classDescriptor = ClassUtils.getClassDescriptor(classSymbol.getQualifiedName());
         final var innerClassName = ClassUtils.getInternalName(classSymbol.getQualifiedName());
-        final var fields = ElementFilter.fields(classSymbol);
+        final var fields = ElementFilter.fieldsIn(classSymbol.getEnclosedElements());
 
         final var methodVisitor = classWriter.visitMethod(
                 Opcodes.ACC_PUBLIC |
@@ -93,7 +93,7 @@ public class AsmRecordMethodsGenerator {
                     innerClassName,
                     field.getSimpleName(),
                     AsmISignatureGenerator.toAsmType(
-                            field.asType().accept(ToIType.INSTANCE, null)
+                            ToIType.toIType(field.asType())
                     ).getDescriptor(),
                     false
             );
@@ -105,7 +105,7 @@ public class AsmRecordMethodsGenerator {
 
     void generateHashCodeMethod(final ClassWriter classWriter,
                                 final ClassSymbol classSymbol) {
-        if (ElementFilter.methods(classSymbol).stream()
+        if (ElementFilter.methodsIn(classSymbol.getEnclosedElements()).stream()
                 .filter(method -> "hashCode".equals(method.getSimpleName()))
                 .anyMatch(method -> method.asType().getParameterTypes().isEmpty())) {
             //record contains a hashCode method. No need to generate it.
@@ -114,7 +114,7 @@ public class AsmRecordMethodsGenerator {
 
         final var classDescriptor = ClassUtils.getClassDescriptor(classSymbol.getQualifiedName());
         final var innerClassName = ClassUtils.getInternalName(classSymbol.getQualifiedName());
-        final var fields = ElementFilter.fields(classSymbol);
+        final var fields = ElementFilter.fieldsIn(classSymbol.getEnclosedElements());
 
         final var boostrapMethodArguments = generateBootstrapMethodArguments(
                 fields,
@@ -153,7 +153,7 @@ public class AsmRecordMethodsGenerator {
 
     void generateEqualsMethod(final ClassWriter classWriter,
                               final ClassSymbol classSymbol) {
-        if (ElementFilter.methods(classSymbol).stream()
+        if (ElementFilter.methodsIn(classSymbol.getEnclosedElements()).stream()
                 .filter(method -> "equals".equals(method.getSimpleName()))
                 .anyMatch(method -> {
                     final var parameterTypes = method.asType().getParameterTypes();
@@ -166,7 +166,7 @@ public class AsmRecordMethodsGenerator {
 
         final var classDescriptor = ClassUtils.getClassDescriptor(classSymbol.getQualifiedName());
         final var innerClassName = ClassUtils.getInternalName(classSymbol.getQualifiedName());
-        final var fields = ElementFilter.fields(classSymbol);
+        final var fields = ElementFilter.fieldsIn(classSymbol.getEnclosedElements());
 
         final var bootstrapMethodArguments = generateBootstrapMethodArguments(
                 fields,

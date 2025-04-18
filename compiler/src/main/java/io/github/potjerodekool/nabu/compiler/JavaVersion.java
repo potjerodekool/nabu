@@ -11,7 +11,7 @@ public enum JavaVersion {
     V22(66),
     V23(67);
 
-    public static JavaVersion MINIMAL_VERSION = V17;
+    public static final JavaVersion MINIMAL_VERSION = V17;
 
     private final int value;
 

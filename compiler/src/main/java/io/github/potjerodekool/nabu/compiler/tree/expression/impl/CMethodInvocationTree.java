@@ -13,9 +13,7 @@ import java.util.stream.Collectors;
 
 public class CMethodInvocationTree extends CExpressionTree implements MethodInvocationTree {
 
-    private final ExpressionTree target;
-
-    private final ExpressionTree name;
+    private final ExpressionTree methodSelector;
 
     private final List<IdentifierTree> typeArguments = new ArrayList<>();
 
@@ -23,37 +21,35 @@ public class CMethodInvocationTree extends CExpressionTree implements MethodInvo
 
     private ExecutableType methodType;
 
-    public CMethodInvocationTree(final ExpressionTree target,
-                                 final ExpressionTree name,
+    public CMethodInvocationTree(final ExpressionTree methodSelector,
+                                 final List<IdentifierTree> typeArguments,
+                                 final List<ExpressionTree> arguments) {
+        this(methodSelector, typeArguments, arguments, -1, -1);
+    }
+
+    public CMethodInvocationTree(final ExpressionTree methodSelector,
                                  final List<IdentifierTree> typeArguments,
                                  final List<ExpressionTree> arguments,
                                  final int lineNumber,
-                                 final int charPositionInLine) {
-        super(lineNumber, charPositionInLine);
-        this.target = target;
-        this.name = name;
+                                 final int columnNumber) {
+        super(lineNumber, columnNumber);
+        this.methodSelector = methodSelector;
         this.typeArguments.addAll(typeArguments);
         this.arguments.addAll(arguments);
     }
 
     public CMethodInvocationTree(final MethodInvocationTreeBuilder methodInvocationTreeBuilder) {
         super(methodInvocationTreeBuilder);
-        this.target = methodInvocationTreeBuilder.getTarget();
-        this.name = methodInvocationTreeBuilder.getName();
+        this.methodSelector = methodInvocationTreeBuilder.getMethodSelector();
         this.typeArguments.addAll(methodInvocationTreeBuilder.getTypeArguments());
         this.arguments.addAll(methodInvocationTreeBuilder.getArguments());
         this.methodType = methodInvocationTreeBuilder.getMethodType();
     }
 
-    public ExpressionTree getTarget() {
-        return target;
+    @Override
+    public ExpressionTree getMethodSelector() {
+        return methodSelector;
     }
-
-
-    public ExpressionTree getName() {
-        return name;
-    }
-
 
     public List<ExpressionTree> getArguments() {
         return arguments;
@@ -93,15 +89,12 @@ public class CMethodInvocationTree extends CExpressionTree implements MethodInvo
     public String toString() {
         final var builder = new StringBuilder();
 
-        if (target != null) {
-            builder.append(target).append(".");
-        }
 
         final var args = arguments.stream()
                 .map(Object::toString)
                 .collect(Collectors.joining(","));
 
-        builder.append(name);
+        builder.append(methodSelector);
         builder.append("(");
         builder.append(args);
         builder.append(")");

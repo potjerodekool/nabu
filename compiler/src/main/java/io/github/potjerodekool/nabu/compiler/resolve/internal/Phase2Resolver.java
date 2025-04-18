@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
@@ -8,10 +7,8 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
-import io.github.potjerodekool.nabu.compiler.tree.ImportItem;
 import io.github.potjerodekool.nabu.compiler.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
@@ -24,13 +21,12 @@ import io.github.potjerodekool.nabu.compiler.type.*;
 public class Phase2Resolver extends AbstractResolver {
 
     private final MethodResolver methodResolver;
-    private final ClassElementLoader loader;
     private final PhaseUtils phaseUtils;
 
     public Phase2Resolver(final CompilerContextImpl compilerContext) {
         super(compilerContext);
+        final var loader = compilerContext.getClassElementLoader();
         this.methodResolver = compilerContext.getMethodResolver();
-        this.loader = compilerContext.getClassElementLoader();
         this.phaseUtils = new PhaseUtils(loader.getTypes());
     }
 
@@ -41,47 +37,18 @@ public class Phase2Resolver extends AbstractResolver {
     }
 
     @Override
-    public Object visitImportItem(final ImportItem importItem,
-                                  final Scope scope) {
-        final var isStatic = importItem.isStatic();
-        final var isStarImport = importItem.isStarImport();
-        final var classOrPackageName = importItem.getClassOrPackageName();
-
-        if (isStatic) {
-            if (isStarImport) {
-                throw new TodoException();
-            } else {
-                throw new TodoException();
-            }
-        } else {
-            if (isStarImport) {
-                throw new TodoException();
-            } else {
-                //Single type import
-                final var loader = compilerContext.getClassElementLoader();
-                final var clazz = loader.loadClass(scope.findModuleElement(), classOrPackageName);
-
-                if (clazz != null) {
-                    importItem.setSymbol(clazz);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    @Override
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Scope scope) {
         final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
+
+        if (clazz == null) {
+            //In case of new class expression
+            return null;
+        }
+
         clazz.complete();
 
         final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
-        if (classDeclaration.getExtending() != null) {
-            final var superType = classDeclaration.getExtending().getType();
-            //TODO check if this is a valid super type for the giving kind.
-            //Supertype is already set in TypeEnter.
-        }
 
         final var interfaces = classDeclaration.getImplementing().stream()
                 .map(it -> {
@@ -118,7 +85,7 @@ public class Phase2Resolver extends AbstractResolver {
 
             final var thisVariable = new VariableSymbolBuilderImpl()
                     .kind(ElementKind.LOCAL_VARIABLE)
-                    .name(Constants.THIS)
+                    .simpleName(Constants.THIS)
                     .type(type)
                     .build();
 
@@ -132,7 +99,8 @@ public class Phase2Resolver extends AbstractResolver {
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
         super.visitVariableDeclaratorStatement(variableDeclaratorStatement, scope);
 
-        if (variableDeclaratorStatement.getKind() != Kind.FIELD) {
+        if (!(variableDeclaratorStatement.getKind() == Kind.FIELD
+                || variableDeclaratorStatement.getKind() == Kind.ENUM_CONSTANT)) {
             final var symbol = phaseUtils.createVariable(variableDeclaratorStatement);
             variableDeclaratorStatement.getName()
                     .setSymbol(symbol);
@@ -163,21 +131,22 @@ public class Phase2Resolver extends AbstractResolver {
     @Override
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Scope scope) {
-        final var target = methodInvocation.getTarget();
+        final var methodSelector = methodInvocation.getMethodSelector();
 
-        if (target != null) {
-            target.accept(this, scope);
+        if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            fieldAccessExpressionTree.getSelected().accept(this, scope);
         }
 
         methodInvocation.getArguments().forEach(arg -> arg.accept(this, scope));
 
-        final var resolvedMethodType = methodResolver.resolveMethod(methodInvocation, scope.getCurrentElement());
+        final var resolvedMethodTypeOptional = methodResolver.resolveMethod(methodInvocation, scope.getCurrentElement(), scope);
 
-        if (resolvedMethodType != null) {
+        resolvedMethodTypeOptional.ifPresent(resolvedMethodType -> {
+            methodSelector.setType(resolvedMethodType.getOwner().asType());
             methodInvocation.setMethodType(resolvedMethodType);
             final var boxer = compilerContext.getArgumentBoxer();
             boxer.boxArguments(methodInvocation);
-        }
+        });
 
         return null;
     }
@@ -212,5 +181,10 @@ public class Phase2Resolver extends AbstractResolver {
         instanceOfExpression.getExpression().accept(this, scope);
         instanceOfExpression.getTypeExpression().accept(this, scope);
         return null;
+    }
+
+    @Override
+    public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
+        return super.visitBinaryExpression(binaryExpression, scope);
     }
 }

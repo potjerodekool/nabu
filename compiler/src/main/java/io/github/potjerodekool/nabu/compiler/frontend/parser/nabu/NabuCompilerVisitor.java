@@ -19,9 +19,7 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CNewArrayExpression;
-import io.github.potjerodekool.nabu.compiler.tree.impl.CConstantCaseLabel;
-import io.github.potjerodekool.nabu.compiler.tree.impl.CDefaultCaseLabel;
-import io.github.potjerodekool.nabu.compiler.tree.impl.CErrorTree;
+import io.github.potjerodekool.nabu.compiler.tree.impl.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.TryStatementTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
@@ -435,7 +433,17 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .map(it -> (AnnotationTree) it.accept(this))
                 .toList();
 
-        final var result = (ExpressionTree) ctx.result().accept(this);
+        final ExpressionTree result;
+
+        if (ctx.result() != null) {
+            result = (ExpressionTree) ctx.result().accept(this);
+        } else {
+            result = TreeMaker.errorTree(
+                    ctx.start.getLine(),
+                    ctx.start.getCharPositionInLine()
+            );
+        }
+
         final var functionDeclarator = (MethodDeclarator) ctx.functionDeclarator().accept(this);
 
         final List<Tree> exceptions = acceptList(ctx.throwsT());
@@ -614,7 +622,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Tree visitEqualityExpression(final NabuParser.EqualityExpressionContext ctx) {
-        final var right = (ExpressionTree) ctx.relationalExpression().accept(this);
+        final var right = (Tree) ctx.relationalExpression().accept(this);
 
         if (ctx.equalityExpression() != null) {
             final ExpressionTree left = (ExpressionTree) ctx.equalityExpression().accept(this);
@@ -622,7 +630,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return TreeMaker.binaryExpressionTree(
                     left,
                     Tag.fromText(operatorText),
-                    right,
+                    (ExpressionTree) right,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -633,6 +641,12 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Tree visitRelationalExpression(final NabuParser.RelationalExpressionContext ctx) {
+        boolean useNew = true;
+
+        if(useNew) {
+            return visitRelationalExpressionNew(ctx);
+        }
+
         final var shiftExpression = (ExpressionTree) accept(ctx.shiftExpression());
         final ExpressionTree relationalExpression = accept(ctx.relationalExpression());
         final ExpressionTree referenceType = accept(ctx.referenceType());
@@ -645,7 +659,22 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     ctx.getStart().getCharPositionInLine()
             );
         } else if (relationalExpression != null) {
-            final var tag = Tag.fromText(ctx.oper.getText());
+            final var operatorText = ctx.oper.getText();
+
+            if ("instanceof".equals(operatorText)) {
+                final var typeExpression = ctx.referenceType() != null
+                        ? (Tree) ctx.referenceType().accept(this)
+                        : (Tree) ctx.pattern().accept(this);
+
+                return TreeMaker.instanceOfExpression(
+                    relationalExpression,
+                        typeExpression,
+                        ctx.start.getLine(),
+                        ctx.start.getCharPositionInLine()
+                );
+            }
+
+            final var tag = Tag.fromText(operatorText);
 
             return TreeMaker.binaryExpressionTree(
                     relationalExpression,
@@ -657,6 +686,64 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         } else {
             return shiftExpression;
         }
+    }
+
+    public Tree visitRelationalExpressionNew(final NabuParser.RelationalExpressionContext ctx) {
+        final var children = ctx.children;
+        Tree result = null;
+        ExpressionTree lastExpression = null;
+        String operatorText = null;
+        final var lastIndex = children.size() - 1;
+
+        for (var i = 0; i < children.size(); i++) {
+            final var child = children.get(i);
+
+            if (child instanceof TerminalNode terminalNode) {
+                operatorText = terminalNode.getText();
+                continue;
+            }
+
+            var childResult = child.accept(this);
+
+            if (operatorText != null) {
+                if ("instanceof".equals(operatorText)) {
+                    childResult = TreeMaker.instanceOfExpression(
+                            lastExpression,
+                            (ExpressionTree) childResult,
+                            ctx.getStart().getLine(),
+                            ctx.getStart().getCharPositionInLine()
+                    );
+                } else {
+                    final var tag = Tag.fromText(operatorText);
+                    childResult = TreeMaker.binaryExpressionTree(
+                            lastExpression,
+                            tag,
+                            (ExpressionTree) childResult,
+                            ctx.getStart().getLine(),
+                            ctx.getStart().getCharPositionInLine()
+                    );
+                }
+
+                lastExpression = (ExpressionTree) childResult;
+                continue;
+            }
+
+            if (childResult instanceof ExpressionTree expressionTree) {
+                lastExpression = combineExpressions(lastExpression, expressionTree);
+            } else {
+                if (i == lastIndex) {
+                    result = (Tree) childResult;
+                } else {
+                    throw new TodoException();
+                }
+            }
+        }
+
+        if (result == null) {
+            result = lastExpression;
+        }
+
+        return result;
     }
 
     @Override
@@ -813,10 +900,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitPrimaryNoNewArray(final NabuParser.PrimaryNoNewArrayContext ctx) {
-        return visitPrimaryNoNewArrayNew(ctx);
-    }
-
-    public Object visitPrimaryNoNewArrayNew(final NabuParser.PrimaryNoNewArrayContext ctx) {
         ExpressionTree lastExpression = null;
         final var typeArguments = new ArrayList<IdentifierTree>();
         final var arguments = new ArrayList<ExpressionTree>();
@@ -1374,7 +1457,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitConditionalOrExpression(final NabuParser.ConditionalOrExpressionContext ctx) {
-        final var andExpression = (ExpressionTree) ctx.conditionalAndExpression().accept(this);
+        final var andExpression = (Tree) ctx.conditionalAndExpression().accept(this);
 
         if (ctx.conditionalOrExpression() == null) {
             return andExpression;
@@ -1383,7 +1466,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return TreeMaker.binaryExpressionTree(
                     orExpression,
                     Tag.OR,
-                    andExpression,
+                    (ExpressionTree) andExpression,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1392,7 +1475,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Tree visitConditionalAndExpression(final NabuParser.ConditionalAndExpressionContext ctx) {
-        final var inclusiveOrExpression = (ExpressionTree) ctx.inclusiveOrExpression().accept(this);
+        final var inclusiveOrExpression = (Tree) ctx.inclusiveOrExpression().accept(this);
 
         if (ctx.conditionalAndExpression() == null) {
             return inclusiveOrExpression;
@@ -1403,7 +1486,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         return TreeMaker.binaryExpressionTree(
                 andExpression,
                 Tag.AND,
-                inclusiveOrExpression,
+                (ExpressionTree) inclusiveOrExpression,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
@@ -2348,15 +2431,16 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     public Object visitFieldDeclaration(final NabuParser.FieldDeclarationContext ctx) {
         final var fieldModifiers = parseModifiers(ctx.fieldModifier());
         final var type = (ExpressionTree) ctx.unannType().accept(this);
-        final List<VariableDeclaratorTree> variableDeclarators = acceptList(ctx.variableDeclaratorList());
+        final var name = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
+        final Tree value = accept(ctx.variableInitializer());
 
-        return variableDeclarators.stream()
-                .map(fieldDeclaration -> fieldDeclaration.builder()
-                        .kind(Kind.FIELD)
-                        .modifiers(fieldModifiers)
-                        .type(type)
-                        .build())
-                .toList();
+        return new VariableDeclaratorTreeBuilder()
+                .kind(Kind.FIELD)
+                .modifiers(fieldModifiers)
+                .type(type)
+                .name(name)
+                .value(value)
+                .build();
     }
 
     @Override
@@ -3036,13 +3120,23 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var firstChild = (TerminalNode) ctx.getChild(0);
 
         if ("case".equals(firstChild.getText())) {
-            final List<ExpressionTree> constants = acceptList(ctx.caseConstant());
+            final List<Tree> constants = acceptList(ctx.caseConstant());
             return constants.stream()
-                    .map(constant -> new CConstantCaseLabel(
-                            constant,
-                            ctx.getStart().getLine(),
-                            ctx.getStart().getCharPositionInLine()
-                    ))
+                    .map(constant -> {
+                        if (constant instanceof CPattern pattern) {
+                            return new CPatternCaseLabel(
+                                    pattern,
+                                    pattern.getLineNumber(),
+                                    pattern.getColumnNumber()
+                            );
+                        } else {
+                            return new CConstantCaseLabel(
+                                    (ExpressionTree) constant,
+                                    ctx.getStart().getLine(),
+                                    ctx.getStart().getCharPositionInLine()
+                            );
+                        }
+                    })
                     .toList();
         } else {
             return List.of(new CDefaultCaseLabel(
@@ -3122,5 +3216,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .type(type)
                 .name(identifier)
                 .build();
+    }
+
+    @Override
+    public Object visitTypePattern(final NabuParser.TypePatternContext ctx) {
+        final var variableDeclarator = (VariableDeclaratorTree) ctx.localVariableDeclaration().accept(this);
+        return new CBindingPattern(
+                variableDeclarator,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 }

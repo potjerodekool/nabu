@@ -427,7 +427,7 @@ classMemberDeclaration
 // -------------
 
 fieldDeclaration
-    : fieldModifier* unannType variableDeclaratorList ';'
+    : fieldModifier* variableDeclaratorId ':' unannType ('=' variableInitializer)? ';'
     ;
 
 fieldModifier
@@ -440,6 +440,7 @@ fieldModifier
     | 'transient'
     | 'volatile'
     ;
+
 
 variableDeclaratorList
     : variableDeclarator (',' variableDeclarator)*
@@ -1414,11 +1415,6 @@ castExpression
     | '(' referenceType additionalBound* ')' lambdaExpression
     ;
 
-asExpression
-: unaryExpressionNotPlusMinus 'as' referenceType
-| lambdaExpression 'as' referenceType
-;
-
 // Paragraph 15.17
 // ---------------
 
@@ -1458,7 +1454,7 @@ relationalExpression
     | relationalExpression oper='<=' shiftExpression
     | relationalExpression oper='>=' shiftExpression
     //      | instanceofExpression
-    | relationalExpression 'instanceof' (referenceType | pattern)
+    | relationalExpression oper='instanceof' referenceType | pattern
     // Solves left recursion with instanceofExpression.
     ;
 

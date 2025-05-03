@@ -14,7 +14,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
 import io.github.potjerodekool.nabu.compiler.resolve.Boxer;
-import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
@@ -301,5 +301,25 @@ public class Lower extends AbstractTreeTranslator<ModuleElement> {
     private boolean isFieldOrEnumConstant(final VariableSymbol variableSymbol) {
         return variableSymbol.getKind() == ElementKind.FIELD
                 || variableSymbol.getKind() == ElementKind.ENUM_CONSTANT;
+    }
+
+    @Override
+    public Tree visitSwitchStatement(final SwitchStatement switchStatement, final ModuleElement param) {
+        var selector = (ExpressionTree) switchStatement.getSelector().accept(this, param);
+        final var cases = switchStatement.getCases().stream()
+                .map(caseStatement -> caseStatement.accept(this, param))
+                .map(it -> (CaseStatement) it)
+                .toList();
+
+        if (selector.getSymbol().asType().isReferenceType()) {
+            final var selectorType = selector.getSymbol().asType();
+            final var primitiveType = types.unboxedType(selectorType);
+            selector = primitiveType.accept(boxer, selector);
+        }
+
+        return switchStatement.builder()
+                .selector(selector)
+                .cases(cases)
+                .build();
     }
 }

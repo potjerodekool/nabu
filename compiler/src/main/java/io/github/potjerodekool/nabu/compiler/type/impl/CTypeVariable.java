@@ -1,21 +1,24 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeVariableSymbol;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
 public class CTypeVariable extends AbstractType implements TypeVariable {
 
-    private final TypeMirror upperBound;
-    private final TypeMirror lowerBound;
+    private TypeMirror upperBound;
+    private TypeMirror lowerBound;
 
     public CTypeVariable(final String name) {
-        this(name, null, null);
+
+        this(name, null, null, null);
     }
 
     public CTypeVariable(final String name,
+                         final Symbol owner,
                          final TypeMirror upperBound,
                          final TypeMirror lowerBound) {
-        super(new TypeVariableSymbol(name, null));
+        super(new TypeVariableSymbol(name, owner));
         super.element.setType(this);
         this.upperBound = upperBound;
         this.lowerBound = lowerBound;
@@ -31,9 +34,17 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
         return upperBound;
     }
 
+    public void setUpperBound(final TypeMirror upperBound) {
+        this.upperBound = upperBound;
+    }
+
     @Override
     public TypeMirror getLowerBound() {
         return lowerBound;
+    }
+
+    public void setLowerBound(final TypeMirror lowerBound) {
+        this.lowerBound = lowerBound;
     }
 
     @Override

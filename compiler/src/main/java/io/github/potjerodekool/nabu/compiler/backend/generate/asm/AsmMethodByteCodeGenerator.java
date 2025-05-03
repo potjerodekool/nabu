@@ -20,6 +20,7 @@ import io.github.potjerodekool.nabu.compiler.backend.postir.canon.MoveCall;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import org.objectweb.asm.*;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceMethodVisitor;
@@ -58,13 +59,14 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         final var methodHeader = createMethodHeader(methodSymbol);
         final var methodDescriptor = createMethodDescriptor(methodHeader);
         final var methodSignature = createMethodSignature(methodHeader);
+        final var exceptions = createExceptions(methodSymbol.getThrownTypes());
 
         MethodVisitor mv = classWriter.visitMethod(
                 access,
                 methodSymbol.getSimpleName(),
                 methodDescriptor,
                 methodSignature,
-                null);
+                exceptions);
 
         mv = new TraceMethodVisitor(mv, this.textifier);
         this.methodWriter = new AsmWithStackMethodVisitor(Opcodes.ASM9, mv);
@@ -130,6 +132,18 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                         .toList(),
                 methodHeader.returnType()
         );
+    }
+
+    private String[] createExceptions(final List<? extends TypeMirror> thrownTypes) {
+        if (thrownTypes == null || thrownTypes.isEmpty()) {
+            return null;
+        }
+
+        final var iThrownTypes = thrownTypes.stream()
+                .map(ToIType::toIType)
+                .toArray(IType[]::new);
+
+        return AsmISignatureGenerator.INSTANCE.getThrownTypes(iThrownTypes);
     }
 
     private void visitParameters(final MethodHeader methodHeader,
@@ -1022,15 +1036,6 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         return new Temp();
     }
 
-    @Override
-    public void visitBlockStatement(final IBlockStatement blockStatement, final Frame frame) {
-        final var subFrame = frame.subFrame();
-
-        visitLabel(new ILabel(), subFrame);
-        blockStatement.getStatements().forEach(stm -> stm.accept(this, subFrame));
-        visitLabel(new ILabel(), subFrame);
-    }
-
     private Label getOrCreateLabel(final ILabel label) {
         Objects.requireNonNull(label);
         return this.labelMap.computeIfAbsent(
@@ -1142,6 +1147,27 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         methodWriter.visitInsn(opcode);
         return null;
+    }
+
+    @Override
+    public void visitSwitchStatement(final ISwitchStatement switchStatement,
+                                     final Frame frame) {
+        switchStatement.getCondition().unEx().accept(this, frame);
+
+        final var defaultLabel =
+                switchStatement.getDefaultLabel() != null
+                        ? getOrCreateLabel(switchStatement.getDefaultLabel())
+                        : null;
+        final var keys = switchStatement.getKeys();
+        final var labels = Arrays.stream(switchStatement.getLabels())
+                .map(this::getOrCreateLabel)
+                .toArray(Label[]::new);
+
+        methodWriter.visitLookupSwitchInsn(
+                defaultLabel,
+                keys,
+                labels
+        );
     }
 }
 

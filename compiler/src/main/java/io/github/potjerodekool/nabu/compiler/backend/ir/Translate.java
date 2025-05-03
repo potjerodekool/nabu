@@ -7,6 +7,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
+import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
@@ -15,6 +16,7 @@ import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.ReturnStatementTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
@@ -320,8 +322,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         }
 
         context.frame = parentFrame;
-
-        return new Nx(new IBlockStatement(iStatements));
+        return new Nx(Seq.seq(iStatements));
     }
 
     @Override
@@ -727,4 +728,70 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     public Exp visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree, final TranslateContext param) {
         throw new TodoException();
     }
+
+    @Override
+    public Exp visitSwitchStatement(final SwitchStatement switchStatement,
+                                    final TranslateContext context) {
+        final var selector = switchStatement.getSelector().accept(this, context);
+        final var endLabel = new ILabelStatement(new ILabel());
+        var defaultLabel = endLabel.getLabel();
+        final var keys = new ArrayList<Integer>();
+        final var switchLabels = new ArrayList<ILabel>();
+        final var statements = new ArrayList<IStatement>();
+
+        for (final var caseStatement : switchStatement.getCases()) {
+            final var labels = caseStatement.getLabels();
+            final var label = new ILabel();
+
+            for (final CaseLabel caseLabel : labels) {
+                if (caseLabel instanceof ConstantCaseLabel constantCaseLabel) {
+                    final var literal = (LiteralExpressionTree) constantCaseLabel.getExpression();
+                    keys.add(toSwitchKeyValue(literal.getLiteral()));
+                    switchLabels.add(label);
+                } else if (caseLabel instanceof DefaultCaseLabel) {
+                    defaultLabel = label;
+                }
+            }
+
+            statements.add(new ILabelStatement(label));
+
+            final var body = caseStatement.getBody();
+            final var statement = body.accept(this, context).unNx();
+
+            if (statement != null) {
+                statements.add(statement);
+            }
+        }
+
+        final var keyArray = keys.stream()
+                .mapToInt(it -> it)
+                .toArray();
+
+        final var result = new ArrayList<IStatement>();
+
+        result.add(
+                new ISwitchStatement(
+                        selector,
+                        defaultLabel,
+                        keyArray,
+                        switchLabels.toArray(new ILabel[0])
+                )
+        );
+
+        result.addAll(statements);
+        result.add(endLabel);
+
+        return new Nx(Seq.seq(result));
+    }
+
+    private int toSwitchKeyValue(final Object literal) {
+        return switch (literal) {
+            case Integer i -> i;
+            case Character c -> c;
+            case Byte b -> b;
+            case Short s -> s;
+            case null, default -> throw new IllegalArgumentException("Not supported");
+        };
+    }
+
 }

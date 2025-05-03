@@ -98,7 +98,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
 
     @Override
     public List<? extends TypeMirror> getThrownTypes() {
-        return List.of();
+        return asType().getThrownTypes();
     }
 
     @Override

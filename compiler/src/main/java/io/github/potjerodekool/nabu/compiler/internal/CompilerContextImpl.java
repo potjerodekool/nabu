@@ -11,6 +11,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassFinder;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.TypeEnter;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.spi.internal.ElementResolverRegistry;
 import io.github.potjerodekool.nabu.compiler.util.Elements;
 import io.github.potjerodekool.nabu.compiler.util.impl.ElementsImpl;

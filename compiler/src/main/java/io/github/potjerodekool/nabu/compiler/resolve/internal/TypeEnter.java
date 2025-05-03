@@ -348,6 +348,14 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                 .map(param -> (VariableSymbol) param.getName().getSymbol())
                 .toList();
 
+        function.getThrownTypes()
+                .forEach(thrownType -> thrownType.accept(this, currentClass));
+
+        final var thrownTypes = function.getThrownTypes().stream()
+                .map(thrownType -> (ExpressionTree) thrownType)
+                .map(ExpressionTree::getType)
+                .toList();
+
         final var method = new MethodSymbolBuilderImpl()
                 .kind(toElementKind(function.getKind()))
                 .simpleName(function.getSimpleName())
@@ -355,6 +363,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                 .returnType(returnType)
                 .parameters(parameters)
                 .receiverType(receiverType)
+                .thrownTypes(thrownTypes)
                 .flags(flags)
                 .annotations(annotations)
                 .build();

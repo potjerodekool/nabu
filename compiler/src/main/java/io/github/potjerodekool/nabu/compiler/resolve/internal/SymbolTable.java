@@ -1,12 +1,19 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementVisitor;
 import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.Modules;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.compiler.type.NullType;
+import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
+import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CNoType;
 
 import java.util.*;
 
@@ -58,6 +65,39 @@ public class SymbolTable {
     private TypeMirror recordType;
     private TypeMirror inheritedType;
 
+    private final CNoType noType = new CNoType();
+    private final BottomType bottomType = new BottomType();
+
+    private final TypeSymbol noSymbol;
+    private final ClassSymbol boundClass;
+
+    public SymbolTable() {
+        this.noSymbol = createNoSymbol();
+        this.boundClass = new ClassSymbol(Flags.PUBLIC, "Bound", noSymbol);
+        this.boundClass.setMembers(new WritableScope());
+    }
+
+    private TypeSymbol createNoSymbol() {
+        return new TypeSymbol(
+                null,
+                0,
+                "",
+                noType,
+                rootPackage
+        ) {
+
+            @Override
+            public <R, P> R accept(final ElementVisitor<R, P> v, final P p) {
+                return v.visitUnknown(this, p);
+            }
+
+            @Override
+            public <R, P> R accept(final SymbolVisitor<R, P> v, final P p) {
+                return v.visitUnknown(this, p);
+            }
+        };
+    }
+
     public ModuleSymbol getJavaBase() {
         return javaBase;
     }
@@ -96,6 +136,18 @@ public class SymbolTable {
         enterClass(Constants.CHARACTER);
         enterClass(Constants.FLOAT);
         enterClass(Constants.DOUBLE);
+    }
+
+    public TypeMirror getBottomType() {
+        return bottomType;
+    }
+
+    public TypeSymbol getNoSymbol() {
+        return noSymbol;
+    }
+
+    public ClassSymbol getBoundClass() {
+        return boundClass;
     }
 
     public TypeMirror getObjectType() {
@@ -351,5 +403,37 @@ public class SymbolTable {
         }
 
         return clazz;
+    }
+}
+
+class BottomType extends AbstractType implements NullType {
+
+    protected BottomType() {
+        super(null);
+    }
+
+    @Override
+    public TypeKind getKind() {
+        return TypeKind.NULL;
+    }
+
+    @Override
+    public <R, P> R accept(final TypeVisitor<R, P> visitor, final P param) {
+        return visitor.visitNullType(this, param);
+    }
+
+    @Override
+    public boolean equals(final Object obj) {
+        return obj == this;
+    }
+
+    @Override
+    public String getClassName() {
+        return "<bottum>";
+    }
+
+    @Override
+    public int hashCode() {
+        return 0;
     }
 }

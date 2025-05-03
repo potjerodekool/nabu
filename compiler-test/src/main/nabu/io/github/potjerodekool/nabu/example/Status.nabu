@@ -4,7 +4,7 @@ public enum Status {
     ON("On"),
     OFF("Off");
 
-    private final String text;
+    private final text : String;
 
     private Status(final text : String ) {
         this.text = text;

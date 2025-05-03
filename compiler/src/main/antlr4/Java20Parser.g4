@@ -1269,7 +1269,8 @@ primary
 //
 
 primaryNoNewArray
-    : literal pNNA?
+    : pattern
+    | literal pNNA?
     | classLiteral pNNA?
     | 'this' pNNA?
     | typeName '.' 'this' pNNA?

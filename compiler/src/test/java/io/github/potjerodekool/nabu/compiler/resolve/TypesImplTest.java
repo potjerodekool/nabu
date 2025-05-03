@@ -14,11 +14,14 @@ import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmTypeResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.TypeBuilder;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.BoundKind;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
+import io.github.potjerodekool.nabu.compiler.type.impl.CWildcardType;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.Test;
 
@@ -32,10 +35,11 @@ class TypesImplTest {
             new ApplicationContext(),
             new NabuCFileManager()
     );
-    private final ClassElementLoader loader = compilerContext.getClassElementLoader();
+    private final AsmClassElementLoader loader = (AsmClassElementLoader) compilerContext.getClassElementLoader();
     private final Types types = loader.getTypes();
     private final AsmTypeResolver typeResolver = new AsmTypeResolver(loader, null);
     private final TypeBuilder typeBuilder = new TypeBuilder();
+    private final SymbolTable symbolTable = loader.getSymbolTable();
 
     @Test
     void asMemberOf() {
@@ -237,9 +241,9 @@ class TypesImplTest {
                 .enclosingElement(PackageElementBuilder.createFromName("java.lang.invoke"))
                 .simpleName("ClassSpecializer")
                 .typeParameters(List.of(
-                        new CTypeVariable("T", null, null).asElement(),
-                        new CTypeVariable("K", null, null).asElement(),
-                        new CTypeVariable("S", null, null).asElement()
+                        new CTypeVariable("T", null, null, null).asElement(),
+                        new CTypeVariable("K", null, null, null).asElement(),
+                        new CTypeVariable("S", null, null, null).asElement()
                 ))
                 .build());
 
@@ -343,6 +347,26 @@ class TypesImplTest {
 
         assertThrows(IllegalArgumentException.class, () ->
                 types.getWildcardType(stringClass, stringClass));
+    }
+
+    @Test
+    void capture() {
+        final var clazz = new ClassSymbolBuilder()
+                .build();
+
+        final var wildcard = new CWildcardType(
+                null,
+                BoundKind.UNBOUND,
+                symbolTable.getBoundClass()
+        );
+
+        final var type = new CClassType(
+                null,
+                clazz,
+                List.of(wildcard)
+        );
+
+        types.capture(type);
     }
 
 }

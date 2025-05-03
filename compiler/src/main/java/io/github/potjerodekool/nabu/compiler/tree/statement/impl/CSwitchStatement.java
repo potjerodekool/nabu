@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.CaseStatement;
 import io.github.potjerodekool.nabu.compiler.tree.statement.SwitchStatement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.SwitchStatementBuilder;
 
 import java.util.List;
 
@@ -21,6 +22,12 @@ public class CSwitchStatement extends CStatementTree implements SwitchStatement 
         this.cases = cases;
     }
 
+    public CSwitchStatement(final SwitchStatementBuilder builder) {
+        super(builder);
+        this.selector = builder.getSelector();
+        this.cases = builder.getCases();
+    }
+
     @Override
     public ExpressionTree getSelector() {
         return selector;
@@ -34,5 +41,10 @@ public class CSwitchStatement extends CStatementTree implements SwitchStatement 
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
         return visitor.visitSwitchStatement(this, param);
+    }
+
+    @Override
+    public SwitchStatementBuilder builder() {
+        return new SwitchStatementBuilder(this);
     }
 }

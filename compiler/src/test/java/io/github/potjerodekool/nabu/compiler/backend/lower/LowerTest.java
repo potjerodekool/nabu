@@ -12,7 +12,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymb
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
-import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.box;
 
-import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;

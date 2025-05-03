@@ -138,11 +138,11 @@ class AsmMethodByteCodeGeneratorTest {
         final var expected = """
                    L0
                     ILOAD 0
-                    IFNE L1
-                   L1
+                    IFEQ L1
+                   L2
                     ICONST_1
                     IRETURN
-                   L2
+                   L1
                     ICONST_0
                     IRETURN
                    L3
@@ -220,6 +220,7 @@ class AsmMethodByteCodeGeneratorTest {
                     ALOAD 0
                     LDC Ljava/lang/String;.class
                     PUTFIELD SomeClass.stringType : Ljava/lang/class;
+                    GOTO L1
                    L1
                     LOCALVARIABLE this LSomeClass; L0 L1 0
                     MAXSTACK = -1
@@ -298,6 +299,7 @@ class AsmMethodByteCodeGeneratorTest {
                       // arguments:
                       "Hello\\u0001"
                     ]
+                    GOTO L1
                    L1
                     LOCALVARIABLE this LSomeClass; L0 L1 0
                     MAXSTACK = -1
@@ -407,5 +409,27 @@ class AsmMethodByteCodeGeneratorTest {
         methodGenerator.getTextifier().getText().forEach(System.out::print);
     }
 
-}
+    @Test
+    void generateSwitch() {
+        final var defaultLabel = new ILabel();
+        final var oneLabel = new ILabel();
 
+        final var switchStatement = new ISwitchStatement(
+                new Ex(new Const(10)),
+                defaultLabel,
+                new int[]{1},
+                new ILabel[]{oneLabel}
+        );
+
+        final var method = createMethod(List.of(
+                switchStatement,
+                new ILabelStatement(oneLabel),
+                new ILabelStatement(defaultLabel)
+        ));
+        final var methodGenerator = createMethodWriter();
+        methodGenerator.generate(method);
+        methodGenerator.getTextifier().getText().forEach(System.out::print);
+
+    }
+
+}

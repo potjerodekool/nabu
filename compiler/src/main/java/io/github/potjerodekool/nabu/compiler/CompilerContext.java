@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler;
 
 import io.github.potjerodekool.nabu.compiler.resolve.ArgumentBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.util.Elements;
 
 public interface CompilerContext extends AutoCloseable {

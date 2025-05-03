@@ -85,6 +85,8 @@ public abstract class ISignatureGenerator {
         }
     }
 
+    public abstract String[] getThrownTypes(IType[] thrownTypes);
+
     protected abstract String getSignature(final IPrimitiveType primitiveType);
 
     public String getSignature(final IWildcardType wildcardType) {

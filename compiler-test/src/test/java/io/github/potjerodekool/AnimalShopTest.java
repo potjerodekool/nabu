@@ -9,6 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class AnimalShopTest {
 
     @Test
+    void print() {
+        ByteCodePrinter.print("io/github/potjerodekool/nabu/example/Dog.class");
+    }
+
+    @Test
     void test() {
         final var shop = new AnimalShop();
         final var dog = new Dog();

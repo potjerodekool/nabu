@@ -68,7 +68,6 @@ FUN         : 'fun';
 RETURN      : 'return';
 BOOLEAN     : 'boolean';
 INSTANCE_OF : 'instanceof';
-AS          : 'as';
 VAR         : 'var';
 IF          : 'if';
 ELSE        : 'else';
@@ -882,7 +881,7 @@ fragment IdentifierPart:
     | [\uFFF9-\uFFFB]
 ;
 
-WS: [ \t\r\n\u000C]+ -> skip;
+WS: [ \t\r\n\u000C]+ -> channel(HIDDEN);
 
 // §3.10.6 Escape Sequences for Character and String Literals
 

@@ -14,6 +14,7 @@ import io.github.potjerodekool.nabu.compiler.tree.ImportItem;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.ErrorType;
@@ -225,5 +226,10 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         } else if (expressionTree instanceof IdentifierTree identifierTree) {
             builder.append(identifierTree.getName());
         }
+    }
+
+    @Override
+    public Object visitSwitchStatement(final SwitchStatement switchStatement, final Scope param) {
+        return super.visitSwitchStatement(switchStatement, param);
     }
 }

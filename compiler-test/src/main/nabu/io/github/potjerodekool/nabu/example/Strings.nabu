@@ -10,4 +10,12 @@ public class Strings {
     fun getName(): String {
         return "Evert";
     }
+
+    fun parseInt(s: String): int throws NumberFormatException {
+        if (s == null) {
+            throws new NullPointerException();
+        }
+
+        return Integer.parseInt(s);
+    }
 }

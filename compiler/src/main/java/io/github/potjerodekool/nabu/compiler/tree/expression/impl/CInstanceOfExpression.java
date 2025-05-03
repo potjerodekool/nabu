@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression.impl;
 
+import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.InstanceOfExpression;
@@ -7,10 +8,10 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.InstanceOfExpressio
 public class CInstanceOfExpression extends CExpressionTree implements InstanceOfExpression {
 
     private final ExpressionTree expression;
-    private final ExpressionTree typeExpression;
+    private final Tree typeExpression;
 
     public CInstanceOfExpression(final ExpressionTree expression,
-                                 final ExpressionTree typeExpression,
+                                 final Tree typeExpression,
                                  final int lineNumber,
                                  final int columnNumber) {
         super(lineNumber, columnNumber);
@@ -24,7 +25,7 @@ public class CInstanceOfExpression extends CExpressionTree implements InstanceOf
     }
 
     @Override
-    public ExpressionTree getTypeExpression() {
+    public Tree getTypeExpression() {
         return typeExpression;
     }
 

@@ -449,4 +449,23 @@ class NabuCompilerVisitorTest {
             """, NabuParser::compactConstructorDeclaration);
     }
 
+    @Test
+    void typePattern() {
+        parseAndAssert("""
+                switch(value)
+                {
+                    case Integer i : {
+                        i.toString();
+                    }
+
+                    default : {
+                        value.toString();
+                    }
+
+                }
+                """, NabuParser::switchStatement);
+
+
+    }
+
 }

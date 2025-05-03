@@ -91,11 +91,10 @@ public final class IrCleaner {
             return procFrag;
         } else {
             final var basicBlocks = new BasicBlocks(procFrag.getBody());
-            final var traceSchedule = new TraceSchedule(basicBlocks);
+            final var statements = new ArrayList<IStatement>();
 
-            return new ProcFrag(
-                    traceSchedule.getProgram()
-            );
+            basicBlocks.getBlocks().forEach(statements::addAll);
+            return new ProcFrag(statements);
         }
     }
 }

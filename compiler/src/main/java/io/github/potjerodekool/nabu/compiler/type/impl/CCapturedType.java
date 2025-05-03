@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.type.CapturedType;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.type.WildcardType;
 
 import java.util.Objects;
@@ -9,8 +11,12 @@ public class CCapturedType extends CTypeVariable implements CapturedType {
 
     private final WildcardType wildcard;
 
-    public CCapturedType(final String name) {
-        super(name);
+    public CCapturedType(final String name,
+                         final Symbol owner,
+                         final TypeMirror upper,
+                         final TypeMirror lower,
+                         final WildcardType wildcard) {
+        super(name, owner, upper, lower);
         this.wildcard = null;
     }
 

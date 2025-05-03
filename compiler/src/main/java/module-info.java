@@ -17,6 +17,7 @@ module io.github.potjerodekool.nabu.compiler {
     exports io.github.potjerodekool.nabu.compiler.util;
     exports io.github.potjerodekool.nabu.compiler.resolve.spi;
     exports io.github.potjerodekool.nabu.compiler.io;
+    exports io.github.potjerodekool.nabu.compiler.resolve.method;
     requires org.antlr.antlr4.runtime;
     requires org.objectweb.asm.util;
 

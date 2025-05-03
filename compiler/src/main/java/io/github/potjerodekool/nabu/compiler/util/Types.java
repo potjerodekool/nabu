@@ -11,7 +11,7 @@ import java.util.List;
 public interface Types {
     TypeElement boxedClass(PrimitiveType p);
 
-    TypeMirror unboxedType(TypeMirror typeMirror);
+    PrimitiveType unboxedType(TypeMirror typeMirror);
 
     boolean isBoxType(TypeMirror typeMirror);
 

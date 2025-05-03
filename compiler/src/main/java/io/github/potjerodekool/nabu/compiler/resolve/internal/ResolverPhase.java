@@ -7,7 +7,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
-import io.github.potjerodekool.nabu.compiler.resolve.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
@@ -18,12 +18,12 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTr
 import io.github.potjerodekool.nabu.compiler.tree.statement.ReturnStatementTree;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
-public class Phase2Resolver extends AbstractResolver {
+public class ResolverPhase extends AbstractResolver {
 
     private final MethodResolver methodResolver;
     private final PhaseUtils phaseUtils;
 
-    public Phase2Resolver(final CompilerContextImpl compilerContext) {
+    public ResolverPhase(final CompilerContextImpl compilerContext) {
         super(compilerContext);
         final var loader = compilerContext.getClassElementLoader();
         this.methodResolver = compilerContext.getMethodResolver();

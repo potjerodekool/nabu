@@ -95,6 +95,13 @@ In normal Nabu code this would be written as:
     fun findCompanyByEmployeeFirstName(employeeFirstName: String): JpaPredicate<Company> {
         return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
             var e = c.join(Company_.employees, JoinType.INNER);
-            return cb.equal(e.get(Employee_.firstName),employeeFirstName);;
+            return cb.equal(e.get(Employee_.firstName),employeeFirstName);
         };
     }
+
+# IDE support
+
+Intellij ([Nabu Idea](https://github.com/potjerodekool/nabu-idea))
+
+# Language Documentation
+[Language documentation](docs/index.html)

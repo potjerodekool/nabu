@@ -6,9 +6,11 @@ import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ClassScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
@@ -16,6 +18,7 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.MethodInvocationTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CIdentifierTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CLiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
@@ -333,6 +336,36 @@ class MethodResolverTest {
         final var resolvedMethod = methodOptional.get();
 
         assertEquals(ofMethod.asType(), resolvedMethod);
+    }
 
+    @Test
+    void resolveExactMethod() {
+        final var target = new CIdentifierTree("out");
+
+        final var printStreamClass = loader.loadClass(null, "java.io.PrintStream");
+        final var outField = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.FIELD)
+                .simpleName("out")
+                .type(printStreamClass.asType())
+                .build();
+
+        target.setSymbol(outField);
+
+        final var stringClass = loader.loadClass(null, Constants.STRING);
+        final var argument = new CLiteralExpressionTree("Hello world!");
+        argument.setType(stringClass.asType());
+
+        final var methodInvocation = new MethodInvocationTreeBuilder()
+                .methodSelector(new CFieldAccessExpressionTree(
+                        target,
+                        new CIdentifierTree("println")
+                ))
+                        .arguments(List.of(argument))
+                                .build();
+
+        final var resolvedMethod =  methodResolver.resolveMethod(methodInvocation).get();
+        final var paramType = resolvedMethod.getParameterTypes().getFirst();
+
+        assertEquals(stringClass.asType(), paramType);
     }
 }

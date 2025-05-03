@@ -86,10 +86,6 @@ public interface CodeVisitor<P> {
         return visitUnknown(fieldAccess, param);
     }
 
-    default void visitBlockStatement(IBlockStatement blockStatement, P param) {
-        visitUnknown(blockStatement, param);
-    }
-
     default void visitVariableDeclaratorStatement(IVariableDeclaratorStatement variableDeclaratorStatement, P param) {
         visitUnknown(variableDeclaratorStatement, param);
     }
@@ -100,5 +96,9 @@ public interface CodeVisitor<P> {
 
     default Temp visitInstExpression(InstExpression instExpression, P param) {
         return visitUnknown(instExpression, param);
+    }
+
+    default void visitSwitchStatement(ISwitchStatement switchStatement, P param) {
+        visitUnknown(switchStatement, param);
     }
 }

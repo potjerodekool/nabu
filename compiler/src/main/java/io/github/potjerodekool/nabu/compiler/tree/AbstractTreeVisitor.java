@@ -227,4 +227,10 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         return defaultAnswer(castExpressionTree, param);
     }
 
+    @Override
+    public R visitSwitchStatement(final SwitchStatement switchStatement, final P param) {
+        switchStatement.getSelector().accept(this, param);
+        switchStatement.getCases().forEach(caseStatement -> caseStatement.accept(this, param));
+        return defaultAnswer(switchStatement, param);
+    }
 }

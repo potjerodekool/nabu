@@ -129,10 +129,19 @@ public class TestClassElementLoader implements ClassSymbolLoader {
                 packageName
         );
 
+        final TypeMirror superType;
+
+        if (Constants.OBJECT.equals(name)) {
+            superType = null;
+        } else {
+            superType = classes.get(Constants.OBJECT).asType();
+        }
+
         final var clazz = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .simpleName(simpleName)
                 .enclosingElement(packageElement)
+                .superclass(superType)
                 .build();
 
         clazz.setMembers(new WritableScope());
@@ -171,6 +180,7 @@ public class TestClassElementLoader implements ClassSymbolLoader {
         enumClass.addEnclosedElement(createCloneMethod(objectType));
 
         final var typeVariable = new CTypeVariable("T",
+                null,
                 new CClassType(
                         null,
                         enumClass,

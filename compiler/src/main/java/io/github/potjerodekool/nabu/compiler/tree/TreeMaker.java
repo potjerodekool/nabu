@@ -104,7 +104,7 @@ public final class TreeMaker {
     }
 
     public static InstanceOfExpression instanceOfExpression(final ExpressionTree expression,
-                                                            final ExpressionTree typeExpression,
+                                                            final Tree typeExpression,
                                                             final int lineNumber,
                                                             final int columnNumber) {
         return new CInstanceOfExpression(

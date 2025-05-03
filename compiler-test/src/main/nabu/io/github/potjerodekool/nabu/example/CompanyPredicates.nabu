@@ -10,7 +10,7 @@ import jakarta.persistence.criteria.Root;
 
 fun findCompanyByEmployeeFirstName(employeeFirstName: String): JpaPredicate<Company> {
     return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
-        var e = (InnerJoin<Company, Employee>) c.employees ;
+        var e = (InnerJoin<Company, Employee>) c.employees;
         return e.firstName == employeeFirstName;
     };
 }

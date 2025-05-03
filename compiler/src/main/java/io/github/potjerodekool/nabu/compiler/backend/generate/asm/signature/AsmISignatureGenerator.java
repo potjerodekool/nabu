@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import org.objectweb.asm.Type;
 
+import java.util.Arrays;
 import java.util.List;
 
 public class AsmISignatureGenerator extends ISignatureGenerator {
@@ -29,6 +30,18 @@ public class AsmISignatureGenerator extends ISignatureGenerator {
 
         final var retType = toAsmType(returnType);
         return Type.getMethodDescriptor(retType, pTypes);
+    }
+
+    @Override
+    public String[] getThrownTypes(IType[] thrownTypes) {
+        if (thrownTypes == null || thrownTypes.length == 0) {
+            return null;
+        }
+
+        return Arrays.stream(thrownTypes)
+                .map(AsmISignatureGenerator::toAsmType)
+                .map(Type::getInternalName)
+                .toArray(String[]::new);
     }
 
     @Override

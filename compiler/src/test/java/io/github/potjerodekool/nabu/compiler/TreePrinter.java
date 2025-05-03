@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
@@ -453,7 +452,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         }
 
         if (classDeclaration.getKind() == Kind.RECORD) {
-            final var primaryConstructor = (CFunction) classDeclaration.getEnclosedElements().getFirst();
+            final var primaryConstructor = (Function) classDeclaration.getEnclosedElements().getFirst();
 
             write("(");
             writeList(primaryConstructor.getParameters(), param, ", ");
@@ -1025,7 +1024,23 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     @Override
     public Object visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final Object param) {
-        constantCaseLabel.getExpression().accept(this, param);
+        final var expression = constantCaseLabel.getExpression();
+        expression.accept(this, param);
+        return null;
+    }
+
+    @Override
+    public Object visitPatternCaseLabel(final PatternCaseLabel patternCaseLabel, final Object param) {
+        patternCaseLabel.getPattern().accept(this, param);
+        return null;
+    }
+
+    @Override
+    public Object visitBindingPattern(final BindingPattern bindingPattern, final Object param) {
+        final var variableDeclarator = bindingPattern.getVariableDeclarator();
+        variableDeclarator.getType().accept(this, param);
+        write(" ");
+        variableDeclarator.getName().accept(this, param);
         return null;
     }
 

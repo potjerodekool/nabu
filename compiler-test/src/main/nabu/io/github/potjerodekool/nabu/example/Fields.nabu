@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.example;
 
 public class Fields {
-    private static int b = 10;
-    private Class<String> stringType = String.class;
+    private static b : int = 10;
+    private stringType : Class<String> = String.class;
 }

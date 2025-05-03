@@ -1,0 +1,86 @@
+package io.github.potjerodekool.nabu.example;
+
+fun intSwitch(value: int): boolean {
+    switch(value) {
+        case 6, 7, 8 : {
+            return true;
+        }
+        case 9 : {
+            return true;
+        }
+        case 10 : {
+            return true;
+        }
+        default :{
+            return false;
+        }
+    }
+}
+
+fun integerSwitch(value: Integer): boolean {
+    switch(value) {
+        case 6, 7, 8 : {
+            return true;
+        }
+        case 9 : {
+            return true;
+        }
+        case 10 : {
+            return true;
+        }
+        default :{
+            return false;
+        }
+    }
+}
+
+fun charSwitch(value: char): boolean {
+    switch(value) {
+        case 'a' : {
+            return true;
+        }
+        case 'b' : {
+            return true;
+        }
+        case 'c' : {
+            return true;
+        }
+        default : {
+            return false;
+        }
+    }
+}
+
+fun byteSwitch(value: byte): boolean {
+    switch(value) {
+        case 10 : {
+            return true;
+        }
+        case 20 : {
+            return true;
+        }
+        case 30 : {
+            return true;
+        }
+        default : {
+            return false;
+        }
+    }
+}
+
+fun shortSwitch(value: short): boolean {
+    switch(value) {
+        case 10 : {
+            return true;
+        }
+        case 20 : {
+            return true;
+        }
+        case 30 : {
+            return true;
+        }
+        default : {
+            return false;
+        }
+    }
+}

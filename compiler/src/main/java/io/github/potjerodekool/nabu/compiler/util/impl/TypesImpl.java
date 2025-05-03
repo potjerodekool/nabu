@@ -96,7 +96,7 @@ public class TypesImpl implements Types {
     }
 
     @Override
-    public TypeMirror unboxedType(final TypeMirror typeMirror) {
+    public PrimitiveType unboxedType(final TypeMirror typeMirror) {
         if (!isBoxType(typeMirror)) {
             throw new IllegalArgumentException("Not a box type");
         }
@@ -304,7 +304,7 @@ public class TypesImpl implements Types {
 
         switch (bound.getKind()) {
             case DECLARED, ARRAY, ERROR, TYPEVAR -> {
-                return new CWildcardType(bound, kind, null);
+                return new CWildcardType(bound, kind, symbolTable.getBoundClass());
             }
             default -> throw new IllegalArgumentException(bound.toString());
         }
@@ -427,7 +427,102 @@ public class TypesImpl implements Types {
             return type;
         }
 
+        final var G = (CClassType) type.asElement().asType();
+        final var A = G.getTypeArguments();
+        final var T = type.getTypeArguments();
+        final var S = freshTypeVariables(T);
+
+        var currentA = A;
+        var currentT = T;
+        var currentS = S;
+        boolean captured = false;
+
+        while (!currentA.isEmpty()
+                && !currentT.isEmpty()
+                && !currentS.isEmpty()) {
+
+            if (currentS.getFirst() != currentT.getFirst()) {
+                captured = true;
+                var Ti = (WildcardType) currentT.getFirst();
+                var Ui = currentA.getFirst().getUpperBound();
+                var Si = (CCapturedType) currentS.getFirst();
+
+                if (Ui == null) {
+                    Ui = symbolTable.getObjectType();
+                }
+
+                switch (Ti.getBoundKind()) {
+                    case UNBOUND:
+                        Si.setUpperBound(subst(Ui, A, S));
+                        Si.setLowerBound(symbolTable.getBottomType());
+                        break;
+                    case EXTENDS:
+                        Si.setUpperBound(glb(Ti.getExtendsBound(), subst(Ui, A, S)));
+                        Si.setLowerBound(symbolTable.getBottomType());
+                        break;
+                    case SUPER:
+                        Si.setUpperBound(subst(Ui, A, S));
+                        Si.setLowerBound(Ti.getSuperBound());
+                        break;
+                }
+                /*TODO
+                var tmpBound = Si.getUpperBound().hasTag(UNDETVAR) ? ((UndetVar) Si.getUpperBound()).qtype : Si.getUpperBound();
+                var tmpLower = Si.getLowerBound().hasTag(UNDETVAR) ? ((UndetVar) Si.getLowerBound()).qtype : Si.getLowerBound();
+                if (!Si.getUpperBound().hasTag(ERROR) &&
+                        !Si.getLowerBound().hasTag(ERROR) &&
+                        isSameType(tmpBound, tmpLower)) {
+                    currentS.set(0, Si.getUpperBound());
+                }
+                */
+            }
+            currentA = currentA.subList(1, currentA.size());
+
+            currentT = currentT.subList(1,currentT.size());
+            currentS = currentS.subList(1, currentS.size());
+        }
+
+        if (!currentA.isEmpty() || !currentT.isEmpty() || !currentS.isEmpty()) {
+            return erasure(typeMirror);
+        }
+
+        if (captured) {
+            throw new TodoException();
+        } else {
+            return type;
+        }
+    }
+
+    private TypeMirror glb(final TypeMirror extendsBound, final TypeMirror subst) {
         throw new TodoException();
+    }
+
+    private TypeMirror subst(final TypeMirror ui, final List<AbstractType> a, final List<TypeMirror> s) {
+        throw new TodoException();
+    }
+
+    private List<TypeMirror> freshTypeVariables(final List<? extends TypeMirror> types) {
+        final var result = new ArrayList<TypeMirror>();
+
+        types.forEach(type -> {
+            if (type instanceof WildcardType wildcardType) {
+                var bound = wildcardType.getExtendsBound();
+
+                if (bound == null) {
+                    bound = symbolTable.getObjectType();
+                }
+                result.add(new CCapturedType(
+                        "<captured wildcard>",
+                        symbolTable.getNoSymbol(),
+                        bound,
+                        symbolTable.getBottomType(),
+                        wildcardType
+                ));
+            } else {
+                result.add(type);
+            }
+        });
+
+        return result;
     }
 
     @Override
@@ -458,9 +553,12 @@ public class TypesImpl implements Types {
     }
 
     @Override
-    public TypeVariable getTypeVariable(final String name, final TypeMirror upperBound, final TypeMirror lowerBound) {
+    public TypeVariable getTypeVariable(final String name,
+                                        final TypeMirror upperBound,
+                                        final TypeMirror lowerBound) {
         return new CTypeVariable(
                 name,
+                null,
                 upperBound,
                 lowerBound
         );
@@ -490,7 +588,7 @@ public class TypesImpl implements Types {
     }
 
     private PackageSymbol createPackageElement(final PackageSymbol parent,
-                                                final String packageName) {
+                                               final String packageName) {
         return new PackageSymbol(
                 parent,
                 packageName

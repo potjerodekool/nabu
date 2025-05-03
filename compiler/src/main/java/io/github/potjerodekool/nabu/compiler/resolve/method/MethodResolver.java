@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.resolve;
+package io.github.potjerodekool.nabu.compiler.resolve.method;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.resolve.TypePrinter;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
@@ -65,7 +66,7 @@ public class MethodResolver {
                 .map(this::resolveType)
                 .toList();
 
-        final var methodType = resolveMethod(
+        final var methodTypeOptional = resolveMethod(
                 targetType,
                 methodName,
                 typeArguments,
@@ -74,12 +75,12 @@ public class MethodResolver {
                 scope
         );
 
-        if (methodType == null && resolveDescriptor) {
+        if (methodTypeOptional.isEmpty() && resolveDescriptor) {
             resolveMethodDescriptor(methodInvocation);
             resolveMethod(methodInvocation, null, false, scope);
         }
 
-        return Optional.ofNullable(methodType);
+        return methodTypeOptional;
     }
 
     private DeclaredType resolveTargetType(final ExpressionTree selected,
@@ -176,12 +177,12 @@ public class MethodResolver {
         return symbol.asType();
     }
 
-    private ExecutableType resolveMethod(final DeclaredType targetType,
-                                         final String methodName,
-                                         final List<TypeMirror> typeArguments,
-                                         final List<TypeMirror> argumentTypes,
-                                         final boolean onlyStaticCalls,
-                                         final Scope scope) {
+    private Optional<ExecutableType> resolveMethod(final DeclaredType targetType,
+                                                   final String methodName,
+                                                   final List<TypeMirror> typeArguments,
+                                                   final List<TypeMirror> argumentTypes,
+                                                   final boolean onlyStaticCalls,
+                                                   final Scope scope) {
         if ("super".equals(methodName)) {
             var clazz = (TypeElement) targetType.asElement();
             final var searchType = (DeclaredType) clazz.getSuperclass();
@@ -204,13 +205,13 @@ public class MethodResolver {
         }
     }
 
-    private ExecutableType doResolveMethod(final DeclaredType type,
-                                           final String methodName,
-                                           final List<TypeMirror> typeArguments,
-                                           final List<TypeMirror> argumentTypes,
-                                           final boolean onlyStaticCalls,
-                                           final Scope scope) {
-        final ExecutableType methodType;
+    private Optional<ExecutableType> doResolveMethod(final DeclaredType type,
+                                                     final String methodName,
+                                                     final List<TypeMirror> typeArguments,
+                                                     final List<TypeMirror> argumentTypes,
+                                                     final boolean onlyStaticCalls,
+                                                     final Scope scope) {
+        final Optional<ExecutableType> methodTypeOptional;
 
         final var clazz = (ClassSymbol) type.asElement();
         final List<ExecutableElement> methods;
@@ -235,8 +236,14 @@ public class MethodResolver {
         }
 
         if (methodTypes.size() == 1) {
-            methodType = methodTypes.getFirst();
+            methodTypeOptional = Optional.of(methodTypes.getFirst());
         } else if (methodTypes.size() > 1) {
+            final var bestMatch = bestMatch(methodTypes, argumentTypes);
+
+            if (bestMatch.isPresent()) {
+                return bestMatch;
+            }
+
             throw new TodoException("Found multiple candidates for method " + methodName + " in " + clazz.getSimpleName());
         } else {
             final var interfaceMethodOptional = clazz.getInterfaces().stream()
@@ -247,18 +254,18 @@ public class MethodResolver {
                             argumentTypes,
                             onlyStaticCalls,
                             null))
-                    .filter(Objects::nonNull)
-                    .findFirst();
+                    .findFirst()
+                    .orElse(Optional.empty());
 
             if (interfaceMethodOptional.isPresent()) {
-                methodType = interfaceMethodOptional.get();
+                methodTypeOptional = interfaceMethodOptional;
             } else {
                 final var superType = (DeclaredType) clazz.getSuperclass();
 
                 if (superType == null) {
-                    methodType = null;
+                    methodTypeOptional = Optional.empty();
                 } else {
-                    methodType = doResolveMethod(
+                    methodTypeOptional = doResolveMethod(
                             superType,
                             methodName,
                             typeArguments,
@@ -268,7 +275,37 @@ public class MethodResolver {
             }
         }
 
-        return methodType;
+        return methodTypeOptional;
+    }
+
+    private Optional<ExecutableType> bestMatch(final List<ExecutableType> candidates,
+                                               final List<TypeMirror> argumentTypes) {
+        ExecutableType bestMatch = candidates.getFirst();
+
+        final var matcher = new CandidateMatcher(types);
+
+        candidateLoop:
+        for (var candidateIndex = 1; candidateIndex < candidates.size(); candidateIndex++) {
+            final var candidate = candidates.get(candidateIndex);
+
+            final var bestMatchParameterTypes = bestMatch.getParameterTypes();
+            final var candidateParameterTypes = candidate.getParameterTypes();
+
+            for (int argumentIndex = 0, argumentTypesSize = argumentTypes.size(); argumentIndex < argumentTypesSize; argumentIndex++) {
+                final TypeMirror argumentType = argumentTypes.get(argumentIndex);
+                matcher.setArgumentType(argumentType);
+
+                if (bestMatchParameterTypes.get(argumentIndex).accept(
+                        matcher,
+                        candidateParameterTypes.get(argumentIndex)
+                )) {
+                    bestMatch = candidate;
+                    continue candidateLoop;
+                }
+            }
+        }
+
+        return Optional.of(bestMatch);
     }
 
 

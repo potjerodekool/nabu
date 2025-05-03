@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.postir.canon;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.ILabelStatement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IThrowStatement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Jump;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 
 import java.util.ArrayList;
@@ -39,7 +40,9 @@ public class BasicBlocks {
             list.addAll(statements);
         }
 
-        list.forEach(statement -> {
+        boolean seenEndLabel = false;
+
+        for (final var statement : list) {
             if (statement.isJump()) {
                 currentBlock.add(statement);
 
@@ -48,15 +51,22 @@ public class BasicBlocks {
                 }
 
                 endCurrentBlock();
-            } else if (statement instanceof ILabelStatement) {
+            } else if (statement instanceof ILabelStatement labelStatement) {
+                if (labelStatement.getLabel() == endLabel) {
+                    seenEndLabel = true;
+                }
+
                 startNewBlock((ILabelStatement) statement);
             } else {
                 currentBlock.add(statement);
             }
-        });
+        }
 
         if (currentBlock != null) {
-            //currentBlock.add(new Jump(endLabel));
+            if (!seenEndLabel) {
+                currentBlock.add(new Jump(endLabel));
+                currentBlock.add(new ILabelStatement(endLabel));
+            }
             endCurrentBlock();
         }
     }

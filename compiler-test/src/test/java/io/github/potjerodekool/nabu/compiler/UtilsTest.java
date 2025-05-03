@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler;
 
+import io.github.potjerodekool.ByteCodePrinter;
 import io.github.potjerodekool.nabu.example.Utils;
 import org.junit.jupiter.api.Test;
 
@@ -7,6 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class UtilsTest {
+
+    @Test
+    void print() {
+        ByteCodePrinter.print("io/github/potjerodekool/nabu/example/Utils.class");
+    }
 
     @Test
     void isTrue() {

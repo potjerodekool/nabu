@@ -251,4 +251,12 @@ public interface TreeVisitor<R, P> {
     default R visitSwitchStatement(SwitchStatement switchStatement, P param) {
         return visitUnknown(switchStatement, param);
     }
+
+    default R visitPatternCaseLabel(PatternCaseLabel patternCaseLabel, P param) {
+        return visitUnknown(patternCaseLabel, param);
+    }
+
+    default R visitBindingPattern(BindingPattern bindingPattern, P param) {
+        return visitUnknown(bindingPattern, param);
+    }
 }

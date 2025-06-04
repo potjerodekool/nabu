@@ -7,7 +7,7 @@ import io.github.potjerodekool.nabu.example.Dog;
 
 public class AnimalShop {
 
-    private List<Animal> animals = new ArrayList<>();
+    private final List<Animal> animals = new ArrayList<>();
 
     public List<Animal> getAnimals() {
         return animals;

@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.tree.element.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
@@ -14,6 +14,7 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CStatementTree;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class CClassDeclaration extends CStatementTree implements ClassDeclaration {
 
@@ -23,7 +24,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
 
     private final List<Tree> enclosedElements = new ArrayList<>();
 
-    private final CModifiers modifiers;
+    private final Modifiers modifiers;
 
     private ClassSymbol classSymbol;
 
@@ -36,7 +37,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
     private final List<IdentifierTree> permits;
 
     public CClassDeclaration(final Kind kind,
-                             final CModifiers modifiers,
+                             final Modifiers modifiers,
                              final String simpleName,
                              final List<Tree> enclosedElements,
                              final List<TypeParameterTree> typeParameters,
@@ -49,6 +50,9 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         this.kind = kind;
         this.modifiers = modifiers;
         this.simpleName = simpleName;
+
+        enclosedElements.forEach(Objects::requireNonNull);
+
         this.enclosedElements.addAll(enclosedElements);
         this.typeParameters.addAll(typeParameters);
         this.implementing.addAll(implementing);
@@ -61,6 +65,8 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         this.kind = classDeclarationBuilder.getKind();
         this.simpleName = classDeclarationBuilder.getSimpleName();
         this.enclosedElements.addAll(classDeclarationBuilder.getEnclosedElements());
+
+        enclosedElements.forEach(Objects::requireNonNull);
         this.modifiers = classDeclarationBuilder.getModifiers();
         this.typeParameters.addAll(classDeclarationBuilder.getTypeParameters());
         this.implementing.addAll(classDeclarationBuilder.getImplementing());
@@ -72,7 +78,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         return simpleName;
     }
 
-    public CModifiers getModifiers() {
+    public Modifiers getModifiers() {
         return modifiers;
     }
 
@@ -92,12 +98,14 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
 
     @Override
     public CClassDeclaration enclosedElement(final Tree tree) {
+        Objects.requireNonNull(tree);
         this.enclosedElements.add(tree);
         return this;
     }
 
     @Override
     public CClassDeclaration enclosedElement(final Tree constructor, final int index) {
+        Objects.requireNonNull(constructor);
         this.enclosedElements.add(index, constructor);
         return this;
     }
@@ -105,6 +113,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
     public CClassDeclaration enclosedElements(final List<Tree> enclosedElements) {
         this.enclosedElements.clear();
         this.enclosedElements.addAll(enclosedElements);
+        enclosedElements.forEach(Objects::requireNonNull);
         return this;
     }
 

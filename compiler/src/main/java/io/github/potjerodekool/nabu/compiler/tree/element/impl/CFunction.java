@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.tree.element.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
@@ -20,7 +20,7 @@ public class CFunction extends CTree implements Function {
 
     private final String simpleName;
     private final Kind kind;
-    private final CModifiers modifiers;
+    private final Modifiers modifiers;
     private final List<TypeParameterTree> typeParameters = new ArrayList<>();
     private final VariableDeclaratorTree receiverParameter;
     private final List<VariableDeclaratorTree> parameters = new ArrayList<>();
@@ -33,7 +33,7 @@ public class CFunction extends CTree implements Function {
 
     public CFunction(final String simpleName,
                      final Kind kind,
-                     final CModifiers modifiers,
+                     final Modifiers modifiers,
                      final List<TypeParameterTree> typeParameters,
                      final VariableDeclaratorTree receiverParameter,
                      final List<VariableDeclaratorTree> parameters,
@@ -59,7 +59,7 @@ public class CFunction extends CTree implements Function {
 
     public CFunction(final String simpleName,
                      final Kind kind,
-                     final CModifiers modifiers,
+                     final Modifiers modifiers,
                      final List<TypeParameterTree> typeParameters,
                      final VariableDeclaratorTree receiverParameter,
                      final List<VariableDeclaratorTree> parameters,
@@ -115,7 +115,7 @@ public class CFunction extends CTree implements Function {
         return kind;
     }
 
-    public CModifiers getModifiers() {
+    public Modifiers getModifiers() {
         return modifiers;
     }
 

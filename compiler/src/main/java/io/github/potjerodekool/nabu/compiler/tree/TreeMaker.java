@@ -45,7 +45,7 @@ public final class TreeMaker {
     }
 
     public static VariableDeclaratorTree variableDeclarator(final Kind kind,
-                                                            final CModifiers modifiers,
+                                                            final Modifiers modifiers,
                                                             final ExpressionTree type,
                                                             final IdentifierTree name,
                                                             final ExpressionTree nameExpression,
@@ -369,10 +369,12 @@ public final class TreeMaker {
     }
 
     public static ArrayTypeTree arrayTypeTree(final Tree componentType,
+                                              final List<Dimension> dimensions,
                                               final int lineNumber,
                                               final int columnNumber) {
         return new CArrayTypeTree(
                 componentType,
+                dimensions,
                 lineNumber,
                 columnNumber
         );
@@ -407,7 +409,7 @@ public final class TreeMaker {
     }
 
     public static ClassDeclaration classDeclaration(final Kind kind,
-                                                    final CModifiers modifiers,
+                                                    final Modifiers modifiers,
                                                     final String simpleName,
                                                     final List<Tree> enclosedElements,
                                                     final List<TypeParameterTree> typeParameters,
@@ -432,7 +434,7 @@ public final class TreeMaker {
 
     public static Function function(final String simpleName,
                                     final Kind kind,
-                                    final CModifiers modifiers,
+                                    final Modifiers modifiers,
                                     final List<TypeParameterTree> typeParameters,
                                     final VariableDeclaratorTree receiveParameter,
                                     final List<VariableDeclaratorTree> parameters,

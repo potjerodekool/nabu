@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
@@ -18,7 +18,7 @@ import java.util.List;
 
 public class SourceVisitor {
 
-    public static Function createFunction(final CModifiers modifiers,
+    public static Function createFunction(final Modifiers modifiers,
                                           final MethodHeader functionHeader,
                                           final BlockStatementTree body,
                                           final ParserRuleContext ctx) {
@@ -33,7 +33,7 @@ public class SourceVisitor {
         if (!functionHeader.annotations().isEmpty()) {
             final var annotations = new ArrayList<>(modifiers.getAnnotations());
             annotations.addAll(functionHeader.annotations());
-            fullModifiers = new CModifiers(
+            fullModifiers = new Modifiers(
                     annotations,
                     modifiers.getFlags()
             );

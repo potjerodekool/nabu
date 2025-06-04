@@ -15,7 +15,7 @@ fun forLoop(times: int): int {
 fun forEachLoop(list: List<Integer>): int {
     var result = 0;
 
-    for(var number : list) {
+    for(var number in list) {
         result += number;
     }
 

@@ -8,11 +8,13 @@ import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVi
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.io.NabuFileObject;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
-import org.antlr.v4.runtime.CharStreams;
-import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.*;
+import org.antlr.v4.runtime.atn.ATNConfigSet;
+import org.antlr.v4.runtime.dfa.DFA;
 import org.antlr.v4.runtime.tree.ParseTree;
 
 import java.nio.file.Paths;
+import java.util.BitSet;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -37,6 +39,12 @@ public final class TreeAssert {
     public static void parseAndAssert(final String code,
                                       final Function<NabuParser, ParseTree> function1,
                                       final String actualPrefix) {
+        parseAndAssert(code, function1, actual -> actualPrefix + actual);
+    }
+
+    public static void parseAndAssert(final String code,
+                                      final Function<NabuParser, ParseTree> function1,
+                                      final Function<String, String> actualTransformer) {
         final var parser = createParser(code);
         final var fileObject = new NabuFileObject(
                 FileObject.Kind.SOURCE_NABU,
@@ -56,7 +64,7 @@ public final class TreeAssert {
             case null, default -> throw new UnsupportedOperationException();
         };
 
-        assertEquals(code, actualPrefix + actual);
+        assertEquals(code, actualTransformer.apply(actual));
     }
 
     private static String flagToName(final long flag) {

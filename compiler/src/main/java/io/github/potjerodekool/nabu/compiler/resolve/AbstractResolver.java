@@ -5,9 +5,11 @@ import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValue;
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ErrorSymbol;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.compiler.tree.ConstantCaseLabel;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
@@ -171,7 +173,16 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
                 && rightType != null) {
 
             if (!types.isSameType(leftType, rightType)) {
-                return transformBinaryExpression(binaryExpression, leftType, rightType);
+                final var transformed = transformBinaryExpression(binaryExpression, leftType, rightType);
+                final var module = scope.findModuleElement();
+                final var stringType = loader.loadClass(module, Constants.STRING).asType();
+
+                if (types.isSameType(stringType, leftType)
+                        || types.isSameType(stringType, rightType)) {
+                    transformed.setType(stringType);
+                }
+            } else {
+                binaryExpression.setType(leftType);
             }
         }
 
@@ -311,6 +322,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             fieldAccessExpression.getField().accept(this, classScope);
         }
 
+        fieldAccessExpression.setType(fieldAccessExpression.getField().getType());
         return defaultAnswer(fieldAccessExpression, scope);
     }
 
@@ -340,4 +352,52 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
                 values
         );
     }
+
+    @Override
+    public Object visitPrimitiveType(final PrimitiveTypeTree primitiveType, final Scope scope) {
+        final var typeKind = switch (primitiveType.getKind()) {
+            case BOOLEAN -> TypeKind.BOOLEAN;
+            case CHAR -> TypeKind.CHAR;
+            case BYTE -> TypeKind.BYTE;
+            case SHORT -> TypeKind.SHORT;
+            case INT -> TypeKind.INT;
+            case FLOAT -> TypeKind.FLOAT;
+            case LONG -> TypeKind.LONG;
+            case DOUBLE -> TypeKind.DOUBLE;
+            default -> null;
+        };
+
+        final var type = typeKind != null
+                ? types.getPrimitiveType(typeKind)
+                : null;
+
+        primitiveType.setType(type);
+
+        return defaultAnswer(primitiveType, scope);
+    }
+
+
+    @Override
+    public Object visitSwitchStatement(final SwitchStatement switchStatement, final Scope scope) {
+        switchStatement.getSelector().accept(this, scope);
+        final var switchScope = new SwitchScope(
+                switchStatement.getSelector().getSymbol(),
+                scope
+        );
+        switchStatement.getCases().forEach(caseStatement -> caseStatement.accept(this, switchScope));
+        return defaultAnswer(switchStatement, switchScope);
+    }
+
+    @Override
+    public Object visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final Scope scope) {
+        return super.visitConstantCaseLabel(constantCaseLabel, scope);
+    }
+
+    @Override
+    public Object visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree, final Scope scope) {
+        arrayAccessExpressionTree.getExpression().accept(this, scope);
+        arrayAccessExpressionTree.getIndex().accept(this, scope);
+        return defaultAnswer(arrayAccessExpressionTree, scope);
+    }
+
 }

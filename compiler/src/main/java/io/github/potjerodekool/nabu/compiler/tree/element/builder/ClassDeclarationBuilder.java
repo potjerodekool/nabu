@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.element.builder;
 
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
@@ -14,7 +14,7 @@ import java.util.List;
 
 public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclaration, ClassDeclarationBuilder> {
 
-    private CModifiers modifiers;
+    private Modifiers modifiers;
     private Kind kind;
     private String simpleName;
     private final List<Tree> enclosedElements = new ArrayList<>();
@@ -111,11 +111,11 @@ public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclarat
         return this;
     }
 
-    public CModifiers getModifiers() {
+    public Modifiers getModifiers() {
         return modifiers;
     }
 
-    public ClassDeclarationBuilder modifiers(final CModifiers modifiers) {
+    public ClassDeclarationBuilder modifiers(final Modifiers modifiers) {
         this.modifiers = modifiers;
         return this;
     }

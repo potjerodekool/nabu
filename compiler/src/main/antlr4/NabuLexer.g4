@@ -75,6 +75,7 @@ ASSERT      : 'assert';
 DO          : 'do';
 WHILE       : 'while';
 FOR         : 'for';
+IN          : 'in';
 BREAK       : 'break';
 CONTINUE    : 'continue';
 SWITCH      : 'switch';

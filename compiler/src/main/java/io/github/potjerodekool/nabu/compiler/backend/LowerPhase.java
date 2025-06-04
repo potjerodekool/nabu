@@ -12,7 +12,7 @@ public final class LowerPhase {
     public static CompilationUnit lower(final CompilationUnit compilationUnit,
                                         final CompilerContextImpl compilerContext) {
         final var lower = new Lower(compilerContext);
-        compilationUnit.accept(lower, null);
+        lower.process(compilationUnit);
         return compilationUnit;
     }
 }

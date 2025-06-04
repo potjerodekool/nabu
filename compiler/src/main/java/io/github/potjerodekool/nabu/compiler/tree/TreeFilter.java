@@ -34,6 +34,11 @@ public final class TreeFilter {
                 .toList();
     }
 
+    public static List<ClassDeclaration> classesIn(final List<Tree> list) {
+        return filter(list, ClassDeclaration.class)
+                .toList();
+    }
+
     private static <E> Stream<E> filter(final ClassDeclaration classDeclaration,
                                         final Class<E> filterType,
                                         final Predicate<E> additionalFilter) {
@@ -44,6 +49,18 @@ public final class TreeFilter {
     private static <E> Stream<E> filter(final ClassDeclaration classDeclaration,
                                         final Class<E> filterType) {
         return classDeclaration.getEnclosedElements().stream()
+                .flatMap(CollectionUtils.mapOnly(filterType));
+    }
+
+    private static <E> Stream<E> filter(final List<Tree> list,
+                                        final Class<E> filterType) {
+        return filter(list, filterType, it -> true);
+    }
+
+    private static <E> Stream<E> filter(final List<Tree> list,
+                                        final Class<E> filterType,
+                                        final Predicate<E> additionalFilter) {
+        return list.stream()
                 .flatMap(CollectionUtils.mapOnly(filterType));
     }
 }

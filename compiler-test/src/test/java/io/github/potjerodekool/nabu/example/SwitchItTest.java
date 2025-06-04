@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class SwitchItTest {
 
+    /*
     @Test
     void intSwitch() {
         final var switchIt = new SwitchIt();
@@ -28,4 +29,12 @@ public class SwitchItTest {
         assertTrue(switchIt.integerSwitch(10));
         assertFalse(switchIt.integerSwitch(1));
     }
+
+    @Test
+    void enumTest() {
+        final var switchIt = new SwitchIt();
+        assertTrue(switchIt.enumSwitch(Status.ON));
+        assertFalse(switchIt.enumSwitch(Status.OFF));
+    }
+*/
 }

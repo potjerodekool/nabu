@@ -446,6 +446,14 @@ variableDeclaratorList
     : variableDeclarator (',' variableDeclarator)*
     ;
 
+nabuVariableDeclaratorList
+    : nabuVariableDeclarator (',' nabuVariableDeclarator)*
+    ;
+
+nabuVariableDeclarator
+    : variableDeclaratorId (':' unannType)? ('=' variableInitializer)?
+    ;
+
 variableDeclarator
     : variableDeclaratorId ('=' variableInitializer)?
     ;
@@ -745,7 +753,7 @@ interfaceMemberDeclaration
 // -------------
 
 constantDeclaration
-    : constantModifier* unannType variableDeclaratorList ';'
+    : constantModifier* unannType nabuVariableDeclaratorList ';'
     ;
 
 constantModifier
@@ -892,13 +900,17 @@ localVariableDeclaration
     : variableModifier* localVariableType variableDeclaratorList?
     ;
 
+nabuLocalVariableDeclaration
+    : variableModifier* 'var' nabuVariableDeclaratorList?
+    ;
+
 localVariableType
     : unannType
     | 'var'
     ;
 
 localVariableDeclarationStatement
-    : localVariableDeclaration ';'
+    : nabuLocalVariableDeclaration ';'
     ;
 
 // Paragraph 14.5
@@ -1064,7 +1076,7 @@ basicForStatementNoShortIf
 
 forInit
     : statementExpressionList
-    | localVariableDeclaration
+    | nabuLocalVariableDeclaration
     ;
 
 forUpdate
@@ -1076,11 +1088,11 @@ statementExpressionList
     ;
 
 enhancedForStatement
-    : 'for' '(' localVariableDeclaration ':' expression ')' statement
+    : 'for' '(' nabuLocalVariableDeclaration 'in' expression ')' statement
     ;
 
 enhancedForStatementNoShortIf
-    : 'for' '(' localVariableDeclaration ':' expression ')' statementNoShortIf
+    : 'for' '(' nabuLocalVariableDeclaration 'in' expression ')' statementNoShortIf
     ;
 
 // Paragraph 14.15
@@ -1137,7 +1149,7 @@ catchClause
     ;
 
 catchFormalParameter
-    : variableModifier* catchType variableDeclaratorId
+    : variableModifier* variableDeclaratorId ':' catchType
     ;
 
 catchType
@@ -1161,7 +1173,7 @@ resourceList
     ;
 
 resource
-    : localVariableDeclaration
+    : nabuLocalVariableDeclaration
     | variableAccess
     ;
 

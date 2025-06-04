@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.tree.element;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
@@ -20,7 +20,7 @@ public interface Function extends Tree {
 
     Kind getKind();
 
-    CModifiers getModifiers();
+    Modifiers getModifiers();
 
     ExpressionTree getDefaultValue();
 

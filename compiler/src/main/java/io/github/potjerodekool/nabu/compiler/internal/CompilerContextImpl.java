@@ -26,6 +26,8 @@ public class CompilerContextImpl implements CompilerContext {
     private final TypeEnter typeEnter;
     private final ClassFinder classFinder;
 
+    private final EnumUsageMap enumUsageMap = new EnumUsageMap();
+
     public CompilerContextImpl(final ApplicationContext applicationContext,
                                final FileManager fileManager) {
         final var symbolTable = new SymbolTable();
@@ -103,7 +105,9 @@ public class CompilerContextImpl implements CompilerContext {
         return typeEnter;
     }
 
-    public ClassFinder getClassFinder() {
-        return classFinder;
+    @Override
+    public EnumUsageMap getEnumUsageMap() {
+        return enumUsageMap;
     }
+
 }

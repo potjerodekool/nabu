@@ -17,8 +17,10 @@ import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilde
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.*;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CDimmension;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CNewArrayExpression;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CVariableTypeTree;
 import io.github.potjerodekool.nabu.compiler.tree.impl.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.TryStatementTreeBuilder;
@@ -76,7 +78,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             final var clazz = TreeMaker.classDeclaration(
                     Kind.CLASS,
-                    new CModifiers(List.of(), Flags.PUBLIC),
+                    new Modifiers(List.of(), Flags.PUBLIC),
                     name,
                     functions,
                     List.of(),
@@ -408,7 +410,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     }
 
 
-    private CModifiers parseModifiers(final List<? extends ParserRuleContext> modifierList) {
+    private Modifiers parseModifiers(final List<? extends ParserRuleContext> modifierList) {
         final List<AnnotationTree> annotations = new ArrayList<>();
         long flags = 0L;
 
@@ -422,7 +424,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             }
         }
 
-        return new CModifiers(annotations, flags);
+        return new Modifiers(annotations, flags);
     }
 
     @Override
@@ -504,7 +506,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         return TreeMaker.variableDeclarator(
                 Kind.PARAMETER,
-                new CModifiers(
+                new Modifiers(
                         annotations,
                         0L
                 ),
@@ -606,7 +608,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         return TreeMaker.variableDeclarator(
                 Kind.PARAMETER,
-                new CModifiers(),
+                new Modifiers(),
                 type,
                 TreeMaker.identifier(
                         name.getName(),
@@ -641,54 +643,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Tree visitRelationalExpression(final NabuParser.RelationalExpressionContext ctx) {
-        boolean useNew = true;
-
-        if(useNew) {
-            return visitRelationalExpressionNew(ctx);
-        }
-
-        final var shiftExpression = (ExpressionTree) accept(ctx.shiftExpression());
-        final ExpressionTree relationalExpression = accept(ctx.relationalExpression());
-        final ExpressionTree referenceType = accept(ctx.referenceType());
-
-        if (referenceType != null) {
-            return TreeMaker.instanceOfExpression(
-                    relationalExpression,
-                    referenceType,
-                    ctx.getStart().getLine(),
-                    ctx.getStart().getCharPositionInLine()
-            );
-        } else if (relationalExpression != null) {
-            final var operatorText = ctx.oper.getText();
-
-            if ("instanceof".equals(operatorText)) {
-                final var typeExpression = ctx.referenceType() != null
-                        ? (Tree) ctx.referenceType().accept(this)
-                        : (Tree) ctx.pattern().accept(this);
-
-                return TreeMaker.instanceOfExpression(
-                    relationalExpression,
-                        typeExpression,
-                        ctx.start.getLine(),
-                        ctx.start.getCharPositionInLine()
-                );
-            }
-
-            final var tag = Tag.fromText(operatorText);
-
-            return TreeMaker.binaryExpressionTree(
-                    relationalExpression,
-                    tag,
-                    shiftExpression,
-                    ctx.getStart().getLine(),
-                    ctx.getStart().getCharPositionInLine()
-            );
-        } else {
-            return shiftExpression;
-        }
-    }
-
-    public Tree visitRelationalExpressionNew(final NabuParser.RelationalExpressionContext ctx) {
         final var children = ctx.children;
         Tree result = null;
         ExpressionTree lastExpression = null;
@@ -1015,7 +969,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     line,
                     charPositionInLine
             );
-            case NabuLexer.Identifier//, NabuLexer.DOT
+            case NabuLexer.Identifier
                     -> identifier(node.getSymbol());
             case NabuLexer.INT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.INT, line, charPositionInLine);
             case NabuLexer.BYTE -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BYTE, line, charPositionInLine);
@@ -1276,6 +1230,34 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitNabuLocalVariableDeclaration(final NabuParser.NabuLocalVariableDeclarationContext ctx) {
+        final var modifiers = parseModifiers(ctx.variableModifier());
+        final List<VariableDeclaratorTree> variableDeclarators = acceptList(ctx.nabuVariableDeclaratorList());
+
+        final var list = variableDeclarators.stream()
+                .map(variableDeclarator -> {
+                    final var type = variableDeclarator.getType() != null
+                            ? variableDeclarator.getType()
+                            : new CVariableTypeTree(-1, -1);
+
+                    return variableDeclarator.builder()
+                            .kind(Kind.LOCAL_VARIABLE)
+                            .modifiers(modifiers)
+                            .type(type)
+                            .lineNumber(ctx.getStart().getLine())
+                            .columnNumber(ctx.getStart().getCharPositionInLine())
+                            .build();
+                })
+                .toList();
+
+        if (list.size() == 1) {
+            return list.getFirst();
+        } else {
+            return list;
+        }
+    }
+
+    @Override
     public Object visitLocalVariableDeclaration(final NabuParser.LocalVariableDeclarationContext ctx) {
         final var modifiers = parseModifiers(ctx.variableModifier());
 
@@ -1308,13 +1290,38 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitNabuVariableDeclaratorList(final NabuParser.NabuVariableDeclaratorListContext ctx) {
+        return ctx.nabuVariableDeclarator().stream()
+                .map(varDecl -> varDecl.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitNabuVariableDeclarator(final NabuParser.NabuVariableDeclaratorContext ctx) {
+        final var variableDeclaratorId = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
+        final var init = (ExpressionTree) accept(ctx.variableInitializer());
+        final ExpressionTree type = accept(ctx.unannType());
+
+        return TreeMaker.variableDeclarator(
+                null,
+                new Modifiers(),
+                type,
+                variableDeclaratorId,
+                null,
+                init,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
     public Object visitVariableDeclarator(final NabuParser.VariableDeclaratorContext ctx) {
         final var variableDeclaratorId = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
         final var init = (ExpressionTree) accept(ctx.variableInitializer());
 
         return TreeMaker.variableDeclarator(
                 null,
-                new CModifiers(),
+                new Modifiers(),
                 null,
                 variableDeclaratorId,
                 null,
@@ -1338,7 +1345,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitLocalVariableDeclarationStatement(final NabuParser.LocalVariableDeclarationStatementContext ctx) {
-        return ctx.localVariableDeclaration().accept(this);
+        return ctx.nabuLocalVariableDeclaration().accept(this);
     }
 
     @Override
@@ -1527,7 +1534,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final WildcardBound wildcardBound;
 
         if (ctx.wildcardBounds() != null) {
-            wildcardBound = (WildcardBound) ctx.accept(this);
+            wildcardBound = (WildcardBound) ctx.wildcardBounds(). accept(this);
         } else {
             wildcardBound = new WildcardBound(BoundKind.UNBOUND, null);
         }
@@ -1780,7 +1787,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         return TreeMaker.function(
                 Constants.INIT,
                 Kind.CONSTRUCTOR,
-                new CModifiers(),
+                new Modifiers(),
                 typeParameters,
                 receiverParameter,
                 parameters,
@@ -1833,7 +1840,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitEnhancedForStatement(final NabuParser.EnhancedForStatementContext ctx) {
-        final var localVariableDeclaration = (VariableDeclaratorTree) ctx.localVariableDeclaration().accept(this);
+        final var localVariableDeclaration = (VariableDeclaratorTree) ctx.nabuLocalVariableDeclaration().accept(this);
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var statement = (StatementTree) ctx.statement().accept(this);
 
@@ -1848,7 +1855,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitEnhancedForStatementNoShortIf(final NabuParser.EnhancedForStatementNoShortIfContext ctx) {
-        final var localVariable = (VariableDeclaratorTree) ctx.localVariableDeclaration().accept(this);
+        final var localVariable = (VariableDeclaratorTree) ctx.nabuLocalVariableDeclaration().accept(this);
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var statement = (StatementTree) ctx.statementNoShortIf().accept(this);
 
@@ -1928,7 +1935,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final List<Tree> classBody = (List<Tree>) ctx.classBody().accept(this);
             classDeclaration = TreeMaker.classDeclaration(
                     null,
-                    new CModifiers(),
+                    new Modifiers(),
                     null,
                     classBody,
                     List.of(),
@@ -2309,15 +2316,16 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .map(dimension -> {
                     final var arrayType = TreeMaker.arrayTypeTree(
                             typeTree,
+                            List.of(),
                             ctx.getStart().getLine(),
                             ctx.getStart().getCharPositionInLine()
                     );
 
-                    if (dimension.annotations().isEmpty()) {
+                    if (dimension.getAnnotations().isEmpty()) {
                         return arrayType;
                     } else {
                         return TreeMaker.annotatedTypeTree(
-                                dimension.annotations(),
+                                dimension.getAnnotations(),
                                 arrayType,
                                 List.of(),
                                 ctx.getStart().getLine(),
@@ -2328,14 +2336,14 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .reduce((first, second) -> {
                     if (second instanceof AnnotatedTypeTree annotatedTypeTree) {
                         return annotatedTypeTree.builder()
-                                .clazz(TreeMaker.arrayTypeTree(first, first.getLineNumber(), first.getColumnNumber()))
+                                .clazz(TreeMaker.arrayTypeTree(first, List.of(), first.getLineNumber(), first.getColumnNumber()))
                                 .build();
                     } else if (first instanceof AnnotatedTypeTree annotatedTypeTree) {
                         return annotatedTypeTree.builder()
-                                .clazz(TreeMaker.arrayTypeTree(second, second.getLineNumber(), second.getColumnNumber()))
+                                .clazz(TreeMaker.arrayTypeTree(second, List.of(), second.getLineNumber(), second.getColumnNumber()))
                                 .build();
                     } else {
-                        return TreeMaker.arrayTypeTree(second, second.getLineNumber(), second.getColumnNumber());
+                        return TreeMaker.arrayTypeTree(second, List.of(), second.getLineNumber(), second.getColumnNumber());
                     }
                 })
                 .orElseGet(() -> TreeMaker.errorTree(
@@ -2353,7 +2361,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         for (final var child : ctx.children) {
             if (child instanceof TerminalNode terminalNode) {
                 if ("]".equals(terminalNode.getText())) {
-                    dimensions.add(new Dimension(annotations));
+                    dimensions.add(new CDimmension(annotations, -1, -1));
                     annotations = new ArrayList<>();
                 }
             } else {
@@ -2399,6 +2407,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 if ("]".equals(terminalNode.getText())) {
                     type = TreeMaker.arrayTypeTree(
                             type,
+                            List.of(),
                             terminalNode.getSymbol().getLine(),
                             terminalNode.getSymbol().getCharPositionInLine()
                     );
@@ -2656,7 +2665,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         return new FunctionBuilder()
                 .kind(Kind.CONSTRUCTOR)
                 .modifiers(
-                        new CModifiers(
+                        new Modifiers(
                                 List.of(),
                                 Flags.PUBLIC + Flags.COMPACT_RECORD_CONSTRUCTOR
                         )
@@ -2843,7 +2852,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 arguments,
                 TreeMaker.classDeclaration(
                         Kind.ENUM,
-                        new CModifiers(),
+                        new Modifiers(),
                         null,
                         classBody,
                         List.of(),
@@ -3200,7 +3209,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                             modifiers.getAnnotations().stream(),
                             annotations.stream())
                     .toList();
-            modifiers = new CModifiers(
+            modifiers = new Modifiers(
                     allAnnotations,
                     modifiers.getFlags()
             );
@@ -3226,5 +3235,460 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
+    }
+
+    @Override
+    public Object visitStart_(final NabuParser.Start_Context ctx) {
+        return super.visitStart_(ctx);
+    }
+
+    @Override
+    public Object visitIdentifier(final NabuParser.IdentifierContext ctx) {
+        return super.visitIdentifier(ctx);
+    }
+
+    @Override
+    public Object visitUnqualifiedFunctionIdentifier(final NabuParser.UnqualifiedFunctionIdentifierContext ctx) {
+        return super.visitUnqualifiedFunctionIdentifier(ctx);
+    }
+
+    @Override
+    public Object visitContextualKeyword(final NabuParser.ContextualKeywordContext ctx) {
+        return super.visitContextualKeyword(ctx);
+    }
+
+    @Override
+    public Object visitContextualKeywordMinusForTypeIdentifier(final NabuParser.ContextualKeywordMinusForTypeIdentifierContext ctx) {
+        return super.visitContextualKeywordMinusForTypeIdentifier(ctx);
+    }
+
+    @Override
+    public Object visitContextualKeywordMinusForUnqualifiedFunctionIdentifier(final NabuParser.ContextualKeywordMinusForUnqualifiedFunctionIdentifierContext ctx) {
+        return super.visitContextualKeywordMinusForUnqualifiedFunctionIdentifier(ctx);
+    }
+
+    @Override
+    public Object visitNumericType(final NabuParser.NumericTypeContext ctx) {
+        return super.visitNumericType(ctx);
+    }
+
+    @Override
+    public Object visitIntegralType(final NabuParser.IntegralTypeContext ctx) {
+        return super.visitIntegralType(ctx);
+    }
+
+    @Override
+    public Object visitFloatingPointType(final NabuParser.FloatingPointTypeContext ctx) {
+        return super.visitFloatingPointType(ctx);
+    }
+
+    @Override
+    public Object visitReferenceType(final NabuParser.ReferenceTypeContext ctx) {
+        return super.visitReferenceType(ctx);
+    }
+
+    @Override
+    public Object visitInterfaceType(final NabuParser.InterfaceTypeContext ctx) {
+        return super.visitInterfaceType(ctx);
+    }
+
+    @Override
+    public Object visitTypeParameterModifier(final NabuParser.TypeParameterModifierContext ctx) {
+        return super.visitTypeParameterModifier(ctx);
+    }
+
+    @Override
+    public Object visitTypeArgument(final NabuParser.TypeArgumentContext ctx) {
+        return super.visitTypeArgument(ctx);
+    }
+
+    @Override
+    public Object visitFunctionName(final NabuParser.FunctionNameContext ctx) {
+        return super.visitFunctionName(ctx);
+    }
+
+    @Override
+    public Object visitCompilationUnit(final NabuParser.CompilationUnitContext ctx) {
+        return super.visitCompilationUnit(ctx);
+    }
+
+    @Override
+    public Object visitPackageModifier(final NabuParser.PackageModifierContext ctx) {
+        return super.visitPackageModifier(ctx);
+    }
+
+    @Override
+    public Object visitImportDeclaration(final NabuParser.ImportDeclarationContext ctx) {
+        return super.visitImportDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitTopLevelClassOrInterfaceDeclaration(final NabuParser.TopLevelClassOrInterfaceDeclarationContext ctx) {
+        return super.visitTopLevelClassOrInterfaceDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitRequiresModifier(final NabuParser.RequiresModifierContext ctx) {
+        return super.visitRequiresModifier(ctx);
+    }
+
+    @Override
+    public Object visitClassDeclaration(final NabuParser.ClassDeclarationContext ctx) {
+        return super.visitClassDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitClassModifier(final NabuParser.ClassModifierContext ctx) {
+        return super.visitClassModifier(ctx);
+    }
+
+    @Override
+    public Object visitClassBodyDeclaration(final NabuParser.ClassBodyDeclarationContext ctx) {
+        return super.visitClassBodyDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitClassMemberDeclaration(final NabuParser.ClassMemberDeclarationContext ctx) {
+        return super.visitClassMemberDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitFieldModifier(final NabuParser.FieldModifierContext ctx) {
+        return super.visitFieldModifier(ctx);
+    }
+
+    @Override
+    public Object visitVariableDeclaratorId(final NabuParser.VariableDeclaratorIdContext ctx) {
+        return super.visitVariableDeclaratorId(ctx);
+    }
+
+    @Override
+    public Object visitVariableInitializer(final NabuParser.VariableInitializerContext ctx) {
+        return super.visitVariableInitializer(ctx);
+    }
+
+    @Override
+    public Object visitUnannType(final NabuParser.UnannTypeContext ctx) {
+        return super.visitUnannType(ctx);
+    }
+
+    @Override
+    public Object visitUnannReferenceType(final NabuParser.UnannReferenceTypeContext ctx) {
+        return super.visitUnannReferenceType(ctx);
+    }
+
+    @Override
+    public Object visitUnannClassType(final NabuParser.UnannClassTypeContext ctx) {
+        return super.visitUnannClassType(ctx);
+    }
+
+    @Override
+    public Object visitUnannInterfaceType(final NabuParser.UnannInterfaceTypeContext ctx) {
+        return super.visitUnannInterfaceType(ctx);
+    }
+
+    @Override
+    public Object visitUnannTypeVariable(final NabuParser.UnannTypeVariableContext ctx) {
+        return super.visitUnannTypeVariable(ctx);
+    }
+
+    @Override
+    public Object visitUnannArrayType(final NabuParser.UnannArrayTypeContext ctx) {
+        return super.visitUnannArrayType(ctx);
+    }
+
+    @Override
+    public Object visitFunctionModifier(final NabuParser.FunctionModifierContext ctx) {
+        return super.visitFunctionModifier(ctx);
+    }
+
+    @Override
+    public Object visitVariableArityParameter(final NabuParser.VariableArityParameterContext ctx) {
+        return super.visitVariableArityParameter(ctx);
+    }
+
+    @Override
+    public Object visitVariableModifier(final NabuParser.VariableModifierContext ctx) {
+        return super.visitVariableModifier(ctx);
+    }
+
+    @Override
+    public Object visitExceptionType(final NabuParser.ExceptionTypeContext ctx) {
+        return super.visitExceptionType(ctx);
+    }
+
+    @Override
+    public Object visitFunctionBody(final NabuParser.FunctionBodyContext ctx) {
+        return super.visitFunctionBody(ctx);
+    }
+
+    @Override
+    public Object visitInstanceInitializer(final NabuParser.InstanceInitializerContext ctx) {
+        return super.visitInstanceInitializer(ctx);
+    }
+
+    @Override
+    public Object visitStaticInitializer(final NabuParser.StaticInitializerContext ctx) {
+        return super.visitStaticInitializer(ctx);
+    }
+
+    @Override
+    public Object visitConstructorModifier(final NabuParser.ConstructorModifierContext ctx) {
+        return super.visitConstructorModifier(ctx);
+    }
+
+    @Override
+    public Object visitSimpleTypeName(final NabuParser.SimpleTypeNameContext ctx) {
+        return super.visitSimpleTypeName(ctx);
+    }
+
+    @Override
+    public Object visitEnumConstantModifier(final NabuParser.EnumConstantModifierContext ctx) {
+        return super.visitEnumConstantModifier(ctx);
+    }
+
+    @Override
+    public Object visitRecordComponentModifier(final NabuParser.RecordComponentModifierContext ctx) {
+        return super.visitRecordComponentModifier(ctx);
+    }
+
+    @Override
+    public Object visitRecordBodyDeclaration(final NabuParser.RecordBodyDeclarationContext ctx) {
+        return super.visitRecordBodyDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitInterfaceDeclaration(final NabuParser.InterfaceDeclarationContext ctx) {
+        return super.visitInterfaceDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitInterfaceModifier(final NabuParser.InterfaceModifierContext ctx) {
+        return super.visitInterfaceModifier(ctx);
+    }
+
+    @Override
+    public Object visitInterfaceMemberDeclaration(final NabuParser.InterfaceMemberDeclarationContext ctx) {
+        return super.visitInterfaceMemberDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitConstantDeclaration(final NabuParser.ConstantDeclarationContext ctx) {
+        return super.visitConstantDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitConstantModifier(final NabuParser.ConstantModifierContext ctx) {
+        return super.visitConstantModifier(ctx);
+    }
+
+    @Override
+    public Object visitInterfaceFunctionModifier(final NabuParser.InterfaceFunctionModifierContext ctx) {
+        return super.visitInterfaceFunctionModifier(ctx);
+    }
+
+    @Override
+    public Object visitAnnotationInterfaceDeclaration(final NabuParser.AnnotationInterfaceDeclarationContext ctx) {
+        return super.visitAnnotationInterfaceDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitAnnotationInterfaceBody(final NabuParser.AnnotationInterfaceBodyContext ctx) {
+        return super.visitAnnotationInterfaceBody(ctx);
+    }
+
+    @Override
+    public Object visitAnnotationInterfaceMemberDeclaration(final NabuParser.AnnotationInterfaceMemberDeclarationContext ctx) {
+        return super.visitAnnotationInterfaceMemberDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitAnnotationInterfaceElementDeclaration(final NabuParser.AnnotationInterfaceElementDeclarationContext ctx) {
+        return super.visitAnnotationInterfaceElementDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitAnnotationInterfaceElementModifier(final NabuParser.AnnotationInterfaceElementModifierContext ctx) {
+        return super.visitAnnotationInterfaceElementModifier(ctx);
+    }
+
+    @Override
+    public Object visitDefaultValue(final NabuParser.DefaultValueContext ctx) {
+        return super.visitDefaultValue(ctx);
+    }
+
+    @Override
+    public Object visitAnnotation(final NabuParser.AnnotationContext ctx) {
+        return super.visitAnnotation(ctx);
+    }
+
+    @Override
+    public Object visitElementValue(final NabuParser.ElementValueContext ctx) {
+        return super.visitElementValue(ctx);
+    }
+
+    @Override
+    public Object visitElementValueArrayInitializer(final NabuParser.ElementValueArrayInitializerContext ctx) {
+        return super.visitElementValueArrayInitializer(ctx);
+    }
+
+    @Override
+    public Object visitElementValueList(final NabuParser.ElementValueListContext ctx) {
+        return super.visitElementValueList(ctx);
+    }
+
+    @Override
+    public Object visitVariableInitializerList(final NabuParser.VariableInitializerListContext ctx) {
+        return super.visitVariableInitializerList(ctx);
+    }
+
+    @Override
+    public Object visitBlockStatement(final NabuParser.BlockStatementContext ctx) {
+        return super.visitBlockStatement(ctx);
+    }
+
+    @Override
+    public Object visitLocalClassOrInterfaceDeclaration(final NabuParser.LocalClassOrInterfaceDeclarationContext ctx) {
+        return super.visitLocalClassOrInterfaceDeclaration(ctx);
+    }
+
+    @Override
+    public Object visitStatement(final NabuParser.StatementContext ctx) {
+        return super.visitStatement(ctx);
+    }
+
+    @Override
+    public Object visitStatementNoShortIf(final NabuParser.StatementNoShortIfContext ctx) {
+        return super.visitStatementNoShortIf(ctx);
+    }
+
+    @Override
+    public Object visitStatementWithoutTrailingSubstatement(final NabuParser.StatementWithoutTrailingSubstatementContext ctx) {
+        return super.visitStatementWithoutTrailingSubstatement(ctx);
+    }
+
+    @Override
+    public Object visitStatementExpression(final NabuParser.StatementExpressionContext ctx) {
+        return super.visitStatementExpression(ctx);
+    }
+
+    @Override
+    public Object visitIfThenElseStatementNoShortIf(final NabuParser.IfThenElseStatementNoShortIfContext ctx) {
+        return super.visitIfThenElseStatementNoShortIf(ctx);
+    }
+
+    @Override
+    public Object visitCaseConstant(final NabuParser.CaseConstantContext ctx) {
+        return super.visitCaseConstant(ctx);
+    }
+
+    @Override
+    public Object visitForStatement(final NabuParser.ForStatementContext ctx) {
+        return super.visitForStatement(ctx);
+    }
+
+    @Override
+    public Object visitForStatementNoShortIf(final NabuParser.ForStatementNoShortIfContext ctx) {
+        return super.visitForStatementNoShortIf(ctx);
+    }
+
+    @Override
+    public Object visitBasicForStatementNoShortIf(final NabuParser.BasicForStatementNoShortIfContext ctx) {
+        return super.visitBasicForStatementNoShortIf(ctx);
+    }
+
+    @Override
+    public Object visitForInit(final NabuParser.ForInitContext ctx) {
+        return super.visitForInit(ctx);
+    }
+
+    @Override
+    public Object visitForUpdate(final NabuParser.ForUpdateContext ctx) {
+        return super.visitForUpdate(ctx);
+    }
+
+    @Override
+    public Object visitResource(final NabuParser.ResourceContext ctx) {
+        return super.visitResource(ctx);
+    }
+
+    @Override
+    public Object visitVariableAccess(final NabuParser.VariableAccessContext ctx) {
+        return super.visitVariableAccess(ctx);
+    }
+
+    @Override
+    public Object visitPattern(final NabuParser.PatternContext ctx) {
+        return super.visitPattern(ctx);
+    }
+
+    @Override
+    public Object visitClassInstanceCreationExpression(final NabuParser.ClassInstanceCreationExpressionContext ctx) {
+        return super.visitClassInstanceCreationExpression(ctx);
+    }
+
+    @Override
+    public Object visitTypeArgumentsOrDiamond(final NabuParser.TypeArgumentsOrDiamondContext ctx) {
+        return super.visitTypeArgumentsOrDiamond(ctx);
+    }
+
+    @Override
+    public Object visitArrayCreationExpression(final NabuParser.ArrayCreationExpressionContext ctx) {
+        return super.visitArrayCreationExpression(ctx);
+    }
+
+    @Override
+    public Object visitArrayCreationExpressionWithInitializer(final NabuParser.ArrayCreationExpressionWithInitializerContext ctx) {
+        return super.visitArrayCreationExpressionWithInitializer(ctx);
+    }
+
+    @Override
+    public Object visitArrayAccess(final NabuParser.ArrayAccessContext ctx) {
+        return super.visitArrayAccess(ctx);
+    }
+
+    @Override
+    public Object visitFunctionReference(final NabuParser.FunctionReferenceContext ctx) {
+        return super.visitFunctionReference(ctx);
+    }
+
+    @Override
+    public Object visitPfE(final NabuParser.PfEContext ctx) {
+        return super.visitPfE(ctx);
+    }
+
+    @Override
+    public Object visitPreIncrementExpression(final NabuParser.PreIncrementExpressionContext ctx) {
+        return super.visitPreIncrementExpression(ctx);
+    }
+
+    @Override
+    public Object visitPreDecrementExpression(final NabuParser.PreDecrementExpressionContext ctx) {
+        return super.visitPreDecrementExpression(ctx);
+    }
+
+    @Override
+    public Object visitLeftHandSide(final NabuParser.LeftHandSideContext ctx) {
+        return super.visitLeftHandSide(ctx);
+    }
+
+    @Override
+    public Object visitLambdaParameterType(final NabuParser.LambdaParameterTypeContext ctx) {
+        return super.visitLambdaParameterType(ctx);
+    }
+
+    @Override
+    public Object visitLambdaBody(final NabuParser.LambdaBodyContext ctx) {
+        return super.visitLambdaBody(ctx);
+    }
+
+    @Override
+    public Object visitSwitchExpression(final NabuParser.SwitchExpressionContext ctx) {
+        return super.visitSwitchExpression(ctx);
+    }
+
+    @Override
+    public Object visitConstantExpression(final NabuParser.ConstantExpressionContext ctx) {
+        return super.visitConstantExpression(ctx);
     }
 }

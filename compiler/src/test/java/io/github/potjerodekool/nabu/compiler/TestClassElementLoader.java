@@ -1,15 +1,18 @@
 package io.github.potjerodekool.nabu.compiler;
 
+import io.github.potjerodekool.nabu.Java20Lexer;
+import io.github.potjerodekool.nabu.Java20Parser;
+import io.github.potjerodekool.nabu.Java20ParserBaseVisitor;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.java.JavaCompilerParser;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
@@ -17,15 +20,19 @@ import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
+import io.github.potjerodekool.nabu.compiler.util.Types;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
+import org.antlr.v4.runtime.tree.TerminalNode;
 import org.mockito.Mockito;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.util.*;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
@@ -41,6 +48,8 @@ public class TestClassElementLoader implements ClassSymbolLoader {
     private final Map<String, PackageSymbol> packages = new HashMap<>();
 
     private final TypesImpl types = new TypesImpl(symbolTable);
+
+    private final JavaLoader javaLoader = new JavaLoader(this);
 
     public TestClassElementLoader() {
         final var objectType = createObjectClass().asType();
@@ -94,18 +103,28 @@ public class TestClassElementLoader implements ClassSymbolLoader {
                 });
     }
 
+    private ClassSymbol load(final String resourceName) {
+        return javaLoader.load(resourceName);
+    }
+
     private void addClass(final TypeMirror typeMirror) {
         final var clazz = (ClassSymbol) typeMirror.asTypeElement();
         addClass(clazz);
     }
 
-    private void addClass(final ClassSymbol classSymbol) {
+    public void addClass(final ClassSymbol classSymbol) {
         this.classes.put(classSymbol.getQualifiedName(), classSymbol);
     }
 
     @Override
     public ClassSymbol loadClass(final ModuleElement moduleElement, final String name) {
         var clazz = classes.get(name);
+
+        if (clazz != null) {
+            return clazz;
+        }
+
+        clazz = load("classes/" + name.replace('.', '/') + ".java");
 
         if (clazz != null) {
             return clazz;
@@ -118,6 +137,12 @@ public class TestClassElementLoader implements ClassSymbolLoader {
     }
 
     private ClassSymbol createClass(final String name) {
+        return createClass(name, it -> {
+        });
+    }
+
+    private ClassSymbol createClass(final String name,
+                                    final Consumer<ClassSymbolBuilder> adjuster) {
         final var elements = name.split("\\.");
         final var packageName = name.contains(".")
                 ? name.substring(0, name.lastIndexOf('.'))
@@ -137,11 +162,15 @@ public class TestClassElementLoader implements ClassSymbolLoader {
             superType = classes.get(Constants.OBJECT).asType();
         }
 
-        final var clazz = new ClassSymbolBuilder()
+        final var clazzBuilder = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .simpleName(simpleName)
                 .enclosingElement(packageElement)
-                .superclass(superType)
+                .superclass(superType);
+
+        adjuster.accept(clazzBuilder);
+
+        final var clazz = clazzBuilder
                 .build();
 
         clazz.setMembers(new WritableScope());
@@ -203,6 +232,14 @@ public class TestClassElementLoader implements ClassSymbolLoader {
                 .build();
 
         enumClass.addEnclosedElement(valueOfMethod);
+
+        final var ordinalMethod = new MethodSymbolBuilderImpl()
+                .kind(ElementKind.METHOD)
+                .simpleName("ordinal")
+                .returnType(types.getPrimitiveType(TypeKind.INT))
+                        .build();
+
+        enumClass.addEnclosedElement(ordinalMethod);
 
         enumClass.setSuperClass(objectType);
 
@@ -311,5 +348,259 @@ public class TestClassElementLoader implements ClassSymbolLoader {
     @Override
     public void close() {
     }
+
+}
+
+class JavaLoader {
+
+    private final TestClassElementLoader loader;
+
+    JavaLoader(final TestClassElementLoader loader) {
+        this.loader = loader;
+    }
+
+    public ClassSymbol load(final String resourceName) {
+        try (var input = getClass().getClassLoader().getResourceAsStream(resourceName)) {
+            if (input != null) {
+                final var unit = JavaCompilerParser.parse(input);
+                final var builder = new SimpleClassBuilder(loader);
+                final var result = (List<ClassSymbol>) unit.accept(builder);
+
+                return result.getFirst();
+            } else {
+                return null;
+            }
+        } catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
+
+class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
+
+    private final TestClassElementLoader loader;
+    private final Types types;
+
+    public SimpleClassBuilder(final TestClassElementLoader loader) {
+        this.loader = loader;
+        this.types = loader.getTypes();
+    }
+
+    @Override
+    public Object visitOrdinaryCompilationUnit(final Java20Parser.OrdinaryCompilationUnitContext ctx) {
+        final var pck = (PackageSymbol) ctx.packageDeclaration().accept(this);
+        final var classes = ctx.topLevelClassOrInterfaceDeclaration().stream()
+                .map(it -> it.accept(this))
+                .map(it -> (ClassSymbol) it)
+                .toList();
+
+        classes.forEach(classSymbol -> {
+            classSymbol.setEnclosingElement(pck);
+            pck.addEnclosedElement(classSymbol);
+            classSymbol.setNestingKind(NestingKind.TOP_LEVEL);
+            loader.addClass(classSymbol);
+        });
+
+        return classes;
+    }
+
+    @Override
+    public Object visitNormalClassDeclaration(final Java20Parser.NormalClassDeclarationContext ctx) {
+        final var name = (String) ctx.typeIdentifier().accept(this);
+
+        final var typeParameters = parseTypeParameters(ctx.typeParameters());
+
+        ClassSymbol classSymbol = new ClassSymbolBuilder()
+                .simpleName(name)
+                .kind(ElementKind.CLASS)
+                .typeParameters(typeParameters)
+                .build();
+
+        final var classBody = (List<Symbol>) ctx.classBody().accept(this);
+
+        classBody.forEach(classSymbol::addEnclosedElement);
+
+        return classSymbol;
+    }
+
+    private List<TypeParameterElement> parseTypeParameters(final Java20Parser.TypeParametersContext typeParametersContext) {
+        if (typeParametersContext == null) {
+            return Collections.emptyList();
+        }
+
+        return (List<TypeParameterElement>) typeParametersContext.typeParameterList().accept(this);
+    }
+
+    @Override
+    public Object visitTypeParameterList(final Java20Parser.TypeParameterListContext ctx) {
+        return ctx.typeParameter().stream()
+                .map(it -> it.accept(this))
+                .map(it -> (TypeVariable) it)
+                .map(it -> it.asElement())
+                .toList();
+    }
+
+    @Override
+    public Object visitTypeParameter(final Java20Parser.TypeParameterContext ctx) {
+        final var identifier = (String) ctx.typeIdentifier().accept(this);
+        return new CTypeVariable(identifier);
+    }
+
+    @Override
+    public Object visitNormalInterfaceDeclaration(final Java20Parser.NormalInterfaceDeclarationContext ctx) {
+        final var name = (String) ctx.typeIdentifier().accept(this);
+        final var typeParameters = parseTypeParameters(ctx.typeParameters());
+
+        ClassSymbol classSymbol = new ClassSymbolBuilder()
+                .simpleName(name)
+                .kind(ElementKind.INTERFACE)
+                .typeParameters(typeParameters)
+                .build();
+
+        final var classBody = (List<Symbol>) ctx.interfaceBody().accept(this);
+
+        classBody.forEach(classSymbol::addEnclosedElement);
+
+        return classSymbol;
+    }
+
+    @Override
+    public Object visitClassBody(final Java20Parser.ClassBodyContext ctx) {
+        return ctx.classBodyDeclaration().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitInterfaceBody(final Java20Parser.InterfaceBodyContext ctx) {
+        return ctx.interfaceMemberDeclaration().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitMethodDeclaration(final Java20Parser.MethodDeclarationContext ctx) {
+        final var header = (MethodHeader) ctx.methodHeader().accept(this);
+
+        return new MethodSymbolBuilderImpl()
+                .simpleName(header.methodDeclarator().name())
+                .returnType(header.result())
+                .kind(ElementKind.METHOD)
+                .build();
+    }
+
+    @Override
+    public Object visitInterfaceMethodDeclaration(final Java20Parser.InterfaceMethodDeclarationContext ctx) {
+        final var header = (MethodHeader) ctx.methodHeader().accept(this);
+
+        return new MethodSymbolBuilderImpl()
+                .simpleName(header.methodDeclarator().name())
+                .returnType(header.result())
+                .kind(ElementKind.METHOD)
+                .build();
+    }
+
+    @Override
+    public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
+        final var result = (TypeMirror) ctx.result().accept(this);
+        final var declarator = (MethodDeclarator) ctx.methodDeclarator().accept(this);
+        return new MethodHeader(result, declarator);
+    }
+
+    @Override
+    public Object visitMethodDeclarator(final Java20Parser.MethodDeclaratorContext ctx) {
+        final var methodName = (String) ctx.identifier().accept(this);
+
+        return new MethodDeclarator(methodName);
+    }
+
+    @Override
+    public Object visitResult(final Java20Parser.ResultContext ctx) {
+        if (ctx.unannType() != null) {
+            return ctx.unannType().accept(this);
+        } else {
+            return types.getNoType(TypeKind.VOID);
+        }
+    }
+
+    @Override
+    public Object visitUnannPrimitiveType(final Java20Parser.UnannPrimitiveTypeContext ctx) {
+        if (ctx.numericType() != null) {
+            return ctx.numericType().accept(this);
+        } else {
+            return types.getPrimitiveType(TypeKind.BOOLEAN);
+        }
+    }
+
+    @Override
+    public Object visitPackageDeclaration(final Java20Parser.PackageDeclarationContext ctx) {
+        final var packageName = ctx.identifier().stream()
+                .map(it -> it.accept(this).toString())
+                .collect(Collectors.joining("."));
+
+        return this.loader.findOrCreatePackage(
+                null,
+                packageName
+        );
+    }
+
+    @Override
+    public Object visitIdentifier(final Java20Parser.IdentifierContext ctx) {
+        return super.visitIdentifier(ctx);
+    }
+
+    @Override
+    public Object visitUnannClassOrInterfaceType(final Java20Parser.UnannClassOrInterfaceTypeContext ctx) {
+        final var nameJoiner = new StringJoiner(".");
+
+        if (ctx.packageName() != null) {
+            final var name = (String) ctx.packageName().accept(this);
+            nameJoiner.add(name);
+        }
+
+        final var typeIdentifier = (String) ctx.typeIdentifier().accept(this);
+        nameJoiner.add(typeIdentifier);
+
+        final var className = nameJoiner.toString();
+        final var clazz =  loader.loadClass(null, className);
+        return clazz.asType();
+    }
+
+    @Override
+    public Object visitPackageName(final Java20Parser.PackageNameContext ctx) {
+        final var nameJoiner = new StringJoiner(".");
+        nameJoiner.add(ctx.identifier().accept(this).toString());
+
+        if (ctx.packageName() != null) {
+            nameJoiner.add(ctx.packageName().accept(this).toString());
+        }
+
+        return nameJoiner.toString();
+    }
+
+    @Override
+    public Object visitTerminal(final TerminalNode node) {
+        final var type = node.getSymbol().getType();
+
+        return switch (type) {
+            case Java20Lexer.Identifier ->
+                node.getText();
+            case Java20Lexer.BYTE -> types.getPrimitiveType(TypeKind.BYTE);
+            case Java20Lexer.SHORT -> types.getPrimitiveType(TypeKind.SHORT);
+            case Java20Lexer.INT ->  types.getPrimitiveType(TypeKind.INT);
+            case Java20Lexer.LONG -> types.getPrimitiveType(TypeKind.LONG);
+            case Java20Lexer.CHAR ->  types.getPrimitiveType(TypeKind.CHAR);
+            case Java20Lexer.FLOAT -> types.getPrimitiveType(TypeKind.FLOAT);
+            case Java20Lexer.DOUBLE -> types.getPrimitiveType(TypeKind.DOUBLE);
+            default -> throw new TodoException();
+        };
+    }
+}
+
+record MethodHeader(TypeMirror result, MethodDeclarator methodDeclarator) {
+
+}
+
+record MethodDeclarator(String name) {
 
 }

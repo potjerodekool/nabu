@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MethodSymbolBuilderImpl extends AbstractSymbolBuilder<Symbol, MethodSymbolBuilderImpl> {
+public class MethodSymbolBuilderImpl extends AbstractSymbolBuilder<MethodSymbolBuilderImpl> {
 
     private final List<VariableSymbol> parameters = new ArrayList<>();
     private TypeMirror returnType;

@@ -11,12 +11,12 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.ReturnStatementTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
@@ -29,6 +29,11 @@ import static io.github.potjerodekool.nabu.compiler.backend.ir.expression.Eseq.e
 public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     private final TypeResolver typeResolver = new TypeResolver();
+    private final CompilerContextImpl compilerContext;
+
+    public Translate(final CompilerContextImpl compilerContext) {
+        this.compilerContext = compilerContext;
+    }
 
     @Override
     public Exp visitUnknown(final Tree tree, final TranslateContext Param) {
@@ -117,7 +122,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             if ("class".equals(identifier.getName())) {
                 return new Ex(new Name("class"));
             } else {
-                return new Ex(new Name(type.asTypeElement().getQualifiedName()));
+                return new Ex(new Name(type.asTypeElement().getFlatName()));
             }
         }
 
@@ -131,7 +136,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             final var clazz = (ClassSymbol) symbol.getEnclosingElement();
 
             return new Ex(new IFieldAccess(
-                    new Name(clazz.getQualifiedName()),
+                    new Name(clazz.getFlatName()),
                     symbol.getSimpleName(),
                     ToIType.toIType(symbol.asType()),
                     symbol.isStatic()
@@ -176,7 +181,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         final var invokedMethod = methodType.getMethodSymbol();
         final InvocationType invocationType = resolveInvocationType(methodType);
-        final var owner = ToIType.toIType(methodSelector.getType());
+        final IType owner = getType(methodSelector);
+
         final var originalMethodType = (ExecutableType) methodType.getMethodSymbol().asType();
 
         final IType returnType =
@@ -200,6 +206,39 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         );
 
         return new Ex(call);
+    }
+
+    private IType getType(final ExpressionTree expressionTree) {
+        if (expressionTree.getType() != null) {
+            return ToIType.toIType(expressionTree.getType());
+        }
+
+        if (expressionTree instanceof FieldAccessExpressionTree fieldAccess) {
+            final var type = getType(fieldAccess.getField());
+
+            if (type != null) {
+                return type;
+            }
+
+            final var selected = fieldAccess.getSelected();
+            if (selected.getSymbol() != null) {
+                return ToIType.toIType(selected.getSymbol().asType());
+            } else if (selected.getType() != null) {
+                return ToIType.toIType(selected.getType());
+            } else {
+                return getType(selected);
+            }
+        } else {
+            final var type = expressionTree.getType();
+
+            if (type != null) {
+                return ToIType.toIType(type);
+            } else if (expressionTree.getSymbol() != null) {
+                return ToIType.toIType(expressionTree.getSymbol().asType());
+            } else {
+                return null;
+            }
+        }
     }
 
     private List<IExpression> methodInvocationArguments(final MethodInvocationTree methodInvocation,
@@ -725,8 +764,11 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     }
 
     @Override
-    public Exp visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree, final TranslateContext param) {
-        throw new TodoException();
+    public Exp visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree,
+                                final TranslateContext context) {
+        final var exp = arrayAccessExpressionTree.getExpression().accept(this, context);
+        final var index = arrayAccessExpressionTree.getIndex().accept(this, context);
+        return new Ex(new ArrayLoad(exp.unEx(), index.unEx()));
     }
 
     @Override
@@ -745,9 +787,20 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
             for (final CaseLabel caseLabel : labels) {
                 if (caseLabel instanceof ConstantCaseLabel constantCaseLabel) {
-                    final var literal = (LiteralExpressionTree) constantCaseLabel.getExpression();
-                    keys.add(toSwitchKeyValue(literal.getLiteral()));
-                    switchLabels.add(label);
+                    if (constantCaseLabel.getExpression() instanceof LiteralExpressionTree literal){
+                        keys.add(toSwitchKeyValue(literal.getLiteral()));
+                        switchLabels.add(label);
+                    } else if (constantCaseLabel.getExpression() instanceof IdentifierTree identifierTree) {
+                        final var enumConstantName = identifierTree.getName();
+
+                        final var map = compilerContext.getEnumUsageMap().getEnumSwitchMap(
+                                context.classDeclaration,
+                                (ClassSymbol) identifierTree.getSymbol().asType().asTypeElement()
+                        );
+                        final var literal = map.get(enumConstantName);
+                        keys.add(toSwitchKeyValue(literal));
+                        switchLabels.add(label);
+                    }
                 } else if (caseLabel instanceof DefaultCaseLabel) {
                     defaultLabel = label;
                 }
@@ -794,4 +847,12 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         };
     }
 
+    @Override
+    public Exp visitThrowStatement(final ThrowStatement throwStatement, final TranslateContext param) {
+        final var expr = throwStatement.getExpression().accept(this, param);
+        return new Nx(Seq.seq(
+                new IThrowStatement(expr.unEx()),
+                new ILabelStatement()
+        ));
+    }
 }

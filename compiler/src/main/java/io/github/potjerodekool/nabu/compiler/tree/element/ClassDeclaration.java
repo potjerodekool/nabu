@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.tree.element;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
@@ -14,7 +14,7 @@ public interface ClassDeclaration extends StatementTree {
 
     String getSimpleName();
 
-    CModifiers getModifiers();
+    Modifiers getModifiers();
 
     Kind getKind();
 

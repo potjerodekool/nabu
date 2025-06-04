@@ -235,8 +235,8 @@ wildcard
     ;
 
 wildcardBounds
-    : 'extends' referenceType
-    | 'super' referenceType
+    : kind='extends' referenceType
+    | kind='super' referenceType
     ;
 
 // Paragraph 6.5

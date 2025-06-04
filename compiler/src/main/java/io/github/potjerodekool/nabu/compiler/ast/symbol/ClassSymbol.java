@@ -71,7 +71,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
                        final String name,
                        final AbstractType type,
                        final Symbol owner,
-                       final List<Symbol> enclosedElements,
+                       final List<? extends Symbol> enclosedElements,
                        final List<? extends AnnotationMirror> annotations) {
         super(kind, flags, name, type, owner);
         this.nestingKind = nestingKind;
@@ -125,7 +125,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         }
     }
 
-    public void setEnclosedElements(final List<Symbol> elements) {
+    public void setEnclosedElements(final List<? extends Symbol> elements) {
         elements.forEach(this::addEnclosedElement);
     }
 
@@ -166,10 +166,6 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     }
 
     private void resolveQualifiedName() {
-        if (qualifiedName != null && qualifiedName.contains("$")) {
-            throw new IllegalStateException();
-        }
-
         if (qualifiedName != null) {
             return;
         }

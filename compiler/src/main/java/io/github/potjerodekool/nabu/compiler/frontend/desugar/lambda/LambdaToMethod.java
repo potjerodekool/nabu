@@ -7,7 +7,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymb
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.*;
@@ -134,7 +134,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
 
             final var param = TreeMaker.variableDeclarator(
                     Kind.PARAMETER,
-                    new CModifiers(),
+                    new Modifiers(),
                     createTypeExpression(originalElement.asType()),
                     IdentifierTree.create(originalElement.getSimpleName()),
                     null,
@@ -172,7 +172,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
                 .map(parameterElement -> {
                     final var parameter = TreeMaker.variableDeclarator(
                             Kind.PARAMETER,
-                            new CModifiers(),
+                            new Modifiers(),
                             createTypeExpression(parameterElement.asType()),
                             IdentifierTree.create(parameterElement.getSimpleName()),
                             null,

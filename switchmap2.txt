@@ -1,0 +1,17 @@
+class TT$1 {
+
+    final static int[] $SwitchMap$foo$State;
+
+    static {
+        $SwitchMap$State = new int[State.values().length];
+
+        try {
+            TT.$SwitchMap$State[State.ON.orinal()] = 1;
+        } catch (NoSuchFieldError e) {
+        }
+        try {
+            TT.$SwitchMap$State[State.OFF.orinal()] = 2
+        } catch (NoSuchFieldError e) {
+        }
+    }
+}

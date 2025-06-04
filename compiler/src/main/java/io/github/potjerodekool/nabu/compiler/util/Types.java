@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.type.*;
-import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 
 import java.util.List;
 

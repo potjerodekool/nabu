@@ -4,12 +4,11 @@ import io.github.potjerodekool.nabu.compiler.TestClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.tree.ImportItem;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
@@ -60,7 +59,7 @@ class TypeEnterTest {
         clazz.setEnclosingElement(packageSymbol);
 
         final var classDeclaration = new ClassDeclarationBuilder()
-                .modifiers(new CModifiers())
+                .modifiers(new Modifiers())
                 .build();
         final var compilationUnit = new CCompilationTreeUnit(
                 null,
@@ -103,7 +102,7 @@ class TypeEnterTest {
         clazz.setEnclosingElement(packageSymbol);
 
         final var classDeclaration = new ClassDeclarationBuilder()
-                .modifiers(new CModifiers())
+                .modifiers(new Modifiers())
                 .build();
         final var compilationUnit = new CCompilationTreeUnit(
                 null,
@@ -162,7 +161,7 @@ class TypeEnterTest {
                 .build();
 
         final var classDeclaration = new ClassDeclarationBuilder()
-                .modifiers(new CModifiers())
+                .modifiers(new Modifiers())
                 .enclosedElements(List.of(constructor))
                 .build();
 
@@ -204,14 +203,10 @@ class TypeEnterTest {
 
     @Test
     void starImportItem() {
-        /*
-        final var importItems = List.of(
-                createImportItem("java.lang.Class", false),
-                createImportItem("java.util.*", false),
-                createImportItem("java.util.List.*", true),
-                createImportItem("java.util.List.of", true)
-        );
-*/
+        loader.loadClass(null, "java.util.List");
+        loader.loadClass(null, "java.util.Iterator");
+        loader.loadClass(null, "java.util.Collection");
+
         final var compilationUnit = doImport(createImportItem("java.util.*", false));
 
         final var importedClassNames = getClasses(compilationUnit).stream()
@@ -221,6 +216,7 @@ class TypeEnterTest {
         assertEquals(
                 List.of(
                         "java.util.List",
+                        "java.util.Iterator",
                         "java.util.Collection"
                 ),
                 importedClassNames
@@ -238,6 +234,7 @@ class TypeEnterTest {
 
         assertEquals(
                 List.of(
+                        "iterator",
                         "of"
                 ),
                 importedMethodNames
@@ -287,26 +284,13 @@ class TypeEnterTest {
                 .build();
 
         final var classDeclaration = new ClassDeclarationBuilder()
-                .modifiers(new CModifiers(0))
+                .modifiers(new Modifiers(0))
                 .build();
-
-        final var listClass = (ClassSymbol) loader.loadClass(
-                null,
-                "java.util.List"
-        );
 
         loader.loadClass(
                 null,
                 "java.util.Collection"
         );
-
-        final var method = new MethodSymbolBuilderImpl()
-                .kind(ElementKind.METHOD)
-                .enclosingElement(listClass)
-                .simpleName("of")
-                .build();
-
-        listClass.addEnclosedElement(method);
 
         final var compilationUnit = new CCompilationTreeUnit(
                 null,

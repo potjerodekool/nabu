@@ -148,8 +148,6 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
     private void visitParameters(final MethodHeader methodHeader,
                                  final Frame frame) {
-
-
         methodHeader.parameters().forEach(parameter ->
                 frame.allocateLocal(parameter.name(), parameter.type(), true)
         );
@@ -211,6 +209,10 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     public Temp visitConst(final Const cnst,
                            final Frame frame) {
         final var value = cnst.getValue();
+
+        if (value == null) {
+            return null;
+        }
 
         if (value instanceof Boolean b) {
             methodWriter.visitInsn(b ? Opcodes.ICONST_1 : Opcodes.ICONST_0);
@@ -330,7 +332,17 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             left.accept(this, frame);
 
             final var tag = binOp.getTag();
-            final var type = getBigestType(methodWriter.peek2());
+            final var top2 = methodWriter.peek2();
+            final var type = getBigestType(top2);
+
+            if (top2[1] == null) {
+                if (tag == Tag.EQ) {
+                    methodWriter.visitJumpInsn(Opcodes.IFNONNULL, falseLabel);
+                } else if (tag == Tag.NE) {
+                    methodWriter.visitJumpInsn(Opcodes.IFNULL, falseLabel);
+                }
+                return;
+            }
 
             if (type == Type.BYTE_TYPE
                     || type == Type.SHORT_TYPE
@@ -502,7 +514,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         for (int i = 1; i < typeArray.length; i++) {
             final var type = typeArray[i];
-            if (type.getSize() > biggest.getSize()) {
+            if (type != null
+                    && type.getSize() > biggest.getSize()) {
                 biggest = type;
             }
         }
@@ -871,31 +884,10 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
             final var left = binOp.getLeft();
             final var right = binOp.getRight();
 
-            if (left instanceof IFieldAccess fieldAccess) {
-                right.accept(this, frame);
+            switch (left) {
+                case IFieldAccess fieldAccess -> {
+                    right.accept(this, frame);
 
-                final var owner = ClassUtils.getInternalName(getNameString(fieldAccess.getSelected()));
-
-                final var name = fieldAccess.getName();
-                final var fieldType = fieldAccess.getFieldType();
-                final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldType);
-                final var opcode = fieldAccess.isStatic()
-                        ? Opcodes.PUTSTATIC
-                        : Opcodes.PUTFIELD;
-                methodWriter.visitFieldInsn(
-                        opcode,
-                        owner,
-                        name,
-                        descriptor
-                );
-            } else if (left instanceof ExpList expList) {
-                final var list = expList.getList();
-                list.getFirst().accept(this, frame);
-                right.accept(this, frame);
-
-                final var last = list.getLast();
-
-                if (last instanceof IFieldAccess fieldAccess) {
                     final var owner = ClassUtils.getInternalName(getNameString(fieldAccess.getSelected()));
 
                     final var name = fieldAccess.getName();
@@ -910,11 +902,38 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                             name,
                             descriptor
                     );
-                } else {
-                    throw new TodoException();
                 }
-            } else {
-                throw new TodoException();
+                case ExpList expList -> {
+                    final var list = expList.getList();
+                    list.getFirst().accept(this, frame);
+                    right.accept(this, frame);
+
+                    final var last = list.getLast();
+
+                    if (last instanceof IFieldAccess fieldAccess) {
+                        final var owner = ClassUtils.getInternalName(getNameString(fieldAccess.getSelected()));
+
+                        final var name = fieldAccess.getName();
+                        final var fieldType = fieldAccess.getFieldType();
+                        final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldType);
+                        final var opcode = fieldAccess.isStatic()
+                                ? Opcodes.PUTSTATIC
+                                : Opcodes.PUTFIELD;
+                        methodWriter.visitFieldInsn(
+                                opcode,
+                                owner,
+                                name,
+                                descriptor
+                        );
+                    } else {
+                        throw new TodoException();
+                    }
+                }
+                case TempExpr tempExpr ->  {
+                    right.accept(this, frame);
+                    store(tempExpr.getTemp().getIndex(), frame);
+                }
+                default -> throw new TodoException();
             }
         } else {
             binOp.getLeft().accept(this, frame);
@@ -978,8 +997,9 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     }
 
     @Override
-    public void visitThrowStatement(final IThrowStatement throwStatement, final Frame param) {
-        throw new TodoException();
+    public void visitThrowStatement(final IThrowStatement throwStatement, final Frame frame) {
+        throwStatement.getExp().accept(this,  frame);
+        methodWriter.visitInsn(Opcodes.ATHROW);
     }
 
     @Override
@@ -1168,6 +1188,26 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 keys,
                 labels
         );
+    }
+
+    @Override
+    public Temp visitArrayLoad(final ArrayLoad arrayLoad, final Frame param) {
+        arrayLoad.getExpression().accept(this, param);
+        arrayLoad.getIndexExpression().accept(this, param);
+        final var top = methodWriter.peek();
+
+        switch (top.getSort()) {
+            case Type.BOOLEAN, Type.BYTE -> methodWriter.visitInsn(Opcodes.BALOAD);
+            case Type.CHAR ->  methodWriter.visitInsn(Opcodes.CALOAD);
+            case Type.SHORT -> methodWriter.visitInsn(Opcodes.SALOAD);
+            case Type.INT -> methodWriter.visitInsn(Opcodes.IALOAD);
+            case Type.FLOAT -> methodWriter.visitInsn(Opcodes.FLOAD);
+            case Type.LONG -> methodWriter.visitInsn(Opcodes.LLOAD);
+            case Type.DOUBLE -> methodWriter.visitInsn(Opcodes.DLOAD);
+            default -> methodWriter.visitInsn(Opcodes.AALOAD);
+        }
+
+        return null;
     }
 }
 

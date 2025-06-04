@@ -101,4 +101,8 @@ public interface CodeVisitor<P> {
     default void visitSwitchStatement(ISwitchStatement switchStatement, P param) {
         visitUnknown(switchStatement, param);
     }
+
+    default Temp visitArrayLoad(ArrayLoad arrayLoad, P param) {
+        return visitUnknown(arrayLoad, param);
+    }
 }

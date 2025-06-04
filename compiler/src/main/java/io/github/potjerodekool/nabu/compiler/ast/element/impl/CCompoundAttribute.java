@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValue;
 import io.github.potjerodekool.nabu.compiler.ast.element.CompoundAttribute;
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 import java.util.HashMap;
 import java.util.Map;

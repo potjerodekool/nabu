@@ -56,7 +56,8 @@ public abstract class Symbol implements Element {
 
     public static String createFlatName(final Symbol owner,
                                         final String name) {
-        if (owner == null) {
+        if (owner == null || owner instanceof PackageSymbol packageSymbol
+            && packageSymbol.isUnnamed()) {
             return name;
         } else {
             final var separator = owner.getKind().isDeclaredType() ? '$' : '.';

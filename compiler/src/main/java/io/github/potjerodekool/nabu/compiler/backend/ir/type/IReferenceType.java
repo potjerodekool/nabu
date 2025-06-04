@@ -16,6 +16,10 @@ public final class IReferenceType extends IType {
     private final String name;
     private final List<IType> typeArguments;
 
+    public static IReferenceType createClassType(final String name) {
+        return createClassType(null,name, List.of());
+    }
+
     public static IReferenceType createClassType(final IReferenceType enclosingType,
                                                  final String name,
                                                  final List<IType> typeArguments) {

@@ -3,13 +3,17 @@ package io.github.potjerodekool;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.util.TraceClassVisitor;
 
+import javax.swing.*;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 
 public class ByteCodePrinter {
 
     public static void print(final String resourceName) {
-        try (var input = ByteCodePrinter.class.getClassLoader().getResourceAsStream(resourceName)) {
+        try (var input = getInputStream(resourceName)) {
             final var reader = new ClassReader(
                     input.readAllBytes()
             );
@@ -23,6 +27,20 @@ public class ByteCodePrinter {
 
             print(visitor.p.getText());
         } catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static InputStream getInputStream(final String resourceName) {
+        final var input = ByteCodePrinter.class.getClassLoader().getResourceAsStream(resourceName);
+
+        if (input != null) {
+            return input;
+        }
+
+        try {
+            return new FileInputStream(resourceName);
+        } catch (final FileNotFoundException e) {
             throw new RuntimeException(e);
         }
     }

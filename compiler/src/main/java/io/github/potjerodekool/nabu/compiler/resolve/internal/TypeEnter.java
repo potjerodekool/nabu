@@ -22,15 +22,9 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccessExpressionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CPrimitiveTypeTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.ExpressionStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.ReturnStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
@@ -77,28 +71,32 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
     public void complete(final Symbol symbol) throws CompleteException {
         symbol.setCompleter(Completer.NULL_COMPLETER);
 
-        if (symbol instanceof ClassSymbol currentClass) {
-            if (currentClass.getNestingKind() == NestingKind.TOP_LEVEL) {
-                final var moduleElement = findModuleElement(currentClass);
-                final var compilationUnit = findCompilationUnit(currentClass);
-                fillImports(moduleElement, compilationUnit);
+        try {
+            if (symbol instanceof ClassSymbol currentClass) {
+                if (currentClass.getNestingKind() == NestingKind.TOP_LEVEL) {
+                    final var moduleElement = findModuleElement(currentClass);
+                    final var compilationUnit = findCompilationUnit(currentClass);
+                    fillImports(moduleElement, compilationUnit);
+                }
+
+                final var classDeclaration = this.symbolToTreeMap.get(symbol);
+
+                if (currentClass.getMembers() == null) {
+                    currentClass.setMembers(new WritableScope());
+                }
+
+                classDeclaration.accept(this, currentClass);
+
+                final var typeEnter = this.typeEnterMap.get(currentClass.getKind());
+
+                if (typeEnter != null) {
+                    typeEnter.complete(currentClass);
+                }
+
+                completeClass(currentClass, classDeclaration);
             }
-
-            final var classDeclaration = this.symbolToTreeMap.get(symbol);
-
-            if (currentClass.getMembers() == null) {
-                currentClass.setMembers(new WritableScope());
-            }
-
-            classDeclaration.accept(this, currentClass);
-
-            final var typeEnter = this.typeEnterMap.get(currentClass.getKind());
-
-            if (typeEnter != null) {
-                typeEnter.complete(currentClass);
-            }
-
-            completeClass(currentClass, classDeclaration);
+        } catch (final Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -152,6 +150,14 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                 .filter(ImportItem::isStarImport)
                 .forEach(importItem -> visitImportItem(importItem, moduleElement, compilationUnit));
 
+        final var packageDeclaration = compilationUnit.getPackageDeclaration();
+
+        if (packageDeclaration != null) {
+            final var enclosedElements = packageDeclaration.getPackageElement().getEnclosedElements();
+            final var namedImportScope = compilationUnit.getNamedImportScope();
+            enclosedElements.forEach(namedImportScope::define);
+        }
+
         loader.importJavaLang(compilationUnit.getNamedImportScope());
     }
 
@@ -187,9 +193,8 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                 final var packageSymbol = importStarImport(moduleElement, classOrPackageName, compilationUnit);
 
                 if (packageSymbol != null) {
-                    packageSymbol.getMembers().elements().forEach(element -> {
-                        compilationUnit.getNamedImportScope().define(element);
-                    });
+                    packageSymbol.getMembers().elements().forEach(element ->
+                            compilationUnit.getNamedImportScope().define(element));
                     importItem.setSymbol(packageSymbol);
                 }
 
@@ -301,8 +306,6 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
 
         final var type = (CClassType) currentClass.asType();
         type.setTypeArguments(typeArguments);
-
-        final var name = classDeclaration.getSimpleName();
 
         classDeclaration.getEnclosedElements().forEach(enclosedElement -> enclosedElement.accept(this, currentClass));
         return classDeclaration;
@@ -694,7 +697,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                 .simpleName(Constants.INIT)
                 .kind(Kind.CONSTRUCTOR)
                 .returnType(returnType)
-                .modifiers(new CModifiers(List.of(), accessFlags))
+                .modifiers(new Modifiers(List.of(), accessFlags))
                 .body(body)
                 .build();
 
@@ -787,6 +790,11 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
                                         final ClassDeclaration classDeclaration,
                                         final CFunction constructor) {
         final var body = constructor.getBody();
+
+        if (body == null) {
+            return;
+        }
+
         final var statements = new ArrayList<>(body.getStatements());
         final var statementCount = statements.size();
 
@@ -897,5 +905,51 @@ public class TypeEnter implements Completer, TreeVisitor<Object, ClassSymbol> {
         }
 
         return false;
+    }
+
+    @Override
+    public Object visitNewClass(final NewClassExpression newClassExpression, final ClassSymbol currentClass) {
+        newClassExpression.getName().accept(this, currentClass);
+        return null;
+    }
+
+    @Override
+    public Object visitThrowStatement(final ThrowStatement throwStatement, final ClassSymbol currentClass) {
+        throwStatement.getExpression().accept(this, currentClass);
+        return null;
+    }
+
+    @Override
+    public Object visitIfStatement(final IfStatementTree ifStatementTree, final ClassSymbol currentClass) {
+        ifStatementTree.getExpression().accept(this, currentClass);
+        ifStatementTree.getThenStatement().accept(this, currentClass);
+        if (ifStatementTree.getElseStatement() != null) {
+            ifStatementTree.getElseStatement().accept(this, currentClass);
+        }
+
+        return null;
+    }
+
+    @Override
+    public Object visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final ClassSymbol currentClass) {
+        if (wildCardExpression.getBoundKind() != BoundKind.UNBOUND) {
+            wildCardExpression.getBound().accept(this, currentClass);
+        }
+
+        final var type = wildCardExpression.getBound().getType();
+
+        TypeMirror extendsBound = null;
+        TypeMirror superBound = null;
+
+        if (wildCardExpression.getBoundKind() == BoundKind.EXTENDS) {
+            extendsBound = type;
+        } else if (wildCardExpression.getBoundKind() == BoundKind.SUPER) {
+            superBound = type;
+        }
+
+        final var wilcardType = types.getWildcardType(extendsBound, superBound);
+        wildCardExpression.setType(wilcardType);
+
+        return wildCardExpression;
     }
 }

@@ -1,7 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
+import io.github.potjerodekool.nabu.compiler.TestClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
@@ -12,10 +17,16 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
+import io.github.potjerodekool.nabu.compiler.backend.postir.canon.Canon;
+import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
+import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CVoidType;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 
@@ -23,9 +34,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType.createClassType;
+import static java.util.List.of;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class AsmMethodByteCodeGeneratorTest {
+
+    private final TestClassElementLoader loader = new TestClassElementLoader();
 
     private ClassWriter createClassWriter() {
         final var writer = new ClassWriter(ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES);
@@ -60,24 +75,15 @@ class AsmMethodByteCodeGeneratorTest {
     void generate() {
         final var call = new IExpressionStatement(new Call(
                 InvocationType.STATIC,
-                IReferenceType.createClassType(
-                        null,
-                        "OtherClass",
-                        List.of()
-                ),
+                createClassType("OtherClass"),
                 new Name("someMethod"),
                 IPrimitiveType.VOID,
-                List.of(
-                        IPrimitiveType.BOOLEAN
-                ),
-                List.of(new Unop(
-                        Tag.NOT,
-                        new Const(true)
-                ))
+                of(IPrimitiveType.BOOLEAN),
+                of(new Unop(Tag.NOT, new Const(true)))
         ));
 
         final var method = createMethod(
-                List.of(call)
+                of(call)
         );
 
         final var methodGenerator = createMethodWriter();
@@ -159,10 +165,10 @@ class AsmMethodByteCodeGeneratorTest {
 
     @Test
     void classLiteral() {
-        final var thisType = IReferenceType.createClassType(
+        final var thisType = createClassType(
                 null,
                 "SomeClass",
-                List.of()
+                of()
         );
 
         final var frame = new Frame();
@@ -174,10 +180,10 @@ class AsmMethodByteCodeGeneratorTest {
 
         frame.allocateLocal(
                 "stringType",
-                IReferenceType.createClassType(
+                createClassType(
                         null,
                         "java.lang.String",
-                        List.of()
+                        of()
                 ),
                 false
         );
@@ -188,10 +194,10 @@ class AsmMethodByteCodeGeneratorTest {
                 new IFieldAccess(
                         new Name("java.lang.String"),
                         "class",
-                        IReferenceType.createClassType(
+                        createClassType(
                                 null,
                                 "java.lang.Class",
-                                List.of()
+                                of()
                         ),
                         true
                 )
@@ -201,14 +207,14 @@ class AsmMethodByteCodeGeneratorTest {
                 new IFieldAccess(
                         new Name("SomeClass"),
                         "stringType",
-                        IReferenceType.createClassType(null, "java.lang.class", List.of()),
+                        createClassType(null, "java.lang.class", of()),
                         false
                 ),
                 Tag.ASSIGN,
                 right
         );
 
-        final List<IStatement> statements = List.of(new IExpressionStatement(binOp));
+        final List<IStatement> statements = of(new IExpressionStatement(binOp));
 
         final var method = createMethod(statements);
         final var methodGenerator = createMethodWriter();
@@ -236,10 +242,10 @@ class AsmMethodByteCodeGeneratorTest {
     void stringConcat() {
         final var frame = new Frame();
 
-        final var thisType = IReferenceType.createClassType(
+        final var thisType = createClassType(
                 null,
                 "SomeClass",
-                List.of()
+                of()
         );
 
         frame.allocateLocal(
@@ -254,10 +260,10 @@ class AsmMethodByteCodeGeneratorTest {
         );
 
         final var stringConst = new Const("Hello");
-        stringConst.setType(IReferenceType.createClassType(
+        stringConst.setType(createClassType(
                 null,
                 "java.lang.String",
-                List.of()
+                of()
         ));
 
         final var binOp = new BinOp(
@@ -265,23 +271,23 @@ class AsmMethodByteCodeGeneratorTest {
                 Tag.ADD,
                 new Call(
                         InvocationType.VIRTUAL,
-                        IReferenceType.createClassType(
+                        createClassType(
                                 null,
                                 "SomeClass",
-                                List.of()
+                                of()
                         ),
                         new Name("getName"),
-                        IReferenceType.createClassType(
+                        createClassType(
                                 null,
                                 "java.lang.String",
-                                List.of()
+                                of()
                         ),
-                        List.of(),
-                        List.of(thisExp)
+                        of(),
+                        of(thisExp)
                 )
         );
 
-        final List<IStatement> statements = List.of(new IExpressionStatement(binOp));
+        final List<IStatement> statements = of(new IExpressionStatement(binOp));
 
         final var method = createMethod(statements);
         final var methodGenerator = createMethodWriter();
@@ -325,10 +331,10 @@ class AsmMethodByteCodeGeneratorTest {
 
         final var newArrayExpression = new ITypeExpression(
                 ITypeExpression.Kind.NEWARRAY,
-                IReferenceType.createClassType(
+                createClassType(
                         null,
                         "java.lang.String",
-                        List.of()
+                        of()
                 ),
                 new Const(2)
         );
@@ -358,15 +364,15 @@ class AsmMethodByteCodeGeneratorTest {
         final var fieldAccess = new IFieldAccess(
                 new Name("SomeClass"),
                 "text",
-                IReferenceType.createClassType(
+                createClassType(
                         null,
                         "java.lang.String",
-                        List.of()
+                        of()
                 ),
                 false
         );
 
-        final var statements = List.of(
+        final var statements = of(
                 new IExpressionStatement(fieldAccess),
                 new Move(
                         new TempExpr(),
@@ -385,17 +391,17 @@ class AsmMethodByteCodeGeneratorTest {
         final var methodGenerator = createMethodWriter();
 
         final var fieldAccess = new IFieldAccess(
-                new TempExpr(0, IReferenceType.createClassType(null, "SomeClass", List.of())),
+                new TempExpr(0, createClassType(null, "SomeClass", of())),
                 "text",
-                IReferenceType.createClassType(
+                createClassType(
                         null,
                         "java.lang.String",
-                        List.of()
+                        of()
                 ),
                 false
         );
 
-        final var statements = List.of(
+        final var statements = of(
                 new IExpressionStatement(fieldAccess),
                 new Move(
                         new TempExpr(),
@@ -421,7 +427,7 @@ class AsmMethodByteCodeGeneratorTest {
                 new ILabel[]{oneLabel}
         );
 
-        final var method = createMethod(List.of(
+        final var method = createMethod(of(
                 switchStatement,
                 new ILabelStatement(oneLabel),
                 new ILabelStatement(defaultLabel)
@@ -429,7 +435,146 @@ class AsmMethodByteCodeGeneratorTest {
         final var methodGenerator = createMethodWriter();
         methodGenerator.generate(method);
         methodGenerator.getTextifier().getText().forEach(System.out::print);
-
     }
+
+    @Test
+    void test() {
+        final var symbol = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.LOCAL_VARIABLE)
+                .simpleName("result")
+                .type(new CPrimitiveType(TypeKind.BOOLEAN))
+                .build();
+
+        final var l = List.of(
+                new IVariableDeclaratorStatement(
+                        symbol,
+                        IPrimitiveType.BOOLEAN,
+                        new Const(false),
+                        new TempExpr(2, IPrimitiveType.BOOLEAN)
+                ),
+                new CJump(
+                        Tag.EQ,
+                        new BinOp(
+                                new TempExpr(1, createClassType("java.lang.String")),
+                                Tag.EQ,
+                                new Const(null)
+                        ),
+                        new Const(1),
+                        new ILabel("L18"),
+                        new ILabel("L19")
+                ),
+                new ILabelStatement(new ILabel("L18")),
+                new IExpressionStatement(
+                        new BinOp(
+                                new TempExpr(2, IPrimitiveType.BOOLEAN),
+                                Tag.ASSIGN,
+                                new Const(true)
+                        )
+                ),
+                new Jump(new ILabel("L20")),
+                new ILabelStatement(new ILabel("L19")),
+                new CJump(
+                        Tag.EQ
+                        ,new BinOp(
+                                new TempExpr(1, createClassType("java.lang.String")),
+                                Tag.NE,
+                                new Const(null)
+                        ),
+                        new Const(1),
+                        new ILabel("L15"),
+                        new ILabel("L17")
+                ),
+                new ILabelStatement(new ILabel("L15")),
+                new IExpressionStatement(
+                        new BinOp(
+                                new TempExpr(2, IPrimitiveType.BOOLEAN),
+                                Tag.ASSIGN,
+                                new Const(false)
+                        )
+                ),
+                new Jump(new ILabel("L17")),
+                new ILabelStatement(new ILabel("L17")),
+                new Jump(new ILabel("L20")),
+                new ILabelStatement(new ILabel("L20")),
+                new Move(
+                        new TempExpr(2, IPrimitiveType.BOOLEAN),
+                        new TempExpr(Frame.RV, null)
+                )
+        );
+
+        final var method = createMethod(l);
+
+        final var javaLangPackage = loader.findOrCreatePackage(
+                null,
+                "java.lang"
+        );
+
+        final var stringClass = new ClassSymbolBuilder()
+                .simpleName("String")
+                .enclosingElement(javaLangPackage)
+                .build();
+
+        final var paramType = new CClassType(
+                null,
+                stringClass,
+                List.of()
+        );
+
+        final var parameter = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.PARAMETER)
+                .simpleName("s")
+                .type(paramType)
+                        .build();
+
+        method.addParameter(parameter);
+
+        try (final var ignored = Mockito.mockStatic(IrCleaner.class)) {
+            final var frag = method.getFrag();
+
+            Mockito.when(IrCleaner.cleanUp(ArgumentMatchers.any()))
+                    .thenReturn(frag);
+
+            final var methodGenerator = createMethodWriter();
+            methodGenerator.generate(method);
+            methodGenerator.getTextifier().getText().forEach(System.out::print);
+            final var actual = methodGenerator.getTextifier().getText().stream()
+                    .map(Object::toString)
+                    .collect(Collectors.joining(""));
+
+            final var expected = """
+                        ICONST_0
+                        ISTORE 2
+                       L0
+                        ALOAD 1
+                        IFNONNULL L1
+                       L2
+                        ICONST_1
+                        ISTORE 2
+                       L3
+                        GOTO L4
+                       L1
+                        ALOAD 1
+                        IFNULL L5
+                       L6
+                        ICONST_0
+                        ISTORE 2
+                       L7
+                        GOTO L5
+                       L5
+                        GOTO L4
+                       L4
+                        ILOAD 2
+                        IRETURN
+                        LOCALVARIABLE this LSomeClass; L0 L4 0
+                        LOCALVARIABLE s Ljava/lang/String; L0 L4 1
+                        LOCALVARIABLE result Z L0 L4 2
+                        MAXSTACK = -1
+                        MAXLOCALS = -1
+                    """;
+
+            assertEquals(expected, actual);
+        }
+    }
+
 
 }

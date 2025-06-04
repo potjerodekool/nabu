@@ -8,7 +8,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
@@ -83,7 +83,8 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         componentType.setType(type);
 
         final var arrayTypeTree = new CArrayTypeTree(
-                componentType
+                componentType,
+                List.of()
         );
         arrayTypeTree.setType(arrayType);
 
@@ -91,7 +92,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
                 .kind(Kind.FIELD)
                 .type(arrayTypeTree)
                 .name(new CIdentifierTree("$VALUES"))
-                .modifiers(new CModifiers(Flags.PRIVATE + Flags.STATIC + Flags.FINAL))
+                .modifiers(new Modifiers(Flags.PRIVATE + Flags.STATIC + Flags.FINAL))
                 .build();
 
         final var symbol = symbolCreator.createSymbol(field);
@@ -109,13 +110,13 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         componentType.setType(clazz.asType());
 
         final var arrayType = types.getArrayType(clazz.asType());
-        final var arrayTypeTree = new CArrayTypeTree(componentType);
+        final var arrayTypeTree = new CArrayTypeTree(componentType, List.of());
         arrayTypeTree.setType(arrayType);
 
         final var function = new CFunction(
                 "$values",
                 Kind.METHOD,
-                new CModifiers(
+                new Modifiers(
                         Flags.PRIVATE + Flags.STATIC + Flags.SYNTHETIC
                 ),
                 List.of(),
@@ -177,7 +178,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         final var componentType = new CIdentifierTree(clazz.getSimpleName());
         componentType.setType(clazz.asType());
 
-        final var arrayTypeTree = new CArrayTypeTree(componentType);
+        final var arrayTypeTree = new CArrayTypeTree(componentType, List.of());
         arrayTypeTree.setType(types.getArrayType(componentType.getType()));
 
         final var valuesFieldIdentifier = new CIdentifierTree("$VALUES");
@@ -221,7 +222,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         final var function = new CFunction(
                 "values",
                 Kind.METHOD,
-                new CModifiers(
+                new Modifiers(
                         Flags.PUBLIC + Flags.STATIC
                 ),
                 List.of(),
@@ -255,7 +256,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
 
         final var parameter = new CVariableDeclaratorTree(
                 Kind.PARAMETER,
-                new CModifiers(0),
+                new Modifiers(0),
                 parameterType,
                 new CIdentifierTree("name"),
                 null,
@@ -317,7 +318,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         final var function = new CFunction(
                 "valueOf",
                 Kind.METHOD,
-                new CModifiers(
+                new Modifiers(
                         Flags.PUBLIC + Flags.STATIC
                 ),
                 List.of(),

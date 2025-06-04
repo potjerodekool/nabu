@@ -6,29 +6,29 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.AnnotationTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CModifiers {
+public class Modifiers {
 
     private final List<AnnotationTree> annotations = new ArrayList<>();
     private final long flags;
 
-    public CModifiers() {
+    public Modifiers() {
         this.flags = 0;
     }
 
-    public CModifiers(final long flags) {
+    public Modifiers(final long flags) {
         this(List.of(), flags);
     }
 
-    public CModifiers(final List<? extends AnnotationTree> annotations,
-                      final long flags) {
+    public Modifiers(final List<? extends AnnotationTree> annotations,
+                     final long flags) {
         this.annotations.addAll(annotations);
         this.flags = flags;
     }
 
-    public CModifiers with(final long flag) {
+    public Modifiers with(final long flag) {
         final var newFlags = flags + flag;
 
-        return new CModifiers(
+        return new Modifiers(
                 annotations,
                 newFlags
         );

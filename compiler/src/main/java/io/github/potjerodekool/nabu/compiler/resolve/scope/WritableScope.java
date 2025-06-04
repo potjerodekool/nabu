@@ -57,6 +57,14 @@ public class WritableScope implements Scope {
         }
     }
 
+    //Temporary hack
+    public Element resolveElement(final String name) {
+        return elements.stream()
+                .filter(it -> it.getSimpleName().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
     private Element resolveByName(final String name) {
         final var list = new ArrayList<>(this.elements);
         return ElementFilter.typesIn(list).stream()

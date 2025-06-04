@@ -8,12 +8,12 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class AbstractSymbolBuilder<E, EB extends AbstractSymbolBuilder<E, EB>> {
+public abstract class AbstractSymbolBuilder<EB extends AbstractSymbolBuilder<EB>> {
 
     protected String simpleName;
     protected ElementKind kind;
     protected Element enclosingElement;
-    private final List<E> enclosedElements = new ArrayList<>();
+    private final List<Symbol> enclosedElements = new ArrayList<>();
     protected long flags = 0;
     protected final List<AnnotationMirror> annotations = new ArrayList<>();
 
@@ -74,16 +74,16 @@ public abstract class AbstractSymbolBuilder<E, EB extends AbstractSymbolBuilder<
         return self();
     }
 
-    public List<E> getEnclosedElements() {
+    public List<? extends Symbol> getEnclosedElements() {
         return enclosedElements;
     }
 
-    public EB enclosedElement(final E enclosedElement) {
+    public EB enclosedElement(final Symbol enclosedElement) {
         this.enclosedElements.add(enclosedElement);
         return self();
     }
 
-    public EB enclosedElements(final List<E> enclosedElements) {
+    public EB enclosedElements(final List<? extends Symbol> enclosedElements) {
         this.enclosedElements.clear();
         this.enclosedElements.addAll(enclosedElements);
         return self();

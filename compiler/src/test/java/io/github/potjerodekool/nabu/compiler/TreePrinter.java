@@ -9,6 +9,7 @@ import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
 
 import java.io.StringWriter;
 import java.util.List;
+import java.util.StringJoiner;
 
 public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
@@ -562,8 +563,12 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         write(";");
 
         if (!forStatement.getForUpdate().isEmpty()) {
-            writeList(forStatement.getForUpdate(), param, ", ");
-            write(";");
+            final var updates = forStatement.getForUpdate().stream()
+                    .map(it -> (ExpressionStatementTree) it)
+                    .map(ExpressionStatementTree::getExpression)
+                            .toList();
+
+            writeList(updates, param, ", ");
         }
         write(")");
 
@@ -591,13 +596,25 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             return null;
         }
 
+        if (variableDeclaratorStatement.getKind() == Kind.RESOURCE_VARIABLE
+            || variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE) {
+            write("var ");
+        }
+
         if (variableDeclaratorStatement.getKind()
-                != Kind.ENUM_CONSTANT) {
-            variableDeclaratorStatement.getType().accept(this, param);
+                != Kind.ENUM_CONSTANT &&
+                printModifierFlags(variableDeclaratorStatement.getFlags())) {
             write(" ");
         }
 
         variableDeclaratorStatement.getName().accept(this, param);
+
+        if (variableDeclaratorStatement.getKind() != Kind.ENUM_CONSTANT
+            && variableDeclaratorStatement.getType() != null
+            && !(variableDeclaratorStatement.getType() instanceof VariableTypeTree)) {
+            write(" : ");
+            variableDeclaratorStatement.getType().accept(this, param);
+        }
 
         if (variableDeclaratorStatement.getKind() == Kind.ENUM_CONSTANT) {
             final var value = variableDeclaratorStatement.getValue();
@@ -625,6 +642,38 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         }
 
         return null;
+    }
+
+    private boolean printModifierFlags(final long flags) {
+        final var modifiers = new StringJoiner(" ");
+
+        if (Flags.hasFlag(flags, Flags.PUBLIC)) {
+            modifiers.add("public");
+        }
+
+        if (Flags.hasFlag(flags, Flags.ABSTRACT)) {
+            modifiers.add("abstract");
+        }
+
+        if (Flags.hasFlag(flags, Flags.PRIVATE)) {
+            modifiers.add("private");
+        }
+
+        if (Flags.hasFlag(flags, Flags.PROTECTED)) {
+            modifiers.add("protected");
+        }
+
+        if (Flags.hasFlag(flags, Flags.STATIC)) {
+            modifiers.add("static");
+        }
+
+        if (Flags.hasFlag(flags, Flags.FINAL)) {
+            modifiers.add("final");
+        }
+
+        write(modifiers.toString());
+
+        return modifiers.length() > 0;
     }
 
     @Override
@@ -701,7 +750,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                                             final Object param) {
         write("for (");
         visitLocalVariable(enhancedForStatement.getLocalVariable(), param);
-        write(" : ");
+        write(" in ");
         enhancedForStatement.getExpression().accept(this, param);
         writeLine(")");
         enhancedForStatement.getStatement().accept(this, param);
@@ -1050,7 +1099,21 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         return null;
     }
 
+    @Override
+    public Object visitUnaryExpression(final UnaryExpressionTree unaryExpression, final Object param) {
+        final var tag = unaryExpression.getTag();
+        unaryExpression.getExpression().accept(this, param);
+
+        if (tag == Tag.POST_INC) {
+            write("++");
+        } else if (tag == Tag.POST_DEC) {
+            write("--");
+        }
+        return null;
+    }
+
     public String getText() {
         return writer.toString();
     }
+
 }

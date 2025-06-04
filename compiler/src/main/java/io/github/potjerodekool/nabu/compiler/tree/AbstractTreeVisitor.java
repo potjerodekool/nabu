@@ -187,7 +187,10 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     @Override
     public R visitNewClass(final NewClassExpression newClassExpression, final P param) {
         newClassExpression.getName().accept(this, param);
-        newClassExpression.getClassDeclaration().accept(this, param);
+
+        if (newClassExpression.getClassDeclaration() != null) {
+            newClassExpression.getClassDeclaration().accept(this, param);
+        }
         newClassExpression.getArguments().forEach(arg -> arg.accept(this, param));
         return defaultAnswer(newClassExpression, param);
     }
@@ -232,5 +235,24 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         switchStatement.getSelector().accept(this, param);
         switchStatement.getCases().forEach(caseStatement -> caseStatement.accept(this, param));
         return defaultAnswer(switchStatement, param);
+    }
+
+    @Override
+    public R visitCaseStatement(final CaseStatement caseStatement, final P param) {
+        caseStatement.getLabels().forEach(label -> label.accept(this, param));
+        caseStatement.getBody().accept(this, param);
+        return defaultAnswer(caseStatement, param);
+    }
+
+    @Override
+    public R visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final P param) {
+        constantCaseLabel.getExpression().accept(this, param);
+        return defaultAnswer(constantCaseLabel, param);
+    }
+
+    @Override
+    public R visitThrowStatement(final ThrowStatement throwStatement, final P param) {
+        throwStatement.getExpression().accept(this, param);
+        return TreeVisitor.super.visitThrowStatement(throwStatement, param);
     }
 }

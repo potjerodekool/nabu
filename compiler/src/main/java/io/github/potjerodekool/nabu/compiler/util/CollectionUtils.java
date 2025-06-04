@@ -1,11 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.util;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Spliterator;
+import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -50,6 +49,13 @@ public final class CollectionUtils {
         for (int i = 0; i < list.size(); i++) {
             consumer.accept(i, list.get(i));
         }
+    }
+
+    public static <E> Stream<Pair<Integer, E>> streamWithIndex(final Collection<E> collection) {
+        return StreamSupport.stream(
+                new SpliteratorWithIndex<E>(collection),
+                false
+        );
     }
 
     /**
@@ -121,6 +127,46 @@ class PairSpliterator<A, B> implements Spliterator<Pair<A, B>> {
     @Override
     public long estimateSize() {
         return left.size();
+    }
+
+    @Override
+    public int characteristics() {
+        return SIZED;
+    }
+}
+
+class SpliteratorWithIndex<E> implements Spliterator<Pair<Integer, E>> {
+
+    private final Iterator<E> iterator;
+    private final long size;
+    int position = -1;
+
+    public SpliteratorWithIndex(final Collection<E> collection) {
+        this.iterator = collection.iterator();
+        this.size = collection.size();
+    }
+
+
+    @Override
+    public boolean tryAdvance(final Consumer<? super Pair<Integer, E>> action) {
+        if (iterator.hasNext()) {
+            final var element = iterator.next();
+            position++;
+            action.accept(new Pair<>(position, element));
+            return iterator.hasNext();
+        }
+
+        return false;
+    }
+
+    @Override
+    public Spliterator<Pair<Integer, E>> trySplit() {
+        return null;
+    }
+
+    @Override
+    public long estimateSize() {
+        return size;
     }
 
     @Override

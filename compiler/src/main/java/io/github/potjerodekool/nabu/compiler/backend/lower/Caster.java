@@ -26,7 +26,7 @@ public class Caster implements TypeVisitor<ExpressionTree, ExpressionTree> {
                         .getReturnType();
 
                 if (methodReturnType instanceof TypeVariable) {
-                    final var className = ((TypeElement) ((DeclaredType) methodTypeReturnType).asElement()).getQualifiedName();
+                    final var className = ((TypeElement) methodTypeReturnType.asElement()).getQualifiedName();
                     final var identifier = IdentifierTree.create(className);
                     identifier.setType(methodTypeReturnType);
 

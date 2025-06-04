@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.dependencyinjection.ApplicationContext;
+import io.github.potjerodekool.nabu.compiler.TestClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
@@ -14,12 +15,21 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.impl.CConstantCaseLabel;
+import io.github.potjerodekool.nabu.compiler.tree.statement.CaseStatement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.SwitchStatement;
+import io.github.potjerodekool.nabu.compiler.tree.statement.builder.SwitchStatementBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CCaseStatement;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
@@ -42,13 +52,13 @@ class LowerTest {
             new ApplicationContext(),
             new NabuCFileManager()
     );
-    private final ClassSymbolLoader loader = compilerContext.getClassElementLoader();
+    private final ClassSymbolLoader loader = new TestClassElementLoader();
+
     private final Types types = loader.getTypes();
     private Lower lower;
 
     @BeforeEach
     void setup() {
-        final var context = mock(CompilerContextImpl.class);
         final var methodResolver = mock(MethodResolver.class);
 
         final var clazz = new ClassSymbolBuilder()
@@ -71,12 +81,7 @@ class LowerTest {
                         new ArrayList<>()
                 )));
 
-        when(context.getClassElementLoader())
-                .thenReturn(loader);
-        when(context.getMethodResolver())
-                .thenReturn(methodResolver);
-
-        lower = new Lower(context);
+        lower = new Lower(compilerContext);
     }
 
     @Test
@@ -162,7 +167,7 @@ class LowerTest {
 
         final var localVariable = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.LOCAL_VARIABLE)
-                .modifiers(new CModifiers())
+                .modifiers(new Modifiers())
                 .type(stringTypeTree)
                 .name(IdentifierTree.create("s"))
                 .build();
@@ -192,15 +197,113 @@ class LowerTest {
         when(classType.asTypeElement())
                 .thenReturn(clazz);
 
-        final var result = enhancedForStatement.accept(lower, null);
+        final var lowerContext = new LowerContext();
+
+        final var result = enhancedForStatement.accept(lower, lowerContext);
         final var actual = TreePrinter.print(result);
 
         assertEquals(
                 """
-                        for (java.util.Iterator $p0 = list.iterator();$p0.hasNext();){
-                            java.lang.String s = (java.lang.String) $p0.next();
+                        for (var $p0 : java.util.Iterator = list.iterator();$p0.hasNext();){
+                            var s : java.lang.String = (java.lang.String) $p0.next();
                         }
                         """,
+                actual
+        );
+    }
+
+    @Test
+    void visitSwitchWithEnum() {
+        final var methods = SomEnum.class.getDeclaredMethods();
+
+        final var packageSymbol = loader.findOrCreatePackage(
+                null,
+                "foo.bar"
+        );
+
+        final var currentClass = new ClassSymbolBuilder()
+                .kind(ElementKind.CLASS)
+                .simpleName("TT")
+                .enclosingElement(packageSymbol)
+                .build();
+
+        currentClass.setMembers(new WritableScope());
+
+        final var currentClassTree = new ClassDeclarationBuilder()
+                .kind(Kind.CLASS)
+                .simpleName("TT")
+                .build();
+
+        currentClassTree.setClassSymbol(currentClass);
+
+        final var enumClass = loader.loadClass(
+                null,
+                Constants.ENUM
+        );
+
+        final var stateClass = new ClassSymbolBuilder()
+                .simpleName("State")
+                .enclosingElement(packageSymbol)
+                .kind(ElementKind.ENUM)
+                .superclass(enumClass.asType())
+                .build();
+
+        final var onConstant = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.ENUM_CONSTANT)
+                .simpleName("ON")
+                .type(null)
+                .build();
+
+        stateClass.addEnclosedElement(onConstant);
+
+        stateClass.setMembers(new WritableScope());
+
+        final var selector = IdentifierTree.create("state");
+
+        final var stateVariable = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.LOCAL_VARIABLE)
+                .simpleName("state")
+                .type(stateClass.asType())
+                .build();
+
+        selector.setSymbol(stateVariable);
+
+        final var caselabel = new CConstantCaseLabel(
+                IdentifierTree.create("ON"),
+                -1,
+                -1
+        );
+
+        final var caseStatement = new CCaseStatement(
+                CaseStatement.CaseKind.STATEMENT,
+                List.of(caselabel),
+                new CBlockStatementTree(List.of()),
+                -1,
+                -1
+        );
+
+        final var switchStatement = new SwitchStatementBuilder()
+                .selector(selector)
+                .cases(List.of(caseStatement))
+                .build();
+
+        final var lowerContext = new LowerContext();
+        lowerContext.currentClass = currentClassTree;
+
+        final var result = switchStatement.accept(lower, lowerContext);
+        final var actual = TreePrinter.print(result);
+        final var expected = """
+                switch(foo.bar.TT$1.$SwitchMap$foo$bar$State[state.ordinal()])
+                {
+                    case ON : {
+
+                    }
+
+                }
+                """;
+
+        assertEquals(
+                expected,
                 actual
         );
     }
@@ -225,4 +328,8 @@ class LowerTest {
         tree.setType(typeMirror);
         return tree;
     }
+}
+
+enum SomEnum {
+
 }

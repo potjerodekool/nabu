@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler;
 
 import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.dependencyinjection.ClassPathScanner;
+import io.github.potjerodekool.nabu.compiler.backend.ByteCodePhase;
 import io.github.potjerodekool.nabu.compiler.backend.IRPhase;
 import io.github.potjerodekool.nabu.compiler.diagnostic.ConsoleDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
@@ -20,7 +21,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
-import static io.github.potjerodekool.nabu.compiler.backend.ByteCodePhase.generate;
 import static io.github.potjerodekool.nabu.compiler.CheckPhase.check;
 import static io.github.potjerodekool.nabu.compiler.EnterPhase.enterPhase;
 import static io.github.potjerodekool.nabu.compiler.backend.LowerPhase.lower;
@@ -40,6 +40,8 @@ public class NabuCompiler {
 
     private final ApplicationContext applicationContext = new ApplicationContext();
 
+    private final ByteCodePhase byteCodePhase = new ByteCodePhase();
+
     public void compile(final CompilerOptions compilerOptions) {
         try (final NabuCFileManager fileManager = new NabuCFileManager();
              final var compilerContext = new CompilerContextImpl(
@@ -51,7 +53,7 @@ public class NabuCompiler {
             final var nabuSourceFiles = resolveSourceFiles(fileManager);
             final var compilationUnits = processFiles(nabuSourceFiles, compilerContext);
 
-            final var exitCode = generate(
+            final var exitCode = byteCodePhase.generate(
                     compilationUnits,
                     compilerOptions,
                     errorCapture,
@@ -112,7 +114,7 @@ public class NabuCompiler {
         return compilationUnits.stream()
                 .map(LambdaToMethodPhase::lambdaToMethod)
                 .map(cu -> lower(cu, compilerContext))
-                .map(IRPhase::ir)
+                .map(cu -> IRPhase.ir(compilerContext, cu))
                 .toList();
 
     }

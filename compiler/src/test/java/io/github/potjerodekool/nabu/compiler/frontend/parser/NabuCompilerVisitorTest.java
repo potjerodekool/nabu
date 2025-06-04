@@ -258,7 +258,7 @@ class NabuCompilerVisitorTest {
     @Test
     void tryWithResourcesStatement() {
         parseAndAssert("""
-            try (FileInputStream fis = new FileInputStream(file.txt)) {
+            try (var fis : FileInputStream = new FileInputStream(file.txt)) {
             
             }
             """, NabuParser::tryWithResourcesStatement);
@@ -284,7 +284,7 @@ class NabuCompilerVisitorTest {
     @Test
     void enhancedForStatement() {
         parseAndAssert("""
-            for (var e : list)
+            for (var e in list)
             {
             
             }
@@ -370,10 +370,10 @@ class NabuCompilerVisitorTest {
                 try {
                     call();
                 }
-                catch (CallFailedException e){
+                catch (e : CallFailedException){
                 
                 }
-                catch (Exception e){
+                catch (e : Exception){
                 
                 }
                 finally {
@@ -465,7 +465,28 @@ class NabuCompilerVisitorTest {
                 }
                 """, NabuParser::switchStatement);
 
+    }
 
+    @Test
+    void visitFieldDeclaration() {
+        parseAndAssert("""
+                private name : String = "Hello world!";""", NabuParser::fieldDeclaration);
+    }
+
+    @Test
+    void visitForStatement() {
+        parseAndAssert("""
+            for (var i = 0;i < times;i++){
+                result += 2;
+            }
+            """, NabuParser::statement);
+    }
+
+    @Test
+    void interfaceFunctionDeclaration() {
+        parseAndAssert("""
+                        fun getAnnotationMirrors(): List<? extends AnnotationMirror> ;""",
+                NabuParser::interfaceFunctionDeclaration, actual -> actual + ";");
     }
 
 }

@@ -114,11 +114,6 @@ public class CClassType extends AbstractType implements DeclaredType {
         return !getAllParameters().isEmpty();
     }
 
-    @Override
-    public TypeElement asTypeElement() {
-        return DeclaredType.super.asTypeElement();
-    }
-
     public TypeMirror getSupertypeField() {
         return supertypeField;
     }

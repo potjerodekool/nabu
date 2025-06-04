@@ -45,7 +45,7 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
                  Opcodes.LSTORE,
                  Opcodes.FSTORE,
                  Opcodes.DSTORE,
-                 Opcodes.ASTORE-> pop();
+                 Opcodes.ASTORE -> pop();
         }
     }
 
@@ -58,7 +58,7 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
         super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
 
         if (opcode != Opcodes.INVOKESTATIC
-            && !Constants.INIT.equals(name)) {
+                && !Constants.INIT.equals(name)) {
             pop();
         }
 
@@ -71,7 +71,7 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
         if (returnType.getSort() != Type.VOID) {
             push(returnType);
         } else if (Opcodes.INVOKESPECIAL == opcode
-            && Constants.INIT.equals(name)) {
+                && Constants.INIT.equals(name)) {
             pop();
         }
     }
@@ -144,51 +144,66 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
         if (stack.isEmpty()) {
             return null;
         } else {
-            return stack.get(stack.size() -1 - index);
+            return stack.get(stack.size() - 1 - index);
         }
     }
 
     public Type[] peek2() {
-        return new Type[]{
-                stack.get(stack.size() - 2),
-                stack.getLast()
-        };
+        if (stack.size() > 1) {
+            return new Type[]{
+                    stack.get(stack.size() - 2),
+                    stack.getLast()
+            };
+        } else {
+            return new Type[]{
+                    stack.getLast(),
+                    null
+            };
+        }
     }
 
     @Override
     public void visitInsn(final int opcode) {
         super.visitInsn(opcode);
 
-        if (opcode >= Opcodes.ICONST_M1
-                && opcode <= Opcodes.ICONST_5) {
-            push(Type.INT_TYPE);
-        } else if (opcode == Opcodes.LCONST_0
-                || opcode == Opcodes.LCONST_1) {
-            push(Type.LONG_TYPE);
-        } else if (opcode == Opcodes.FCONST_0
-                || opcode == Opcodes.FCONST_1
-                || opcode == Opcodes.FCONST_2) {
-            push(Type.FLOAT_TYPE);
-        } else if (opcode == Opcodes.DCONST_0
-                || opcode == Opcodes.DCONST_1) {
-            push(Type.DOUBLE_TYPE);
-        } else if (opcode == Opcodes.IRETURN
-                || opcode == Opcodes.LRETURN
-                || opcode == Opcodes.FRETURN
-                || opcode == Opcodes.DRETURN
-                || opcode == Opcodes.ARETURN
-                || opcode == Opcodes.RETURN
-                || opcode == Opcodes.LCMP
-                || opcode == Opcodes.CHECKCAST
-                || opcode == Opcodes.IADD) {
-            //Do nothing
-        } else if (opcode == Opcodes.DUP) {
-            final var top = peek();
-            push(top);
-        } else if (opcode == Opcodes.AASTORE) {
-            pop(3);
-        } else {
-            throw new TodoException("" + opcode);
+        switch (opcode) {
+            case Opcodes.ICONST_M1,
+                 Opcodes.ICONST_0,
+                 Opcodes.ICONST_1,
+                 Opcodes.ICONST_2,
+                 Opcodes.ICONST_3,
+                 Opcodes.ICONST_4,
+                 Opcodes.ICONST_5 -> push(Type.INT_TYPE);
+            case Opcodes.LCONST_0,
+                 Opcodes.LCONST_1 -> push(Type.LONG_TYPE);
+            case Opcodes.FCONST_0,
+                 Opcodes.FCONST_1,
+                 Opcodes.FCONST_2 -> push(Type.FLOAT_TYPE);
+            case Opcodes.DCONST_0,
+                 Opcodes.DCONST_1 -> push(Type.DOUBLE_TYPE);
+            case Opcodes.IRETURN,
+                 Opcodes.LRETURN,
+                 Opcodes.FRETURN,
+                 Opcodes.DRETURN,
+                 Opcodes.ARETURN,
+                 Opcodes.RETURN,
+                 Opcodes.LCMP,
+                 Opcodes.CHECKCAST,
+                 Opcodes.IADD,
+                 Opcodes.ATHROW -> {
+                //Do nothing
+            }
+            case Opcodes.IALOAD -> push(Type.INT_TYPE);
+            case Opcodes.LALOAD -> push(Type.LONG_TYPE);
+            case Opcodes.FALOAD -> push(Type.FLOAT_TYPE);
+            case Opcodes.DALOAD -> push(Type.DOUBLE_TYPE);
+            case Opcodes.BALOAD -> push(Type.BYTE_TYPE);
+            case Opcodes.CALOAD -> push(Type.CHAR_TYPE);
+            case Opcodes.SALOAD -> push(Type.SHORT_TYPE);
+            case Opcodes.DUP -> push(peek());
+            case Opcodes.AASTORE -> pop(3);
+            case Opcodes.IFNONNULL -> push(Type.BOOLEAN_TYPE);
+            default -> throw new TodoException("" + opcode);
         }
     }
 
@@ -246,6 +261,15 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
                 final var name = "[L" + type + ";";
                 push(Type.getType(name));
             }
+        }
+    }
+
+    @Override
+    public void visitJumpInsn(final int opcode, final Label label) {
+        super.visitJumpInsn(opcode, label);
+
+        if (opcode == Opcodes.IFNULL || opcode == Opcodes.IFNONNULL) {
+            pop();
         }
     }
 }

@@ -76,9 +76,9 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
         clazz.setSimpleName(classDeclaration.getSimpleName());
         clazz.setEnclosingElement(packageElement);
 
-        final var classDecl = (CClassDeclaration) classDeclaration;
+        final var clazzDeclaration = (CClassDeclaration) classDeclaration;
 
-        classDecl.setClassSymbol(clazz);
+        clazzDeclaration.setClassSymbol(clazz);
         packageElement.getMembers().define(clazz);
         clazz.setCompleter(typeEnter);
 

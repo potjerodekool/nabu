@@ -21,4 +21,6 @@ public interface TypeElement extends Element, QualifiedNameable {
     }
 
     TypeMirror getErasureField();
+
+    String getFlatName();
 }

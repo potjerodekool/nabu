@@ -1,6 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementFilter;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
@@ -9,13 +12,13 @@ import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
+import io.github.potjerodekool.nabu.compiler.tree.ConstantCaseLabel;
 import io.github.potjerodekool.nabu.compiler.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.ReturnStatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.type.*;
 
 public class ResolverPhase extends AbstractResolver {
@@ -47,6 +50,8 @@ public class ResolverPhase extends AbstractResolver {
         }
 
         clazz.complete();
+
+        compilerContext.getEnumUsageMap().registerClass(classDeclaration);
 
         final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
 
@@ -186,5 +191,31 @@ public class ResolverPhase extends AbstractResolver {
     @Override
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
         return super.visitBinaryExpression(binaryExpression, scope);
+    }
+
+    @Override
+    public Object visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final Scope scope) {
+        final var switchScope = (SwitchScope) scope;
+        final var selectorElement = switchScope.getSelectorElement();
+
+        if (selectorElement instanceof VariableElement variableElement
+            && variableElement.asType().asElement() instanceof TypeElement typeElement
+                && typeElement.getKind() == ElementKind.ENUM
+            && constantCaseLabel.getExpression() instanceof IdentifierTree identifierTree) {
+
+            final var name = identifierTree.getName();
+
+            ElementFilter.enumConstantByName(typeElement, name)
+                    .ifPresent(enumConstant -> {
+                        identifierTree.setSymbol(enumConstant);
+
+                        final var currentClass = scope.getCurrentClass();
+                        compilerContext.getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
+                    });
+
+            return defaultAnswer(constantCaseLabel, scope);
+        }
+
+        return super.visitConstantCaseLabel(constantCaseLabel, scope);
     }
 }

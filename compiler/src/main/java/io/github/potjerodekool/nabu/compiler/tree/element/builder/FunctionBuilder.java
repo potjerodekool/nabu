@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.tree.element.builder;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.builder.TreeBuilder;
@@ -18,7 +18,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
 
     private String simpleName;
     private Kind kind;
-    private CModifiers modifiers;
+    private Modifiers modifiers;
     private final List<TypeParameterTree> typeParameters = new ArrayList<>();
     private final List<VariableDeclaratorTree> parameters = new ArrayList<>();
     private ExpressionTree returnType;
@@ -29,7 +29,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
     private VariableDeclaratorTree receiverParameter;
 
     public FunctionBuilder() {
-        this.modifiers = new CModifiers();
+        this.modifiers = new Modifiers();
     }
 
     public FunctionBuilder(final CFunction function) {
@@ -54,7 +54,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         return kind;
     }
 
-    public CModifiers getModifiers() {
+    public Modifiers getModifiers() {
         return modifiers;
     }
 
@@ -136,7 +136,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         return this;
     }
 
-    public FunctionBuilder modifiers(final CModifiers modifiers) {
+    public FunctionBuilder modifiers(final Modifiers modifiers) {
         this.modifiers = modifiers;
         return this;
     }

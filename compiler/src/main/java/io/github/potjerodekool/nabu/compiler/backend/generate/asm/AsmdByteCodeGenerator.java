@@ -38,8 +38,8 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
     @Override
     public void generate(final ClassDeclaration clazz,
                          final Object options) {
-        final var symbol = (Symbol) clazz.getClassSymbol();
-        symbol.accept(this, options);
+        final var symbol = (ClassSymbol) clazz.getClassSymbol();
+        visitClass(symbol);
     }
 
     @Override
@@ -60,7 +60,8 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
             default -> 0;
         };
 
-        if (classSymbol.getKind() == ElementKind.CLASS) {
+        if (classSymbol.getKind() == ElementKind.CLASS
+            && classSymbol.getNestingKind() == NestingKind.TOP_LEVEL) {
             access += Opcodes.ACC_SUPER;
         }
 
@@ -114,8 +115,17 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
 
     @Override
     public Void visitClass(final ClassSymbol classSymbol, final Object param) {
+        if (classSymbol.getNestingKind() == NestingKind.MEMBER) {
+            visitMemberClass(classSymbol);
+        }
+        return null;
+    }
+
+    private void visitClass(final ClassSymbol classSymbol) {
         final var fileObject = classSymbol.getSourceFile();
-        final var fileName = fileObject.getFileName();
+        final var fileName = fileObject != null
+                ? fileObject.getFileName()
+                : null;
 
         final var access = resolveAccess(classSymbol);
         internalName = getInternalName(classSymbol.getQualifiedName());
@@ -145,8 +155,16 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
         afterProcessClassMembers(classSymbol);
 
         classWriter.visitEnd();
-        return null;
     }
+
+    private void visitMemberClass(final ClassSymbol classSymbol) {
+        final var internalName = getInternalName(classSymbol.getFlatName());
+        final var access = resolveAccess(classSymbol);
+
+        classWriter.visitNestMember(internalName);
+        classWriter.visitInnerClass(internalName, null, null, access);
+    }
+
     public void afterProcessClassMembers(final ClassSymbol classSymbol) {
         if (classSymbol.getKind() == ElementKind.RECORD) {
             new AsmRecordMethodsGenerator()

@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.java.JavaCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.java.JavaCompilerVisitor;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 
 import java.io.IOException;
@@ -25,7 +24,6 @@ public class SourceEnterClasses {
             compilationUnitTree.accept(enterClasses, null);
             return compilationUnitTree;
         } catch (IOException ignored) {
-            ignored.printStackTrace();
         }
         return null;
     }

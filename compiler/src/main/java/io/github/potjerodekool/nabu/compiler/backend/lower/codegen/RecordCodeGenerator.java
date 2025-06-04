@@ -11,7 +11,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.*;
 import io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda.TypeExpressionCreator;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
@@ -200,7 +200,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
         final var function = new CFunction(
                 method.getSimpleName(),
                 Kind.METHOD,
-                new CModifiers(method.getFlags()),
+                new Modifiers(method.getFlags()),
                 List.of(),
                 null,
                 List.of(),

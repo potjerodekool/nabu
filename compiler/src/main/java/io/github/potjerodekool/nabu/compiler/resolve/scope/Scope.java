@@ -33,7 +33,12 @@ public interface Scope {
 
     void define(Element element);
 
-    Element resolve(String name);
+    default Element resolve(String name) {
+        final var parent = getParent();
+        return parent != null
+                ? parent.resolve(name)
+                : null;
+    }
 
     default Element resolve(String name,
                     Predicate<Element> filter) {
@@ -42,6 +47,12 @@ public interface Scope {
 
     default Iterable<Symbol> resolveByName(final String name,
                                            final Predicate<Symbol> filter) {
+        final var parent = getParent();
+
+        if (parent != null) {
+            return parent.resolveByName(name, filter);
+        }
+
         return List.of();
     }
 

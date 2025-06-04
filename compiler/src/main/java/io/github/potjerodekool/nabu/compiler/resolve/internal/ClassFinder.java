@@ -227,7 +227,7 @@ public class ClassFinder {
                     members.define(clazz);
                 }
             } else {
-                throw new IllegalArgumentException("Invalid classname" + className);
+                throw new IllegalArgumentException("Invalid classname " + className);
             }
         });
     }

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement.impl;
 
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
@@ -16,14 +16,14 @@ import java.util.Objects;
 public class CVariableDeclaratorTree extends CStatementTree implements VariableDeclaratorTree {
 
     private final Kind kind;
-    private final CModifiers modifiers;
+    private final Modifiers modifiers;
     private final ExpressionTree type;
     private final IdentifierTree name;
     private final ExpressionTree nameExpression;
     private Tree value;
 
     public CVariableDeclaratorTree(final Kind kind,
-                                   final CModifiers modifiers,
+                                   final Modifiers modifiers,
                                    final ExpressionTree type,
                                    final IdentifierTree name,
                                    final ExpressionTree nameExpression,
@@ -32,7 +32,7 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
     }
 
     public CVariableDeclaratorTree(final Kind kind,
-                                   final CModifiers modifiers,
+                                   final Modifiers modifiers,
                                    final ExpressionTree type,
                                    final IdentifierTree name,
                                    final ExpressionTree nameExpression,

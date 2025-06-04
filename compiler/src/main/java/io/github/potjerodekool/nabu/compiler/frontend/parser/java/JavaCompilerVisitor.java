@@ -7,20 +7,23 @@ import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodDeclarator;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodHeader;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.WildcardBound;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.tree.*;
+import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.expression.AnnotationTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.PrimitiveTypeTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccessExpressionBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CArrayTypeTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CDimmension;
 import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
+import io.github.potjerodekool.nabu.compiler.type.BoundKind;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
@@ -267,11 +270,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
 
         final var functionHeader = (MethodHeader) ctx.methodHeader().accept(this);
-        final BlockStatementTree body = accept(ctx.methodBody());
         return createFunction(
                 modifiers,
                 functionHeader,
-                body,
+                null,
                 ctx
         );
     }
@@ -344,7 +346,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         return TreeMaker.variableDeclarator(
                 null,
-                new CModifiers(),
+                new Modifiers(),
                 null,
                 variableDeclaratorId,
                 null,
@@ -357,14 +359,11 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitIdentifier(final Java20Parser.IdentifierContext ctx) {
         if (ctx.Identifier() != null) {
-            return TreeMaker.identifier(
-                    ctx.Identifier().getText(),
-                    -1,
-                    -1
-            );
+            return ctx.Identifier().accept(this);
+        } else {
+            final var keyWord = ctx.contextualKeyword().getText();
+            return identifier(ctx.contextualKeyword().getStart());
         }
-
-        throw new TodoException();
     }
 
     @Override
@@ -427,15 +426,19 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitTypeIdentifier(final Java20Parser.TypeIdentifierContext ctx) {
+        final String text;
+
         if (ctx.Identifier() != null) {
-            return TreeMaker.identifier(
-                    ctx.Identifier().getText(),
-                    -1,
-                    -1
-            );
+            text = ctx.Identifier().getText();
         } else {
-            throw new TodoException();
+            text = ctx.contextualKeywordMinusForTypeIdentifier().getText();
         }
+
+        return TreeMaker.identifier(
+                text,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -453,7 +456,13 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
-        final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
+        List<TypeParameterTree> typeParameters;
+
+        try {
+            typeParameters = acceptList(ctx.typeParameters());
+        } catch (final Exception e) {
+            typeParameters = List.of();
+        }
 
         final var annotations = ctx.annotation().stream()
                 .map(it -> (AnnotationTree) it.accept(this))
@@ -521,7 +530,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         return TreeMaker.variableDeclarator(
                 Kind.PARAMETER,
-                new CModifiers(
+                new Modifiers(
                         annotations,
                         0L
                 ),
@@ -565,7 +574,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
 
-    private CModifiers parseModifiers(final List<? extends ParserRuleContext> modifierList) {
+    private Modifiers parseModifiers(final List<? extends ParserRuleContext> modifierList) {
         final List<AnnotationTree> annotations = new ArrayList<>();
         long flags = 0L;
 
@@ -579,7 +588,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             }
         }
 
-        return new CModifiers(annotations, flags);
+        return new Modifiers(annotations, flags);
     }
 
     @Override
@@ -615,8 +624,17 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             case Java20Lexer.SEALED -> null; //TODO
             case Java20Lexer.NONSEALED -> null; //TODO
             case Java20Lexer.STRICTFP -> null; //TODO
+            case Java20Lexer.Identifier
+                    -> identifier(node.getSymbol());
             default -> null;
         };
+    }
+
+    private IdentifierTree identifier(final Token token) {
+        return TreeMaker.identifier(
+                token.getText(),
+                token.getLine(),
+                token.getCharPositionInLine() + 1);
     }
 
     @Override
@@ -661,5 +679,426 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 return (List<E>) List.of(result);
             }
         }
+    }
+
+    @Override
+    public Object visitTypeParameters(final Java20Parser.TypeParametersContext ctx) {
+        return ctx.typeParameterList().accept(this);
+    }
+
+    @Override
+    public Object visitTypeParameter(final Java20Parser.TypeParameterContext ctx) {
+        final var annotations = ctx.typeParameterModifier().stream()
+                .map(it -> (AnnotationTree) it.accept(this))
+                .toList();
+
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
+
+        final List<ExpressionTree> typeBound = acceptList(ctx.typeBound());
+
+        return TreeMaker.typeParameterTree(
+                annotations,
+                identifier,
+                typeBound,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitClassExtends(final Java20Parser.ClassExtendsContext ctx) {
+        return ctx.classType().accept(this);
+    }
+
+    @Override
+    public Object visitClassType(final Java20Parser.ClassTypeContext ctx) {
+        final var annotations = ctx.annotation().stream()
+                .map(it -> (AnnotationTree) it.accept(this))
+                .toList();
+
+        final List<IdentifierTree> typeArguments = acceptList(ctx.typeArguments());
+
+        ExpressionTree prefix = null;
+
+        if (ctx.packageName() != null) {
+            prefix = (ExpressionTree) ctx.packageName().accept(this);
+        } else if (ctx.classOrInterfaceType() != null) {
+            prefix = (ExpressionTree) ctx.classOrInterfaceType().accept(this);
+        }
+
+        var identifier = (ExpressionTree) ctx.typeIdentifier().accept(this);
+
+        if (prefix != null) {
+            identifier = TreeMaker.fieldAccessExpressionTree(
+                    prefix,
+                    identifier,
+                    prefix.getLineNumber(),
+                    prefix.getColumnNumber()
+            );
+        }
+
+        ExpressionTree result;
+
+        if (annotations.isEmpty()) {
+            result = identifier;
+        } else {
+            result = TreeMaker.annotatedTypeTree(
+                    annotations,
+                    identifier,
+                    List.of(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        if (!typeArguments.isEmpty()) {
+            result = TreeMaker.typeApplyTree(
+                    result,
+                    typeArguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        return result;
+    }
+
+    @Override
+    public Object visitWildcard(final Java20Parser.WildcardContext ctx) {
+        final List<AnnotationTree> annotations = acceptList(ctx.annotation());
+
+        final WildcardBound wildcardBound;
+
+        if (ctx.wildcardBounds() != null) {
+            wildcardBound = (WildcardBound) ctx.wildcardBounds(). accept(this);
+        } else {
+            wildcardBound = new WildcardBound(BoundKind.UNBOUND, null);
+        }
+
+        ExpressionTree result = TreeMaker.wildcardExpressionTree(
+                wildcardBound.kind(),
+                wildcardBound.expression(),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+
+        if (!annotations.isEmpty()) {
+            result = TreeMaker.annotatedTypeTree(
+                    annotations,
+                    result,
+                    List.of(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        return result;
+    }
+
+    @Override
+    public Object visitWildcardBounds(final Java20Parser.WildcardBoundsContext ctx) {
+        final var boundKind = Java20Lexer.EXTENDS == ctx.kind.getType()
+                ? BoundKind.EXTENDS
+                : BoundKind.SUPER;
+        final var type = (ExpressionTree) ctx.referenceType().accept(this);
+        return new WildcardBound(boundKind, type);
+    }
+
+    @Override
+    public Object visitTypeParameterList(final Java20Parser.TypeParameterListContext ctx) {
+        return ctx.typeParameter().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitTypeParameterModifier(final Java20Parser.TypeParameterModifierContext ctx) {
+        return super.visitTypeParameterModifier(ctx);
+    }
+
+    @Override
+    public Object visitTypeBound(final Java20Parser.TypeBoundContext ctx) {
+        if (ctx.typeVariable() != null) {
+            final var expression = (ExpressionTree) ctx.typeVariable().accept(this);
+            return List.of(expression);
+        } else if (ctx.classOrInterfaceType() != null) {
+            final var list = new ArrayList<ExpressionTree>();
+            final var classOrInterfaceType = (ExpressionTree) ctx.classOrInterfaceType().accept(this);
+            list.add(classOrInterfaceType);
+
+            for (final var additionalBoundContext : ctx.additionalBound()) {
+                final var additionalBound = (ExpressionTree) additionalBoundContext.accept(this);
+                list.add(additionalBound);
+            }
+
+            return list;
+        } else {
+            return List.of();
+        }
+    }
+
+    @Override
+    public Object visitDims(final Java20Parser.DimsContext ctx) {
+        final var dimensions = new ArrayList<Dimension>();
+
+        var annotations = new ArrayList<AnnotationTree>();
+
+        for (final var child : ctx.children) {
+            if (child instanceof TerminalNode terminalNode) {
+                if ("]".equals(terminalNode.getText())) {
+                    dimensions.add(new CDimmension(annotations, -1, -1));
+                    annotations = new ArrayList<>();
+                }
+            } else {
+                final var annotation = (AnnotationTree) child.accept(this);
+                annotations.add(annotation);
+            }
+        }
+
+        return dimensions;
+    }
+
+    @Override
+    public Object visitUnannArrayType(final Java20Parser.UnannArrayTypeContext ctx) {
+        Tree componentType;
+
+        if (ctx.unannPrimitiveType() != null) {
+            componentType = (Tree) ctx.unannPrimitiveType().accept(this);
+        } else if (ctx.unannClassOrInterfaceType() != null) {
+            componentType = (Tree) ctx.unannClassOrInterfaceType().accept(this);
+        } else {
+            componentType = (Tree) ctx.unannTypeVariable().accept(this);
+        }
+
+        final var dims = (List<Dimension>) ctx.dims().accept(this);
+
+        return new CArrayTypeTree(
+                componentType,
+                dims,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitEnumDeclaration(final Java20Parser.EnumDeclarationContext ctx) {
+        final var modifiers = parseModifiers(ctx.classModifier());
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
+        final List<ExpressionTree> classImplements = acceptList(ctx.classImplements());
+
+        final var enclosedElements = postProcessEnumBody(
+                flatList(ctx.enumBody().accept(this)),
+                identifier
+        );
+
+        return TreeMaker.classDeclaration(
+                Kind.ENUM,
+                modifiers,
+                identifier.getName(),
+                enclosedElements,
+                List.of(),
+                classImplements,
+                null,
+
+                List.of(),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    private List<Tree> postProcessEnumBody(final List<Tree> enclosedElements,
+                                           final IdentifierTree identifier) {
+        return enclosedElements.stream()
+                .map(enclosedElement -> {
+                    if (enclosedElement instanceof VariableDeclaratorTree variableDeclaratorTree
+                            && variableDeclaratorTree.getKind() == Kind.ENUM_CONSTANT) {
+                        var newClassExpression = (NewClassExpression) variableDeclaratorTree.getValue();
+
+                        newClassExpression = newClassExpression.builder()
+                                .name(identifier)
+                                .build();
+
+                        return variableDeclaratorTree.builder()
+                                .type(identifier)
+                                .value(newClassExpression)
+                                .build();
+                    } else {
+                        return enclosedElement;
+                    }
+                })
+                .toList();
+    }
+
+    private List<Tree> flatList(final Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .flatMap(element -> {
+                        if (element instanceof List<?>) {
+                            final var subList = (List<Tree>) element;
+                            return subList.stream();
+                        } else {
+                            return Stream.of((Tree) element);
+                        }
+                    }).toList();
+        } else {
+            return List.of((Tree) value);
+        }
+    }
+
+    @Override
+    public Object visitEnumBody(final Java20Parser.EnumBodyContext ctx) {
+        final var body = new ArrayList<Tree>();
+
+        if (ctx.enumConstantList() != null) {
+            body.addAll(acceptList(ctx.enumConstantList()));
+        }
+
+        if (ctx.enumBodyDeclarations() != null) {
+            body.addAll(acceptList(ctx.enumBodyDeclarations()));
+        }
+
+        return body;
+    }
+
+    @Override
+    public Object visitEnumConstantList(final Java20Parser.EnumConstantListContext ctx) {
+        return ctx.enumConstant().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitEnumConstant(final Java20Parser.EnumConstantContext ctx) {
+        var modifiers = parseModifiers(ctx.enumConstantModifier());
+        final var identifier = (IdentifierTree) ctx.identifier().accept(this);
+        final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
+
+        final var lineNumber = ctx.getStart().getLine();
+        final var columnNumber = ctx.getStart().getCharPositionInLine();
+
+        final List<Tree> classBody;
+
+        if (ctx.classBody() != null) {
+            classBody = acceptList(ctx.classBody());
+        } else {
+            classBody = List.of();
+        }
+
+        final var value = TreeMaker.newClassExpression(
+                null,
+                List.of(),
+                arguments,
+                TreeMaker.classDeclaration(
+                        Kind.ENUM,
+                        new Modifiers(),
+                        null,
+                        classBody,
+                        List.of(),
+                        List.of(),
+                        null,
+                        List.of(),
+                        lineNumber,
+                        columnNumber
+                ),
+                lineNumber,
+                columnNumber
+        );
+
+        modifiers = modifiers
+                .with(Flags.PUBLIC + Flags.STATIC + Flags.FINAL);
+
+        return TreeMaker.variableDeclarator(
+                Kind.ENUM_CONSTANT,
+                modifiers,
+                null,
+                identifier,
+                null,
+                value,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitEnumBodyDeclarations(final Java20Parser.EnumBodyDeclarationsContext ctx) {
+        return ctx.classBodyDeclaration().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitConstructorDeclaration(final Java20Parser.ConstructorDeclarationContext ctx) {
+        final var modifiers = parseModifiers(ctx.constructorModifier());
+        final var constructor = (Function) ctx.constructorDeclarator().accept(this);
+        final List<Tree> thrownTypes = acceptList(ctx.throwsT());
+        final var body = (BlockStatementTree) ctx.constructorBody().accept(this);
+
+        return constructor.builder()
+                .thrownTypes(thrownTypes)
+                .modifiers(modifiers)
+                .body(body)
+                .build();
+    }
+
+    @Override
+    public Object visitConstructorDeclarator(final Java20Parser.ConstructorDeclaratorContext ctx) {
+        final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
+
+        final VariableDeclaratorTree receiverParameter = accept(ctx.receiverParameter());
+
+        final List<VariableDeclaratorTree> parameters = acceptList(ctx.formalParameterList());
+
+        return TreeMaker.function(
+                Constants.INIT,
+                Kind.CONSTRUCTOR,
+                new Modifiers(),
+                typeParameters,
+                receiverParameter,
+                parameters,
+                TreeMaker.primitiveTypeTree(
+                        PrimitiveTypeTree.Kind.VOID,
+                        -1,
+                        -1
+                ),
+                List.of(),
+                null,
+                null,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitLiteral(final Java20Parser.LiteralContext ctx) {
+        final Object value;
+        final TerminalNode node;
+
+        if (ctx.IntegerLiteral() != null) {
+            node = ctx.IntegerLiteral();
+            final var text = node.getText();
+
+            if (text.toLowerCase().endsWith("l")) {
+                value = Long.parseLong(text.substring(0, text.length() - 1));
+            } else {
+                value = Integer.parseInt(text);
+            }
+        } else if (ctx.BooleanLiteral() != null) {
+            node = ctx.BooleanLiteral();
+            value = Boolean.valueOf(node.getText());
+        } else if (ctx.StringLiteral() != null) {
+            node = ctx.StringLiteral();
+            var text = node.getText();
+            value = text.substring(1, text.length() - 1);
+        } else if (ctx.NullLiteral() != null) {
+            node = ctx.NullLiteral();
+            value = null;
+        } else if (ctx.CharacterLiteral() != null) {
+            node = ctx.CharacterLiteral();
+            value = ctx.CharacterLiteral().getText().charAt(1);
+        } else {
+            return null;
+        }
+
+        return TreeMaker.literalExpressionTree(value, node.getSymbol().getLine(), node.getSymbol().getCharPositionInLine());
     }
 }

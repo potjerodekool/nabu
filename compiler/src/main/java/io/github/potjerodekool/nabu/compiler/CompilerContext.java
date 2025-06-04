@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler;
 
+import io.github.potjerodekool.nabu.compiler.internal.EnumUsageMap;
 import io.github.potjerodekool.nabu.compiler.resolve.ArgumentBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
@@ -13,4 +14,6 @@ public interface CompilerContext extends AutoCloseable {
     MethodResolver getMethodResolver();
 
     ArgumentBoxer getArgumentBoxer();
+
+    EnumUsageMap getEnumUsageMap();
 }

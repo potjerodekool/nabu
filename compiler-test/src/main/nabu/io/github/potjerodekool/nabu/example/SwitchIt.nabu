@@ -84,3 +84,16 @@ fun shortSwitch(value: short): boolean {
         }
     }
 }
+
+fun enumSwitch(status: Status): boolean {
+    switch(status) {
+        case ON : {
+            return true;
+        }
+        case OFF : {
+            return false;
+        }
+    }
+
+    return false;
+}

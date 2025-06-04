@@ -48,13 +48,13 @@ public final class ElementFilter {
         return listFilter(elements, Set.of(ElementKind.CONSTRUCTOR), ExecutableElement.class);
     }
 
-    public static List<VariableElement> enumValues(final TypeElement classSymbol) {
-        return elements(classSymbol, ElementKind.ENUM_CONSTANT, VariableElement.class);
+    public static List<VariableElement> enumValuesIn(final List<? extends Element> elements) {
+        return listFilter(elements, Set.of(ElementKind.ENUM_CONSTANT), VariableElement.class);
     }
 
     public static Optional<VariableElement> enumConstantByName(final TypeElement classSymbol,
                                                                final String name) {
-        return enumValues(classSymbol).stream()
+        return enumValuesIn(classSymbol.getEnclosedElements()).stream()
                 .filter(it -> it.getSimpleName().equals(name)).findFirst();
     }
 

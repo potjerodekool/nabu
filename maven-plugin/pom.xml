@@ -11,6 +11,9 @@
 
     <artifactId>nabu-maven-plugin</artifactId>
     <name>nabu-maven-plugin</name>
+    <!--
+    <version>0.1-SNAPSHOT</version>
+    -->
     <packaging>maven-plugin</packaging>
 
     <properties>

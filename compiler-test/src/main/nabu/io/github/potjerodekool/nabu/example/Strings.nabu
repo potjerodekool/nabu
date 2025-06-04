@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.example;
 public class Strings {
 
     fun sayHi(): String {
-        String message = "Hi " + this.getName();
+        var message = "Hi " + this.getName();
         return message;
     }
 
@@ -13,9 +13,21 @@ public class Strings {
 
     fun parseInt(s: String): int throws NumberFormatException {
         if (s == null) {
-            throws new NullPointerException();
+            throw new NullPointerException();
         }
 
         return Integer.parseInt(s);
+    }
+
+    fun isNull(s : String) : boolean {
+        var result: boolean = false;
+
+        if (s == null) {
+            result = true;
+        } else if (s != null) {
+            result = false;
+        }
+
+        return result;
     }
 }

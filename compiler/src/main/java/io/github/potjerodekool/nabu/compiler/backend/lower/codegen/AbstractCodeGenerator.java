@@ -8,7 +8,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.SymbolCreator;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
@@ -33,7 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-public abstract class AbstractCodeGenerator {
+public abstract class AbstractCodeGenerator implements CodeGenerator {
 
     protected final ClassSymbolLoader loader;
     protected final Types types;
@@ -44,6 +44,7 @@ public abstract class AbstractCodeGenerator {
         this.types = loader.getTypes();
     }
 
+    @Override
     public void generateCode(final ClassDeclaration classDeclaration) {
         generateClientInit(classDeclaration);
     }
@@ -84,7 +85,7 @@ public abstract class AbstractCodeGenerator {
         final var clientInit = new CFunction(
                 Constants.CLINIT,
                 Kind.STATIC_INIT,
-                new CModifiers(
+                new Modifiers(
                         List.of(),
                         Flags.STATIC
                 ),
@@ -158,7 +159,7 @@ public abstract class AbstractCodeGenerator {
                 -1
         );
 
-        target.setSymbol(clazz);
+        target.setType(clazz.asType());
 
         final var fieldAccess = new CFieldAccessExpressionTree(
                 target,
@@ -190,7 +191,7 @@ public abstract class AbstractCodeGenerator {
                 -1,
                 -1
         );
-        target.setSymbol(clazz);
+        target.setType(clazz.asType());
 
         final var fieldAccess = new CFieldAccessExpressionTree(
                 target,

@@ -10,7 +10,6 @@ public class AnimalShopTest {
 
     @Test
     void print() {
-        ByteCodePrinter.print("io/github/potjerodekool/nabu/example/Dog.class");
     }
 
     @Test

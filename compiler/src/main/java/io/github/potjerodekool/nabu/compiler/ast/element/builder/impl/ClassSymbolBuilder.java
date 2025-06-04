@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public class ClassSymbolBuilder extends AbstractSymbolBuilder<Symbol, ClassSymbolBuilder> {
+public class ClassSymbolBuilder extends AbstractSymbolBuilder<ClassSymbolBuilder> {
 
     private NestingKind nestingKind = NestingKind.TOP_LEVEL;
     private final List<TypeMirror> interfaces = new ArrayList<>();

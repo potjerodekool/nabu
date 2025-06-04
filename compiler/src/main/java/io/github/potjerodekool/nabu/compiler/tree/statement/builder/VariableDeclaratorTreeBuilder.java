@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.statement.builder;
 
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
@@ -13,7 +13,7 @@ import java.util.Objects;
 public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<VariableDeclaratorTree, VariableDeclaratorTreeBuilder> {
 
     private Kind kind;
-    private CModifiers modifiers;
+    private Modifiers modifiers;
     private ExpressionTree type;
     private IdentifierTree name;
     private ExpressionTree nameExpression;
@@ -21,13 +21,13 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
 
     public VariableDeclaratorTreeBuilder() {
         super();
-        this.modifiers = new CModifiers();
+        this.modifiers = new Modifiers();
     }
 
     public VariableDeclaratorTreeBuilder(final VariableDeclaratorTree original) {
         super(original);
         this.kind = original.getKind();
-        this.modifiers = new CModifiers(original.getAnnotations(), original.getFlags());
+        this.modifiers = new Modifiers(original.getAnnotations(), original.getFlags());
         type = original.getType();
         name = original.getName();
         value = original.getValue();
@@ -37,7 +37,7 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
         return kind;
     }
 
-    public CModifiers getModifiers() {
+    public Modifiers getModifiers() {
         return modifiers;
     }
 
@@ -74,7 +74,7 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
         return this;
     }
 
-    public VariableDeclaratorTreeBuilder modifiers(final CModifiers modifiers) {
+    public VariableDeclaratorTreeBuilder modifiers(final Modifiers modifiers) {
         this.modifiers = modifiers;
         return this;
     }

@@ -2,24 +2,24 @@ package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.TestClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
-import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
-import io.github.potjerodekool.nabu.compiler.tree.CModifiers;
+import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.PrimitiveTypeTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.BinaryExpressionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccessExpressionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CIdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CLiteralExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CPrimitiveTypeTree;
-import io.github.potjerodekool.nabu.compiler.tree.impl.CCaseLabel;
 import io.github.potjerodekool.nabu.compiler.tree.impl.CConstantCaseLabel;
 import io.github.potjerodekool.nabu.compiler.tree.impl.CDefaultCaseLabel;
 import io.github.potjerodekool.nabu.compiler.tree.statement.CaseStatement;
@@ -28,6 +28,7 @@ import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPrimitiveType;
 import io.github.potjerodekool.nabu.test.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -38,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TranslateTest {
 
-    final Translate translate = new Translate();
+    final Translate translate = new Translate(null);
 
     private final TestClassElementLoader loader = new TestClassElementLoader();
 
@@ -212,6 +213,46 @@ class TranslateTest {
     }
 
     @Test
+    @Disabled
+    void visitFieldAccess3() {
+        final var classField =new VariableSymbolBuilderImpl()
+                .kind(ElementKind.FIELD)
+                .simpleName("b")
+                .build();
+
+        final var clazz = new ClassSymbolBuilder()
+                .simpleName("Fields")
+                .kind(ElementKind.CLASS)
+                .enclosedElement(classField)
+                .build();
+
+        final var selected = IdentifierTree.create("Fields");
+        selected.setType(clazz.asType());
+
+        final var field = IdentifierTree.create("b");
+        field.setSymbol(classField);
+
+        final var fieldAccess = new FieldAccessExpressionBuilder()
+                .selected(selected)
+                .field(field)
+                .build();
+
+        final var context = new TranslateContext();
+
+        final var result = fieldAccess.accept(translate, context).unEx();
+
+        final var printer = new CodePrinter();
+        result.accept(printer,null);
+        final var actual = printer.getText();
+        final var expected = """
+                Fields
+                b
+                """;
+
+        assertEquals(expected, actual);
+    }
+
+    @Test
     void visitSwitchStatement() {
         final var varType = new CPrimitiveTypeTree(PrimitiveTypeTree.Kind.INT, -1, -1);
         varType.setType(new CPrimitiveType(TypeKind.INT));
@@ -230,7 +271,7 @@ class TranslateTest {
 
         final var localVariable = new CVariableDeclaratorTree(
                 Kind.LOCAL_VARIABLE,
-                new CModifiers(0),
+                new Modifiers(0),
                 varType,
                 identifier,
                 null,
@@ -303,7 +344,7 @@ class TranslateTest {
         for (int i = 0; i < 2; i++) {
             final var localVariable = new CVariableDeclaratorTree(
                     Kind.LOCAL_VARIABLE,
-                    new CModifiers(0),
+                    new Modifiers(0),
                     varType,
                     identifier,
                     null,
@@ -379,7 +420,7 @@ class TranslateTest {
 
         final var localVariable = new CVariableDeclaratorTree(
                 Kind.LOCAL_VARIABLE,
-                new CModifiers(0),
+                new Modifiers(0),
                 varType,
                 identifier,
                 null,

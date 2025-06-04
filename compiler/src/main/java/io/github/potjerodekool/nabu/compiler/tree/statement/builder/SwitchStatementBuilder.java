@@ -12,6 +12,9 @@ public class SwitchStatementBuilder extends StatementTreeBuilder<SwitchStatement
     private ExpressionTree selector;
     private List<CaseStatement> cases;
 
+    public SwitchStatementBuilder() {
+    }
+
     public SwitchStatementBuilder(final SwitchStatement switchStatement) {
         this.selector = switchStatement.getSelector();
         this.cases = switchStatement.getCases();

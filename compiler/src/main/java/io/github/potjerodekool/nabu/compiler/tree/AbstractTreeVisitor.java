@@ -46,6 +46,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
             returnType.accept(this, param);
         }
 
+        function.getThrownTypes().forEach(thrownType -> thrownType.accept(this, param));
+
         final var body = function.getBody();
 
         if (body != null) {
@@ -57,7 +59,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
 
     @Override
     public R visitBlockStatement(final BlockStatementTree blockStatement, final P param) {
-        blockStatement.getStatements().forEach(s -> s.accept(this, param));
+        blockStatement.getStatements()
+                .forEach(s -> s.accept(this, param));
         return defaultAnswer(blockStatement, param);
     }
 

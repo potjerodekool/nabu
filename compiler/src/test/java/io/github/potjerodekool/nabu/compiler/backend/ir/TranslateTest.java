@@ -49,8 +49,9 @@ class TranslateTest {
 
     @Test
     void visitBinaryExpression() {
-        final var clazz = new ClassSymbol();
-        clazz.setSimpleName("SomeClass");
+        final var clazz = new ClassSymbolBuilder()
+                .simpleName("SomeClass")
+                .build();
 
         final var stringType = loader.getSymbolTable()
                 .getStringType();
@@ -121,8 +122,9 @@ class TranslateTest {
 
     @Test
     void visitFieldAccess() {
-        final var clazz = new ClassSymbol();
-        clazz.setSimpleName("SomeClass");
+        final var clazz = new ClassSymbolBuilder()
+                .simpleName("SomeClass")
+                        .build();
 
         final var context = new TranslateContext();
         final var frame = new Frame();
@@ -170,8 +172,9 @@ class TranslateTest {
 
     @Test
     void visitFieldAccess2() {
-        final var clazz = new ClassSymbol();
-        clazz.setSimpleName("SomeClass");
+        final var clazz = new ClassSymbolBuilder()
+                .simpleName("SomeClass")
+                        .build();
 
         final var context = new TranslateContext();
         final var frame = new Frame();
@@ -591,9 +594,7 @@ class CodePrinter implements CodeVisitor<Frame> {
 
         if (type instanceof IPrimitiveType primitiveType) {
             switch (primitiveType.getKind()) {
-                case INT -> {
-                    writeLn("ISTORE " + index);
-                }
+                case INT -> writeLn("ISTORE " + index);
             }
         }
     }

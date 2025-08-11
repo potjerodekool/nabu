@@ -64,7 +64,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
     }
 
     public void process(final CompilationUnit compilationUnit) {
-        final var context = new LowerContext();
+        final var context = new LowerContext(compilationUnit);
         compilationUnit.accept(this, context);
     }
 
@@ -354,7 +354,12 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
 
         final var currentClass = context.currentClass;
 
-        final var enumUsage = enumUserCodeGenerator.addEnumUsage(currentClass, enumElement);
+        final var enumUsage = enumUserCodeGenerator.addEnumUsage(
+                context.compilationUnit,
+                currentClass,
+                enumElement
+        );
+
         final var memberClass = enumUsage.getMemberClass().getClassSymbol();
         final var fieldName = enumUsage.getFieldName(enumElement);
 
@@ -412,7 +417,11 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
 
 class LowerContext {
 
+    final CompilationUnit compilationUnit;
     ModuleElement module;
     ClassDeclaration currentClass;
 
+    public LowerContext(final CompilationUnit compilationUnit) {
+        this.compilationUnit = compilationUnit;
+    }
 }

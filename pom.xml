@@ -26,6 +26,7 @@
         <module>jpa-support</module>
         <module>maven-plugin</module>
         <module>compiler-test</module>
+        <module>demo</module>
     </modules>
 
 </project>

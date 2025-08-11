@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
@@ -16,6 +17,7 @@ public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclarat
 
     private Modifiers modifiers;
     private Kind kind;
+    private NestingKind nestingKind;
     private String simpleName;
     private final List<Tree> enclosedElements = new ArrayList<>();
     private ExpressionTree extending;
@@ -26,12 +28,14 @@ public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclarat
     public ClassDeclarationBuilder() {
         super();
         this.permits = new ArrayList<>();
+        this.nestingKind = NestingKind.TOP_LEVEL;
     }
 
     public ClassDeclarationBuilder(final CClassDeclaration classDeclaration) {
         super(classDeclaration);
         this.modifiers = classDeclaration.getModifiers();
         this.kind = classDeclaration.getKind();
+        this.nestingKind = classDeclaration.getNestingKind();
         this.simpleName = classDeclaration.getSimpleName();
         this.enclosedElements.addAll(classDeclaration.getEnclosedElements());
         this.extending = classDeclaration.getExtending();
@@ -44,8 +48,17 @@ public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclarat
         return kind;
     }
 
+    public NestingKind getNestingKind() {
+        return nestingKind;
+    }
+
     public ClassDeclarationBuilder kind(final Kind kind) {
         this.kind = kind;
+        return this;
+    }
+
+    public ClassDeclarationBuilder nestingKind(final NestingKind nestingKind) {
+        this.nestingKind = nestingKind;
         return this;
     }
 

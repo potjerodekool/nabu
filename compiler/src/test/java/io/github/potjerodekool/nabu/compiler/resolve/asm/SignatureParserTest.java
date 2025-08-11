@@ -9,7 +9,6 @@ import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
 import io.github.potjerodekool.nabu.compiler.type.*;
-import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Opcodes;

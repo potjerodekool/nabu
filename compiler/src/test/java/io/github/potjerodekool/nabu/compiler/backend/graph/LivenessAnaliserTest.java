@@ -6,10 +6,12 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
+import io.github.potjerodekool.nabu.compiler.backend.postir.canon.BasicBlocks;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -48,6 +50,35 @@ class LivenessAnaliserTest {
 
         final var analiser = new LivenessAnaliser(flowGraph);
         analiser.getFlowGraph();
+    }
+
+    @Test
+    void fix() {
+        final var statements = new ArrayList<IStatement>();
+        statements.add(new ILabelStatement());
+
+        final var flowGraph = IRFlowGraphBuilder.build(
+                statements
+        );
+/*
+        final var lastNode = flowGraph.getLastNode();
+        final var lastStatement = flowGraph.getMap().get(lastNode);
+
+        final var addReturn = !(lastStatement instanceof Move move
+                && move.getDst() instanceof TempExpr dest
+                && dest.getTemp().getIndex() == Frame.RV);
+
+        if (addReturn) {
+            final var lastStatementIndex = statements.indexOf(lastStatement);
+
+            statements.add(lastStatementIndex + 1, new Move(
+                    new TempExpr(-1, null),
+                    new TempExpr(Frame.V0)
+            ));
+        }
+*/
+
+        System.out.println(statements);
     }
 
     @Test

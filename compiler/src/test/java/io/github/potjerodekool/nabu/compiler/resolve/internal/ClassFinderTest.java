@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.CompilerOption;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
@@ -20,7 +19,7 @@ import static org.mockito.Mockito.mock;
 class ClassFinderTest {
 
     @Test
-    void getCompleter() throws Exception {
+    void getCompleter() {
         try (var filesMock = Mockito.mockStatic(Files.class, InvocationOnMock::callRealMethod);
              var fileManager = new NabuCFileManager()) {
 

@@ -15,9 +15,7 @@ public final class EnterPhase {
         final var fileObject = fileObjectAndCompilationUnit.fileObject();
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 
-        final var enterClasses = new EnterClasses(
-                compilerContext
-        );
+        final var enterClasses = new EnterClasses(compilerContext);
         compilationUnit.accept(enterClasses, null);
 
         compilationUnit.getClasses().stream()

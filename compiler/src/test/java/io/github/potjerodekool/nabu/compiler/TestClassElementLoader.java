@@ -237,7 +237,7 @@ public class TestClassElementLoader implements ClassSymbolLoader {
                 .kind(ElementKind.METHOD)
                 .simpleName("ordinal")
                 .returnType(types.getPrimitiveType(TypeKind.INT))
-                        .build();
+                .build();
 
         enumClass.addEnclosedElement(ordinalMethod);
 
@@ -259,9 +259,11 @@ public class TestClassElementLoader implements ClassSymbolLoader {
         final var packageName = className.substring(0, sepIndex);
         final var packageSymbol = createPackage(packageName);
 
-        final var classSymbol = new ClassSymbol();
-        classSymbol.setSimpleName(simpleName);
-        classSymbol.setEnclosingElement(packageSymbol);
+        final var classSymbol = new ClassSymbolBuilder()
+                .simpleName(simpleName)
+                .enclosingElement(packageSymbol)
+                .build();
+
         classSymbol.setMembers(new WritableScope());
 
         classSymbol.setType(
@@ -562,7 +564,7 @@ class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
         nameJoiner.add(typeIdentifier);
 
         final var className = nameJoiner.toString();
-        final var clazz =  loader.loadClass(null, className);
+        final var clazz = loader.loadClass(null, className);
         return clazz.asType();
     }
 
@@ -583,13 +585,12 @@ class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
         final var type = node.getSymbol().getType();
 
         return switch (type) {
-            case Java20Lexer.Identifier ->
-                node.getText();
+            case Java20Lexer.Identifier -> node.getText();
             case Java20Lexer.BYTE -> types.getPrimitiveType(TypeKind.BYTE);
             case Java20Lexer.SHORT -> types.getPrimitiveType(TypeKind.SHORT);
-            case Java20Lexer.INT ->  types.getPrimitiveType(TypeKind.INT);
+            case Java20Lexer.INT -> types.getPrimitiveType(TypeKind.INT);
             case Java20Lexer.LONG -> types.getPrimitiveType(TypeKind.LONG);
-            case Java20Lexer.CHAR ->  types.getPrimitiveType(TypeKind.CHAR);
+            case Java20Lexer.CHAR -> types.getPrimitiveType(TypeKind.CHAR);
             case Java20Lexer.FLOAT -> types.getPrimitiveType(TypeKind.FLOAT);
             case Java20Lexer.DOUBLE -> types.getPrimitiveType(TypeKind.DOUBLE);
             default -> throw new TodoException();

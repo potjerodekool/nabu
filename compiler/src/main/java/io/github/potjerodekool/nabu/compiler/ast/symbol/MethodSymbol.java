@@ -43,7 +43,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
                         .map(it -> (TypeVariable) it.asType())
                         .toList(),
                 returnType,
-                parameterTypes,
+                List.of(),
                 thrownTypes
         );
         setType(methodType);
@@ -75,6 +75,10 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
     @Override
     public TypeMirror getReturnType() {
         return asType().getReturnType();
+    }
+
+    public void setReturnType(final TypeMirror returnType) {
+        asType().setReturnType(returnType);
     }
 
     public List<VariableSymbol> getParameters() {
@@ -118,6 +122,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         });
 
         this.parameters.add(parameter);
+        asType().addParameterType(parameter.asType());
     }
 
     public List<? extends TypeParameterElement> getTypeParameters() {

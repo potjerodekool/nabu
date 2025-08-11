@@ -78,6 +78,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             final var clazz = TreeMaker.classDeclaration(
                     Kind.CLASS,
+                    NestingKind.TOP_LEVEL,
                     new Modifiers(List.of(), Flags.PUBLIC),
                     name,
                     functions,
@@ -1667,6 +1668,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         return TreeMaker.classDeclaration(
                 Kind.CLASS,
+                NestingKind.TOP_LEVEL,
                 classModifiers,
                 simpleName,
                 enclosedElements,
@@ -1935,6 +1937,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final List<Tree> classBody = (List<Tree>) ctx.classBody().accept(this);
             classDeclaration = TreeMaker.classDeclaration(
                     null,
+                    NestingKind.TOP_LEVEL,
                     new Modifiers(),
                     null,
                     classBody,
@@ -2755,6 +2758,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         return TreeMaker.classDeclaration(
                 Kind.ENUM,
+                NestingKind.TOP_LEVEL,
                 modifiers,
                 identifier.getName(),
                 enclosedElements,
@@ -2852,6 +2856,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 arguments,
                 TreeMaker.classDeclaration(
                         Kind.ENUM,
+                        NestingKind.TOP_LEVEL,
                         new Modifiers(),
                         null,
                         classBody,

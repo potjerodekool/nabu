@@ -56,7 +56,7 @@ public class BasicBlocks {
                     seenEndLabel = true;
                 }
 
-                startNewBlock((ILabelStatement) statement);
+                startNewBlock(labelStatement);
             } else {
                 currentBlock.add(statement);
             }

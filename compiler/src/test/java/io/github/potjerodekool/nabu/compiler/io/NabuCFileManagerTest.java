@@ -3,9 +3,6 @@ package io.github.potjerodekool.nabu.compiler.io;
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.CompilerOption;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;

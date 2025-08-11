@@ -103,7 +103,7 @@ public class NabuCompiler {
         final var compilationUnits = fileObjectAndCompilationUnits.stream()
                 .map(it -> resolvePhase(it, compilerContext))
                 .map(it -> transform(it,applicationContext))
-                .map(it -> resolvePhase(it, compilerContext))
+                //.map(it -> resolvePhase(it, compilerContext))
                 .map(it -> check(it.compilationUnit(), errorCapture))
                 .toList();
 

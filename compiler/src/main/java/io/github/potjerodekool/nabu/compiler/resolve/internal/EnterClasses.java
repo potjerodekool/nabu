@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
@@ -71,7 +72,7 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
                 );
 
         clazz.setKind(ElementKind.valueOf(classDeclaration.getKind().name()));
-        clazz.setNestingKind(NestingKind.TOP_LEVEL);
+        clazz.setNestingKind(NestingKind.valueOf(classDeclaration.getNestingKind().name()));
         clazz.setFlags(classDeclaration.getModifiers().getFlags());
         clazz.setSimpleName(classDeclaration.getSimpleName());
         clazz.setEnclosingElement(packageElement);

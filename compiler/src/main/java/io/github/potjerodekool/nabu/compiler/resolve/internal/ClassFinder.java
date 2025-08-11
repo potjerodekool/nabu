@@ -9,6 +9,7 @@ import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.io.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.java.JavaSourceEnterClasses;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
 
 import java.io.IOException;
@@ -236,7 +237,8 @@ public class ClassFinder {
         final var enterClasses = new EnterClasses(
                 compilerContext
         );
-        final var sourceEnterClasses = new SourceEnterClasses(enterClasses);
+
+        final var sourceEnterClasses = new JavaSourceEnterClasses(enterClasses);
         final var compilationUnit = sourceEnterClasses.enter(classSymbol);
         final var classes = compilationUnit.getClasses();
         final var classDeclaration = classes.getFirst();

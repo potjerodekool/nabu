@@ -33,7 +33,6 @@ public abstract class TypeSymbol extends Symbol {
 
         return members.elements().stream()
                 .map(it -> (Symbol) it)
-                .peek(Symbol::complete)
                 .filter(symbol -> {
                             final var notSynthetic = !Flags.hasFlag(symbol.getFlags(), Flags.SYNTHETIC);
                             final var isEnclosed = symbol.getEnclosingElement() == this;

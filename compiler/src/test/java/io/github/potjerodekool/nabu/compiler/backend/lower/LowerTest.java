@@ -21,11 +21,10 @@ import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
 import io.github.potjerodekool.nabu.compiler.tree.impl.CConstantCaseLabel;
 import io.github.potjerodekool.nabu.compiler.tree.statement.CaseStatement;
-import io.github.potjerodekool.nabu.compiler.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.SwitchStatementBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
@@ -197,7 +196,15 @@ class LowerTest {
         when(classType.asTypeElement())
                 .thenReturn(clazz);
 
-        final var lowerContext = new LowerContext();
+        final var cu = new CCompilationTreeUnit(
+                null,
+                List.of(),
+                List.of(),
+                0,
+                0
+        );
+
+        final var lowerContext = new LowerContext(cu);
 
         final var result = enhancedForStatement.accept(lower, lowerContext);
         final var actual = TreePrinter.print(result);
@@ -231,10 +238,30 @@ class LowerTest {
 
         final var currentClassTree = new ClassDeclarationBuilder()
                 .kind(Kind.CLASS)
+                .nestingKind(io.github.potjerodekool.nabu.compiler.tree.element.NestingKind.TOP_LEVEL)
                 .simpleName("TT")
+                .modifiers(new Modifiers())
                 .build();
 
         currentClassTree.setClassSymbol(currentClass);
+
+        final var cu = new CCompilationTreeUnit(
+                null,
+                List.of(),
+                List.of(),
+                0,
+                0
+        );
+
+
+        compilerContext.getTypeEnter().put(
+                currentClass,
+                currentClassTree,
+                cu
+        );
+
+        currentClass.setCompleter(compilerContext.getTypeEnter());
+        currentClass.complete();
 
         final var enumClass = loader.loadClass(
                 null,
@@ -287,7 +314,7 @@ class LowerTest {
                 .cases(List.of(caseStatement))
                 .build();
 
-        final var lowerContext = new LowerContext();
+        final var lowerContext = new LowerContext(cu);
         lowerContext.currentClass = currentClassTree;
 
         final var result = switchStatement.accept(lower, lowerContext);

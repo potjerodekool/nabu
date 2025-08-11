@@ -8,7 +8,7 @@ import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.io.NabuFileObject;
-import org.junit.jupiter.api.Test;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.java.JavaSourceEnterClasses;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -46,7 +46,7 @@ class SourceTypeEnterTest {
                 compilerContext
         );
 
-        final var sourceEnterClasses = new SourceEnterClasses(
+        final var sourceEnterClasses = new JavaSourceEnterClasses(
                 enterClasses
         );
 

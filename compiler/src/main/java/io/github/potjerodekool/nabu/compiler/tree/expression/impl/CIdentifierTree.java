@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.tree.expression.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.IdentifierTreeBuilder;
@@ -33,15 +32,6 @@ public class CIdentifierTree extends CExpressionTree implements IdentifierTree {
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
         return visitor.visitIdentifier(this, param);
-    }
-
-    @Override
-    public void setSymbol(final Element symbol) {
-        if ("io.github.potjerodekool.nabu.example.SwitchIt$1".equals(name)) {
-            System.out.println();
-        }
-
-        super.setSymbol(symbol);
     }
 
     @Override

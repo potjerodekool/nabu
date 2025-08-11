@@ -485,8 +485,19 @@ class NabuCompilerVisitorTest {
     @Test
     void interfaceFunctionDeclaration() {
         parseAndAssert("""
-                        fun getAnnotationMirrors(): List<? extends AnnotationMirror> ;""",
+                        abstract fun getAnnotationMirrors(): List<? extends AnnotationMirror> ;""",
                 NabuParser::interfaceFunctionDeclaration, actual -> actual + ";");
+    }
+
+    @Test
+    void test2() {
+        parseAndAssert("""
+                private fun test(): void {
+                    var main = new Main();
+                    var other = new Dummy();
+                    other.someDummyStuff();
+                }
+                """, NabuParser::functionDeclaration);
     }
 
 }

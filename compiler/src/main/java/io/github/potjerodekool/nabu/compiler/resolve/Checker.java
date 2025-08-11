@@ -1,9 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DefaultDiagnostic;
 import io.github.potjerodekool.nabu.compiler.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.compiler.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.access.StandardAccessChecker;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
@@ -20,6 +22,8 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTr
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.ErrorType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+
+import java.io.File;
 
 public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
@@ -63,17 +67,39 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Scope scope) {
-        final var clazz = classDeclaration.getClassSymbol();
+        final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
 
         if (clazz == null) {
             return null;
         }
+
+        topLevelClassCheck(clazz, scope);
 
         final var classScope = new SymbolScope(
                 (DeclaredType) clazz.asType(),
                 scope
         );
         return super.visitClass(classDeclaration, classScope);
+    }
+
+    private void topLevelClassCheck(final ClassSymbol clazz,
+                                    final Scope scope) {
+        if (clazz.getNestingKind() == NestingKind.TOP_LEVEL
+                && clazz.isPublic()
+            && clazz.getSourceFile() != null) {
+            final var simpleName = getSimpleName(clazz.getSourceFile());
+
+            if (!simpleName.equals(clazz.getSimpleName())) {
+                reportError(String.format("Class '%s' is public, should be declared in a file named '%s.nabu'", clazz.getSimpleName(), simpleName), scope);
+            }
+        }
+    }
+
+    private String getSimpleName(final FileObject sourceFile) {
+        final var fileName = sourceFile.getFileName();
+        final var start = fileName.lastIndexOf(File.separatorChar) + 1;
+        final var end = fileName.lastIndexOf('.');
+        return fileName.substring(start, end);
     }
 
     @Override
@@ -129,9 +155,14 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                                         final Tree tree,
                                         final Scope scope) {
         final var lineInfo = formatLineInfo(tree);
+        reportError(String.format("Failed to resolve symbol %s %s", name, lineInfo), scope);
+    }
+
+    private void reportError(final String message,
+                             final Scope scope) {
         listener.report(new DefaultDiagnostic(
                 Diagnostic.Kind.ERROR,
-                String.format("Failed to resolve symbol %s %s", name, lineInfo),
+                message,
                 getCompilationUnit(scope).getFileObject()
         ));
     }
@@ -169,10 +200,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                     className);
         }
 
-        listener.report(new DefaultDiagnostic(
-                Diagnostic.Kind.ERROR,
-                message,
-                getCompilationUnit(scope).getFileObject()));
+        reportError(message, scope);
     }
 
     @Override
@@ -192,11 +220,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                                            final Scope scope) {
         final var className = new StringBuilder();
         resolveClassName(expressionTree, className);
-
-        listener.report(new DefaultDiagnostic(
-                Diagnostic.Kind.ERROR,
-                "Failed to resolve " + className,
-                getCompilationUnit(scope).getFileObject()));
+        reportError("Failed to resolve " + className, scope);
     }
 
     private boolean isNullOrErrorType(final TypeMirror typeMirror) {

@@ -12,7 +12,7 @@ public class CMethodType extends AbstractType implements ExecutableType {
 
     private final TypeMirror receiverType;
 
-    private final TypeMirror returnType;
+    private TypeMirror returnType;
 
     private List<TypeMirror> parameterTypes = new ArrayList<>();
 
@@ -35,11 +35,20 @@ public class CMethodType extends AbstractType implements ExecutableType {
         this.returnType = returnType;
         this.parameterTypes.addAll(parameterTypes);
         this.thrownTypes.addAll(thrownTypes);
+        validateTypes(thrownTypes);
+    }
+
+    private void validateTypes(final List<? extends TypeMirror> thrownTypes) {
+        thrownTypes.forEach(Objects::requireNonNull);
     }
 
     @Override
     public List<? extends TypeMirror> getParameterTypes() {
         return parameterTypes;
+    }
+
+    public void addParameterType(final TypeMirror parameterType) {
+        this.parameterTypes.add(parameterType);
     }
 
     public void setParameterTypes(final List<TypeMirror> parameterTypes) {
@@ -69,6 +78,10 @@ public class CMethodType extends AbstractType implements ExecutableType {
     @Override
     public TypeMirror getReturnType() {
         return returnType;
+    }
+
+    public void setReturnType(final TypeMirror returnType) {
+        this.returnType = returnType;
     }
 
     @Override

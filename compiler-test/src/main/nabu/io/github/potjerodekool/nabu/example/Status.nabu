@@ -6,7 +6,7 @@ public enum Status {
 
     private final text : String;
 
-    private Status(final text : String ) {
+    Status(final text : String ) {
         this.text = text;
     }
 

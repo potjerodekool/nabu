@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.io;
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.List;
@@ -12,7 +11,7 @@ import java.util.Set;
 public interface FileManager extends AutoCloseable {
 
     Location getLocationForModule(Location location,
-                                  String moduleName) throws IOException;
+                                  String moduleName);
 
     List<FileObject> listFiles(Path path,
                                boolean recursive,

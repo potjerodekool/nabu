@@ -4,7 +4,7 @@
 
 <plugin>
     <name>nabu-maven-plugin</name>
-    <description></description>
+    <description>Nabu maven plugin</description>
     <groupId>io.github.potjerodekool</groupId>
     <artifactId>nabu-maven-plugin</artifactId>
     <version>1.0-SNAPSHOT</version>
@@ -35,7 +35,7 @@
                     <type>org.apache.maven.project.MavenProject</type>
                     <required>true</required>
                     <editable>false</editable>
-                    <description></description>
+                    <description>Maven project</description>
                 </parameter>
             </parameters>
             <configuration>

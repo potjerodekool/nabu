@@ -75,7 +75,7 @@ class TypeEnterTest {
         final var constructor = classDeclaration.getEnclosedElements().getFirst();
         final var actual = TreePrinter.print(constructor);
         final var expected = """
-                fun <init>(): void {
+                public fun <init>(): void {
                     this.super();
                     return;
                 }
@@ -118,7 +118,7 @@ class TypeEnterTest {
         final var constructor = classDeclaration.getEnclosedElements().getFirst();
         final var actual = TreePrinter.print(constructor);
         final var expected = """
-                fun <init>(name : java.lang.String, ordinal : int): void {
+                private fun <init>(name : java.lang.String, ordinal : int): void {
                     this.super(name, ordinal);
                     return;
                 }

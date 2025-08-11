@@ -59,7 +59,7 @@ public class ISwitchStatement extends IStatement {
 
     @Override
     public List<ILabel> getJumpTargets() {
-        final var list = new ArrayList<ILabel>(Arrays.asList(labels));
+        final var list = new ArrayList<>(Arrays.asList(labels));
         list.add(defaultLabel);
         return list;
     }

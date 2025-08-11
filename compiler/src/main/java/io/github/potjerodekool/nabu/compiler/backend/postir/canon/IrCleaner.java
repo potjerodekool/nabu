@@ -2,7 +2,9 @@ package io.github.potjerodekool.nabu.compiler.backend.postir.canon;
 
 import io.github.potjerodekool.nabu.compiler.backend.graph.IRFlowGraphBuilder;
 import io.github.potjerodekool.nabu.compiler.backend.graph.Node;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ProcFrag;
+import io.github.potjerodekool.nabu.compiler.backend.ir.expression.TempExpr;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 
 import java.util.ArrayList;
@@ -21,7 +23,40 @@ public final class IrCleaner {
         return frag;
     }
 
-    public static void doCleanUp(final ProcFrag frag) {
+    public static ProcFrag insertReturnIfNeeded(final ProcFrag procFrag) {
+         return procFrag;
+        /*
+        var body = procFrag.getBody();
+
+        final var flowGraph = IRFlowGraphBuilder.build(
+                body
+        );
+
+        final var lastNode = flowGraph.getLastNode();
+        final var lastStatement = flowGraph.getMap().get(lastNode);
+
+        final var addReturn = !(lastStatement instanceof Move move
+                && move.getDst() instanceof TempExpr dest
+                && dest.getTemp().getIndex() == Frame.RV);
+
+        if (addReturn) {
+            final var lastStatementIndex = body.indexOf(lastStatement);
+
+            final var statements = new ArrayList<>(body);
+
+            statements.add(lastStatementIndex + 1, new Move(
+                    new TempExpr(-1, null),
+                    new TempExpr(Frame.V0)
+            ));
+
+            return new ProcFrag(statements);
+        } else {
+            return procFrag;
+        }
+        */
+    }
+
+    static void doCleanUp(final ProcFrag frag) {
         final var flowGraph = IRFlowGraphBuilder.build(
                 frag.getBody()
         );

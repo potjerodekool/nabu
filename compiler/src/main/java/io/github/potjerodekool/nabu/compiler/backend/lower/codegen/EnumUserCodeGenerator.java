@@ -4,11 +4,13 @@ import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.internal.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
@@ -50,11 +52,13 @@ public class EnumUserCodeGenerator implements CodeGenerator {
     public void generateCode(final ClassDeclaration classDeclaration) {
     }
 
-    public EnumUsage addEnumUsage(final ClassDeclaration currentClass, final TypeElement typeElement) {
+    public EnumUsage addEnumUsage(final CompilationUnit compilationUnit,
+                                  final ClassDeclaration currentClass,
+                                  final TypeElement typeElement) {
         final var className = currentClass.getClassSymbol().getQualifiedName();
 
         final var usageInfo = enumUsageMap.computeIfAbsent(className, key -> {
-            final var memberClass = addMemberClass(currentClass);
+            final var memberClass = addMemberClass(compilationUnit, currentClass);
             return new EnumUsageInfoImpl(memberClass);
         });
 
@@ -108,7 +112,8 @@ public class EnumUserCodeGenerator implements CodeGenerator {
         return fieldTree;
     }
 
-    public CClassDeclaration addMemberClass(final ClassDeclaration classDeclaration) {
+    public CClassDeclaration addMemberClass(final CompilationUnit compilationUnit,
+                                            final ClassDeclaration classDeclaration) {
         final var memberClassName = TreeFilter.classesIn(classDeclaration.getEnclosedElements()).stream()
                 .map(ClassDeclaration::getSimpleName)
                 .filter(this::isNumber)
@@ -119,17 +124,30 @@ public class EnumUserCodeGenerator implements CodeGenerator {
                 .orElse("1");
 
         final var classSymbol = (ClassSymbol) classDeclaration.getClassSymbol();
-        var packageSymbol = classSymbol.getEnclosingElement();
+        var enclosingElement = classSymbol.getEnclosingElement();
+        PackageSymbol packageSymbol;
 
-        while (!(packageSymbol instanceof PackageElement)) {
-            packageSymbol = packageSymbol.getEnclosingElement();
+        while (!(enclosingElement instanceof PackageElement)) {
+            enclosingElement = enclosingElement.getEnclosingElement();
         }
+
+        packageSymbol = (PackageSymbol) enclosingElement;
 
         final var memberClass = new ClassDeclarationBuilder()
                 .kind(Kind.CLASS)
+                .nestingKind(io.github.potjerodekool.nabu.compiler.tree.element.NestingKind.MEMBER)
                 .simpleName(memberClassName)
                 .extending(IdentifierTree.create(Constants.OBJECT))
+                .modifiers(new Modifiers(Flags.STATIC + Flags.SYNTHETIC))
                 .build();
+
+        compilerContext.getSymbolGenerator().generate(
+                compilationUnit,
+                memberClass,
+                packageSymbol
+        );
+
+        memberClass.getClassSymbol().complete();
 
         final var memberClassSymbol = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)

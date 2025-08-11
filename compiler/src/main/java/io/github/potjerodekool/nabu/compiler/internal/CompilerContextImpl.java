@@ -9,6 +9,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.*;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassFinder;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolGenerator;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.TypeEnter;
 import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
@@ -24,7 +25,7 @@ public class CompilerContextImpl implements CompilerContext {
     private final ArgumentBoxer argumentBoxer;
     private final ElementResolverRegistry resolverRegistry;
     private final TypeEnter typeEnter;
-    private final ClassFinder classFinder;
+    private final SymbolGenerator symbolGenerator;
 
     private final EnumUsageMap enumUsageMap = new EnumUsageMap();
 
@@ -36,7 +37,7 @@ public class CompilerContextImpl implements CompilerContext {
 
         this.classElementLoader = new AsmClassElementLoader(symbolTable);
 
-        this.classFinder = new ClassFinder(
+        final ClassFinder classFinder = new ClassFinder(
                 symbolTable,
                 fileManager,
                 classElementLoader,
@@ -67,6 +68,8 @@ public class CompilerContextImpl implements CompilerContext {
                 classElementLoader,
                 methodResolver
         );
+
+        this.symbolGenerator = new SymbolGenerator(this);
     }
 
     private ElementResolverRegistry createSymbolResolverRegistry(final ApplicationContext applicationContext) {
@@ -110,4 +113,7 @@ public class CompilerContextImpl implements CompilerContext {
         return enumUsageMap;
     }
 
+    public SymbolGenerator getSymbolGenerator() {
+        return symbolGenerator;
+    }
 }

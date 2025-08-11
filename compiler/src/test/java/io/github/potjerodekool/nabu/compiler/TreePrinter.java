@@ -242,6 +242,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitFunction(final Function function,
                                 final Object param) {
+        if (function.getModifiers().getFlags() != 0) {
+            printModifierFlags(function.getModifiers().getFlags());
+            write(" ");
+        }
+
         if (function.getDefaultValue() == null) {
             write("fun ").write(function.getSimpleName());
             write("(");

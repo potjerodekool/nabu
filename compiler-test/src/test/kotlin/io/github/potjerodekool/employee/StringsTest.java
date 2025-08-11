@@ -5,13 +5,13 @@ import org.junit.jupiter.api.Test;
 
 import io.github.potjerodekool.nabu.example.Strings;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
 public class StringsTest {
 
     @Test
-    void test() throws Exception {
-        ByteCodePrinter.print("io/github/potjerodekool/nabu/example/Strings.class");
+    void test() {
+        ByteCodePrinter.print("io/github/potjerodekool/nabu/example/SwitchIt$1.class");
+        //ByteCodePrinter.print("C:\\projects\\nabu\\jpa-support\\target\\test-classes\\io\\github\\potjerodekool\\nabu\\EnumUsage$1.class");
+        //
 
         /*
         //final var strings = Strings.class.getDeclaredConstructor().newInstance();

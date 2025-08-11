@@ -17,7 +17,6 @@ import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.util.Pair;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.typeOf;
@@ -96,6 +95,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     @Override
     public Object visitIdentifier(final IdentifierTree identifier,
                                   final Scope scope) {
+
         final var type = resolveType(identifier.getName(), scope);
 
         if (type != null) {
@@ -103,7 +103,12 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             identifier.setSymbol(null);
         } else {
             final var symbol = scope.resolve(identifier.getName());
-            identifier.setSymbol(Objects.requireNonNullElseGet(symbol, () -> new ErrorSymbol(identifier.getName())));
+
+            if (symbol != null) {
+                identifier.setSymbol(symbol);
+            } else if (identifier.getSymbol() == null) {
+                identifier.setSymbol(new ErrorSymbol(identifier.getName()));
+            }
         }
 
         return defaultAnswer(identifier, scope);

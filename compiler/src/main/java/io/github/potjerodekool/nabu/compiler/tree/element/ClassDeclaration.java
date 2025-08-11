@@ -18,6 +18,8 @@ public interface ClassDeclaration extends StatementTree {
 
     Kind getKind();
 
+    NestingKind getNestingKind();
+
     List<Tree> getEnclosedElements();
 
     List<ExpressionTree> getImplementing();

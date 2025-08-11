@@ -218,4 +218,5 @@ public class ResolverPhase extends AbstractResolver {
 
         return super.visitConstantCaseLabel(constantCaseLabel, scope);
     }
+
 }

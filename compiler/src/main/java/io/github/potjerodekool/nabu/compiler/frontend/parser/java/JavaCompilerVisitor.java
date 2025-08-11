@@ -13,6 +13,7 @@ import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccessExpressionBuilder;
@@ -290,6 +291,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         return TreeMaker.classDeclaration(
                 Kind.CLASS,
+                NestingKind.TOP_LEVEL,
                 classModifiers,
                 simpleName,
                 enclosedElements,
@@ -456,13 +458,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
-        List<TypeParameterTree> typeParameters;
-
-        try {
-            typeParameters = acceptList(ctx.typeParameters());
-        } catch (final Exception e) {
-            typeParameters = List.of();
-        }
+        List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
 
         final var annotations = ctx.annotation().stream()
                 .map(it -> (AnnotationTree) it.accept(this))
@@ -893,6 +889,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         return TreeMaker.classDeclaration(
                 Kind.ENUM,
+                NestingKind.TOP_LEVEL,
                 modifiers,
                 identifier.getName(),
                 enclosedElements,
@@ -990,6 +987,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 arguments,
                 TreeMaker.classDeclaration(
                         Kind.ENUM,
+                        NestingKind.TOP_LEVEL,
                         new Modifiers(),
                         null,
                         classBody,
@@ -1100,5 +1098,54 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
 
         return TreeMaker.literalExpressionTree(value, node.getSymbol().getLine(), node.getSymbol().getCharPositionInLine());
+    }
+
+    @Override
+    public Object visitClassOrInterfaceType(final Java20Parser.ClassOrInterfaceTypeContext ctx) {
+        ExpressionTree packageName = accept(ctx.packageName());
+        final List<AnnotationTree> annotations = acceptList(ctx.annotation());
+        ExpressionTree result = (ExpressionTree) ctx.typeIdentifier().accept(this);
+
+        if (!annotations.isEmpty()) {
+            result = TreeMaker.annotatedTypeTree(
+                    annotations,
+                    result,
+                    List.of(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        if (packageName != null) {
+            result = TreeMaker.fieldAccessExpressionTree(
+                    packageName,
+                    result,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
+
+        if (!typeArguments.isEmpty()) {
+            result = TreeMaker.typeApplyTree(
+                    result,
+                    typeArguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        if (ctx.coit() != null) {
+            final var coit = (ExpressionTree) ctx.coit().accept(this);
+            result = TreeMaker.fieldAccessExpressionTree(
+                    result,
+                    coit,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        return result;
     }
 }

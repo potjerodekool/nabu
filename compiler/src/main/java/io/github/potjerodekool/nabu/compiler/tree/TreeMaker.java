@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
@@ -409,6 +410,7 @@ public final class TreeMaker {
     }
 
     public static ClassDeclaration classDeclaration(final Kind kind,
+                                                    final NestingKind nestingKind,
                                                     final Modifiers modifiers,
                                                     final String simpleName,
                                                     final List<Tree> enclosedElements,
@@ -420,6 +422,7 @@ public final class TreeMaker {
                                                     final int columnNumber) {
         return new CClassDeclaration(
                 kind,
+                nestingKind,
                 modifiers,
                 simpleName,
                 enclosedElements,

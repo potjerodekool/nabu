@@ -79,9 +79,7 @@ public class EnumUsageMap {
         final var useClassName = usageClassSymbol.getQualifiedName();
         final var enumMap = enumUsageMap.computeIfAbsent(useClassName, key -> new LinkedHashMap<>());
 
-        enumMap.values().forEach(usageInfo -> {
-            usageInfo.memberClass = memberClassSymbol;
-        });
+        enumMap.values().forEach(usageInfo -> usageInfo.memberClass = memberClassSymbol);
     }
 
     private UsageInfo getUsageInfo() {
@@ -110,7 +108,7 @@ class ClassUsage {
 
 class UsageInfo {
 
-    Map<String, Integer> mapping = new HashMap<>();
+    final Map<String, Integer> mapping = new HashMap<>();
 
     ClassSymbol memberClass;
 

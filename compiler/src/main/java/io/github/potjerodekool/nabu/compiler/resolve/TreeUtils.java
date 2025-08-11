@@ -26,6 +26,7 @@ public final class TreeUtils {
                         ? varType.getInterferedType()
                         : variableType.getType();
             }
+            case NewClassExpression newClassExpression -> typeOf(newClassExpression.getName());
             case ExpressionTree expressionTree -> expressionTree.getType();
             default -> throw new UnsupportedOperationException(tree.getClass().getName());
         };

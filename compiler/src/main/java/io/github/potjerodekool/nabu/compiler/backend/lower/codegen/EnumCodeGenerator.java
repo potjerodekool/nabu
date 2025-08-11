@@ -208,7 +208,6 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         methodInvocation.setMethodType(cloneMethod.asType());
 
         final var statements = List.<StatementTree>of(
-
                 new CReturnStatementTree(
                         new CCastExpressionTree(
                                 arrayTypeTree,

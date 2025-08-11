@@ -9,12 +9,9 @@ import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.io.NabuFileObject;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import org.antlr.v4.runtime.*;
-import org.antlr.v4.runtime.atn.ATNConfigSet;
-import org.antlr.v4.runtime.dfa.DFA;
 import org.antlr.v4.runtime.tree.ParseTree;
 
 import java.nio.file.Paths;
-import java.util.BitSet;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

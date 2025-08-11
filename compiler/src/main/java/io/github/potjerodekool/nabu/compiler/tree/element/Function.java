@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.tree.element;
 import io.github.potjerodekool.nabu.compiler.ast.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
+import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
@@ -39,6 +40,8 @@ public interface Function extends Tree {
     default boolean hasFlag(final long flag) {
         return getModifiers().hasFlag(flag);
     }
+
+    List<TypeParameterTree> getTypeParameters();
 
     FunctionBuilder builder();
 

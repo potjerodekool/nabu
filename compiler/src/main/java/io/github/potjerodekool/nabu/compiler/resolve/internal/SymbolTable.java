@@ -200,6 +200,10 @@ public class SymbolTable {
                 n -> new HashMap<>()
         );
 
+        if (map.containsKey(module)) {
+            throw new IllegalStateException();
+        }
+
         map.put(module, classSymbol);
     }
 

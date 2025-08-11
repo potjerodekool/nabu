@@ -7,6 +7,7 @@ import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
+import io.github.potjerodekool.nabu.compiler.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
@@ -19,6 +20,8 @@ import java.util.Objects;
 public class CClassDeclaration extends CStatementTree implements ClassDeclaration {
 
     private final Kind kind;
+
+    private final NestingKind nestingKind;
 
     private final String simpleName;
 
@@ -37,6 +40,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
     private final List<IdentifierTree> permits;
 
     public CClassDeclaration(final Kind kind,
+                             final NestingKind nestingKind,
                              final Modifiers modifiers,
                              final String simpleName,
                              final List<Tree> enclosedElements,
@@ -48,6 +52,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
                              final int columnNumber) {
         super(lineNumber, columnNumber);
         this.kind = kind;
+        this.nestingKind = nestingKind;
         this.modifiers = modifiers;
         this.simpleName = simpleName;
 
@@ -63,6 +68,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
     public CClassDeclaration(final ClassDeclarationBuilder classDeclarationBuilder) {
         super(classDeclarationBuilder);
         this.kind = classDeclarationBuilder.getKind();
+        this.nestingKind = classDeclarationBuilder.getNestingKind();
         this.simpleName = classDeclarationBuilder.getSimpleName();
         this.enclosedElements.addAll(classDeclarationBuilder.getEnclosedElements());
 
@@ -74,10 +80,12 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         this.permits = classDeclarationBuilder.getPermits();
     }
 
+    @Override
     public String getSimpleName() {
         return simpleName;
     }
 
+    @Override
     public Modifiers getModifiers() {
         return modifiers;
     }
@@ -87,10 +95,17 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         return extending;
     }
 
+    @Override
     public Kind getKind() {
         return kind;
     }
 
+    @Override
+    public NestingKind getNestingKind() {
+        return nestingKind;
+    }
+
+    @Override
     public List<Tree> getEnclosedElements() {
         return enclosedElements;
     }
@@ -110,6 +125,7 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         return this;
     }
 
+    @Override
     public CClassDeclaration enclosedElements(final List<Tree> enclosedElements) {
         this.enclosedElements.clear();
         this.enclosedElements.addAll(enclosedElements);
@@ -127,10 +143,12 @@ public class CClassDeclaration extends CStatementTree implements ClassDeclaratio
         return visitor.visitClass(this, param);
     }
 
+    @Override
     public List<ExpressionTree> getImplementing() {
         return implementing;
     }
 
+    @Override
     public List<TypeParameterTree> getTypeParameters() {
         return typeParameters;
     }

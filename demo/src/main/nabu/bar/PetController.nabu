@@ -1,0 +1,26 @@
+package bar;
+
+import io.github.potjerodekool.petstore.api.model.Pet;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.ArrayList;
+import java.util.UUID;
+
+@RestController
+@RequestMapping(value = {"/v2/pets"})
+public class PetController {
+
+    private pets : List<Pet> = new ArrayList<Pet>();
+    private pet : Pet;
+
+    public PetsController() {
+    }
+
+    @GetMapping
+    public fun getPets(): List<Pet> {
+        return this.pets;
+    }
+}

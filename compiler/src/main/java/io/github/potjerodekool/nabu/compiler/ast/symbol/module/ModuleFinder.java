@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.module;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.io.FileManager;
 import io.github.potjerodekool.nabu.compiler.io.StandardLocation;
@@ -79,11 +78,9 @@ public class ModuleFinder {
 
     private void findModuleInfo(final ModuleSymbol moduleSymbol) {
         final var location = moduleSymbol.getClassLocation();
-        final var kind = ElementKind.CLASS;
         final var fileObject = fileManager.getFileObject(
                 location,
-                moduleSymbol.getModuleInfo().getSimpleName(),
-                kind);
+                moduleSymbol.getModuleInfo().getSimpleName());
 
         if (fileObject != null) {
             moduleSymbol.moduleInfo.setClassFile(fileObject);

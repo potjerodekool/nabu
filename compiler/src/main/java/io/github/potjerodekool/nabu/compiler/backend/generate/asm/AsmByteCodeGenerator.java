@@ -1,7 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
@@ -20,7 +22,7 @@ import org.objectweb.asm.Type;
 import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator.toAsmType;
 import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;
 
-public class AsmdByteCodeGenerator implements ByteCodeGenerator,
+public class AsmByteCodeGenerator implements ByteCodeGenerator,
         SymbolVisitor<Void, Object> {
 
     protected final ClassWriter classWriter = new ClassWriter(
@@ -31,7 +33,7 @@ public class AsmdByteCodeGenerator implements ByteCodeGenerator,
 
     private final CompilerOptions options;
 
-    public AsmdByteCodeGenerator(final CompilerOptions options) {
+    public AsmByteCodeGenerator(final CompilerOptions options) {
         this.options = options;
     }
 

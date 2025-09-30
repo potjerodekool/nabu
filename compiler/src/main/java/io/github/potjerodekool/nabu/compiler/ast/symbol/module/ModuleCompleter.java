@@ -52,7 +52,7 @@ class ModuleCompleter implements Completer {
         }
 
         if (module.getModuleInfo().getClassFile() == null
-                || module.getModuleInfo().getClassFile().getKind() == FileObject.Kind.CLASS) {
+                || module.getModuleInfo().getClassFile().getKind() == FileObject.CLASS_KIND) {
             completeModule(module);
         }
     }

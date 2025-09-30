@@ -6,8 +6,8 @@ import io.github.potjerodekool.dependencyinjection.bean.BeanDefinition;
 public class LazySingletonScopeManager<T> implements ScopeManager<T> {
 
     private final BeanDefinition<T> beanDefinition;
-    private T instance = null;
-    private boolean initialized = false;
+    private volatile T instance = null;
+    private volatile boolean initialized = false;
 
     public LazySingletonScopeManager(final BeanDefinition<T> beanDefinition) {
         this.beanDefinition = beanDefinition;

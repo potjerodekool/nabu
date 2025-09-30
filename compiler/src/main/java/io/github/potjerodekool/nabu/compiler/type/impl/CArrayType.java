@@ -46,4 +46,9 @@ public class CArrayType extends AbstractType implements ArrayType {
     public String getClassName() {
         return "[" + componentType.getClassName();
     }
+
+    @Override
+    public boolean isArrayType() {
+        return true;
+    }
 }

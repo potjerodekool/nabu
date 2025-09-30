@@ -85,6 +85,11 @@ public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclarat
         return this;
     }
 
+    public ClassDeclarationBuilder enclosingElement(final Tree enclosingElement) {
+        this.enclosedElements.add(enclosingElement);
+        return this;
+    }
+
     public List<TypeParameterTree> getTypeParameters() {
         return typeParameters;
     }

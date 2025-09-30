@@ -3,7 +3,6 @@ package io.github.potjerodekool;
 import java.util.ArrayList;
 import java.util.List;
 
-import io.github.potjerodekool.nabu.example.Dog;
 
 public class AnimalShop {
 

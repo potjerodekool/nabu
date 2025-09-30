@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.compiler.backend.lower.ExpressionConverter;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
+import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 
 import java.util.Map;

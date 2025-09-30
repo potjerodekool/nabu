@@ -10,18 +10,18 @@ public abstract class Graph {
 
     private int nodecount = 0;
     private List<Node> nodes = Collections.emptyList();
-    private List<Node> mylast = Collections.emptyList();
+    private List<Node> last = Collections.emptyList();
 
     int incrementNodeCount() {
         return nodecount++;
     }
 
-    public List<Node> getMylast() {
-        return mylast;
+    public List<Node> getLast() {
+        return last;
     }
 
-    void setMylast(final List<Node> mylast) {
-        this.mylast = mylast;
+    void setLast(final List<Node> last) {
+        this.last = last;
     }
 
     public List<Node> getNodes() {

@@ -23,8 +23,6 @@ class NabuCompilerVisitorTest {
                     static fun emptyList() : List {
                         return of();
                     }
-                
-                
                 }
                 
                 
@@ -498,6 +496,12 @@ class NabuCompilerVisitorTest {
                     other.someDummyStuff();
                 }
                 """, NabuParser::functionDeclaration);
+    }
+
+    @Test
+    void visitAnnotation() {
+        parseAndAssert("""
+                @RequestMapping(value = {"/test"})""", NabuParser::annotation);
     }
 
 }

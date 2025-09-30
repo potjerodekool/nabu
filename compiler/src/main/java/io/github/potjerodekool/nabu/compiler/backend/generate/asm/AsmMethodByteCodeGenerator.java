@@ -85,7 +85,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         visitAnnotations(methodSymbol);
 
         if (!methodSymbol.isAbstract()) {
-            final var frag = IrCleaner.cleanUp(procFrag);
+            var frag = IrCleaner.cleanUp(procFrag);
+            frag = IrCleaner.insertReturnIfNeeded(frag);
             final var body = frag.getBody();
             visitBody(body, frame);
         }

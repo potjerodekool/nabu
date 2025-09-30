@@ -24,36 +24,31 @@ public final class IrCleaner {
     }
 
     public static ProcFrag insertReturnIfNeeded(final ProcFrag procFrag) {
-         return procFrag;
-        /*
-        var body = procFrag.getBody();
-
+        final var body = procFrag.getBody();
         final var flowGraph = IRFlowGraphBuilder.build(
                 body
         );
 
-        final var lastNode = flowGraph.getLastNode();
-        final var lastStatement = flowGraph.getMap().get(lastNode);
+        final var newStatements = new ArrayList<IStatement>();
 
-        final var addReturn = !(lastStatement instanceof Move move
-                && move.getDst() instanceof TempExpr dest
-                && dest.getTemp().getIndex() == Frame.RV);
+        for (final IStatement statement : body) {
+            newStatements.add(statement);
 
-        if (addReturn) {
-            final var lastStatementIndex = body.indexOf(lastStatement);
+            if (statement instanceof ILabelStatement) {
+                final var node = flowGraph.getRevMap().get(statement);
+                if (node.succ().isEmpty()) {
+                    final var move = new Move(
+                            new TempExpr(-1, null),
+                            new TempExpr(Frame.V0)
+                    );
 
-            final var statements = new ArrayList<>(body);
-
-            statements.add(lastStatementIndex + 1, new Move(
-                    new TempExpr(-1, null),
-                    new TempExpr(Frame.V0)
-            ));
-
-            return new ProcFrag(statements);
-        } else {
-            return procFrag;
+                    newStatements.add(move);
+                    newStatements.add(new ILabelStatement());
+                }
+            }
         }
-        */
+
+        return new ProcFrag(newStatements);
     }
 
     static void doCleanUp(final ProcFrag frag) {

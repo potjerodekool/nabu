@@ -63,7 +63,7 @@ class SourceTypeEnterTest {
                 .build();
 
         final var fileObject = new NabuFileObject(
-                FileObject.Kind.SOURCE_JAVA,
+                FileObject.JAVA_KIND,
                 path
         );
 

@@ -27,6 +27,19 @@ public class AnnotationDeProxyProcessor implements AnnotationValueVisitor<Attrib
                 .map(entry -> {
                     final var method = methodMap.get(entry.getKey().getSimpleName());
                     final var newValue = deProxy(entry.getValue(), method);
+
+                    final var annotationName = annotationType.asTypeElement().getQualifiedName();
+
+                    if (method == null) {
+                        throw new NullPointerException("Failed to resolve method " + entry.getKey().getSimpleName() + " for " + annotationName);
+                    }
+
+                    if (newValue == null) {
+
+
+                        throw new NullPointerException(method.getSimpleName() + " for " + annotationName + " value is null");
+                    }
+
                     return Map.entry(method, newValue);
                 }).collect(Collectors.toMap(
                         Map.Entry::getKey,

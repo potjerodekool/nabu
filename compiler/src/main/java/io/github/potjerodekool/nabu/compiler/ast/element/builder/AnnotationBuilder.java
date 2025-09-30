@@ -16,22 +16,22 @@ public final class AnnotationBuilder {
     private AnnotationBuilder() {
     }
 
-    public static io.github.potjerodekool.nabu.compiler.ast.element.CompoundAttribute createAnnotation(final DeclaredType annotationType,
+    public static CompoundAttribute createAnnotation(final DeclaredType annotationType,
                                                                                                        final Map<ExecutableElement, AnnotationValue> values) {
 
         return new CCompoundAttribute(annotationType, values);
     }
 
-    public static io.github.potjerodekool.nabu.compiler.ast.element.ArrayAttribute createArrayValue(final TypeMirror componentType,
+    public static ArrayAttribute createArrayValue(final TypeMirror componentType,
                                                                                                     final List<AnnotationValue> values) {
         return new CArrayAttribute(componentType, values);
     }
 
-    public static io.github.potjerodekool.nabu.compiler.ast.element.ConstantAttribute createConstantValue(final Object value) {
+    public static ConstantAttribute createConstantValue(final Object value) {
         return new CConstantAttribute(value);
     }
 
-    public static io.github.potjerodekool.nabu.compiler.ast.element.EnumAttribute createEnumValue(final DeclaredType enumType,
+    public static EnumAttribute createEnumValue(final DeclaredType enumType,
                                                                                                   final VariableElement enumValue) {
         return new CEnumAttribute(
                 enumType,

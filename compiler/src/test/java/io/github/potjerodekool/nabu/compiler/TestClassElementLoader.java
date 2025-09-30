@@ -438,7 +438,7 @@ class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
         return ctx.typeParameter().stream()
                 .map(it -> it.accept(this))
                 .map(it -> (TypeVariable) it)
-                .map(it -> it.asElement())
+                .map(TypeVariable::asElement)
                 .toList();
     }
 

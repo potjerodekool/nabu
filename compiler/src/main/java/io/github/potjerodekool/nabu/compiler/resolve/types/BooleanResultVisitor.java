@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.compiler.type.*;
 
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 
 public abstract class BooleanResultVisitor extends AbstractTypeVisitor<Boolean, TypeMirror> implements TypeVisitor<Boolean, TypeMirror> {
 

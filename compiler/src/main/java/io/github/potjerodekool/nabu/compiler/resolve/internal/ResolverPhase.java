@@ -1,9 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.TodoException;
+import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
@@ -19,7 +18,11 @@ import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.type.ArrayType;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.util.Pair;
 
 public class ResolverPhase extends AbstractResolver {
 
@@ -42,6 +45,9 @@ public class ResolverPhase extends AbstractResolver {
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Scope scope) {
+
+        classDeclaration.getModifiers().getAnnotations().forEach(annotation -> annotation.accept(this, scope));
+
         final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
 
         if (clazz == null) {
@@ -219,4 +225,66 @@ public class ResolverPhase extends AbstractResolver {
         return super.visitConstantCaseLabel(constantCaseLabel, scope);
     }
 
+    @Override
+    public Object visitAnnotation(final AnnotationTree annotationTree, final Scope scope) {
+        return super.visitAnnotation(annotationTree, scope);
+    }
+
+    @Override
+    public Object visitAssignment(final AssignmentExpressionTree assignmentExpressionTree, final Scope scope) {
+        final var left = (IdentifierTree) assignmentExpressionTree.getLeft();
+        final var methodName = left.getName();
+
+        final var currentClass = scope.getCurrentClass();
+
+        final var resolvedMethod = ElementFilter.methodsIn(currentClass.getEnclosedElements()).stream()
+                .filter(method -> method.getSimpleName().equals(methodName))
+                .filter(method -> method.getParameters().isEmpty())
+                .findFirst()
+                .orElse(null);
+
+        assignmentExpressionTree.getRight().accept(this, scope);
+
+        final var right = assignmentExpressionTree.getRight();
+        final Attribute attributeValue;
+
+        if (right instanceof LiteralExpressionTree literalExpressionTree) {
+            attributeValue = AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
+        } else if (right instanceof NewArrayExpression newArrayExpression) {
+            var type = (ArrayType) newArrayExpression.getType();
+            final TypeMirror componentType;
+
+            if (type != null) {
+                componentType = type.getComponentType();
+            } else if (!newArrayExpression.getElements().isEmpty()) {
+                componentType = newArrayExpression.getElements().getFirst().getType();
+            } else {
+                componentType = null;
+            }
+
+            final var values = newArrayExpression.getElements().stream()
+                            .map(this::createAnnotationValue)
+                                    .toList();
+            attributeValue = AnnotationBuilder.createArrayValue(
+                    componentType,
+                    values
+            );
+        } else {
+            throw new TodoException();
+        }
+
+        left.setSymbol(resolvedMethod);
+
+        return new Pair<>(
+                resolvedMethod,
+                attributeValue
+        );
+    }
+
+    private AnnotationValue createAnnotationValue(final ExpressionTree expressionTree) {
+        if (expressionTree instanceof LiteralExpressionTree literalExpressionTree) {
+            return AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
+        }
+        throw new TodoException();
+    }
 }

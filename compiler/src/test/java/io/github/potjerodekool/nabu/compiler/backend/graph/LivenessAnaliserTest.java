@@ -1,17 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.backend.graph;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
+import io.github.potjerodekool.nabu.compiler.backend.ir.ProcFrag;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
-import io.github.potjerodekool.nabu.compiler.backend.postir.canon.BasicBlocks;
+import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -44,9 +44,31 @@ class LivenessAnaliserTest {
                 )
         ));
 
+        final var body = IrCleaner.cleanUp(new ProcFrag(statements))
+                .getBody();
+
         final var flowGraph = IRFlowGraphBuilder.build(
-                statements
+                body
         );
+
+        final var newStatements = new ArrayList<IStatement>();
+
+        for (final IStatement statement : body) {
+            newStatements.add(statement);
+
+            if (statement instanceof ILabelStatement) {
+                final var node = flowGraph.getRevMap().get(statement);
+                if (node.succ().isEmpty()) {
+                    final var move = new Move(
+                            new TempExpr(-1, null),
+                            new TempExpr(Frame.V0)
+                    );
+
+                    newStatements.add(move);
+                    newStatements.add(new ILabelStatement());
+                }
+            }
+        }
 
         final var analiser = new LivenessAnaliser(flowGraph);
         analiser.getFlowGraph();

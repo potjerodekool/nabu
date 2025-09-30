@@ -871,7 +871,6 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
             constructor.setBody(newBody);
         }
 
-
         if (constructor.getMethodSymbol() != null) {
             currentClass.removeEnclosedElement((Symbol) constructor.getMethodSymbol());
             constructor.setMethodSymbol(null);

@@ -44,7 +44,7 @@ public final class TreeAssert {
                                       final Function<String, String> actualTransformer) {
         final var parser = createParser(code);
         final var fileObject = new NabuFileObject(
-                FileObject.Kind.SOURCE_NABU,
+                new FileObject.Kind(".nabu", true),
                 Paths.get("SomeClass.class")
         );
 

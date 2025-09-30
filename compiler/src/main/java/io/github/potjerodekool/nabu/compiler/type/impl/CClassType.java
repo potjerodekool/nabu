@@ -95,6 +95,7 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     @Override
     public List<? extends TypeMirror> getAllParameters() {
+        complete();
         if (allParameters == null) {
             allParameters = new ArrayList<>();
 

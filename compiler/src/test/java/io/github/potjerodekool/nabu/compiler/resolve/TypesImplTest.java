@@ -43,8 +43,7 @@ class TypesImplTest {
 
     @Test
     void asMemberOf() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = loader.getSymbolTable().getJavaBase();
 
         final var setClass = (ClassSymbol) loader.loadClass(module, "java.util.Set");
         final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
@@ -109,8 +108,7 @@ class TypesImplTest {
 
     @Test
     void isSubTypeNonGeneric() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = loader.getSymbolTable().getJavaBase();
         final var arrayListType = (DeclaredType) loader.loadClass(module, "java.util.ArrayList").asType();
         final var listType = (DeclaredType) loader.loadClass(module, "java.util.List").asType();
         assertTrue(types.isSubType(arrayListType, listType));
@@ -118,8 +116,7 @@ class TypesImplTest {
 
     @Test
     void isSubTypeGeneric() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = loader.getSymbolTable().getJavaBase();
         final var arrayListType = (DeclaredType) loader.loadClass(module, "java.util.ArrayList").asType();
         final var listType = (DeclaredType) loader.loadClass(module, "java.util.List").asType();
         final var objectType = (DeclaredType) loader.loadClass(module, "java.lang.Object").asType();
@@ -153,8 +150,7 @@ class TypesImplTest {
 
     @Test
     void isSubTypeArray() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = loader.getSymbolTable().getJavaBase();
         final var objectType = loader.loadClass(module, "java.lang.Object").asType();
         final var stringType = loader.loadClass(module, "java.lang.String").asType();
         final var cloneableType = loader.loadClass(module, Constants.CLONEABLE).asType();
@@ -204,8 +200,7 @@ class TypesImplTest {
 
     @Test
     void isSameType1() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = loader.getSymbolTable().getJavaBase();
         final var actual = typeBuilder.parseFieldSignature("Ljava/util/Optional<*>;", typeResolver, module);
 
         final var optionalClazz = loader.loadClass(module, "java.util.Optional");
@@ -220,8 +215,7 @@ class TypesImplTest {
 
     @Test
     void isSameType2() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getUnnamedModule();
+        final var module = loader.getSymbolTable().getUnnamedModule();
         final var actual = typeBuilder.parseFieldSignature("TT;", typeResolver, module);
         final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 
@@ -231,8 +225,7 @@ class TypesImplTest {
 
     @Test
     void isSameType3() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getUnnamedModule();
+        final var module = loader.getSymbolTable().getUnnamedModule();
 
         final var actual = typeBuilder.parseFieldSignature("Ljava/lang/invoke/ClassSpecializer<TT;TK;TS;>.Factory;", typeResolver, module);
 
@@ -273,8 +266,7 @@ class TypesImplTest {
 
     @Test
     void isSameType4() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = loader.getSymbolTable().getJavaBase();
 
         final var actual = typeBuilder.parseFieldSignature("Ljava/util/List<Ljava/lang/module/Configuration;>;", typeResolver, module);
         final var listClass = loader.loadClass(module, "java.util.List");
@@ -297,8 +289,7 @@ class TypesImplTest {
 
     @Test
     void isSameType5() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = loader.getSymbolTable().getJavaBase();
         final var actual = typeBuilder.parseFieldSignature("[Ljava/lang/reflect/TypeVariable<*>;", typeResolver, module);
 
         final var typeVariableClass = loader.loadClass(module, "java.lang.reflect.TypeVariable");
@@ -318,8 +309,7 @@ class TypesImplTest {
 
     @Test
     void isSameType6() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getUnnamedModule();
+        final var module = loader.getSymbolTable().getUnnamedModule();
         final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 
         final var actual = typeBuilder.parseFieldSignature("[TT;", typeResolver, module);

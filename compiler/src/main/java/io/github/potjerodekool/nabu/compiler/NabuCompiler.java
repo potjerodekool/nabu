@@ -5,6 +5,7 @@ import io.github.potjerodekool.dependencyinjection.ClassPathScanner;
 import io.github.potjerodekool.nabu.compiler.backend.ByteCodePhase;
 import io.github.potjerodekool.nabu.compiler.backend.IRPhase;
 import io.github.potjerodekool.nabu.compiler.diagnostic.ConsoleDiagnosticListener;
+import io.github.potjerodekool.nabu.compiler.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static io.github.potjerodekool.nabu.compiler.CheckPhase.check;
 import static io.github.potjerodekool.nabu.compiler.EnterPhase.enterPhase;
@@ -37,12 +39,15 @@ public class NabuCompiler {
             new ConsoleDiagnosticListener()
     );
 
-
     private final ApplicationContext applicationContext = new ApplicationContext();
 
     private final ByteCodePhase byteCodePhase = new ByteCodePhase();
 
-    public void compile(final CompilerOptions compilerOptions) {
+    public void setListener(final DiagnosticListener listener) {
+        errorCapture.setListener(listener);
+    }
+
+    public int compile(final CompilerOptions compilerOptions) {
         try (final NabuCFileManager fileManager = new NabuCFileManager();
              final var compilerContext = new CompilerContextImpl(
                      applicationContext,
@@ -53,16 +58,12 @@ public class NabuCompiler {
             final var nabuSourceFiles = resolveSourceFiles(fileManager);
             final var compilationUnits = processFiles(nabuSourceFiles, compilerContext);
 
-            final var exitCode = byteCodePhase.generate(
+            return byteCodePhase.generate(
                     compilationUnits,
                     compilerOptions,
                     errorCapture,
                     targetDirectory
             );
-
-            if (exitCode != 0) {
-                System.exit(exitCode);
-            }
         } catch (final Exception e) {
             throw new RuntimeException(e);
         }
@@ -82,9 +83,13 @@ public class NabuCompiler {
     }
 
     private List<FileObject> resolveSourceFiles(final FileManager fileManager) {
+        final var kinds = fileManager.allSourceKinds().stream()
+                .filter(it -> it != FileObject.JAVA_KIND)
+                .toArray(FileObject.Kind[]::new);
+
         return fileManager.getFilesForLocation(
                 StandardLocation.SOURCE_PATH,
-                FileObject.Kind.SOURCE_NABU
+                kinds
         );
     }
 
@@ -102,6 +107,7 @@ public class NabuCompiler {
 
         final var compilationUnits = fileObjectAndCompilationUnits.stream()
                 .map(it -> resolvePhase(it, compilerContext))
+                .map(it -> AnnotatePhase.annotate(it, compilerContext))
                 .map(it -> transform(it,applicationContext))
                 //.map(it -> resolvePhase(it, compilerContext))
                 .map(it -> check(it.compilationUnit(), errorCapture))

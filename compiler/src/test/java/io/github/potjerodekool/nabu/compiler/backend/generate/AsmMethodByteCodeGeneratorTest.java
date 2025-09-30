@@ -22,7 +22,6 @@ import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CVoidType;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -151,7 +150,9 @@ class AsmMethodByteCodeGeneratorTest {
                     ICONST_0
                     IRETURN
                    L3
-                    LOCALVARIABLE this LSomeClass; L0 L3 0
+                    IRETURN
+                   L4
+                    LOCALVARIABLE this LSomeClass; L0 L4 0
                     MAXSTACK = -1
                     MAXLOCALS = -1
                 """;
@@ -227,7 +228,9 @@ class AsmMethodByteCodeGeneratorTest {
                     PUTFIELD SomeClass.stringType : Ljava/lang/class;
                     GOTO L1
                    L1
-                    LOCALVARIABLE this LSomeClass; L0 L1 0
+                    RETURN
+                   L2
+                    LOCALVARIABLE this LSomeClass; L0 L2 0
                     MAXSTACK = -1
                     MAXLOCALS = -1
                 """;
@@ -306,7 +309,9 @@ class AsmMethodByteCodeGeneratorTest {
                     ]
                     GOTO L1
                    L1
-                    LOCALVARIABLE this LSomeClass; L0 L1 0
+                    ARETURN
+                   L2
+                    LOCALVARIABLE this LSomeClass; L0 L2 0
                     MAXSTACK = -1
                     MAXLOCALS = -1
                 """;
@@ -532,6 +537,8 @@ class AsmMethodByteCodeGeneratorTest {
 
             Mockito.when(IrCleaner.cleanUp(ArgumentMatchers.any()))
                     .thenReturn(frag);
+            Mockito.when(IrCleaner.insertReturnIfNeeded(ArgumentMatchers.any()))
+                    .thenAnswer(answer -> answer.getArgument(0));
 
             final var methodGenerator = createMethodWriter();
             methodGenerator.generate(method);

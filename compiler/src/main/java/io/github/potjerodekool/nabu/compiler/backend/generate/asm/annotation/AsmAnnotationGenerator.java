@@ -174,6 +174,7 @@ public class AsmAnnotationGenerator implements AnnotationValueVisitor<Void, AsmA
         final var annotationVisitor = annotationGeneratorContext.annotationVisitor.visitArray(annotationGeneratorContext.name);
         final var newContext = new AnnotationGeneratorContext(null, annotationVisitor);
         values.forEach(value -> value.accept(this, newContext));
+        annotationVisitor.visitEnd();
         return null;
     }
 

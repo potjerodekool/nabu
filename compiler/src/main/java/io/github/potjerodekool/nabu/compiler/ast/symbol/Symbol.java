@@ -113,7 +113,7 @@ public abstract class Symbol implements Element {
     }
 
     public void setClassFile(final FileObject classFile) {
-        if (classFile.getKind() != FileObject.Kind.CLASS) {
+        if (classFile.getKind() != FileObject.CLASS_KIND) {
             throw new UnsupportedOperationException();
         }
 

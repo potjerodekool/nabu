@@ -1,10 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.io;
 
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 
 import java.nio.file.Path;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -21,11 +19,19 @@ public interface FileManager extends AutoCloseable {
 
     String resolveModuleName(Location location);
 
-    FileObject getFileObject(Location location, String s, ElementKind kind);
+    FileObject getFileObject(Location location, String s);
 
-    Iterable<? extends FileObject> list(Location location, String packageName, EnumSet<FileObject.Kind> kinds);
+    Iterable<? extends FileObject> list(Location location, String packageName, Set<FileObject.Kind> kinds);
 
     String resolveBinaryName(Location location, FileObject file);
+
+    FileObject.Kind extensionToFileObjectKind(String extension);
+
+    Set<FileObject.Kind> allKinds();
+
+    Set<FileObject.Kind> allSourceKinds();
+
+    Set<FileObject.Kind> copyOf(Set<FileObject.Kind> kinds);
 
     void processOptions(final CompilerOptions compilerOptions);
 

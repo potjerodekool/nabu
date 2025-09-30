@@ -3534,12 +3534,22 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitElementValueArrayInitializer(final NabuParser.ElementValueArrayInitializerContext ctx) {
-        return super.visitElementValueArrayInitializer(ctx);
+        final var elementValueList = (List<ExpressionTree>) ctx.elementValueList().accept(this);
+
+        return TreeMaker.newArrayExpression(
+                null,
+                Collections.emptyList(),
+                elementValueList,
+                ctx.start.getLine(),
+                ctx.start.getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitElementValueList(final NabuParser.ElementValueListContext ctx) {
-        return super.visitElementValueList(ctx);
+        return ctx.elementValue().stream()
+                .map(it -> it.accept(this))
+                .toList();
     }
 
     @Override

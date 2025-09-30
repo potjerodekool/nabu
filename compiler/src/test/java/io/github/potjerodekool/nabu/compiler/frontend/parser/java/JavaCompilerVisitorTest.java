@@ -35,7 +35,7 @@ class JavaCompilerVisitorTest {
                        final Function<Java20Parser, ParseTree> function1) {
         final var parser = createParser(code);
         final var fileObject = new NabuFileObject(
-                FileObject.Kind.SOURCE_NABU,
+                new FileObject.Kind(".nabu", true),
                 Paths.get("SomeClass.class")
         );
 

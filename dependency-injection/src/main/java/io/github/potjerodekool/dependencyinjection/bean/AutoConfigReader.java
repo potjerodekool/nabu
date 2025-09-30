@@ -1,6 +1,9 @@
 package io.github.potjerodekool.dependencyinjection.bean;
 
-import org.objectweb.asm.*;
+import org.objectweb.asm.AnnotationVisitor;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Proxy;
@@ -9,7 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AutoConfigReader extends ClassVisitor {
+public class AutoConfigReader extends org.objectweb.asm.ClassVisitor {
 
     private final Object autoConfigInstance;
     private final List<BeanDefinition<?>> beanDefinitions = new ArrayList<>();

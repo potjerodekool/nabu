@@ -14,8 +14,9 @@ import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ClassFinder {
 
@@ -25,6 +26,7 @@ public class ClassFinder {
     private final Completer completer = this::complete;
     private final SourceTypeEnter sourceTypeEnter;
     private final CompilerContextImpl compilerContext;
+    private final Set<FileObject.Kind> packageFileKinds;
 
     public ClassFinder(final SymbolTable symbolTable,
                        final FileManager fileManager,
@@ -35,14 +37,20 @@ public class ClassFinder {
         this.classElementLoader = classElementLoader;
         this.sourceTypeEnter = new SourceTypeEnter(compilerContext);
         this.compilerContext = compilerContext;
+
+        final var packageFileKinds = this.fileManager.allKinds();
+        this.packageFileKinds = packageFileKinds.stream()
+                .filter(it -> !it.equals(FileObject.JAVA_KIND))
+                .collect(Collectors.toSet());
+
     }
 
     public Completer getCompleter() {
         return completer;
     }
 
-    protected EnumSet<FileObject.Kind> getPackageFileKinds() {
-        return EnumSet.of(FileObject.Kind.CLASS, FileObject.Kind.SOURCE_NABU);
+    protected Set<FileObject.Kind> getPackageFileKinds() {
+        return packageFileKinds;
     }
 
     private void complete(final Symbol symbol) {
@@ -189,8 +197,8 @@ public class ClassFinder {
 
         final var kinds = getPackageFileKinds();
 
-        final var classKinds = EnumSet.copyOf(kinds);
-        classKinds.remove(FileObject.Kind.SOURCE_NABU);
+        final var classKinds = this.fileManager.copyOf(kinds);
+        classKinds.removeIf(FileObject.Kind::isSource);
 
         final var files = list(location, packageSymbol.getFullName(), classKinds);
 
@@ -213,7 +221,7 @@ public class ClassFinder {
                     if (clazz.getSourceFile() == null) {
                         clazz.setSourceFile(file);
 
-                        if (file.getKind() != FileObject.Kind.SOURCE_NABU) {
+                        if (file.getKind() == FileObject.JAVA_KIND) {
                             enterSource(clazz);
                         }
 
@@ -269,11 +277,7 @@ public class ClassFinder {
 
     private void scanUserPaths(final PackageSymbol packageSymbol,
                                final boolean includeSourcePath) {
-        final var kinds = EnumSet.of(
-                FileObject.Kind.CLASS,
-                FileObject.Kind.SOURCE_NABU,
-                FileObject.Kind.SOURCE_JAVA
-        );
+        final var kinds = this.fileManager.allKinds();
 
         fillInPackage(
                 packageSymbol,
@@ -298,7 +302,9 @@ public class ClassFinder {
         }
     }
 
-    private Iterable<? extends FileObject> list(final Location location, final String packageName, final EnumSet<FileObject.Kind> kinds) {
+    private Iterable<? extends FileObject> list(final Location location,
+                                                final String packageName,
+                                                final Set<FileObject.Kind> kinds) {
         return fileManager.list(location, packageName, kinds);
     }
 

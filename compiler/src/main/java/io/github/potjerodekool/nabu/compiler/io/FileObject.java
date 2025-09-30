@@ -6,39 +6,17 @@ import java.util.Arrays;
 
 public interface FileObject {
 
+    FileObject.Kind JAVA_KIND = new FileObject.Kind(".java", true);
+    FileObject.Kind CLASS_KIND = new FileObject.Kind(".class", false);
+
     InputStream openInputStream() throws IOException;
 
     String getFileName();
 
     Kind getKind();
 
-    enum Kind {
-        SOURCE_NABU(".nabu", true),
-        SOURCE_JAVA(".java", true),
-        CLASS(".class", false);
-
-        private final String extension;
-        private final boolean isSource;
-
-        Kind(final String extension,
-             final boolean isSource) {
-            this.extension = extension;
-            this.isSource = isSource;
-        }
-
-        public String getExtension() {
-            return extension;
-        }
-
-        public boolean isSource() {
-            return isSource;
-        }
-
-        public static Kind fromExtension(final String extension) {
-            return Arrays.stream(values())
-                    .filter(it -> it.getExtension().equals(extension))
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("Unknown file extension: " + extension));
-        }
+    record Kind(String extension,
+                boolean isSource) {
     }
+
 }

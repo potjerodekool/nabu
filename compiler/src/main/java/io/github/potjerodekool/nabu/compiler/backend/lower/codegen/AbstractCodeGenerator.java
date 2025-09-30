@@ -15,11 +15,10 @@ import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
-import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.NewClassExpression;
+import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
+import io.github.potjerodekool.nabu.compiler.tree.statement.ExpressionStatementTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
@@ -47,6 +46,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
     @Override
     public void generateCode(final ClassDeclaration classDeclaration) {
         generateClientInit(classDeclaration);
+        initInstanceFieldInConstructors(classDeclaration);
     }
 
     private void generateClientInit(final ClassDeclaration classDeclaration) {
@@ -307,6 +307,55 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
                 return Optional.empty();
             }
         }
+    }
+
+    private void initInstanceFieldInConstructors(final ClassDeclaration classDeclaration) {
+        final var instanceFields = TreeFilter.fieldsIn(classDeclaration.getEnclosedElements()).stream()
+                .filter(field -> !field.hasFlag(Flags.STATIC))
+                .filter(field -> field.getValue() != null)
+                        .filter(field -> !(field.getValue() instanceof LiteralExpressionTree))
+                                .toList();
+
+        if (instanceFields.isEmpty()) {
+            return;
+        }
+
+        TreeFilter.constructors(classDeclaration).forEach(constructor -> {
+            final var body = constructor.getBody().getStatements();
+            int invokeSuperIndex = -1;
+
+            for (var statementIndex = 0; invokeSuperIndex == -1
+                    && statementIndex < body.size(); statementIndex++) {
+                final var statement = body.get(statementIndex);
+
+                if (isInvokeSuper(statement)) {
+                    invokeSuperIndex = statementIndex;
+                }
+            }
+
+            if (invokeSuperIndex > -1) {
+
+            }
+        });
+    }
+
+    private boolean isInvokeSuper(final StatementTree statement) {
+        if (statement instanceof ExpressionStatementTree expressionStatementTree
+            && expressionStatementTree.getExpression() instanceof MethodInvocationTree methodInvocationTree) {
+            final var selector = methodInvocationTree.getMethodSelector();;
+            final String methodName;
+
+            if (selector instanceof IdentifierTree identifierTree) {
+                methodName = identifierTree.getName();
+            } else {
+                final var identifier = (IdentifierTree) ((FieldAccessExpressionTree) selector).getField();
+                methodName = identifier.getName();
+            }
+
+            return Constants.SUPER.equals(methodName);
+        }
+
+        return false;
     }
 }
 

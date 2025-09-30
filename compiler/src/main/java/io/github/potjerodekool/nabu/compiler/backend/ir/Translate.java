@@ -1,7 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
@@ -18,7 +20,10 @@ import io.github.potjerodekool.nabu.compiler.tree.element.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.builder.ReturnStatementTreeBuilder;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
+import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -390,7 +395,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         final var paramTypes = collector.getUsedIdentifiers().stream()
                 .map(identifier -> (VariableElement) identifier.getSymbol())
                 .map(VariableElement::asType)
-                .map(this::toIType)
+                .map(
+                        this::toIType)
                 .toList();
 
         final var lambdaMethodType = lambdaExpression.getLambdaMethodType();
@@ -631,7 +637,20 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitExpressionStatement(final ExpressionStatementTree expressionStatement, final TranslateContext context) {
-        final var expr = expressionStatement.getExpression().accept(this, context).unEx();
+        final var expression = expressionStatement.getExpression();
+        final var expr = expression.accept(this, context).unEx();
+
+        if (expression instanceof MethodInvocationTree methodInvocationTree) {
+            if (methodInvocationTree.getMethodType().getReturnType().getKind() != TypeKind.VOID) {
+                final var move = new Move(
+                        expr,
+                        new TempExpr()
+                );
+                move.setLineNumber(expressionStatement.getLineNumber());
+                return new Nx(move);
+            }
+        }
+
         final var es = new IExpressionStatement(expr);
         es.setLineNumber(expressionStatement.getLineNumber());
         return new Nx(es);
@@ -854,5 +873,10 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                 new IThrowStatement(expr.unEx()),
                 new ILabelStatement()
         ));
+    }
+
+    @Override
+    public Exp visitAnnotation(final AnnotationTree annotationTree, final TranslateContext param) {
+        return null;
     }
 }

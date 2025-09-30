@@ -94,4 +94,7 @@ public interface TypeMirror {
         return false;
     }
 
+    default boolean isArrayType() {
+        return false;
+    }
 }

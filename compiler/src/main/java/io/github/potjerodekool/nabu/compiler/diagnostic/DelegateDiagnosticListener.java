@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.diagnostic;
 
 public class DelegateDiagnosticListener implements DiagnosticListener {
 
-    private final DiagnosticListener delegate;
+    private DiagnosticListener delegate;
 
     public DelegateDiagnosticListener(final DiagnosticListener delegate) {
         this.delegate = delegate;
@@ -11,5 +11,9 @@ public class DelegateDiagnosticListener implements DiagnosticListener {
     @Override
     public void report(final Diagnostic diagnostic) {
         delegate.report(diagnostic);
+    }
+
+    public void setListener(final DiagnosticListener listener) {
+        this.delegate = listener;
     }
 }

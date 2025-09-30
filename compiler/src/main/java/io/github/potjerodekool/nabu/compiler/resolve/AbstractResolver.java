@@ -17,6 +17,7 @@ import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.util.Pair;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.typeOf;
@@ -345,8 +346,12 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         annotationTree.getName().accept(this, scope);
         final var annotationType = (DeclaredType) annotationTree.getName().getType();
 
+        final var annotationScope = new SymbolScope(annotationType, scope);
+
         final var values = annotationTree.getArguments().stream()
-                .map(it -> (Pair<ExecutableElement, AnnotationValue>) it.accept(this, scope))
+                .map(it -> (Pair<ExecutableElement, AnnotationValue>) it.accept(this, annotationScope))
+                //TODO remove non null check.
+                .filter(Objects::nonNull)
                 .collect(Collectors.toMap(
                         Pair::first,
                         Pair::second

@@ -6,7 +6,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
-import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmdByteCodeGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
@@ -61,7 +61,7 @@ public final class ByteCodePhase {
     private void generateModule(final CompilerOptions compilerOptions,
                                 final ModuleDeclaration moduleDeclaration,
                                 final Path targetDirectory) {
-        final ByteCodeGenerator generator = new AsmdByteCodeGenerator(compilerOptions);
+        final ByteCodeGenerator generator = new AsmByteCodeGenerator(compilerOptions);
         generator.generate(moduleDeclaration, null);
         final var name = "module-info";
         doGenerate(null, name, generator, targetDirectory);
@@ -70,7 +70,7 @@ public final class ByteCodePhase {
     private void generateClass(final CompilerOptions compilerOptions,
                                final ClassDeclaration classDeclaration,
                                final Path targetDirectory) {
-        final ByteCodeGenerator generator = new AsmdByteCodeGenerator(compilerOptions);
+        final ByteCodeGenerator generator = new AsmByteCodeGenerator(compilerOptions);
 
         final var classSymbol = classDeclaration.getClassSymbol();
         final var packageSymbol = findPackageSymbol(classSymbol.getEnclosingElement());

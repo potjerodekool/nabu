@@ -289,11 +289,22 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
     }
 
     @Override
-    public Tree visitIdentifier(final IdentifierTree identifier, final LowerContext context) {
-        //Insert this if needed.
-        final var symbol = identifier.getSymbol();
+    public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
+                                           final LowerContext param) {
+        final var selected = access(fieldAccessExpression.getSelected(), null);
+        final var field = access(fieldAccessExpression.getField(), selected);
+        return fieldAccessExpression.builder()
+                .selected(selected)
+                .field(field)
+                .build();
+    }
 
-        if (symbol instanceof VariableSymbol variableSymbol
+    private ExpressionTree access(final ExpressionTree field,
+                                  final ExpressionTree selected) {
+        final var symbol = field.getSymbol();
+
+        if (!isThisExpression(selected)
+                && symbol instanceof VariableSymbol variableSymbol
                 && isFieldOrEnumConstant(variableSymbol)
                 && !variableSymbol.isStatic()) {
             final var clazz = symbol.getEnclosingElement();
@@ -302,13 +313,18 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
 
             return TreeMaker.fieldAccessExpressionTree(
                     thisIdentifier,
-                    identifier,
+                    field,
                     -1,
                     -1
             );
         }
 
-        return super.visitIdentifier(identifier, context);
+        return field;
+    }
+
+    private boolean isThisExpression(final ExpressionTree expressionTree) {
+        return expressionTree instanceof IdentifierTree identifierTree
+                && Constants.THIS.equals(identifierTree.getName());
     }
 
     private boolean isFieldOrEnumConstant(final VariableSymbol variableSymbol) {

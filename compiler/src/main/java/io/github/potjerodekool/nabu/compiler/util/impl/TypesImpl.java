@@ -142,6 +142,8 @@ public class TypesImpl implements Types {
                                         final TypeMirror... typeArgs) {
         if (typeArgs.length == 0) {
             return (DeclaredType) typeElem.erasure(this);
+        } else if (!typeElem.asType().isParameterized()) {
+            return getErrorType(typeElem.getQualifiedName());
         } else if (typeElem.asType().getEnclosingType() != null
                 && typeElem.asType().getEnclosingType().isParameterized()) {
             throw new IllegalArgumentException("Enclosing type is parameterized");
@@ -187,6 +189,8 @@ public class TypesImpl implements Types {
         final var typeArguments = typeElem.asType().getTypeArguments();
 
         if (typeArgs.length != typeArguments.size()) {
+            return getErrorType(enclosing.getClassName());
+/*
             throw new IllegalArgumentException(
                     String.format(
                             "Incorrect number of type arguments. Got %s but expected %s",
@@ -194,6 +198,8 @@ public class TypesImpl implements Types {
                             typeArguments.size()
                     )
             );
+
+ */
         }
 
         if (Arrays.stream(typeArgs)
@@ -201,7 +207,8 @@ public class TypesImpl implements Types {
                         !(typeArg instanceof ReferenceType
                                 || typeArg instanceof WildcardType)
                 )) {
-            throw new IllegalArgumentException("Invalid type argument type");
+            //throw new IllegalArgumentException("Invalid type argument type");
+            return getErrorType(enclosing.getClassName());
         }
 
         final var typeArgList = Arrays.stream(typeArgs)

@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.io;
 
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.util.Pair;
 
 import java.io.IOException;
@@ -9,13 +8,64 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 public class NabuCFileManager implements FileManager {
 
+    private final Map<String, FileObject.Kind> extensionToKind = new HashMap<>();
+
+    private final Set<FileObject.Kind> kindSet;
+
     private final Locations locations = new Locations();
     private final Map<Path, FileSystem> openFileSystems = new HashMap<>();
+
+    public NabuCFileManager() {
+        this.kindSet = new HashSet<>();
+        this.kindSet.add(FileObject.JAVA_KIND);
+        this.kindSet.add(FileObject.CLASS_KIND);
+
+        try {
+            final var resources = getClass().getClassLoader().getResources("source-support.properties");
+            while (resources.hasMoreElements()) {
+                final var url = resources.nextElement();
+                try (var inputStream = url.openStream()) {
+                    final var properties = new Properties();
+                    properties.load(inputStream);
+                    properties.forEach((key, value) -> {
+                        final var extension = (String) value;
+                        this.kindSet.add(new FileObject.Kind(extension, true));
+                    });
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        this.kindSet.forEach(kind -> this.extensionToKind.put(kind.extension(), kind));
+    }
+
+    @Override
+    public FileObject.Kind extensionToFileObjectKind(final String extension) {
+        return this.extensionToKind.get(extension);
+    }
+
+    @Override
+    public Set<FileObject.Kind> allKinds() {
+        return new HashSet<>(kindSet);
+    }
+
+    public Set<FileObject.Kind> allSourceKinds() {
+        return kindSet.stream()
+                .filter(FileObject.Kind::isSource)
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    public Set<FileObject.Kind> copyOf(final Set<FileObject.Kind> kinds) {
+        return new HashSet<>(kinds);
+    }
 
     @Override
     public void processOptions(final CompilerOptions allOptions) {
@@ -51,7 +101,7 @@ public class NabuCFileManager implements FileManager {
 
         use(path.getFileSystem(), fileSystem -> {
             if (Files.isRegularFile(path)) {
-                final var kind = FileObject.Kind.fromExtension(path.getFileName().toString());
+                final var kind = extensionToFileObjectKind(path.getFileName().toString());
                 list.add(new NabuFileObject(kind, path));
             } else if (Files.isDirectory(path)) {
                 collectFiles(
@@ -132,14 +182,14 @@ public class NabuCFileManager implements FileManager {
     }
 
     @Override
-    public FileObject getFileObject(final Location location, final String s, final ElementKind kind) {
+    public FileObject getFileObject(final Location location, final String s) {
         final Iterable<? extends Path> paths = getLocationAsPaths(location);
 
         for (final var path : paths) {
             final var subPath = path.resolve(s + ".class");
             if (Files.exists(subPath)) {
                 return new NabuFileObject(
-                        FileObject.Kind.CLASS,
+                        FileObject.CLASS_KIND,
                         subPath
                 );
             }
@@ -151,7 +201,7 @@ public class NabuCFileManager implements FileManager {
     @Override
     public Iterable<? extends FileObject> list(final Location location,
                                                final String packageName,
-                                               final EnumSet<FileObject.Kind> kinds) {
+                                               final Set<FileObject.Kind> kinds) {
         final var handler = locations.getLocationHandler(location);
 
         if (handler == null) {
@@ -194,7 +244,7 @@ public class NabuCFileManager implements FileManager {
     }
 
     private List<NabuFileObject> listFilesOf(final Path packagePath,
-                                             final EnumSet<FileObject.Kind> kinds) {
+                                             final Set<FileObject.Kind> kinds) {
         try (final var stream = Files.list(packagePath)) {
             return stream
                     .map(file -> {
@@ -205,7 +255,7 @@ public class NabuCFileManager implements FileManager {
                         if (start > 0) {
                             final var fileExtension = fileName.substring(start);
                             resolvedKind = kinds.stream()
-                                    .filter(it -> it.getExtension().equals(fileExtension))
+                                    .filter(it -> it.extension().equals(fileExtension))
                                     .findFirst()
                                     .orElse(null);
                         } else {
@@ -273,7 +323,7 @@ class DirectoryVisitor implements FileVisitor<Path> {
 
     private final Path root;
     private final boolean recursive;
-    private final Set<String> sourceExtensions;
+    private final Map<String, FileObject.Kind> extensionToKind;
     private final List<FileObject> sourceFiles;
 
     public DirectoryVisitor(final Path root,
@@ -282,9 +332,12 @@ class DirectoryVisitor implements FileVisitor<Path> {
                             final FileObject.Kind... kinds) {
         this.root = root;
         this.recursive = recursive;
-        this.sourceExtensions = Arrays.stream(kinds)
-                .map(FileObject.Kind::getExtension)
-                .collect(Collectors.toSet());
+        this.extensionToKind = Arrays.stream(kinds)
+                .collect(Collectors.toMap(
+                        FileObject.Kind::extension,
+                        Function.identity()
+                ));
+
         this.sourceFiles = sourceFiles;
     }
 
@@ -299,9 +352,11 @@ class DirectoryVisitor implements FileVisitor<Path> {
     public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) {
         final var fileExtension = getFileExtension(file);
 
-        if (fileExtension != null && this.sourceExtensions.contains(fileExtension)) {
-            sourceFiles.add(new NabuFileObject(FileObject.Kind.SOURCE_NABU, file));
+        if (fileExtension != null && this.extensionToKind.containsKey(fileExtension)) {
+            final var kind = this.extensionToKind.get(fileExtension);
+            sourceFiles.add(new NabuFileObject(kind, file));
         }
+
         return FileVisitResult.CONTINUE;
     }
 

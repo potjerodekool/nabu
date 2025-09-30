@@ -8,12 +8,14 @@ import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
 import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
+import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 class WideningConverterTest {
 
@@ -140,6 +142,6 @@ class TypeAsserter implements TypeVisitor<Void, TypeMirror> {
 
     private void assertKinds(final TypeMirror left,
                              final TypeMirror right) {
-        assertEquals(left.getKind(), right.getKind());
+        Assertions.assertEquals(left.getKind(), right.getKind());
     }
 }

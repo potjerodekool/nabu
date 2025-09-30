@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.util.EnumSet;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -26,10 +27,10 @@ class NabuCFileManagerTest {
             final var files = fileManager.list(
                     StandardLocation.SOURCE_PATH,
                     "io.github.potjerodekool.nabu.compiler.ast.element",
-                    EnumSet.of(
-                            FileObject.Kind.SOURCE_NABU,
-                            FileObject.Kind.SOURCE_JAVA,
-                            FileObject.Kind.CLASS
+                    Set.of(
+                            new FileObject.Kind(".nabu", true),
+                            FileObject.JAVA_KIND,
+                            FileObject.CLASS_KIND
                     )
             );
 
@@ -45,9 +46,7 @@ class NabuCFileManagerTest {
 
             // io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValueVisitor
 
-            files.forEach(file -> {
-                System.out.println(file.getFileName());
-            });
+            files.forEach(file -> System.out.println(file.getFileName()));
 
             assertTrue(files.iterator().hasNext());
         } catch (final Exception e) {

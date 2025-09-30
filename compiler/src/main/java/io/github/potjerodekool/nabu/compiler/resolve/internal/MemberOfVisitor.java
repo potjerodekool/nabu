@@ -1,7 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.ast.element.Element;
+import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
 import io.github.potjerodekool.nabu.compiler.util.Pair;
 import io.github.potjerodekool.nabu.compiler.util.Types;

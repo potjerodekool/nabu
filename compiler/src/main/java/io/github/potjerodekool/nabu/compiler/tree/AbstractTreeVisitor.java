@@ -99,6 +99,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
 
     @Override
     public R visitClass(final ClassDeclaration classDeclaration, final P param) {
+        classDeclaration.getModifiers().getAnnotations().forEach(a -> a.accept(this, param));
         classDeclaration.getEnclosedElements().forEach(e -> e.accept(this, param));
         return defaultAnswer(classDeclaration, param);
     }

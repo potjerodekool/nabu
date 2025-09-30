@@ -15,6 +15,11 @@ public final class TreeFilter {
     private TreeFilter() {
     }
 
+    public static List<VariableDeclaratorTree> fieldsIn(final List<Tree> enclosedElements) {
+        return filter(enclosedElements, VariableDeclaratorTree.class)
+                .toList();
+    }
+
     public static List<VariableDeclaratorTree> fields(final ClassDeclaration classDeclaration) {
         return filter(classDeclaration, VariableDeclaratorTree.class, f -> f.getKind() == Kind.FIELD)
                 .toList();

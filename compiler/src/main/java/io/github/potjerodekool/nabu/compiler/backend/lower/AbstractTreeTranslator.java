@@ -90,7 +90,12 @@ public abstract class AbstractTreeTranslator<P> implements TreeVisitor<Tree, P> 
 
     @Override
     public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final P param) {
-        return fieldAccessExpression;
+        final var selected = (ExpressionTree) fieldAccessExpression.getSelected().accept(this, param);
+        final var field = (ExpressionTree) fieldAccessExpression.getField().accept(this, param);
+        return fieldAccessExpression.builder()
+                .selected(selected)
+                .field(field)
+                .build();
     }
 
     @Override
@@ -107,7 +112,19 @@ public abstract class AbstractTreeTranslator<P> implements TreeVisitor<Tree, P> 
 
     @Override
     public Tree visitMethodInvocation(final MethodInvocationTree methodInvocation, final P param) {
-        return methodInvocation;
+        final var selector = (ExpressionTree) methodInvocation.getMethodSelector().accept(this, param);
+        final var typeArguments = methodInvocation.getTypeArguments().stream()
+                .map(it -> (IdentifierTree) it.accept(this, param))
+                .toList();
+        final var arguments = methodInvocation.getArguments().stream()
+                .map(it -> (ExpressionTree) it.accept(this, param))
+                .toList();
+
+        return methodInvocation.builder()
+                .methodSelector(selector)
+                .typeArguments(typeArguments)
+                .arguments(arguments)
+                .build();
     }
 
     @Override

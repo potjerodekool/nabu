@@ -16,12 +16,12 @@ public final class Node {
         mygraph = g;
         key = g.incrementNodeCount();
         final List<Node> p = Collections.singletonList(this);
-        if (g.getMylast().isEmpty()) {
-            g.setMylast(p);
-            g.setNodes(g.getMylast());
+        if (g.getLast().isEmpty()) {
+            g.setLast(p);
+            g.setNodes(g.getLast());
         } else {
             g.appendNodes(p);
-            g.setMylast(p);
+            g.setLast(p);
         }
     }
 
@@ -29,7 +29,7 @@ public final class Node {
         return key;
     }
 
-    List<Node> succ() {
+    public List<Node> succ() {
         if (succs == null) {
             return Collections.emptyList();
         }

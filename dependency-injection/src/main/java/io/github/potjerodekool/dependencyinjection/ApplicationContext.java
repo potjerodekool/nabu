@@ -1,6 +1,7 @@
 package io.github.potjerodekool.dependencyinjection;
 
 import io.github.potjerodekool.dependency.Conditional;
+import io.github.potjerodekool.dependencyinjection.bean.BeanCreationException;
 import io.github.potjerodekool.dependencyinjection.bean.BeanDefinition;
 import io.github.potjerodekool.dependencyinjection.scope.*;
 import io.github.potjerodekool.dependencyinjection.test.ConditionalTest;
@@ -8,11 +9,12 @@ import io.github.potjerodekool.dependencyinjection.test.ConditionalTest;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Executable;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class ApplicationContext {
 
-    private final Map<Class<?>, List<ScopeManager<?>>> beansMap = new HashMap<>();
+    private final Map<Class<?>, List<ScopeManager<?>>> beansMap = new ConcurrentHashMap<>();
     private final Map<Class<?>, ConditionalTest<Annotation>> conditionTests = new HashMap<>();
 
     public void registerBeans(final List<BeanDefinition<?>> beanDefinitions) {
@@ -77,7 +79,7 @@ public class ApplicationContext {
             final var method = beanDefinition.getBeanMethod();
             return beanDefinition.getBeanType().cast(method.invoke(instance, arguments));
         } catch (final Exception e) {
-            throw new RuntimeException(e);
+            throw new BeanCreationException(e);
         }
     }
 
@@ -88,17 +90,13 @@ public class ApplicationContext {
     }
 
     private Object[] resolveArguments(final Executable executable) {
-        final Object[] arguments;
-
         if (executable.getParameterCount() == 0) {
-            arguments = new Object[0];
+            return new Object[0];
         } else {
             return Arrays.stream(executable.getParameterTypes())
                     .map(this::getBeanOfType)
                     .toArray();
         }
-
-        return arguments;
     }
 
     private <T> T getBeanOfType(final Class<T> beanType) {
@@ -140,7 +138,11 @@ public class ApplicationContext {
 
         beansMap.keySet().forEach(beanClass -> {
             if (beanType.isAssignableFrom(beanClass)) {
-                resolvedBeans.addAll(beansMap.get(beanClass));
+                final var resolved = beansMap.get(beanClass);
+
+                if (resolved != null) {
+                    resolvedBeans.addAll(resolved);
+                }
             }
         });
 

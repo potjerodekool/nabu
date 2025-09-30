@@ -10,7 +10,7 @@ Create a transformer:
     public class MyTransformer implements CodeTransformer {
     
         public void transform(CompilationUnit unit) {
-            //Tranform the compilation unit.
+            //Transform the compilation unit.
         }
     }
 

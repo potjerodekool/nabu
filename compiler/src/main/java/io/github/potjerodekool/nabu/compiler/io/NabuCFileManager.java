@@ -1,6 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.io;
 
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
+import io.github.potjerodekool.nabu.compiler.log.LogLevel;
+import io.github.potjerodekool.nabu.compiler.log.Logger;
+import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
 import io.github.potjerodekool.nabu.compiler.util.Pair;
 
 import java.io.IOException;
@@ -13,6 +16,8 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 public class NabuCFileManager implements FileManager {
+
+    private final Logger logger = LoggerFactory.getLogger(NabuCFileManager.class.getName());
 
     private final Map<String, FileObject.Kind> extensionToKind = new HashMap<>();
 
@@ -162,8 +167,9 @@ public class NabuCFileManager implements FileManager {
                 fileSystemConsumer.accept(fileSystem);
             } catch (final IOException ignored) {
             }
-        } catch (final UnsupportedOperationException ignored) {
-            //Can be thrown by FileSystem close method
+        } catch (final UnsupportedOperationException e) {
+            //Not all FileSystems support close()
+            logger.log(LogLevel.DEBUG, "FileSystem doesn't support close()", e);
         }
     }
 
@@ -313,7 +319,8 @@ public class NabuCFileManager implements FileManager {
         openFileSystems.values().forEach(fs -> {
             try {
                 fs.close();
-            } catch (final IOException ignored) {
+            } catch (final IOException e) {
+                logger.log(LogLevel.DEBUG, "Failed to close FileSystem during cleanup", e);
             }
         });
     }

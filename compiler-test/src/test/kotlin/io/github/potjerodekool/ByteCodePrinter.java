@@ -30,6 +30,13 @@ public class ByteCodePrinter {
         }
     }
 
+    /**
+     * Attempts to open an InputStream for the given resource name.
+     * When using this method, ensure that the returned InputStream is properly closed.
+     *
+     * @param resourceName The name of the resource to open.
+     * @return InputStream or null if resource not found
+     */
     private static InputStream getInputStream(final String resourceName) {
         final var input = ByteCodePrinter.class.getClassLoader().getResourceAsStream(resourceName);
 
@@ -40,7 +47,7 @@ public class ByteCodePrinter {
         try {
             return new FileInputStream(resourceName);
         } catch (final FileNotFoundException e) {
-            throw new RuntimeException(e);
+            return null;
         }
     }
 

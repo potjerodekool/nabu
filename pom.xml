@@ -19,12 +19,13 @@
         <jacoco.version>0.8.12</jacoco.version>
         <surefire.version>2.22.2</surefire.version>
         <failsafe.version>2.22.2</failsafe.version>
+        <asm.version>9.8</asm.version>
       </properties>
     <dependencies>
         <dependency>
             <groupId>org.ow2.asm</groupId>
             <artifactId>asm</artifactId>
-            <version>9.8</version>
+            <version>${asm.version}</version>
             <scope>compile</scope>
         </dependency>
     </dependencies>

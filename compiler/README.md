@@ -1,9 +1,9 @@
-nReo# Phases
+# Phases
 * [Parse](#parse-phase)
 * [Enter](#enter-phase)
 * [Resolve](#resolve-phase)
 * [Check](#check-phase)
-* [Lamda](#lambda-phase)
+* [Lambda](#lambda-phase)
 * [Lower](#lower-phase)
 * [IR](#ir-phase)
 * [Bytecode](#bytecode-phase)

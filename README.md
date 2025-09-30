@@ -5,21 +5,21 @@ General-purpose languages are great but not everything can be made easy and read
 and you need a DSL. 
 
 Take for example JPA with its type safe criteria API.
-Its nice to have type save queries but it becomes hard to read and to maintain easyly.
-Then you need a DSL thats allows you to write readable code.
+Its nice to have type safe queries but it becomes hard to read and to maintain easily.
+Then you need a DSL that allows you to write readable code.
 But you also want it to work well with you general-purpose code and have no or less overhead.
 
-Compilers are mosly just simple translaters, translate source code to something a computer can execute.
-Wouldn't be nice if you could make the compiler smarter, that is knowns the diffent domains you are working on
+Compilers are mostly just simple translators, translate source code to something a computer can execute.
+Wouldn't be nice if you could make the compiler smarter, that its knows the different domains you are working on
 like access a database read and write JSON?
 
 With the Nabu compiler I will try to achieve this goal.
 Currently the Nabu supports the Nabu programming language which syntax is currently a mix of Java and Kotlin.
 
-In the future I have planes to make it expandable so others can make use of it to support there own language
-without having to write there own compiler from scratch.
+In the future I have plans to make it expandable so others can make use of it to support their own language
+without having to write their own compiler from scratch.
 To have APIs for things like resolving classes (both classpath and modulepath)
-and hava interoperability with Java.
+and have interoperability with Java.
 
 Nabu and Java can be mixed in one project
 and Nabu code can call Java code and vice versa.
@@ -116,7 +116,7 @@ In normal Nabu code this would be written as:
         };
     }
 
-The JPA knowns which operator operations make sence. And if you use a Root object which Entity it represents 
+The JPA knows which operator operations make sense. And if you use a Root object which Entity it represents 
 and which properties it has. 
 
 # IDE support

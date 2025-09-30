@@ -12,7 +12,6 @@
     <artifactId>compiler-test</artifactId>
 
     <properties>
-        <asm.version>9.7.1</asm.version>
     </properties>
 
     <dependencies>

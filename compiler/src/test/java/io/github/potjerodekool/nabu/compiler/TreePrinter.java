@@ -444,7 +444,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         final var enclosingSeparator =
                 classDeclaration.getKind() == Kind.ENUM
                         ? ",\n"
-                        : "";
+                        : "\n";
 
 
         final var className = classDeclaration.getSimpleName();
@@ -636,7 +636,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                 value.accept(this, param);
             }
 
-        } else if (variableDeclaratorStatement.getValue() != null) {
+        } else if ( (variableDeclaratorStatement.getKind() != Kind.FIELD
+            && variableDeclaratorStatement.getValue() != null)
+            ||
+                (variableDeclaratorStatement.getKind() == Kind.FIELD
+                && variableDeclaratorStatement.getValue() instanceof LiteralExpressionTree)) {
             write(" = ");
             variableDeclaratorStatement.getValue().accept(this, param);
         }

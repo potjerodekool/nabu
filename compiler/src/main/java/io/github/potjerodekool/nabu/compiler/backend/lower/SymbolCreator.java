@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.scope.FunctionScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
+import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 
@@ -25,7 +25,7 @@ public class SymbolCreator extends AbstractTreeVisitor<Object, Scope> {
         return (VariableSymbol) variableDeclaratorTree.getName().getSymbol();
     }
 
-    public MethodSymbol createMethod(final CFunction function) {
+    public MethodSymbol createMethod(final Function function) {
         final var returnType = function.getReturnType().getType();
         final ElementKind elementKind = ElementKind.valueOf(function.getKind().name());
 

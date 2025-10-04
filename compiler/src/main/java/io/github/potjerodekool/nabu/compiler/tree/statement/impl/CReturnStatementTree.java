@@ -51,4 +51,12 @@ public class CReturnStatementTree extends CStatementTree implements ReturnStatem
         return new ReturnStatementTreeBuilder(this);
     }
 
+    @Override
+    public String toString() {
+        if (expression == null) {
+            return "return;";
+        } else {
+            return "return " + expression + ";";
+        }
+    }
 }

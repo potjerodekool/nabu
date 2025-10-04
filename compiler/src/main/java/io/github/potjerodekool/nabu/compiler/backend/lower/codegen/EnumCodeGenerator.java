@@ -104,7 +104,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
     private void generatePrivateValuesMethod(final CClassDeclaration classDeclaration) {
         final var clazz = classDeclaration.getClassSymbol();
 
-        final var enumConstants = TreeFilter.enumConstants(classDeclaration);
+        final var enumConstants = TreeFilter.enumConstantsIn(classDeclaration.getEnclosedElements());
 
         final var componentType = new CIdentifierTree(clazz.getSimpleName());
         componentType.setType(clazz.asType());

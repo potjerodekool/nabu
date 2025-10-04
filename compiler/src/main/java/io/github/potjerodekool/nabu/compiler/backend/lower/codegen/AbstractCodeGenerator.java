@@ -18,7 +18,6 @@ import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.*;
 import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.ExpressionStatementTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
@@ -46,13 +45,12 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
     @Override
     public void generateCode(final ClassDeclaration classDeclaration) {
         generateClientInit(classDeclaration);
-        initInstanceFieldInConstructors(classDeclaration);
     }
 
     private void generateClientInit(final ClassDeclaration classDeclaration) {
         final var clazzDeclaration = (CClassDeclaration) classDeclaration;
 
-        final var clientInitializers = TreeFilter.methods(classDeclaration).stream()
+        final var clientInitializers = TreeFilter.methodsIn(classDeclaration.getEnclosedElements()).stream()
                 .filter(it -> it.getKind() == Kind.STATIC_INIT)
                 .map(it -> (CFunction) it)
                 .toList();
@@ -117,7 +115,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
         /* Init fields that are static that are non-final
            or are not initialized by a literal expression
          */
-        final var staticFields = TreeFilter.fields(clazzDeclaration).stream()
+        final var staticFields = TreeFilter.fieldsIn(clazzDeclaration.getEnclosedElements()).stream()
                 .filter(it -> it.hasFlag(Flags.STATIC))
                 .filter(it ->
                         !it.hasFlag(Flags.FINAL)
@@ -127,7 +125,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
         initStaticField(staticFields, clazz, body);
 
         //Init enum constants.
-        initEnumConstantField(TreeFilter.enumConstants(clazzDeclaration), clazz, body);
+        initEnumConstantField(TreeFilter.enumConstantsIn(clazzDeclaration.getEnclosedElements()), clazz, body);
     }
 
     private boolean isValueIsNotLiteral(final VariableDeclaratorTree variableDeclaratorTree) {
@@ -307,55 +305,6 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
                 return Optional.empty();
             }
         }
-    }
-
-    private void initInstanceFieldInConstructors(final ClassDeclaration classDeclaration) {
-        final var instanceFields = TreeFilter.fieldsIn(classDeclaration.getEnclosedElements()).stream()
-                .filter(field -> !field.hasFlag(Flags.STATIC))
-                .filter(field -> field.getValue() != null)
-                        .filter(field -> !(field.getValue() instanceof LiteralExpressionTree))
-                                .toList();
-
-        if (instanceFields.isEmpty()) {
-            return;
-        }
-
-        TreeFilter.constructors(classDeclaration).forEach(constructor -> {
-            final var body = constructor.getBody().getStatements();
-            int invokeSuperIndex = -1;
-
-            for (var statementIndex = 0; invokeSuperIndex == -1
-                    && statementIndex < body.size(); statementIndex++) {
-                final var statement = body.get(statementIndex);
-
-                if (isInvokeSuper(statement)) {
-                    invokeSuperIndex = statementIndex;
-                }
-            }
-
-            if (invokeSuperIndex > -1) {
-
-            }
-        });
-    }
-
-    private boolean isInvokeSuper(final StatementTree statement) {
-        if (statement instanceof ExpressionStatementTree expressionStatementTree
-            && expressionStatementTree.getExpression() instanceof MethodInvocationTree methodInvocationTree) {
-            final var selector = methodInvocationTree.getMethodSelector();;
-            final String methodName;
-
-            if (selector instanceof IdentifierTree identifierTree) {
-                methodName = identifierTree.getName();
-            } else {
-                final var identifier = (IdentifierTree) ((FieldAccessExpressionTree) selector).getField();
-                methodName = identifier.getName();
-            }
-
-            return Constants.SUPER.equals(methodName);
-        }
-
-        return false;
     }
 }
 

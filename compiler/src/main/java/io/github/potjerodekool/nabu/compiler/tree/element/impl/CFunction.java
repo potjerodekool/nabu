@@ -132,10 +132,12 @@ public class CFunction extends CTree implements Function {
         return parameters;
     }
 
+    @Override
     public void addParameters(final List<VariableDeclaratorTree> parameters) {
         this.parameters.addAll(parameters);
     }
 
+    @Override
     public void addParameters(final int index,
                               final List<VariableDeclaratorTree> parameters) {
         this.parameters.addAll(index, parameters);

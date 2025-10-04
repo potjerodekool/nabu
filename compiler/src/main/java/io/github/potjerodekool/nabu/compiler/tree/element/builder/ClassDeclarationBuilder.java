@@ -15,7 +15,7 @@ import java.util.List;
 
 public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclaration, ClassDeclarationBuilder> {
 
-    private Modifiers modifiers;
+    private Modifiers modifiers = new Modifiers();
     private Kind kind;
     private NestingKind nestingKind;
     private String simpleName;

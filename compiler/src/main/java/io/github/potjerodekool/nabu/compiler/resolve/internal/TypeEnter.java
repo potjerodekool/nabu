@@ -22,6 +22,7 @@ import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.BinaryExpressionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccessExpressionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CPrimitiveTypeTree;
@@ -109,6 +110,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         completeOwner(currentClass.getEnclosingElement());
         fillInSuper(scope, classDeclaration);
         generateConstructor(classDeclaration, scope);
+        initInstanceFields(classDeclaration);
     }
 
     private void completeOwner(final Symbol symbol) {
@@ -700,15 +702,14 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
             addConstructor(currentClass, classDeclaration);
         }
 
-        classDeclaration.getEnclosedElements().stream()
-                .flatMap(CollectionUtils.mapOnly(Function.class))
-                .filter(function -> function.getKind() == Kind.CONSTRUCTOR)
-                .map(constructor -> (CFunction) constructor)
-                .forEach(constructor -> conditionalInvokeSuper(
-                        classDeclaration,
-                        constructor,
-                        scope
-                ));
+        TreeFilter.constructorsIn(classDeclaration.getEnclosedElements())
+                .forEach(constructor -> {
+                    conditionalInvokeSuper(
+                            classDeclaration,
+                            constructor,
+                            scope
+                    );
+                });
     }
 
     private void addConstructor(final ClassSymbol classSymbol,
@@ -824,7 +825,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
     }
 
     private void conditionalInvokeSuper(final ClassDeclaration classDeclaration,
-                                        final CFunction constructor,
+                                        final Function constructor,
                                         final Scope scope) {
         final var currentClass = (ClassSymbol) scope.getCurrentClass();
 
@@ -881,7 +882,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         currentClass.addEnclosedElement(method);
     }
 
-    private void addParametersToConstructorIfNeeded(final CFunction constructor,
+    private void addParametersToConstructorIfNeeded(final Function constructor,
                                                     final List<ExpressionTree> arguments,
                                                     final Scope scope) {
         final var currentClass = (ClassSymbol) scope.getCurrentClass();
@@ -945,6 +946,75 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         }
 
         return false;
+    }
+
+    private boolean isSuperExpression(final ExpressionTree expressionTree) {
+        return switch (expressionTree) {
+            case IdentifierTree identifierTree -> Constants.SUPER.equals(identifierTree.getName());
+            case FieldAccessExpressionTree fieldAccessExpressionTree ->
+                    isSuperExpression(fieldAccessExpressionTree.getField());
+            case MethodInvocationTree methodInvocationTree ->
+                    isSuperExpression(methodInvocationTree.getMethodSelector());
+            case null, default -> false;
+        };
+    }
+
+    private void initInstanceFields(final ClassDeclaration classDeclaration) {
+        final var instanceFields = TreeFilter.fieldsIn(classDeclaration.getEnclosedElements()).stream()
+                .filter(field -> !field.hasFlag(Flags.STATIC))
+                .filter(field -> field.getValue() != null)
+                .filter(field -> !(field.getValue() instanceof LiteralExpressionTree))
+                .toList();
+
+        if (instanceFields.isEmpty()) {
+            return;
+        }
+
+        TreeFilter.constructorsIn(classDeclaration.getEnclosedElements())
+                .forEach(constructor -> {
+                    final var statements = constructor.getBody().getStatements();
+                    int invokeSuperIndex = -1;
+
+                    for (var i = 0; invokeSuperIndex == -1 && i < statements.size(); i++) {
+                        final var statement = statements.get(i);
+                        if (statement instanceof ExpressionStatementTree expressionStatementTree
+                                && isSuperExpression(expressionStatementTree.getExpression())) {
+                            invokeSuperIndex = i;
+                        }
+                    }
+
+                    if (invokeSuperIndex != -1) {
+                        initInstanceFields(constructor, invokeSuperIndex, instanceFields);
+                    }
+                });
+    }
+
+    private void initInstanceFields(final Function constructor,
+                                    final int invokeSuperIndex,
+                                    final List<VariableDeclaratorTree> instanceFields) {
+        final var initInstanceFields = instanceFields.stream()
+                .map(field -> {
+                    //this.myList = new ArrayList<>();
+
+                    final var left = new FieldAccessExpressionBuilder()
+                            .selected(IdentifierTree.create(Constants.THIS))
+                            .field(IdentifierTree.create(field.getName().getName()))
+                            .build();
+
+                    final var expression = new BinaryExpressionBuilder()
+                            .left(left)
+                            .tag(Tag.ASSIGN)
+                            .right((ExpressionTree) field.getValue())
+                            .build();
+
+                    return TreeMaker.expressionStatement(
+                            expression,
+                            field.getLineNumber(),
+                            field.getColumnNumber());
+                }).toList();
+
+        final var bodyStatements = constructor.getBody().getStatements();
+        bodyStatements.addAll(invokeSuperIndex + 1, initInstanceFields);
     }
 
     @Override

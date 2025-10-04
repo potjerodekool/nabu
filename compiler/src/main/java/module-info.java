@@ -21,6 +21,6 @@ module io.github.potjerodekool.nabu.compiler {
     requires org.antlr.antlr4.runtime;
     requires org.objectweb.asm.util;
 
-    requires io.github.potjerodekool.dependency;
     requires org.objectweb.asm;
+    requires io.github.potjerodekool.dependency;
 }

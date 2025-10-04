@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.compiler.tree.expression.builder.NewClassExp
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class CNewClassExpression extends CExpressionTree implements NewClassExpression {
 
@@ -65,5 +66,10 @@ public class CNewClassExpression extends CExpressionTree implements NewClassExpr
     @Override
     public NewClassExpressionBuilder builder() {
         return new NewClassExpressionBuilder(this);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("new %s(%s)", name, arguments.stream().map(ExpressionTree::toString).collect(Collectors.joining(", ")));
     }
 }

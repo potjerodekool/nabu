@@ -39,4 +39,8 @@ public class CExpressionStatementTree extends CStatementTree implements Expressi
         return new StatementExpressionTreeBuilder(this);
     }
 
+    @Override
+    public String toString() {
+        return expression.toString() + ";";
+    }
 }

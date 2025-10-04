@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tree;
 import io.github.potjerodekool.nabu.compiler.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.compiler.tree.builder.TreeBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.element.Function;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
@@ -14,7 +15,7 @@ import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTr
 import java.util.ArrayList;
 import java.util.List;
 
-public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
+public class FunctionBuilder extends TreeBuilder<Function, FunctionBuilder> {
 
     private String simpleName;
     private Kind kind;
@@ -32,7 +33,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
         this.modifiers = new Modifiers();
     }
 
-    public FunctionBuilder(final CFunction function) {
+    public FunctionBuilder(final Function function) {
         super(function);
         this.simpleName = function.getSimpleName();
         this.kind = function.getKind();
@@ -122,7 +123,7 @@ public class FunctionBuilder extends TreeBuilder<CFunction, FunctionBuilder> {
     }
 
     @Override
-    public CFunction build() {
+    public Function build() {
         return new CFunction(this);
     }
 

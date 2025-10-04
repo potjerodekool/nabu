@@ -16,6 +16,8 @@ import io.github.potjerodekool.nabu.compiler.tree.ImportItem;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
+import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.compiler.tree.expression.builder.NewClassExpressionBuilder;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CIdentifierTree;
 import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
@@ -341,5 +343,58 @@ class TypeEnterTest {
                 -1,
                 -1
         );
+    }
+
+    @Test
+    void initFields() {
+        final var field = new VariableDeclaratorTreeBuilder()
+                .kind(Kind.FIELD)
+                .type(IdentifierTree.create("List"))
+                .name(IdentifierTree.create("list"))
+                .value(new NewClassExpressionBuilder()
+                        .name(IdentifierTree.create("ArrayList"))
+                        .build())
+                .build();
+
+        final var classDeclaration = new ClassDeclarationBuilder()
+                .kind(Kind.CLASS)
+                .simpleName("SomeClass")
+                .enclosingElement(field)
+                .build();
+
+        final var compilationUnit = new CCompilationTreeUnit(
+                null,
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
+
+        final var packageSymbol = new PackageSymbol(
+                null,
+                ""
+        );
+
+        final var clazz = new ClassSymbolBuilder()
+                .enclosingElement(packageSymbol)
+                .kind(ElementKind.CLASS)
+                .build();
+
+        typeEnter.put(clazz, classDeclaration, compilationUnit);
+        typeEnter.complete(clazz);
+
+        final var actual = TreePrinter.print(classDeclaration);
+        final var expected = """
+                public class SomeClass {
+                    list : List;
+                    public fun <init>(): void {
+                        this.super();
+                        this.list = new ArrayList();
+                        return;
+                    }
+                
+                }
+                """;
+        assertEquals(expected, actual);
     }
 }

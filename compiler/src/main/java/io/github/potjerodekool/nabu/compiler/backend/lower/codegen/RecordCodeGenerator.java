@@ -49,7 +49,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
     }
 
     private void processCompactConstructor(final CClassDeclaration classDeclaration) {
-        final var compactConstructorOptional = TreeFilter.constructors(classDeclaration).stream()
+        final var compactConstructorOptional = TreeFilter.constructorsIn(classDeclaration.getEnclosedElements()).stream()
                 .filter(constructor -> constructor.hasFlag(Flags.COMPACT_RECORD_CONSTRUCTOR))
                 .map(it -> (CFunction) it)
                 .findFirst();

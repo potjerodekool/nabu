@@ -29,6 +29,11 @@ public interface Function extends Tree {
 
     List<? extends VariableDeclaratorTree> getParameters();
 
+    void addParameters(List<VariableDeclaratorTree> parameters);
+
+    void addParameters(int index,
+                       List<VariableDeclaratorTree> parameters);
+
     ExpressionTree getReturnType();
 
     List<? extends Tree> getThrownTypes();

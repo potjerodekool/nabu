@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.io;
 
 import io.github.potjerodekool.nabu.compiler.CompilerOptions;
+import io.github.potjerodekool.nabu.compiler.lang.support.LanguageParser;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
@@ -19,6 +20,8 @@ public class NabuCFileManager implements FileManager {
 
     private final Logger logger = LoggerFactory.getLogger(NabuCFileManager.class.getName());
 
+    private final Map<FileObject.Kind, LanguageParser> languageParsers;
+
     private final Map<String, FileObject.Kind> extensionToKind = new HashMap<>();
 
     private final Set<FileObject.Kind> kindSet;
@@ -27,28 +30,20 @@ public class NabuCFileManager implements FileManager {
     private final Map<Path, FileSystem> openFileSystems = new HashMap<>();
 
     public NabuCFileManager() {
-        this.kindSet = new HashSet<>();
-        this.kindSet.add(FileObject.JAVA_KIND);
+        this.languageParsers = ServiceLoader.load(LanguageParser.class).stream()
+                .map(ServiceLoader.Provider::get)
+                .collect(Collectors.toMap(
+                        LanguageParser::getSourceKind,
+                        it -> it
+                ));
+
+        this.kindSet = new HashSet<>(languageParsers.keySet());
         this.kindSet.add(FileObject.CLASS_KIND);
-
-        try {
-            final var resources = getClass().getClassLoader().getResources("source-support.properties");
-            while (resources.hasMoreElements()) {
-                final var url = resources.nextElement();
-                try (var inputStream = url.openStream()) {
-                    final var properties = new Properties();
-                    properties.load(inputStream);
-                    properties.forEach((key, value) -> {
-                        final var extension = (String) value;
-                        this.kindSet.add(new FileObject.Kind(extension, true));
-                    });
-                }
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
         this.kindSet.forEach(kind -> this.extensionToKind.put(kind.extension(), kind));
+    }
+
+    public Map<FileObject.Kind, LanguageParser> getLanguageParsers() {
+        return languageParsers;
     }
 
     @Override

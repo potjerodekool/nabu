@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.generate.annotation;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationValue;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;

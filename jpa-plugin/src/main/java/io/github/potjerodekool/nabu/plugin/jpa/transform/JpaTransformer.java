@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.ElementFilter;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.ElementBuilders;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ElementBuilders;
 import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;

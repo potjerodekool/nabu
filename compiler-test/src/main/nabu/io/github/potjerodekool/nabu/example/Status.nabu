@@ -11,6 +11,6 @@ public enum Status {
     }
 
     public fun getText() : String {
-        return text;
+        return this.text;
     }
 }

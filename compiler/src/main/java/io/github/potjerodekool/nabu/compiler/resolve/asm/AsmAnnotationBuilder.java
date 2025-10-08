@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.CArrayAttributeProxy;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.CCompoundAttribute;

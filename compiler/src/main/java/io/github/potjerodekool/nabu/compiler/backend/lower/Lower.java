@@ -5,8 +5,8 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSy
 import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.*;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.Boxer;
 import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
@@ -92,7 +92,6 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
         final var result = super.visitClass(classDeclaration, context);
         final var generator = getGenerator(classDeclaration);
         generator.generateCode(classDeclaration);
-
         context.currentClass = oldClass;
         return result;
     }

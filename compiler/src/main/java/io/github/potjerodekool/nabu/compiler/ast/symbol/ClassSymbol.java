@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.compiler.type.ArrayType;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
@@ -333,7 +334,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     }
 }
 
-class ValueCollector implements AnnotationValueVisitor<Object, ExecutableElement> {
+class ValueCollector extends AbstractAnnotationValueVisitor<Object, ExecutableElement> {
 
     @Override
     public Object visitBoolean(final boolean b, final ExecutableElement executableElement) {

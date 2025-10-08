@@ -1,10 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
 import io.github.potjerodekool.nabu.compiler.tree.*;
@@ -14,11 +16,11 @@ import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
 
 public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
 
-    private final CompilerContextImpl compilerContext;
-    private final ClassSymbolLoader classElementLoader;
+    private final CompilerContext compilerContext;
+    private final ClassElementLoader classElementLoader;
     private final TypeEnter typeEnter;
 
-    public EnterClasses(final CompilerContextImpl compilerContext) {
+    public EnterClasses(final CompilerContext compilerContext) {
         this.compilerContext = compilerContext;
         this.classElementLoader = compilerContext.getClassElementLoader();
         this.typeEnter = compilerContext.getTypeEnter();

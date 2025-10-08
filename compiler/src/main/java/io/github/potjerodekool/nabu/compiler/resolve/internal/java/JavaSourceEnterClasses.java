@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal.java;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.java.JavaCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.java.JavaCompilerVisitor;
+import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.EnterClasses;
 import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
 
@@ -17,10 +18,14 @@ public class JavaSourceEnterClasses {
     }
 
     public CompilationUnit enter(final ClassSymbol classSymbol) {
-        try (var inputstream = classSymbol.getSourceFile().openInputStream()) {
+        return parse(classSymbol.getSourceFile());
+    }
+
+    public CompilationUnit parse(final FileObject fileObject) {
+        try (var inputstream = fileObject.openInputStream()) {
             final var compilationUnit = JavaCompilerParser.parse(inputstream);
             final var compilationUnitTree = (CompilationUnit) compilationUnit.accept(new JavaCompilerVisitor(
-                    classSymbol.getSourceFile()
+                    fileObject
             ));
             compilationUnitTree.accept(enterClasses, null);
             return compilationUnitTree;

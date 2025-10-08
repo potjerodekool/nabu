@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.util.impl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.Modules;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.ast.element.impl.CCompoundAttribute;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
@@ -409,8 +409,8 @@ public class ElementsImpl implements Elements {
 
     @Override
     public Origin getOrigin(final Element e) {
-        if (Flags.hasFlag(e, Flags.GENERATED_DEFAULT_CONSTRUCTOR)
-                || Flags.hasFlag(e, Flags.MANDATED)) {
+        if (e.hasFlag(Flags.GENERATED_DEFAULT_CONSTRUCTOR)
+                || e.hasFlag(Flags.MANDATED)) {
             return Origin.MANDATED;
         } else {
             return Origin.EXPLICIT;
@@ -469,7 +469,7 @@ public class ElementsImpl implements Elements {
 
     @Override
     public boolean isBridge(final ExecutableElement e) {
-        return Flags.hasFlag(e, Flags.BRIDGE);
+        return e.hasFlag(Flags.BRIDGE);
     }
 
     @Override
@@ -506,7 +506,7 @@ public class ElementsImpl implements Elements {
 
     @Override
     public boolean isAutomaticModule(final ModuleElement module) {
-        return Flags.hasFlag(module, Flags.AUTOMATIC_MODULE);
+        return module.hasFlag(Flags.AUTOMATIC_MODULE);
     }
 
     @Override
@@ -526,15 +526,14 @@ public class ElementsImpl implements Elements {
 
     @Override
     public boolean isCanonicalConstructor(final ExecutableElement e) {
-        return Flags.hasFlag(
-                e,
+        return e.hasFlag(
                 Flags.RECORD
         );
     }
 
     @Override
     public boolean isCompactConstructor(final ExecutableElement e) {
-        return Flags.hasFlag(e, Flags.COMPACT_RECORD_CONSTRUCTOR);
+        return e.hasFlag(Flags.COMPACT_RECORD_CONSTRUCTOR);
     }
 
     @Override

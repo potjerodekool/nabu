@@ -4,15 +4,15 @@ import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.tree.*;
@@ -267,7 +267,11 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             final var targetExpression = exp.unEx();
 
             if (targetExpression != null) {
-                arguments.add(targetExpression);
+                if (targetExpression instanceof ExpList expList) {
+                    arguments.addAll(expList.getList());
+                } else {
+                    arguments.add(targetExpression);
+                }
             } else {
                 final var stm = exp.unNx();
                 arguments.add(

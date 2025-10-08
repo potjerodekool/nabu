@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.tree.element.impl;
 
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.element.RequiresTree;
 import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;

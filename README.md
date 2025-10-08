@@ -1,25 +1,28 @@
 # Compiler for compiling code for the JVM.
 
-The goal of this project is to explore new ways to write code for the JVM.
-General-purpose languages are great but not everything can be made easy and readable to express
-and you need a DSL. 
+The Nabu compiler is a polyglot compiler for compiling source code into Java bytecode so it can be executed on the Java Virtual Machine (JVM).
 
-Take for example JPA with its type safe criteria API.
-Its nice to have type safe queries but it becomes hard to read and to maintain easily.
-Then you need a DSL that allows you to write readable code.
-But you also want it to work well with you general-purpose code and have no or less overhead.
-
-Compilers are mostly just simple translators, translate source code to something a computer can execute.
-Wouldn't be nice if you could make the compiler smarter, that its knows the different domains you are working on
-like access a database read and write JSON?
-
-With the Nabu compiler I will try to achieve this goal.
-Currently the Nabu supports the Nabu programming language which syntax is currently a mix of Java and Kotlin.
-
-In the future I have plans to make it expandable so others can make use of it to support their own language
+Writing a compiler is a complex task that that take a lot of time and usually requires a lot of expertise of the JVM.
+The Nabu compiler is designed to be extendable so others can make use of it to support their own language
 without having to write their own compiler from scratch.
-To have APIs for things like resolving classes (both classpath and modulepath)
-and have interoperability with Java.
+
+The Nabu compiler has interoperability with other languages, currently it only supports Java.
+It also allows you to write a DSL for your domain specific language (DSL) so you can write code that is more readable and maintainable.
+A DSL can have other rules and support other features.
+
+For example a DSL can be created for JPA where a join can be defined with a cast
+and operator overloading is supported.
+
+    fun findCompanyByEmployeeFirstName(employeeFirstName: String): JpaPredicate<Company> {
+        return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
+            var e = (InnerJoin<Company, Employee>) c.employees;
+            return e.firstName == employeeFirstName;
+        };
+    }
+
+A DSL is implemented as a compiler plugin.
+
+The Nabu compiler currently only compiles Nabu, a programming language which syntax is based on Java and Kotlin.
 
 Nabu and Java can be mixed in one project
 and Nabu code can call Java code and vice versa.
@@ -90,38 +93,9 @@ To use Nabu and Java in the same project the nabu-maven-plugin must be placed be
         </executions>
     </plugin>
 
-# Extending the compiler
-The Nabu compiler can be extended with plugins.
-A plugin can interact with the compiler to modify the AST and create
-a DSL.
-
-The example below shows how an JPA predicate can be created with the JPA DSL.
-An inner join is created by casting the employees collection of Company
-and then the firstName can be compared.
-As you can see both the cast and '==' operator are overloaded.
-
-    fun findCompanyByEmployeeFirstName(employeeFirstName: String): JpaPredicate<Company> {
-        return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
-            var e = (InnerJoin<Company, Employee>) c.employees;
-            return e.firstName == employeeFirstName;
-        };
-    }
-
-In normal Nabu code this would be written as:
-
-    fun findCompanyByEmployeeFirstName(employeeFirstName: String): JpaPredicate<Company> {
-        return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
-            var e = c.join(Company_.employees, JoinType.INNER);
-            return cb.equal(e.get(Employee_.firstName),employeeFirstName);
-        };
-    }
-
-The JPA knows which operator operations make sense. And if you use a Root object which Entity it represents 
-and which properties it has. 
-
 # IDE support
 
 Intellij ([Nabu Idea](https://github.com/potjerodekool/nabu-idea))
 
-# Language Documentation
-[Language documentation](docs/index.html)
+# Documentation
+[documentation](docs/index.html)

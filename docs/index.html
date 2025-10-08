@@ -2,35 +2,36 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Language documentation</title>
+    <title>Nabu compiler documentation</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="wrapper">
-        <div id="menu">
-            <div class="linkButton">
-                <a href="classes.html" target="content">Classes</a>
-            </div>
-            <div class="linkButton">
-                <a href="fields.html" target="content">Field</a>
-            </div>
-            <div class="linkButton">
-                <a href="annotations.html" target="content">Annotations</a>
-            </div>
-            <div class="linkButton">
-                <a href="lambda-expressions.html" target="content">Lambda expressions</a>
-            </div>
-            <div class="linkButton">
-                <a href="generics.html" target="content">Generics</a>
-            </div>
-            <div class="linkButton">
-                <a href="exceptions.html" target="content">Exceptions</a>
-            </div>
-        </div>
-       <div id="content">
-           <iframe name="content" style="position:absolute;width:72%;height:98%;">
-           </iframe>
-       </div>
-    </div>
+
+<h1>Nabu compiler documentation</h1>
+
+<h2>Introduction</h2>
+
+<p>The Nabu compiler is a polyglot compiler for compiling source code into Java bytecode
+    so it can be executed on the Java Virtual Machine (JVM).<br/>
+Currently, the Nabu compiler only supports the Nabu language but in the future it will be possible to support for other programming languages.<br/>
+Interoperability with other languages is possible with a language parser, currently there is a language parser for Java
+so you can use classes, invoke methods and such.</p>
+
+<h2>Compiler services</h2>
+<ul>
+    <li><a href="services/language-parser.html">Language parser</a></li>
+</ul>
+
+<h2>DSL support</h2>
+<ul>
+    <li><a href="dsl-support/index.html">DSL support</a></li>
+</ul>
+
+<h2>Languages</h2>
+
+<ul>
+    <li><a href="language/nabu/index.html">Nabu language</a></li>
+</ul>
+
 </body>
 </html>

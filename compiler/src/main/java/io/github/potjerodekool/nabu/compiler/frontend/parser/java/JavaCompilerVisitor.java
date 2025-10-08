@@ -8,7 +8,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodDeclarator;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodHeader;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.WildcardBound;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.tree.*;
 import io.github.potjerodekool.nabu.compiler.tree.element.Function;

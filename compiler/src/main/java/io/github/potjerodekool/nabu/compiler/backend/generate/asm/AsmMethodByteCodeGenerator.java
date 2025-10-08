@@ -569,7 +569,9 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
             if (dst instanceof TempExpr tempExpr) {
                 final var index = tempExpr.getTemp().getIndex();
-                if (index == Frame.V0.getIndex()) {
+                if (index == -1) {
+                    methodWriter.visitInsn(Opcodes.POP);
+                } else if (index == Frame.V0.getIndex()) {
                     final var top = methodWriter.peek();
                     final int opcode = resolveReturnOpcode(top);
                     methodWriter.visitInsn(opcode);
@@ -1145,10 +1147,10 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 return "";
             }
 
-            return AsmISignatureGenerator.toAsmType(type).getDescriptor();
+            return toAsmType(type).getDescriptor();
         } else if (expression instanceof Call call) {
             final var type = call.getReturnType();
-            return AsmISignatureGenerator.toAsmType(type).getDescriptor();
+            return toAsmType(type).getDescriptor();
         } else {
             throw new TodoException();
         }

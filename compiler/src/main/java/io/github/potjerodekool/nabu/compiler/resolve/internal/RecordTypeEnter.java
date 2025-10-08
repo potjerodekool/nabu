@@ -7,7 +7,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
 import io.github.potjerodekool.nabu.compiler.util.Elements;
 

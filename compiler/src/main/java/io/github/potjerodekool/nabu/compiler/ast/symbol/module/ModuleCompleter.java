@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol.module;
 import io.github.potjerodekool.nabu.compiler.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;

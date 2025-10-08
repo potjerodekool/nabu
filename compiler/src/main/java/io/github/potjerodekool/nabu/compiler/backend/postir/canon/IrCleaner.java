@@ -5,7 +5,9 @@ import io.github.potjerodekool.nabu.compiler.backend.graph.Node;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ProcFrag;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.TempExpr;
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.ILabelStatement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Move;
 
 import java.util.ArrayList;
 import java.util.List;

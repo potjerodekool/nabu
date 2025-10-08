@@ -4,6 +4,7 @@ import io.github.potjerodekool.dependencyinjection.ApplicationContext;
 import io.github.potjerodekool.nabu.compiler.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.Modules;
 import io.github.potjerodekool.nabu.compiler.io.FileManager;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.io.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.resolve.*;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
@@ -30,7 +31,7 @@ public class CompilerContextImpl implements CompilerContext {
     private final EnumUsageMap enumUsageMap = new EnumUsageMap();
 
     public CompilerContextImpl(final ApplicationContext applicationContext,
-                               final FileManager fileManager) {
+                               final NabuCFileManager fileManager) {
         final var symbolTable = new SymbolTable();
         symbolTable.getUnnamedModule().setSourceLocation(StandardLocation.SOURCE_PATH);
         symbolTable.getUnnamedModule().setClassLocation(StandardLocation.CLASS_PATH);
@@ -104,6 +105,7 @@ public class CompilerContextImpl implements CompilerContext {
         this.classElementLoader.close();
     }
 
+    @Override
     public TypeEnter getTypeEnter() {
         return typeEnter;
     }

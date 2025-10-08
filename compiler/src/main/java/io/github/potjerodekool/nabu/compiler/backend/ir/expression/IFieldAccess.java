@@ -57,4 +57,9 @@ public class IFieldAccess extends IExpression {
                 isStatic
         );
     }
+
+    @Override
+    public String toString() {
+        return selected.toString() + "." + name;
+    }
 }

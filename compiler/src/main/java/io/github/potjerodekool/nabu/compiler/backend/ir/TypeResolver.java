@@ -2,7 +2,10 @@ package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IWildcardType;
 import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
 import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.compiler.tree.expression.*;

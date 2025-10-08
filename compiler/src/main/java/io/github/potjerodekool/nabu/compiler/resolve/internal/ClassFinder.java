@@ -3,25 +3,22 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.io.FileManager;
 import io.github.potjerodekool.nabu.compiler.io.FileManager.Location;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.io.StandardLocation;
+import io.github.potjerodekool.nabu.compiler.lang.support.LanguageParser;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.java.JavaSourceEnterClasses;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.*;
 
 public class ClassFinder {
 
     private final SymbolTable symbolTable;
-    private final FileManager fileManager;
+    private final NabuCFileManager fileManager;
     private final ClassSymbolLoader classElementLoader;
     private final Completer completer = this::complete;
     private final SourceTypeEnter sourceTypeEnter;
@@ -29,7 +26,7 @@ public class ClassFinder {
     private final Set<FileObject.Kind> packageFileKinds;
 
     public ClassFinder(final SymbolTable symbolTable,
-                       final FileManager fileManager,
+                       final NabuCFileManager fileManager,
                        final ClassSymbolLoader classElementLoader,
                        final CompilerContextImpl compilerContext) {
         this.symbolTable = symbolTable;
@@ -37,12 +34,7 @@ public class ClassFinder {
         this.classElementLoader = classElementLoader;
         this.sourceTypeEnter = new SourceTypeEnter(compilerContext);
         this.compilerContext = compilerContext;
-
-        final var packageFileKinds = this.fileManager.allKinds();
-        this.packageFileKinds = packageFileKinds.stream()
-                .filter(it -> !it.equals(FileObject.JAVA_KIND))
-                .collect(Collectors.toSet());
-
+        this.packageFileKinds = this.fileManager.allKinds();
     }
 
     public Completer getCompleter() {
@@ -221,10 +213,11 @@ public class ClassFinder {
                     if (clazz.getSourceFile() == null) {
                         clazz.setSourceFile(file);
 
-                        if (file.getKind() == FileObject.JAVA_KIND) {
-                            enterSource(clazz);
-                        }
+                        final var languageParser = this.fileManager.getLanguageParsers().get(file.getKind());
 
+                        if (languageParser != null) {
+                            enterSource(clazz, languageParser);
+                        }
                     }
                 } else {
                     if (clazz.getClassFile() == null) {
@@ -236,23 +229,17 @@ public class ClassFinder {
                     members.define(clazz);
                 }
             } else {
-                throw new IllegalArgumentException("Invalid classname " + className);
+                throw new IllegalArgumentException("Invalid class name " + className);
             }
         });
     }
 
-    private void enterSource(final ClassSymbol classSymbol) {
-        final var enterClasses = new EnterClasses(
-                compilerContext
-        );
-
-        final var sourceEnterClasses = new JavaSourceEnterClasses(enterClasses);
-        final var compilationUnit = sourceEnterClasses.enter(classSymbol);
+    private void enterSource(final ClassSymbol classSymbol,
+                             final LanguageParser languageParser) {
+        final var compilationUnit = languageParser.parse(classSymbol.getSourceFile(), compilerContext);
         final var classes = compilationUnit.getClasses();
         final var classDeclaration = classes.getFirst();
-
         final var typeEnter = compilerContext.getTypeEnter();
-
         typeEnter.put(classSymbol, classDeclaration, compilationUnit);
         classSymbol.setCompleter(typeEnter);
     }

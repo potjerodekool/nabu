@@ -2,11 +2,11 @@ package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.Element;
 import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;

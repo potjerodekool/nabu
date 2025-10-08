@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.util.Types;

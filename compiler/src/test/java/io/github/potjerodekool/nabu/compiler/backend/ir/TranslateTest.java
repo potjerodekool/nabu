@@ -4,11 +4,11 @@ import io.github.potjerodekool.nabu.compiler.TestClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
@@ -576,7 +576,6 @@ class CodePrinter implements CodeVisitor<Frame> {
         writeLn("" + cnst.getValue());
         return null;
     }
-
     @Override
     public void visitLabelStatement(final ILabelStatement labelStatement, final Frame param) {
         writeLn(labelStatement.getLabel().getName());

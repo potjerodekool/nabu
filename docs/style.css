@@ -17,6 +17,10 @@
     color: #CF7345;
 }
 
+.annotation {
+    color: #CCCC00;
+}
+
 .code {
     border: 1px solid black;
 }
@@ -30,4 +34,23 @@
     padding-bottom: 2px;
     width: 10em;
     background-color: lightgray;
+}
+
+table {
+    border: 1px solid #ccc;
+    width: 100%;
+}
+
+th {
+    border-bottom: 1px solid #ccc;
+    border-left: 1px solid #ccc;
+    border-right: 1px solid #ccc;
+    background-color: #f9f9f9;
+}
+
+td {
+    border-bottom: 1px solid #ccc;
+    border-left: 1px solid #ccc;
+    border-right: 1px solid #ccc;
+    padding: 5px;
 }

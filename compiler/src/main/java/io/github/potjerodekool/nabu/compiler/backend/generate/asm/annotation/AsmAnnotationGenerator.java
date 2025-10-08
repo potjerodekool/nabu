@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
@@ -11,7 +12,7 @@ import org.objectweb.asm.Type;
 
 import java.util.List;
 
-public class AsmAnnotationGenerator implements AnnotationValueVisitor<Void, AsmAnnotationGenerator.AnnotationGeneratorContext> {
+public class AsmAnnotationGenerator extends AbstractAnnotationValueVisitor<Void, AsmAnnotationGenerator.AnnotationGeneratorContext> {
 
     private static final AsmAnnotationGenerator INSTANCE = new AsmAnnotationGenerator();
 

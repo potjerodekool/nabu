@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
@@ -16,7 +15,9 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.tree.Tag;
 import io.github.potjerodekool.nabu.compiler.type.TypeKind;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
@@ -377,6 +378,7 @@ class AsmMethodByteCodeGeneratorTest {
         );
 
         final var statements = of(
+                new IExpressionStatement(new Mem(new TempExpr(0, IReferenceType.createClassType("SomeClass")))) ,
                 new IExpressionStatement(fieldAccess),
                 new Move(
                         new TempExpr(),

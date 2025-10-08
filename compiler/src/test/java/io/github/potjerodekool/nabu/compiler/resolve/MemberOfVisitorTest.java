@@ -8,9 +8,8 @@ import io.github.potjerodekool.nabu.compiler.ast.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
@@ -50,7 +49,7 @@ class MemberOfVisitorTest {
                 stringType
         );
 
-        final var clazz = (ClassSymbol) new ClassSymbolBuilder()
+        final var clazz = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .nestingKind(NestingKind.TOP_LEVEL)
                 .simpleName("SomeClass")

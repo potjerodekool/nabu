@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.test;
 
 import io.github.potjerodekool.nabu.NabuLexer;
 import io.github.potjerodekool.nabu.NabuParser;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.compiler.io.FileObject;

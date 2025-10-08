@@ -17,6 +17,11 @@
             <artifactId>dependency-injection</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>compiler-ast</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.antlr</groupId>

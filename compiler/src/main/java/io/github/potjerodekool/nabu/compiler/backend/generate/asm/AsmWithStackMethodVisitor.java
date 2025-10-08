@@ -203,6 +203,7 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
             case Opcodes.DUP -> push(peek());
             case Opcodes.AASTORE -> pop(3);
             case Opcodes.IFNONNULL -> push(Type.BOOLEAN_TYPE);
+            case Opcodes.POP -> pop();
             default -> throw new TodoException("" + opcode);
         }
     }
@@ -228,7 +229,10 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
                                final String descriptor) {
         super.visitFieldInsn(opcode, owner, name, descriptor);
 
-        if (opcode == Opcodes.GETSTATIC || opcode == Opcodes.GETFIELD) {
+        if (opcode == Opcodes.GETSTATIC) {
+            push(Type.getType(descriptor));
+        } else if (opcode == Opcodes.GETFIELD) {
+            pop();
             push(Type.getType(descriptor));
         } else if (opcode == Opcodes.PUTSTATIC) {
             pop();

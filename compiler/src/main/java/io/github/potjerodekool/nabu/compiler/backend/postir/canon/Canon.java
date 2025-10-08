@@ -1,12 +1,14 @@
 package io.github.potjerodekool.nabu.compiler.backend.postir.canon;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
+
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Seq;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
 import static io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement.seq;
+import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
 
 public class Canon {
 

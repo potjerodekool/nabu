@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.AnnotationBuilder;
+import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor;
 import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 
 import java.util.List;
@@ -13,7 +14,7 @@ import java.util.stream.Collectors;
  * Deproxies annotation.
  * Needed since the type of an array in an annotation isn't known when parsing a class file.
  */
-public class AnnotationDeProxyProcessor implements AnnotationValueVisitor<Attribute, ExecutableElement> {
+public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<Attribute, ExecutableElement> {
 
     public CompoundAttribute process(final AnnotationMirror annotationMirror) {
         final var annotationType = annotationMirror.getAnnotationType();

@@ -7,7 +7,6 @@ import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
-import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
@@ -18,6 +17,7 @@ import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 
 import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator.toAsmType;
 import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;

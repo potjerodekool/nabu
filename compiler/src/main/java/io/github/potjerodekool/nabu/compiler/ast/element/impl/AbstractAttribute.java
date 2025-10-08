@@ -2,8 +2,7 @@ package io.github.potjerodekool.nabu.compiler.ast.element.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.Attribute;
 
-public abstract sealed class AbstractAttribute implements Attribute
-        permits CArrayAttribute, CArrayAttributeProxy, CCompoundAttribute, CConstantAttribute, CEnumAttribute, CEnumAttributeProxy {
+public abstract class AbstractAttribute implements Attribute {
 
     private boolean synthesized = false;
 

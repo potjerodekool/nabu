@@ -13,10 +13,13 @@ import java.util.UUID;
 @RequestMapping(value = {"/v2/pets"})
 public class PetController {
 
-    private pets : List<Pet> = new ArrayList<Pet>();
-    private pet : Pet;
+    private pets : List<Pet>;
 
-    public PetsController() {
+    public PetController() {
+        this.pets = new ArrayList<Pet>();
+        final var pet = new Pet();
+        pets.add(pet);
+        return;
     }
 
     @GetMapping

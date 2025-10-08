@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.PackageElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.compiler.util.Types;
 
@@ -17,5 +18,7 @@ public interface ClassElementLoader extends AutoCloseable {
                                        String packageName);
 
     void importJavaLang(ImportScope importScope);
+
+    SymbolTable getSymbolTable();
 
 }

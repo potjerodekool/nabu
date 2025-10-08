@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol;
 
 import io.github.potjerodekool.nabu.compiler.io.FileManager.Location;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.ModuleTypeImpl;
 

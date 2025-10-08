@@ -141,7 +141,7 @@ public class TypesImpl implements Types {
     public DeclaredType getDeclaredType(final TypeElement typeElem,
                                         final TypeMirror... typeArgs) {
         if (typeArgs.length == 0) {
-            return (DeclaredType) typeElem.erasure(this);
+            return (DeclaredType) ((Symbol) typeElem).erasure(this);
         } else if (!typeElem.asType().isParameterized()) {
             return getErrorType(typeElem.getQualifiedName());
         } else if (typeElem.asType().getEnclosingType() != null

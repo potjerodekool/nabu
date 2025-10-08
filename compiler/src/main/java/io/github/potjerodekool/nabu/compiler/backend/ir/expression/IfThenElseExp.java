@@ -1,6 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.expression;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.ILabelStatement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Jump;
+import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Move;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 

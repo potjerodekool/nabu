@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol;
 
 import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.internal.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AnnotationDeProxyProcessor;
 import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
@@ -164,6 +164,7 @@ public abstract class Symbol implements Element {
         return flags;
     }
 
+    @Override
     public boolean hasFlag(final long flag) {
         return Flags.hasFlag(this.flags, flag);
     }

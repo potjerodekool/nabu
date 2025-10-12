@@ -1,11 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.lang.support.LanguageParser;
+import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.EnterClasses;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.java.JavaSourceEnterClasses;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+
 
 public class JavaLanguageParser implements LanguageParser {
 
@@ -19,7 +21,7 @@ public class JavaLanguageParser implements LanguageParser {
     @Override
     public CompilationUnit parse(final FileObject fileObject,
                                  final CompilerContext compilerContext) {
-        final var enterClasses = new EnterClasses(compilerContext);
+        final var enterClasses = new EnterClasses((CompilerContextImpl) compilerContext);
 
         final var sourceEnterClasses = new JavaSourceEnterClasses(enterClasses);
         return sourceEnterClasses.parse(fileObject);

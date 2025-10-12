@@ -1,16 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.Directive;
-import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
+import io.github.potjerodekool.nabu.lang.model.element.Directive;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import org.objectweb.asm.ModuleVisitor;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-import static io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol.createFlatName;
+import static io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol.createFlatName;
 
 public class AsmModuleBuilder extends ModuleVisitor {
 

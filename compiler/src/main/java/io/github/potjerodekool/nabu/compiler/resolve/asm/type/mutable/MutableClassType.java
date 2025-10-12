@@ -1,13 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.TypeVariable;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeVariable;
 
 import java.util.ArrayList;
 import java.util.List;

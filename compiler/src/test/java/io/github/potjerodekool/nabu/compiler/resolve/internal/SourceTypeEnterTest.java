@@ -1,25 +1,21 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
-import io.github.potjerodekool.nabu.compiler.io.NabuFileObject;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuFileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.java.JavaSourceEnterClasses;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-class SourceTypeEnterTest {
-
-    private final CompilerContextImpl compilerContext = new CompilerContextImpl(
-            null,
-            new NabuCFileManager()
-    );
+class SourceTypeEnterTest extends AbstractCompilerTest {
 
 //    @Test
     void fill() {
@@ -27,13 +23,13 @@ class SourceTypeEnterTest {
                 Paths.get("C:\\projects\\nabu\\compiler-test\\src\\main\\java\\io\\github\\potjerodekool\\employee\\Company.java")
         );
 
-        enter(companyClass, compilerContext.getTypeEnter());
+        enter(companyClass, getCompilerContext().getTypeEnter());
 
         final var employeeClass = createClass(
                 Paths.get("C:\\projects\\nabu\\compiler-test\\src\\main\\java\\io\\github\\potjerodekool\\employee\\Employee.java")
         );
 
-        enter(employeeClass, compilerContext.getTypeEnter());
+        enter(employeeClass, getCompilerContext().getTypeEnter());
 
         companyClass.complete();
 
@@ -43,7 +39,7 @@ class SourceTypeEnterTest {
     private void enter(final ClassSymbol classSymbol,
                        final TypeEnter typeEnter) {
         final var enterClasses = new EnterClasses(
-                compilerContext
+                getCompilerContext()
         );
 
         final var sourceEnterClasses = new JavaSourceEnterClasses(

@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.VariableElementBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.builder.VariableElementBuilder;
+import io.github.potjerodekool.nabu.type.TypeMirror;
 
 public class VariableSymbolBuilderImpl extends AbstractSymbolBuilder<VariableSymbolBuilderImpl>
         implements VariableElementBuilder<VariableSymbolBuilderImpl> {

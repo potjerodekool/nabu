@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm2;
 
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
-import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 

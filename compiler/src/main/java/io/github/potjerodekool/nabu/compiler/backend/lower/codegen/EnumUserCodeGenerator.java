@@ -1,30 +1,30 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
+import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.ast.Flags;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
-import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
-import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.PrimitiveTypeTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CArrayTypeTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CPrimitiveTypeTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CVariableDeclaratorTree;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.Modifiers;
+import io.github.potjerodekool.nabu.tree.TreeFilter;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
+import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.PrimitiveTypeTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CPrimitiveTypeTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.HashMap;
 import java.util.List;
@@ -64,7 +64,7 @@ public class EnumUserCodeGenerator implements CodeGenerator {
 
         if (!usageInfo.hasEnumMapping(typeElement)) {
             final var memberClass = usageInfo.getMemberClass();
-            final var field = createArrayField(typeElement, memberClass.getClassSymbol());
+            final var field = createArrayField(typeElement, (ClassSymbol) memberClass.getClassSymbol());
             memberClass.enclosedElement(field);
 
             usageInfo.addEnumMapping(typeElement);
@@ -135,7 +135,7 @@ public class EnumUserCodeGenerator implements CodeGenerator {
 
         final var memberClass = new ClassDeclarationBuilder()
                 .kind(Kind.CLASS)
-                .nestingKind(io.github.potjerodekool.nabu.compiler.tree.element.NestingKind.MEMBER)
+                .nestingKind(io.github.potjerodekool.nabu.tree.element.NestingKind.MEMBER)
                 .simpleName(memberClassName)
                 .extending(IdentifierTree.create(Constants.OBJECT))
                 .modifiers(new Modifiers(Flags.STATIC + Flags.SYNTHETIC))
@@ -147,7 +147,7 @@ public class EnumUserCodeGenerator implements CodeGenerator {
                 packageSymbol
         );
 
-        memberClass.getClassSymbol().complete();
+        ((ClassSymbol)memberClass.getClassSymbol()).complete();
 
         final var memberClassSymbol = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)

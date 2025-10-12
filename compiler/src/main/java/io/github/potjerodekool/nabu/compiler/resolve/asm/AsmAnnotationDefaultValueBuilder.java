@@ -1,14 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.CArrayAttributeProxy;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.CCompoundAttribute;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
+import io.github.potjerodekool.nabu.lang.model.element.CArrayAttributeProxy;
+import io.github.potjerodekool.nabu.lang.model.element.CCompoundAttribute;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.lang.model.element.Attribute;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.type.DeclaredType;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.Type;
 

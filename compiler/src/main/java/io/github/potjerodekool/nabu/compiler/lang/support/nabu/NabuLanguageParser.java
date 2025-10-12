@@ -1,13 +1,14 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.nabu;
 
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
+import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.lang.support.LanguageParser;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+
 
 import java.io.IOException;
 

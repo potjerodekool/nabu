@@ -1,18 +1,19 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.TodoException;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.Types;
 import org.objectweb.asm.*;
 
 import java.util.Arrays;
@@ -212,7 +213,14 @@ class AsmClassBuilder extends ClassVisitor {
 
     @Override
     public AnnotationVisitor visitAnnotation(final String descriptor, final boolean visible) {
-        return AsmAnnotationBuilder.createBuilder(api, descriptor, visible, clazz, classElementLoader, moduleSymbol);
+        return AsmAnnotationBuilder.createBuilder(
+                api,
+                descriptor,
+                visible,
+                clazz,
+                classElementLoader,
+                moduleSymbol
+        );
     }
 
     @Override

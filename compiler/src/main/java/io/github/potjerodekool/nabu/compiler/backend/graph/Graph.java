@@ -1,10 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.graph;
 
+import io.github.potjerodekool.nabu.util.CollectionUtils;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.*;
+import static io.github.potjerodekool.nabu.util.CollectionUtils.headAndTailList;
+import static io.github.potjerodekool.nabu.util.CollectionUtils.tailOf;
 
 public abstract class Graph {
 
@@ -29,7 +32,7 @@ public abstract class Graph {
     }
 
     public void appendNodes(final List<Node> list) {
-        nodes = concat(nodes, list);
+        nodes = CollectionUtils.concat(nodes, list);
     }
 
     Node newNode() {

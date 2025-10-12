@@ -1,13 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
-import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
-import io.github.potjerodekool.nabu.compiler.util.Pair;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeVisitor;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
+import io.github.potjerodekool.nabu.util.Pair;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.stream.Collectors;
 

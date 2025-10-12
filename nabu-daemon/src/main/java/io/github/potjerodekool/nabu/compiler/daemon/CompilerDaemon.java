@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.daemon;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.potjerodekool.nabu.compiler.CompilerOption;
-import io.github.potjerodekool.nabu.compiler.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.NabuCompiler;
+import io.github.potjerodekool.nabu.tools.CompilerOption;
+import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import io.github.potjerodekool.nabu.compiler.impl.NabuCompiler;
 
 import java.io.File;
 import java.io.IOException;

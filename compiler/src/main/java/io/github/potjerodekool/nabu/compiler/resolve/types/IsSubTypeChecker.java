@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeMirror;
 
 public class IsSubTypeChecker {
 

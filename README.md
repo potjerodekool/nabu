@@ -2,7 +2,7 @@
 
 The Nabu compiler is a polyglot compiler for compiling source code into Java bytecode so it can be executed on the Java Virtual Machine (JVM).
 
-Writing a compiler is a complex task that that take a lot of time and usually requires a lot of expertise of the JVM.
+Writing a compiler is a complex task that a lot of time and usually requires a lot of expertise of the JVM.
 The Nabu compiler is designed to be extendable so others can make use of it to support their own language
 without having to write their own compiler from scratch.
 

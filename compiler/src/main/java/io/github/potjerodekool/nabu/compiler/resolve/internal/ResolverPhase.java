@@ -1,28 +1,32 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.AnnotationBuilder;
+import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.resolve.AbstractResolver;
+import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.resolve.scope.SwitchScope;
+import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
+import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
-import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
-import io.github.potjerodekool.nabu.compiler.tree.ConstantCaseLabel;
-import io.github.potjerodekool.nabu.compiler.tree.PackageDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.*;
-import io.github.potjerodekool.nabu.compiler.type.ArrayType;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.util.Pair;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.tree.ConstantCaseLabel;
+import io.github.potjerodekool.nabu.tree.PackageDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Function;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.statement.ReturnStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.type.ArrayType;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.Pair;
 
 public class ResolverPhase extends AbstractResolver {
 
@@ -57,7 +61,7 @@ public class ResolverPhase extends AbstractResolver {
 
         clazz.complete();
 
-        compilerContext.getEnumUsageMap().registerClass(classDeclaration);
+        ((CompilerContextImpl)compilerContext).getEnumUsageMap().registerClass(classDeclaration);
 
         final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
 
@@ -216,7 +220,7 @@ public class ResolverPhase extends AbstractResolver {
                         identifierTree.setSymbol(enumConstant);
 
                         final var currentClass = scope.getCurrentClass();
-                        compilerContext.getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
+                        ((CompilerContextImpl)compilerContext).getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
                     });
 
             return defaultAnswer(constantCaseLabel, scope);

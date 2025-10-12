@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.type.PackageType;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.type.PackageType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeVisitor;
 
 import java.util.Objects;
 

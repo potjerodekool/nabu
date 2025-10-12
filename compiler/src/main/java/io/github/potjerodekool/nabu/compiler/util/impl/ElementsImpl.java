@@ -1,18 +1,21 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.module.Modules;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.ast.element.impl.CCompoundAttribute;
-import io.github.potjerodekool.nabu.compiler.ast.Flags;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.lang.model.element.CCompoundAttribute;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
-import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
-import io.github.potjerodekool.nabu.compiler.util.Elements;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.ExecutableType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
+import io.github.potjerodekool.nabu.util.Elements;
 
 import java.io.Writer;
 import java.util.*;

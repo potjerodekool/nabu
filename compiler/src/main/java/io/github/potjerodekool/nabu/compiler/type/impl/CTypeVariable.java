@@ -1,8 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeVariableSymbol;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeVariableSymbol;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeVariable;
+import io.github.potjerodekool.nabu.type.TypeVisitor;
 
 public class CTypeVariable extends AbstractType implements TypeVariable {
 

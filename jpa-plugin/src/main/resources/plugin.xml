@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<plugin>
+    <id>io.github.potjerodekool.nabu.plugin.jpa</id>
+    <version>0.0.1</version>
+    <description>JPA plugin for Nabu compiler</description>
+    <extensions>
+        <code-transformer implementationClass="io.github.potjerodekool.nabu.plugin.jpa.transform.JpaTransformer"/>
+        <element-resolver implementationClass="io.github.potjerodekool.nabu.plugin.jpa.transform.JpaElementResolver"/>
+    </extensions>
+</plugin>

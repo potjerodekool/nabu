@@ -1,18 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.TypeSymbol;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.MemberOfVisitor;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.types.*;
-import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.*;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.type.*;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.*;
 
@@ -231,7 +231,7 @@ public class TypesImpl implements Types {
     }
 
     @Override
-    public io.github.potjerodekool.nabu.compiler.type.ArrayType getArrayType(final TypeMirror componentType) {
+    public ArrayType getArrayType(final TypeMirror componentType) {
         return new CArrayType(componentType);
     }
 
@@ -602,11 +602,10 @@ public class TypesImpl implements Types {
         );
     }
 
-    public List<AbstractType> interfaces(final AbstractType t) {
+    @Override
+    public List<? extends TypeMirror> interfaces(final TypeMirror t) {
         final var declared = (DeclaredType) t;
-        return declared.asTypeElement().getInterfaces().stream()
-                .map(it -> (AbstractType) it)
-                .toList();
+        return declared.asTypeElement().getInterfaces();
     }
 }
 

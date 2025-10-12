@@ -1,30 +1,23 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.dependencyinjection.ApplicationContext;
-import io.github.potjerodekool.nabu.compiler.TreePrinter;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.backend.lower.Caster;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class CasterTest {
+class CasterTest extends AbstractCompilerTest {
 
-    final CompilerContextImpl compilerContext = new CompilerContextImpl(
-            new ApplicationContext(),
-            new NabuCFileManager()
-    );
-    private final ClassElementLoader loader = compilerContext.getClassElementLoader();
+    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
     private final Types types = loader.getTypes();
     private final Caster caster = new Caster();
 

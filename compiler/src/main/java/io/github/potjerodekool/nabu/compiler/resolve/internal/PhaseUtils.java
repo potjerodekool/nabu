@@ -1,14 +1,14 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
-import io.github.potjerodekool.nabu.compiler.type.VariableType;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.type.VariableType;
+import io.github.potjerodekool.nabu.util.Types;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.typeOf;
+import static io.github.potjerodekool.nabu.tree.TreeUtils.typeOf;
 
 public final class PhaseUtils {
 

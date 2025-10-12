@@ -1,25 +1,25 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.Scope;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.SymbolScope;
-import io.github.potjerodekool.nabu.compiler.tree.AbstractTreeVisitor;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
-import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.util.Types;
-import io.github.potjerodekool.nabu.compiler.type.VariableType;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
+import io.github.potjerodekool.nabu.tree.TreeUtils;
+import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.VariableType;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.List;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.getSymbol;
+import static io.github.potjerodekool.nabu.tree.TreeUtils.getSymbol;
 import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.createBuilderCall;
 import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.resolvePathType;
 

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.tools.Constants;
 
 import java.util.List;
 

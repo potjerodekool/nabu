@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
-import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.LiteralExpressionTree;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.util.Types;
 
 public class IntWidener {
 

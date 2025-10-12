@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin>
+    <id>io.github.potjerodekool.nabu.lang</id>
+    <version>0.0.1</version>
+    <description>Compiler support for Nabu language</description>
+    <extensions>
+        <language-parser implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuLanguageParser"/>
+        <language-parser implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.java.JavaLanguageParser"/>
+    </extensions>
+</plugin>

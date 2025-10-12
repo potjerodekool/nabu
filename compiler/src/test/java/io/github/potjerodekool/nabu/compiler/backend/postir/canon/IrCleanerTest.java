@@ -7,7 +7,8 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.expression.TempExpr;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
+
+import io.github.potjerodekool.nabu.tree.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

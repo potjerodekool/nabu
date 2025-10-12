@@ -1,11 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.CompilerOption;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
+import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import io.github.potjerodekool.nabu.tools.CompilerOption;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;

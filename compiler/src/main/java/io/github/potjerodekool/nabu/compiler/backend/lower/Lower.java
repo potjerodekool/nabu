@@ -1,30 +1,33 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.*;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.Boxer;
-import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
-import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.Boxer;
 
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.*;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CArrayAccessExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
-import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.tree.*;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
+import io.github.potjerodekool.nabu.tree.expression.BinaryExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CArrayAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.statement.*;
+import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.ExecutableType;
+import io.github.potjerodekool.nabu.type.PrimitiveType;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.*;
 
@@ -375,7 +378,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
                 enumElement
         );
 
-        final var memberClass = enumUsage.getMemberClass().getClassSymbol();
+        final var memberClass = (ClassSymbol) enumUsage.getMemberClass().getClassSymbol();
         final var fieldName = enumUsage.getFieldName(enumElement);
 
         final var selectorIdentifier = IdentifierTree.create(memberClass.getFlatName());

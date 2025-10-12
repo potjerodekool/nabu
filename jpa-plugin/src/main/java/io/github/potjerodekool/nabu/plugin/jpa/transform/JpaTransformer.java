@@ -1,34 +1,32 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ElementBuilders;
-import io.github.potjerodekool.nabu.compiler.resolve.AbstractResolver;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.TreeUtils;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
-import io.github.potjerodekool.nabu.compiler.transform.CodeTransformer;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
-import io.github.potjerodekool.nabu.compiler.tree.Tree;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.*;
-import io.github.potjerodekool.nabu.compiler.type.*;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.resolve.AbstractResolver;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.resolve.scope.ClassScope;
+import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer;
+import io.github.potjerodekool.nabu.tree.*;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Function;
+import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.statement.*;
+import io.github.potjerodekool.nabu.type.*;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static io.github.potjerodekool.nabu.compiler.resolve.TreeUtils.getSymbol;
 import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.createBuilderCall;
 import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.resolvePathType;
+import static io.github.potjerodekool.nabu.tree.TreeUtils.getSymbol;
 
 public class JpaTransformer extends AbstractResolver implements CodeTransformer {
 
@@ -435,7 +433,7 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
                 ? oldSymbol.getEnclosingElement()
                 : null;
 
-        final var varElement = ElementBuilders.variableElementBuilder()
+        final var varElement = this.compilerContext.getElementBuilders().variableElementBuilder()
                 .kind(kind)
                 .simpleName(newIdentifier.getName())
                 .type(type)

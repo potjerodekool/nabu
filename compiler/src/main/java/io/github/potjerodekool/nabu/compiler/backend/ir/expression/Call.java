@@ -4,11 +4,10 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.InvocationType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
 
 import java.util.List;
 import java.util.StringJoiner;
-
-import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
 
 public class Call extends IExpression {
 
@@ -113,7 +112,7 @@ public class Call extends IExpression {
 
     @Override
     public List<IExpression> kids() {
-        return headAndTailList(function, args);
+        return CollectionUtils.headAndTailList(function, args);
     }
 
     @Override

@@ -11,25 +11,25 @@
 
 <h2>Introduction</h2>
 
-<p>The Nabu compiler is a polyglot compiler for compiling source code into Java bytecode
+<p> The Nabu compiler is a polyglot compiler for compiling source code into Java bytecode
     so it can be executed on the Java Virtual Machine (JVM).<br/>
-Currently, the Nabu compiler only supports the Nabu language but in the future it will be possible to support for other programming languages.<br/>
-Interoperability with other languages is possible with a language parser, currently there is a language parser for Java
-so you can use classes, invoke methods and such.</p>
+    <br/>
+    Writing and maintaining a compiler takes a lot of time and understanding.<br/>
+    The goal of the Nabu compiler is to make this easier, and you don't have to start from scratch.<br/>
+    Just provide a language parser which parses the source code and build an AST and the compiler will do the rest.<br/>
+    <br/>
+    The compiler is extendable via plugins.<br/>
+    Compiler plugins can provide extensions for things like parsing source code to support programming languages
+    so the compiler can compile source code or provide interoperability.<br/>
+    The compiler supports Java interoperability out of the box.<br/>
+    <br/>
+    The compiler supports the Nabu programming language out of the box
+    which can call/use Java.<br/>
+</p>
 
-<h2>Compiler services</h2>
 <ul>
-    <li><a href="services/language-parser.html">Language parser</a></li>
-</ul>
-
-<h2>DSL support</h2>
-<ul>
+    <li><a href="compiler-plugin/index.html">Compiler plugins</a></li>
     <li><a href="dsl-support/index.html">DSL support</a></li>
-</ul>
-
-<h2>Languages</h2>
-
-<ul>
     <li><a href="language/nabu/index.html">Nabu language</a></li>
 </ul>
 

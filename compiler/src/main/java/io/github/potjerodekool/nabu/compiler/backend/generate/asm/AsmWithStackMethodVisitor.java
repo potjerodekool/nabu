@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.tools.TodoException;
+import io.github.potjerodekool.nabu.tools.Constants;
 import org.objectweb.asm.*;
 
 import java.util.ArrayList;

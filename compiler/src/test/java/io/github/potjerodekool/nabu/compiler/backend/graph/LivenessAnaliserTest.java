@@ -1,9 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.graph;
 
-import io.github.potjerodekool.nabu.compiler.backend.graph.IRFlowGraphBuilder;
-import io.github.potjerodekool.nabu.compiler.backend.graph.IRFlowGraphBuilder2;
-import io.github.potjerodekool.nabu.compiler.backend.graph.LivenessAnaliser;
-import io.github.potjerodekool.nabu.compiler.backend.graph.LivenessGraph;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ProcFrag;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
@@ -12,7 +8,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
+import io.github.potjerodekool.nabu.tree.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement.seq;
-import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
+import static io.github.potjerodekool.nabu.util.CollectionUtils.headAndTailList;
 
 public class Canon {
 

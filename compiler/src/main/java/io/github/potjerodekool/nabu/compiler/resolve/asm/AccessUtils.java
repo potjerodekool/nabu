@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.Flags;
-import io.github.potjerodekool.nabu.compiler.ast.element.Modifier;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.Modifier;
 import org.objectweb.asm.Opcodes;
 
 import java.util.HashSet;

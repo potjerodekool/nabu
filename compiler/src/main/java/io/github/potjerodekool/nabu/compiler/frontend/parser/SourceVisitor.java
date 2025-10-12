@@ -1,16 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
-import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.element.builder.FunctionBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.FieldAccessExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.builder.FieldAccessExpressionBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.tree.Modifiers;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
+import io.github.potjerodekool.nabu.tree.element.Function;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressionBuilder;
+import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import org.antlr.v4.runtime.ParserRuleContext;
 
 import java.util.ArrayList;

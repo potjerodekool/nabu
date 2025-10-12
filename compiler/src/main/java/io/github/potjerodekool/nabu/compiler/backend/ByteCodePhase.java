@@ -1,18 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.backend;
 
-import io.github.potjerodekool.nabu.compiler.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.ErrorCapture;
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
+import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import io.github.potjerodekool.nabu.compiler.impl.ErrorCapture;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
-import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
 
 import java.io.File;
 import java.io.IOException;

@@ -20,35 +20,29 @@ To implement a DSL on or more interfaces can be implemented.
 
 <table>
     <thead>
-    <tr><th>Interface</th><th>Description</th></tr>
-    <tr><td>io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver</td><td>Resolves elements in a DSL</td></tr>
-    <tr><td>io.github.potjerodekool.nabu.compiler.transform.CodeTransformer</td><td>Transforms a DSL into Java code</td></tr>
+        <tr><th>Interface</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver</td><td>Resolves elements in a DSL</td></tr>
+        <tr><td>io.github.potjerodekool.nabu.compiler.transform.CodeTransformer</td><td>Transforms a DSL into Java code</td></tr>
+    </tbody>
 </table>
 
 <br/>
 <h2>Register implementations</h2>
-Implementations of the interfaces can be registered in an autoconfiguration class.
+Implementations of the interfaces can be registered in the plugin.xml file.
 
 <pre class="code">
-    <span class="keyword">import</span> io.github.potjerodekool.autoconfig.AutoConfiguration;
-    <span class="keyword">import</span> io.github.potjerodekool.dependencyinjection.bean.Bean;
-    <span class="keyword">import</span> io.github.potjerodekool.dependencyinjection.scope.StandardScopes;
-    <span class="keyword">import</span> io.github.potjerodekool.nabu.compiler.CompilerContext;
-    <span class="keyword">import</span> io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver;
-
-    <span class="annotation">@AutoConfiguration</span>
-    <span class="keyword">public</span> <span class="keyword">class</span> JpaAutoConfiguration {
-
-    <span class="annotation">@Bean</span>
-    <span class="keyword">public</span> ElementResolver simpleSymbolResolver() {
-        <span class="keyword">return</span> <span class="keyword">new</span> SimpleElementResolver();
-    }
-
-    <span class="annotation">@Bean</span>(scope = StandardScopes.PROTOTYPE)
-    <span class="keyword">public</span> JpaTransformer jpaTransformer(final CompilerContext compilerContext) {
-        <span class="keyword">return</span> <span class="keyword">new</span> JpaTransformer(compilerContext);
-    }
-}
+    &lt;?xml version="1.0" encoding="UTF-8" ?&gt;
+    &lt;plugin&gt;
+        &lt;id>io.github.potjerodekool.nabu.plugin.simple&lt;/id&gt;
+    &lt;version>0.0.1&lt;/version&gt;
+    &lt;description>Simple plugin for Nabu compiler&lt;/description&gt;
+    &lt;extensions&gt;
+        &lt;code-transformer implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleTransformer"/&gt;
+        &lt;element-resolver implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleElementResolver"/&gt;
+    &lt;/extensions&gt;
+    &lt;/plugin&gt;
 </pre>
 
 </body>

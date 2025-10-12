@@ -1,11 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal.java;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.java.JavaCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.java.JavaCompilerVisitor;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.EnterClasses;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
 
 import java.io.IOException;
 

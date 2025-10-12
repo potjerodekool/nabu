@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.type.NoType;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
+import io.github.potjerodekool.nabu.type.NoType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeVisitor;
 
 public class CNoType extends AbstractType implements NoType {
 

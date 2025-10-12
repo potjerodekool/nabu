@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.type.PrimitiveType;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
+import io.github.potjerodekool.nabu.type.PrimitiveType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeVisitor;
 
 public class CPrimitiveType extends AbstractType implements PrimitiveType {
 

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
-import io.github.potjerodekool.nabu.compiler.type.BoundKind;
+import io.github.potjerodekool.nabu.type.BoundKind;
 
 import java.util.Objects;
 

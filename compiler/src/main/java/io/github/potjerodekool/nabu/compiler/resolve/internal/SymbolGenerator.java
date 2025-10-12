@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.PackageElement;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.GlobalScope;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
+import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 
 public class SymbolGenerator {
 

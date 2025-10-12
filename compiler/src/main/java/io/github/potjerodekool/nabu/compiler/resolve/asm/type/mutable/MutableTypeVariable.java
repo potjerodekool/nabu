@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable;
 
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeVariable;
 
 import java.util.Map;
 
@@ -28,7 +29,7 @@ public class MutableTypeVariable extends MutableType {
     }
 
     @Override
-    public TypeMirror toType(final ClassElementLoader loader, final Map<String, io.github.potjerodekool.nabu.compiler.type.TypeVariable> typeVariablesMap) {
+    public TypeMirror toType(final ClassElementLoader loader, final Map<String, TypeVariable> typeVariablesMap) {
         var typeVariable = typeVariablesMap.get(name);
 
         if (typeVariable == null) {

@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.type.TypeVisitor;
-import io.github.potjerodekool.nabu.compiler.type.UnionType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeVisitor;
+import io.github.potjerodekool.nabu.type.UnionType;
 
 import java.util.List;
 import java.util.Objects;

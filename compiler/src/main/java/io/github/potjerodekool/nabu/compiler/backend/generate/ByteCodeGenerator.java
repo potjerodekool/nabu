@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.ModuleDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
 
 public interface ByteCodeGenerator {
 

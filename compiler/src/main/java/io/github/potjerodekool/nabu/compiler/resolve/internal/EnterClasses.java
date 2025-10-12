@@ -1,26 +1,27 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
-import io.github.potjerodekool.nabu.compiler.ast.element.NestingKind;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.*;
-import io.github.potjerodekool.nabu.compiler.tree.*;
-import io.github.potjerodekool.nabu.compiler.tree.element.*;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.PackageDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
+import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 
 public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
 
-    private final CompilerContext compilerContext;
+    private final CompilerContextImpl compilerContext;
     private final ClassElementLoader classElementLoader;
     private final TypeEnter typeEnter;
 
-    public EnterClasses(final CompilerContext compilerContext) {
+    public EnterClasses(final CompilerContextImpl compilerContext) {
         this.compilerContext = compilerContext;
         this.classElementLoader = compilerContext.getClassElementLoader();
         this.typeEnter = compilerContext.getTypeEnter();
@@ -33,10 +34,10 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
         if (compilationUnit.getModuleDeclaration() != null) {
             compilationUnit.getModuleDeclaration().accept(this, globalScope);
             final var module = compilationUnit.getModuleDeclaration().getModuleSymbol();
-            ((CCompilationTreeUnit) compilationUnit).setModuleSymbol((ModuleSymbol) module);
+            ((CCompilationTreeUnit) compilationUnit).setModuleElement((ModuleSymbol) module);
         } else {
-            final var module = classElementLoader.getSymbolTable().getUnnamedModule();
-            ((CCompilationTreeUnit) compilationUnit).setModuleSymbol(module);
+            final var module = compilerContext.getSymbolTable().getUnnamedModule();
+            ((CCompilationTreeUnit) compilationUnit).setModuleElement(module);
         }
 
         if (compilationUnit.getPackageDeclaration() != null) {
@@ -66,7 +67,7 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
         final var packageElement = (PackageSymbol) scope.getPackageElement();
         final var module = (ModuleSymbol) scope.findModuleElement();
 
-        final var clazz = classElementLoader.getSymbolTable()
+        final var clazz = compilerContext.getSymbolTable()
                 .enterClass(
                         module,
                         classDeclaration.getSimpleName(),

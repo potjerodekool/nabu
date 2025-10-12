@@ -1,31 +1,36 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.SymbolCreator;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.Flags;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
-import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
-import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.BlockStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CExpressionStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CReturnStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CVariableDeclaratorTree;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.tree.Modifiers;
+import io.github.potjerodekool.nabu.tree.Tag;
+import io.github.potjerodekool.nabu.tree.TreeFilter;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.NewClassExpression;
+import io.github.potjerodekool.nabu.tree.expression.impl.CBinaryExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CLiteralExpressionTree;
+import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.StatementTree;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CExpressionStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CReturnStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,7 +72,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
         if (!mergedClientInit.getBody().getStatements().isEmpty()) {
             clazzDeclaration.removeEnclosedElements(clientInitializers);
             classDeclaration.enclosedElement(mergedClientInit);
-            final var clazz = clazzDeclaration.getClassSymbol();
+            final var clazz = (ClassSymbol) clazzDeclaration.getClassSymbol();
             clazz.addEnclosedElement((MethodSymbol) mergedClientInit.getMethodSymbol());
         }
     }
@@ -110,7 +115,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
     private void initStaticFields(final CClassDeclaration clazzDeclaration,
                                   final CFunction mergedClientInit) {
         final var body = mergedClientInit.getBody();
-        final var clazz = clazzDeclaration.getClassSymbol();
+        final var clazz = (ClassSymbol) clazzDeclaration.getClassSymbol();
 
         /* Init fields that are static that are non-final
            or are not initialized by a literal expression

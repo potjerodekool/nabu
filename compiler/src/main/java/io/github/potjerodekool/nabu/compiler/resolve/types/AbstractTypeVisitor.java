@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.type.*;
 
 public abstract class AbstractTypeVisitor<R,P> implements TypeVisitor<R, P> {
 

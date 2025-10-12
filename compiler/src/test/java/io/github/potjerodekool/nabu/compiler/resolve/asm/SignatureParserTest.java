@@ -1,16 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.dependencyinjection.ApplicationContext;
-import io.github.potjerodekool.nabu.compiler.CompilerContext;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeParameterElement;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
-import io.github.potjerodekool.nabu.compiler.type.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
+import io.github.potjerodekool.nabu.type.*;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.signature.SignatureReader;
@@ -18,12 +15,7 @@ import org.objectweb.asm.signature.SignatureVisitor;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class SignatureParserTest {
-
-    private final CompilerContext compilerContext = new CompilerContextImpl(
-            new ApplicationContext(),
-            new NabuCFileManager()
-    );
+class SignatureParserTest extends AbstractCompilerTest {
 
     @Test
     void test1() {
@@ -130,7 +122,7 @@ class SignatureParserTest {
     }
 
     protected SignatureParser parseSignature(final String signature) {
-        final var loader = compilerContext.getClassElementLoader();
+        final var loader = getCompilerContext().getClassElementLoader();
         final var asmLoader = (AsmClassElementLoader) loader;
         final var javaBase = asmLoader.getSymbolTable().getJavaBase();
 
@@ -162,7 +154,7 @@ class Printer implements TypeVisitor<Object, PrinterContext> {
     }
 
     @Override
-    public Object visitArrayType(final io.github.potjerodekool.nabu.compiler.type.ArrayType arrayType, final PrinterContext param) {
+    public Object visitArrayType(final ArrayType arrayType, final PrinterContext param) {
         print("[");
         arrayType.getComponentType().accept(this, param);
         return null;

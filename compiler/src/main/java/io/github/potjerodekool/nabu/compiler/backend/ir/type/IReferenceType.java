@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.type;
 
-import io.github.potjerodekool.nabu.compiler.util.CollectionUtils;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
 
 import java.util.List;
 import java.util.Objects;

@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir.Translate;
+import io.github.potjerodekool.nabu.compiler.backend.ir.impl.Translate;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
 
 public final class IRPhase {
 

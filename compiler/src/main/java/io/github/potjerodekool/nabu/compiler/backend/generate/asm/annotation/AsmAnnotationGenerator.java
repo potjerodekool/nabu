@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
 import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;

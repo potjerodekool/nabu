@@ -1,38 +1,39 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.dependencyinjection.ApplicationContext;
-import io.github.potjerodekool.nabu.compiler.TestClassElementLoader;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.test.TestClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.TreePrinter;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
-import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
-import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.element.builder.ClassDeclarationBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.expression.*;
-import io.github.potjerodekool.nabu.compiler.tree.impl.CCompilationTreeUnit;
-import io.github.potjerodekool.nabu.compiler.tree.impl.CConstantCaseLabel;
-import io.github.potjerodekool.nabu.compiler.tree.statement.CaseStatement;
-import io.github.potjerodekool.nabu.compiler.tree.statement.builder.SwitchStatementBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CCaseStatement;
-import io.github.potjerodekool.nabu.compiler.type.DeclaredType;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.type.TypeMirror;
-import io.github.potjerodekool.nabu.compiler.util.Types;
+import io.github.potjerodekool.nabu.tree.Modifiers;
+import io.github.potjerodekool.nabu.tree.Tag;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
+import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
+import io.github.potjerodekool.nabu.tree.impl.CConstantCaseLabel;
+import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
+import io.github.potjerodekool.nabu.tree.statement.builder.SwitchStatementBuilder;
+import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
+import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CCaseStatement;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,12 +46,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-class LowerTest {
+class LowerTest extends AbstractCompilerTest {
 
-    private final CompilerContextImpl compilerContext = new CompilerContextImpl(
-            new ApplicationContext(),
-            new NabuCFileManager()
-    );
     private final ClassSymbolLoader loader = new TestClassElementLoader();
 
     private final Types types = loader.getTypes();
@@ -80,7 +77,7 @@ class LowerTest {
                         new ArrayList<>()
                 )));
 
-        lower = new Lower(compilerContext);
+        lower = new Lower(getCompilerContext());
     }
 
     @Test
@@ -238,7 +235,7 @@ class LowerTest {
 
         final var currentClassTree = new ClassDeclarationBuilder()
                 .kind(Kind.CLASS)
-                .nestingKind(io.github.potjerodekool.nabu.compiler.tree.element.NestingKind.TOP_LEVEL)
+                .nestingKind(io.github.potjerodekool.nabu.tree.element.NestingKind.TOP_LEVEL)
                 .simpleName("TT")
                 .modifiers(new Modifiers())
                 .build();
@@ -254,13 +251,13 @@ class LowerTest {
         );
 
 
-        compilerContext.getTypeEnter().put(
+        getCompilerContext().getTypeEnter().put(
                 currentClass,
                 currentClassTree,
                 cu
         );
 
-        currentClass.setCompleter(compilerContext.getTypeEnter());
+        currentClass.setCompleter(getCompilerContext().getTypeEnter());
         currentClass.complete();
 
         final var enumClass = loader.loadClass(

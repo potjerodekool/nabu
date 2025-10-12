@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ErrorSymbol;
-import io.github.potjerodekool.nabu.compiler.type.ErrorType;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
+import io.github.potjerodekool.nabu.type.ErrorType;
 
 import java.util.List;
 

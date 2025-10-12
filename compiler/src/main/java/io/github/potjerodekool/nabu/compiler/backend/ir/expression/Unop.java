@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.ir.expression;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
+import io.github.potjerodekool.nabu.tree.Tag;
 
 import java.util.Collections;
 import java.util.List;

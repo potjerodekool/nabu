@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.generate.asm2;
 
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 

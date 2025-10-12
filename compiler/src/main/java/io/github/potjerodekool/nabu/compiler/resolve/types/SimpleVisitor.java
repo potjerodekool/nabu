@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.compiler.type.CapturedType;
+
+import io.github.potjerodekool.nabu.type.CapturedType;
 
 public abstract class SimpleVisitor<R, P> extends AbstractTypeVisitor<R,P> {
 

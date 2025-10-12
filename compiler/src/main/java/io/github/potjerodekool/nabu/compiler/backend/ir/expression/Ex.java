@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IExpressionSta
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.IStatement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.Jump;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
+import io.github.potjerodekool.nabu.tree.Tag;
 
 public class Ex implements Exp {
     private final IExpression exp;

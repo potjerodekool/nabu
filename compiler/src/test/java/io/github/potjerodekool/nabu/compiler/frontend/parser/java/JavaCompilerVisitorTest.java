@@ -2,9 +2,9 @@ package io.github.potjerodekool.nabu.compiler.frontend.parser.java;
 
 import io.github.potjerodekool.nabu.Java20Lexer;
 import io.github.potjerodekool.nabu.Java20Parser;
-import io.github.potjerodekool.nabu.compiler.TreePrinter;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.io.NabuFileObject;
+import io.github.potjerodekool.nabu.test.TreePrinter;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuFileObject;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;

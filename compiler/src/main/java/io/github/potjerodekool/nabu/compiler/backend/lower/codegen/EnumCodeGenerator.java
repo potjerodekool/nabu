@@ -1,30 +1,30 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
-import io.github.potjerodekool.nabu.compiler.ast.element.ModuleElement;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.Flags;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
-import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
-import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.*;
-import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.builder.VariableDeclaratorTreeBuilder;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CExpressionStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CReturnStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CVariableDeclaratorTree;
-import io.github.potjerodekool.nabu.compiler.type.TypeKind;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.tree.Modifiers;
+import io.github.potjerodekool.nabu.tree.Tag;
+import io.github.potjerodekool.nabu.tree.TreeFilter;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.*;
+import io.github.potjerodekool.nabu.tree.statement.StatementTree;
+import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
+import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CExpressionStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CReturnStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
+import io.github.potjerodekool.nabu.type.TypeKind;
 
 import java.util.List;
 
@@ -75,7 +75,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
     }
 
     private void generateValuesField(final CClassDeclaration classDeclaration) {
-        final var clazz = classDeclaration.getClassSymbol();
+        final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
         final var type = clazz.asType();
         final var arrayType = types.getArrayType(type);
 
@@ -102,7 +102,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
     }
 
     private void generatePrivateValuesMethod(final CClassDeclaration classDeclaration) {
-        final var clazz = classDeclaration.getClassSymbol();
+        final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
 
         final var enumConstants = TreeFilter.enumConstantsIn(classDeclaration.getEnclosedElements());
 
@@ -174,7 +174,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
     }
 
     private void generateValuesMethod(final CClassDeclaration classDeclaration) {
-        final var clazz = classDeclaration.getClassSymbol();
+        final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
         final var componentType = new CIdentifierTree(clazz.getSimpleName());
         componentType.setType(clazz.asType());
 
@@ -248,7 +248,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
     }
 
     private void generateValueOfMethod(final CClassDeclaration clazzDeclaration) {
-        final var clazz = clazzDeclaration.getClassSymbol();
+        final var clazz = (ClassSymbol) clazzDeclaration.getClassSymbol();
 
         final var parameterType = new CIdentifierTree("String");
         parameterType.setType(loader.getSymbolTable().getStringType());
@@ -268,7 +268,6 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         type.setType(clazz.asType());
 
         final var classLiteral = TreeMaker.classLiteralTree(type, -1, -1);
-
 
         classLiteral.getField()
                 .setType(

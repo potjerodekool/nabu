@@ -2,12 +2,11 @@ package io.github.potjerodekool.nabu.test;
 
 import io.github.potjerodekool.nabu.NabuLexer;
 import io.github.potjerodekool.nabu.NabuParser;
-import io.github.potjerodekool.nabu.compiler.ast.Flags;
-import io.github.potjerodekool.nabu.compiler.TreePrinter;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.io.NabuFileObject;
-import io.github.potjerodekool.nabu.compiler.tree.Tree;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuFileObject;
+import io.github.potjerodekool.nabu.tree.Tree;
 import org.antlr.v4.runtime.*;
 import org.antlr.v4.runtime.tree.ParseTree;
 

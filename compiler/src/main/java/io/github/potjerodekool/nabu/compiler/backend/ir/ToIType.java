@@ -1,10 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.TypeElement;
-
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.type.*;
 
 public class ToIType implements TypeVisitor<IType, Void> {
 

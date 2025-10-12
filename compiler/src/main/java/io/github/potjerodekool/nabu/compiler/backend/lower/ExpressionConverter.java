@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.nabu.compiler.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
 public interface ExpressionConverter {
 

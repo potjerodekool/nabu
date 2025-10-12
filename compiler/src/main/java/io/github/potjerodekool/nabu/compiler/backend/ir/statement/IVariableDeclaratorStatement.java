@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.statement;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.IExpression;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.TempExpr;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 
 import java.util.List;
 

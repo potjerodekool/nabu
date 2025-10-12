@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.AnnotationMirror;
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 
 import java.util.ArrayList;
 import java.util.List;

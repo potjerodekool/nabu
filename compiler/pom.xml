@@ -14,12 +14,7 @@
     <dependencies>
         <dependency>
             <groupId>io.github.potjerodekool</groupId>
-            <artifactId>dependency-injection</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.github.potjerodekool</groupId>
-            <artifactId>compiler-ast</artifactId>
+            <artifactId>compiler-api</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -27,6 +22,12 @@
             <groupId>org.antlr</groupId>
             <artifactId>antlr4</artifactId>
             <version>4.13.2</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>${asm.version}</version>
         </dependency>
 
         <dependency>

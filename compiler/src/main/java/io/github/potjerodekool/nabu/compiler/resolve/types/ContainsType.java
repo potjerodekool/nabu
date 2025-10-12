@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.type.*;
 
 public class ContainsType extends TypeRelation {
 

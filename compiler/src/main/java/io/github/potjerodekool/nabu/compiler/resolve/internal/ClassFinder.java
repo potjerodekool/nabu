@@ -1,16 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
+import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.io.FileManager.Location;
-import io.github.potjerodekool.nabu.compiler.io.FileObject;
-import io.github.potjerodekool.nabu.compiler.io.NabuCFileManager;
-import io.github.potjerodekool.nabu.compiler.io.StandardLocation;
-import io.github.potjerodekool.nabu.compiler.lang.support.LanguageParser;
+import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.tools.FileManager.Location;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
+import io.github.potjerodekool.nabu.tools.StandardLocation;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
-import io.github.potjerodekool.nabu.compiler.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 
 import java.io.IOException;
 import java.util.*;
@@ -23,7 +25,8 @@ public class ClassFinder {
     private final Completer completer = this::complete;
     private final SourceTypeEnter sourceTypeEnter;
     private final CompilerContextImpl compilerContext;
-    private final Set<FileObject.Kind> packageFileKinds;
+    //private final Set<FileObject.Kind> packageFileKinds;
+    private final PluginRegistry pluginRegistry;
 
     public ClassFinder(final SymbolTable symbolTable,
                        final NabuCFileManager fileManager,
@@ -34,7 +37,7 @@ public class ClassFinder {
         this.classElementLoader = classElementLoader;
         this.sourceTypeEnter = new SourceTypeEnter(compilerContext);
         this.compilerContext = compilerContext;
-        this.packageFileKinds = this.fileManager.allKinds();
+        this.pluginRegistry = compilerContext.getPluginRegistry();
     }
 
     public Completer getCompleter() {
@@ -42,7 +45,7 @@ public class ClassFinder {
     }
 
     protected Set<FileObject.Kind> getPackageFileKinds() {
-        return packageFileKinds;
+        return this.fileManager.allKinds();
     }
 
     private void complete(final Symbol symbol) {
@@ -212,12 +215,7 @@ public class ClassFinder {
                 if (file.getKind().isSource()) {
                     if (clazz.getSourceFile() == null) {
                         clazz.setSourceFile(file);
-
-                        final var languageParser = this.fileManager.getLanguageParsers().get(file.getKind());
-
-                        if (languageParser != null) {
-                            enterSource(clazz, languageParser);
-                        }
+                        getLanguageParser(file.getKind()).ifPresent(it -> enterSource(clazz, it));
                     }
                 } else {
                     if (clazz.getClassFile() == null) {
@@ -232,6 +230,11 @@ public class ClassFinder {
                 throw new IllegalArgumentException("Invalid class name " + className);
             }
         });
+    }
+
+    private Optional<LanguageParser> getLanguageParser(final FileObject.Kind kind) {
+        return this.pluginRegistry.getExtensionManager()
+                .getLanguageParser(kind);
     }
 
     private void enterSource(final ClassSymbol classSymbol,

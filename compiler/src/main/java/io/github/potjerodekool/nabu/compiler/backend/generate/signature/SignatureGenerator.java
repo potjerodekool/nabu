@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.signature;
 
-import io.github.potjerodekool.nabu.compiler.TodoException;
-import io.github.potjerodekool.nabu.compiler.ast.element.*;
-import io.github.potjerodekool.nabu.compiler.type.*;
+import io.github.potjerodekool.nabu.tools.TodoException;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.type.*;
 
 import java.util.List;
 import java.util.stream.Collectors;

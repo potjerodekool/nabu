@@ -3,8 +3,8 @@ package io.github.potjerodekool.nabu.compiler.backend.graph;
 import java.util.Collections;
 import java.util.List;
 
-import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.headAndTailList;
-import static io.github.potjerodekool.nabu.compiler.util.CollectionUtils.tailOf;
+import static io.github.potjerodekool.nabu.util.CollectionUtils.headAndTailList;
+import static io.github.potjerodekool.nabu.util.CollectionUtils.tailOf;
 
 public final class Node {
     private final Graph mygraph;

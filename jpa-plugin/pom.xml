@@ -18,7 +18,12 @@
     <dependencies>
         <dependency>
             <groupId>io.github.potjerodekool</groupId>
-            <artifactId>nabu-compiler</artifactId>
+            <artifactId>dependency-injection</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>compiler-api</artifactId>
             <version>${project.version}</version>
         </dependency>
 

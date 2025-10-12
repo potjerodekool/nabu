@@ -32,7 +32,7 @@
 
     <modules>
         <module>dependency-injection</module>
-        <module>compiler-ast</module>
+        <module>compiler-api</module>
         <module>compiler</module>
         <module>jpa-plugin</module>
         <module>jpa-support</module>

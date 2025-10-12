@@ -1,36 +1,36 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.Element;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.element.VariableElement;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Constants;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.MethodSymbol;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda.TypeExpressionCreator;
-import io.github.potjerodekool.nabu.compiler.ast.Flags;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
-import io.github.potjerodekool.nabu.compiler.tree.Modifiers;
-import io.github.potjerodekool.nabu.compiler.tree.Tag;
-import io.github.potjerodekool.nabu.compiler.tree.TreeFilter;
-import io.github.potjerodekool.nabu.compiler.tree.TreeMaker;
-import io.github.potjerodekool.nabu.compiler.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.Function;
-import io.github.potjerodekool.nabu.compiler.tree.element.Kind;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CClassDeclaration;
-import io.github.potjerodekool.nabu.compiler.tree.element.impl.CFunction;
-import io.github.potjerodekool.nabu.compiler.tree.expression.Identifier;
-import io.github.potjerodekool.nabu.compiler.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CBinaryExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CFieldAccessExpressionTree;
-import io.github.potjerodekool.nabu.compiler.tree.expression.impl.CIdentifierTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.StatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.VariableDeclaratorTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CBlockStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CExpressionStatementTree;
-import io.github.potjerodekool.nabu.compiler.tree.statement.impl.CReturnStatementTree;
-import io.github.potjerodekool.nabu.compiler.type.ExecutableType;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.tree.Modifiers;
+import io.github.potjerodekool.nabu.tree.Tag;
+import io.github.potjerodekool.nabu.tree.TreeFilter;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Function;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
+import io.github.potjerodekool.nabu.tree.expression.Identifier;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CBinaryExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
+import io.github.potjerodekool.nabu.tree.statement.StatementTree;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CExpressionStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CReturnStatementTree;
+import io.github.potjerodekool.nabu.type.ExecutableType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -137,9 +137,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
                 -1
         ));
 
-        compactConstructor.setBody(new CBlockStatementTree(
-                statements
-        ));
+        compactConstructor.setBody(new CBlockStatementTree(statements));
     }
 
     private IdentifierTree createThisExpression(final ClassSymbol classSymbol) {
@@ -181,7 +179,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
     private void fillComponentAccessMethod(final MethodSymbol method,
                                            final VariableElement field,
                                            final CClassDeclaration classDeclaration) {
-        final var classSymbol = classDeclaration.getClassSymbol();
+        final var classSymbol = (ClassSymbol) classDeclaration.getClassSymbol();
 
         final var returnValue = new CIdentifierTree(method.getSimpleName());
         returnValue.setSymbol(field);

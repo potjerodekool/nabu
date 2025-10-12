@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 

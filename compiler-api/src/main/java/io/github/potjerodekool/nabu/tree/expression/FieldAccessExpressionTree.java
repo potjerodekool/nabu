@@ -6,7 +6,7 @@ public interface FieldAccessExpressionTree extends ExpressionTree {
 
     ExpressionTree getSelected();
 
-    ExpressionTree getField();
+    IdentifierTree getField();
 
     FieldAccessExpressionTree selected(ExpressionTree selected);
 

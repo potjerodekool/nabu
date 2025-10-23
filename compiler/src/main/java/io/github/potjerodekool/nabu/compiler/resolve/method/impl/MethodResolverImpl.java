@@ -13,6 +13,7 @@ import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.type.*;
+import io.github.potjerodekool.nabu.util.Pair;
 import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.*;
@@ -36,24 +37,11 @@ public class MethodResolverImpl implements MethodResolver {
     public Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocation,
                                                   final Element currentElement,
                                                   final Scope scope) {
-        return resolveMethod(methodInvocation, currentElement, true, scope);
-    }
-
-    private Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocation,
-                                                   final Element currentElement,
-                                                   final boolean resolveDescriptor,
-                                                   final Scope scope) {
         final var methodSelector = methodInvocation.getMethodSelector();
-        final ExpressionTree selected;
-        final String methodName;
+        final var resolvedMethodNameAndSelected = resolveMethodNameAndSelected(methodSelector);
 
-        if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-            selected = fieldAccessExpressionTree.getSelected();
-            methodName = ((IdentifierTree) fieldAccessExpressionTree.getField()).getName();
-        } else {
-            selected = null;
-            methodName = ((IdentifierTree) methodSelector).getName();
-        }
+        final String methodName = resolvedMethodNameAndSelected.first();
+        final ExpressionTree selected = resolvedMethodNameAndSelected.second();
 
         final DeclaredType targetType = resolveTargetType(selected, currentElement);
         final boolean onlyStaticCalls = onlyStaticCalls(selected, currentElement);
@@ -66,7 +54,7 @@ public class MethodResolverImpl implements MethodResolver {
                 .map(this::resolveType)
                 .toList();
 
-        final var methodTypeOptional = resolveMethod(
+        return resolveMethod(
                 targetType,
                 methodName,
                 typeArguments,
@@ -74,8 +62,16 @@ public class MethodResolverImpl implements MethodResolver {
                 onlyStaticCalls,
                 scope
         );
+    }
 
-        return methodTypeOptional;
+    private Pair<String, ExpressionTree> resolveMethodNameAndSelected(final ExpressionTree expression) {
+        if (expression instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            final var resolved = resolveMethodNameAndSelected(fieldAccessExpressionTree.getField());
+            return new Pair<>(resolved.first(), fieldAccessExpressionTree.getSelected());
+        } else {
+            final var identifierTree = (IdentifierTree) expression;
+            return new Pair<>(identifierTree.getName(), null);
+        }
     }
 
     private DeclaredType resolveTargetType(final ExpressionTree selected,

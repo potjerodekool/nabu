@@ -91,7 +91,7 @@ public abstract class AbstractTreeTranslator<P> implements TreeVisitor<Tree, P> 
     @Override
     public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final P param) {
         final var selected = (ExpressionTree) fieldAccessExpression.getSelected().accept(this, param);
-        final var field = (ExpressionTree) fieldAccessExpression.getField().accept(this, param);
+        final var field = (IdentifierTree) fieldAccessExpression.getField().accept(this, param);
         return fieldAccessExpression.builder()
                 .selected(selected)
                 .field(field)

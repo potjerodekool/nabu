@@ -136,7 +136,7 @@ public final class TreeMaker {
     }
 
     public static FieldAccessExpressionTree fieldAccessExpressionTree(final ExpressionTree target,
-                                                                      final ExpressionTree field,
+                                                                      final IdentifierTree field,
                                                                       final int lineNumber,
                                                                       final int columnNumber) {
         return new CFieldAccessExpressionTree(target, field, lineNumber, columnNumber);

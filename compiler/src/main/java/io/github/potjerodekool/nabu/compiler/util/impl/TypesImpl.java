@@ -607,5 +607,9 @@ public class TypesImpl implements Types {
         final var declared = (DeclaredType) t;
         return declared.asTypeElement().getInterfaces();
     }
+
+    public TypeMirror getObjectType() {
+        return symbolTable.getObjectType();
+    }
 }
 

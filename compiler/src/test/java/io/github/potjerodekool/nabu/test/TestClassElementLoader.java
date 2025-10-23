@@ -3,9 +3,11 @@ package io.github.potjerodekool.nabu.test;
 import io.github.potjerodekool.nabu.Java20Lexer;
 import io.github.potjerodekool.nabu.Java20Parser;
 import io.github.potjerodekool.nabu.Java20ParserBaseVisitor;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuFileObject;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
@@ -27,10 +29,12 @@ import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 import io.github.potjerodekool.nabu.util.Types;
+import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -366,7 +370,7 @@ class JavaLoader {
         try (var input = getClass().getClassLoader().getResourceAsStream(resourceName)) {
             if (input != null) {
                 final var unit = JavaCompilerParser.parse(input);
-                final var builder = new SimpleClassBuilder(loader);
+                final var builder = new SimpleClassBuilder(loader, resourceName);
                 final var result = (List<ClassSymbol>) unit.accept(builder);
 
                 return result.getFirst();
@@ -382,10 +386,13 @@ class JavaLoader {
 class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
 
     private final TestClassElementLoader loader;
+    private final String resourceName;
     private final Types types;
 
-    public SimpleClassBuilder(final TestClassElementLoader loader) {
+    public SimpleClassBuilder(final TestClassElementLoader loader,
+                              final String resourceName) {
         this.loader = loader;
+        this.resourceName = resourceName;
         this.types = loader.getTypes();
     }
 
@@ -460,11 +467,21 @@ class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
                 .typeParameters(typeParameters)
                 .build();
 
+        classSymbol.setSourceFile(createFileObject());
+        loader.addClass(classSymbol);
+
         final var classBody = (List<Symbol>) ctx.interfaceBody().accept(this);
 
         classBody.forEach(classSymbol::addEnclosedElement);
 
         return classSymbol;
+    }
+
+    private FileObject createFileObject() {
+        return new NabuFileObject(
+                new FileObject.Kind(".java", true ),
+                Paths.get(this.resourceName)
+        );
     }
 
     @Override
@@ -486,35 +503,73 @@ class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
         final var header = (MethodHeader) ctx.methodHeader().accept(this);
 
         return new MethodSymbolBuilderImpl()
+                .kind(ElementKind.METHOD)
                 .simpleName(header.methodDeclarator().name())
                 .returnType(header.result())
-                .kind(ElementKind.METHOD)
+                .parameters(header.methodDeclarator().parameters())
+                .typeParameters(header.typeParameters())
                 .build();
     }
 
     @Override
     public Object visitInterfaceMethodDeclaration(final Java20Parser.InterfaceMethodDeclarationContext ctx) {
         final var header = (MethodHeader) ctx.methodHeader().accept(this);
+        final var typeParameters = header.typeParameters();
 
         return new MethodSymbolBuilderImpl()
                 .simpleName(header.methodDeclarator().name())
                 .returnType(header.result())
+                .parameters(header.methodDeclarator().parameters())
+                .typeParameters(typeParameters)
                 .kind(ElementKind.METHOD)
                 .build();
     }
 
     @Override
     public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
+        final List<TypeParameterElement> typeParameters = (List<TypeParameterElement>) acceptList(ctx.typeParameters());
         final var result = (TypeMirror) ctx.result().accept(this);
         final var declarator = (MethodDeclarator) ctx.methodDeclarator().accept(this);
-        return new MethodHeader(result, declarator);
+        return new MethodHeader(result, declarator, typeParameters);
     }
 
     @Override
     public Object visitMethodDeclarator(final Java20Parser.MethodDeclaratorContext ctx) {
         final var methodName = (String) ctx.identifier().accept(this);
+        final var parameters = (List<VariableSymbol>) acceptList(ctx.formalParameterList());
+        return new MethodDeclarator(methodName, parameters);
+    }
 
-        return new MethodDeclarator(methodName);
+    private <T> List<? extends T> acceptList(final ParserRuleContext context) {
+        if (context == null) {
+            return Collections.emptyList();
+        }
+
+        return (List<T>) context.accept(this);
+    }
+
+    @Override
+    public Object visitFormalParameterList(final Java20Parser.FormalParameterListContext ctx) {
+        return ctx.formalParameter().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitFormalParameter(final Java20Parser.FormalParameterContext ctx) {
+        final var type = (TypeMirror) ctx.unannType().accept(this);
+        final var variableDeclaratorId = (String) ctx.variableDeclaratorId().accept(this);
+
+        return new VariableSymbolBuilderImpl()
+                .kind(ElementKind.PARAMETER)
+                .simpleName(variableDeclaratorId)
+                .type(type)
+                .build();
+    }
+
+    @Override
+    public Object visitTypeParameters(final Java20Parser.TypeParametersContext ctx) {
+        return ctx.typeParameterList().accept(this);
     }
 
     @Override
@@ -599,10 +654,12 @@ class SimpleClassBuilder extends Java20ParserBaseVisitor<Object> {
     }
 }
 
-record MethodHeader(TypeMirror result, MethodDeclarator methodDeclarator) {
+record MethodHeader(TypeMirror result,
+                    MethodDeclarator methodDeclarator,
+                    List<TypeParameterElement> typeParameters) {
 
 }
 
-record MethodDeclarator(String name) {
+record MethodDeclarator(String name, List<VariableSymbol> parameters) {
 
 }

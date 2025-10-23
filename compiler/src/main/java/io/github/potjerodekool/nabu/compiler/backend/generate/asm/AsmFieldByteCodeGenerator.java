@@ -41,6 +41,24 @@ public class AsmFieldByteCodeGenerator {
                     signature,
                     value
             );
+
+            final var annotations = variableElement.getAnnotationMirrors();
+
+            annotations.forEach(annotationMirror -> {
+                final var annotationDescriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(
+                        ToIType.toIType(annotationMirror.getAnnotationType())
+                );
+
+                final var isVisible = AsmUtils.isVisible(annotationMirror);
+
+               final var annotationVisitor = fieldVisitor.visitAnnotation(
+                       annotationDescriptor,
+                       isVisible
+                );
+                annotationVisitor.visitEnd();
+            });
+
+
             fieldVisitor.visitEnd();
         } else if (variableElement.getKind() == ElementKind.RECORD_COMPONENT) {
             final var recordComponentVisitor = classWriter.visitRecordComponent(

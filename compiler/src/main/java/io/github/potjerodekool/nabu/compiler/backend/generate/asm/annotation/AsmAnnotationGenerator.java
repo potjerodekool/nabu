@@ -12,6 +12,8 @@ import org.objectweb.asm.Type;
 
 import java.util.List;
 
+import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmUtils.isVisible;
+
 public class AsmAnnotationGenerator extends AbstractAnnotationValueVisitor<Void, AsmAnnotationGenerator.AnnotationGeneratorContext> {
 
     private static final AsmAnnotationGenerator INSTANCE = new AsmAnnotationGenerator();
@@ -28,26 +30,6 @@ public class AsmAnnotationGenerator extends AbstractAnnotationValueVisitor<Void,
                 isVisible(annotation)
         );
         generate(annotation, annotationVisitor);
-    }
-
-    private static boolean isVisible(final AnnotationMirror annotation) {
-        final var annotationType = annotation.getAnnotationType();
-        final var element = annotationType.asTypeElement();
-        return element.getAnnotationMirrors().stream()
-                .filter(AsmAnnotationGenerator::isRetentionAnnotation)
-                .flatMap(it -> it.getElementValues().entrySet().stream())
-                .filter(it ->
-                        "value".equals(it.getKey().getSimpleName()))
-                .map(it -> (EnumAttribute) it.getValue())
-                .map(EnumAttribute::getValue)
-                .anyMatch(it -> "RUNTIME".equals(it.getSimpleName()));
-    }
-
-    private static boolean isRetentionAnnotation(final AnnotationMirror annotation) {
-        final var annotationType = annotation.getAnnotationType();
-        return "java.lang.annotation.Retention".equals(
-                annotationType.asTypeElement().getQualifiedName()
-        );
     }
 
     public static void generate(final AnnotationMirror annotation,

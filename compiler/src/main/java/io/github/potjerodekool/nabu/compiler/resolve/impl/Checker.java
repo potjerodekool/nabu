@@ -109,7 +109,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
             final var methodSelector = methodInvocation.getMethodSelector();
 
             final var methodName = methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree
-                    ? ((IdentifierTree) fieldAccessExpressionTree.getField()).getName()
+                    ? fieldAccessExpressionTree.getField().getName()
                     : ((IdentifierTree) methodSelector).getName();
 
             final var compilationUnit = getCompilationUnit(scope);

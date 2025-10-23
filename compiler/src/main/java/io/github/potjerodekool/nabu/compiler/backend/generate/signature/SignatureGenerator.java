@@ -17,18 +17,33 @@ public final class SignatureGenerator {
     }
 
     public static String getClassSignature(final TypeElement typeElement) {
-        final List<? extends TypeParameterElement> typeParameters = typeElement.getTypeParameters();
-
-        if (typeParameters.isEmpty()) {
-            return null;
-        } else {
+        if (isGeneric(typeElement)) {
+            final List<? extends TypeParameterElement> typeParameters = typeElement.getTypeParameters();
             return getClassSignature(
                     typeParameters,
                     typeElement.getSuperclass(),
                     typeElement.getInterfaces()
             );
+        } else {
+            return null;
         }
     }
+
+    private static boolean isGeneric(final TypeElement typeElement) {
+        if (!typeElement.getTypeParameters().isEmpty()) {
+            return true;
+        } else if (typeElement.getSuperclass() instanceof DeclaredType superclass
+                && isGeneric(superclass.asTypeElement())) {
+            return true;
+        } else {
+            return typeElement.getInterfaces().stream()
+                    .filter(it -> it instanceof DeclaredType)
+                    .map(it -> (DeclaredType) it)
+                    .map(DeclaredType::asTypeElement)
+                    .anyMatch(SignatureGenerator::isGeneric);
+        }
+    }
+
 
     public static String getClassSignature(final List<? extends TypeParameterElement> typeParameters,
                                            final TypeMirror superType,
@@ -90,7 +105,7 @@ abstract class AbstractTypeParamSignatureVisitor
 
     @Override
     public String visitArrayType(final ArrayType arrayType, final Void param) {
-        return "["+ arrayType.getComponentType().accept(this, param);
+        return "[" + arrayType.getComponentType().accept(this, param);
     }
 
     @Override

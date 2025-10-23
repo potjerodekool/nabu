@@ -2,24 +2,30 @@ package io.github.potjerodekool.nabu.tree.expression.impl;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressionBuilder;
 
 public class CFieldAccessExpressionTree extends CExpressionTree implements FieldAccessExpressionTree {
 
     private ExpressionTree selected;
 
-    private ExpressionTree field;
+    private IdentifierTree field;
 
     public CFieldAccessExpressionTree(final ExpressionTree selected,
-                                      final ExpressionTree field) {
+                                      final IdentifierTree field) {
         this(selected, field, -1, -1);
     }
 
     public CFieldAccessExpressionTree(final ExpressionTree selected,
-                                      final ExpressionTree field,
+                                      final IdentifierTree field,
                                       final int lineNumber,
                                       final int columnNumber) {
         super(lineNumber, columnNumber);
+
+        if (!(field instanceof IdentifierTree)) {
+            throw new IllegalArgumentException("Field must not be an identifier");
+        }
+
         this.selected = selected;
         this.field = field;
     }
@@ -42,11 +48,11 @@ public class CFieldAccessExpressionTree extends CExpressionTree implements Field
     }
 
     @Override
-    public ExpressionTree getField() {
+    public IdentifierTree getField() {
         return field;
     }
 
-    public CFieldAccessExpressionTree field(final ExpressionTree field) {
+    public CFieldAccessExpressionTree field(final IdentifierTree field) {
         this.field = field;
         return this;
     }

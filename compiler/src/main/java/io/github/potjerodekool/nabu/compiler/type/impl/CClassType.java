@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
+import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeKind;
@@ -12,6 +13,8 @@ import java.util.List;
 import java.util.Objects;
 
 public class CClassType extends AbstractType implements DeclaredType {
+
+
 
     private TypeMirror outerType;
 
@@ -31,9 +34,9 @@ public class CClassType extends AbstractType implements DeclaredType {
         this.outerType = outerType;
         if (typeArguments != null
                 && !typeArguments.isEmpty()) {
-            this.typeArguments = new ArrayList<>(typeArguments);
+            setTypeArguments(new ArrayList<>(typeArguments));
         } else {
-            this.typeArguments = new ArrayList<>();
+            setTypeArguments(null);
         }
         validateTypeArguments();
     }
@@ -73,7 +76,7 @@ public class CClassType extends AbstractType implements DeclaredType {
     @Override
     public List<AbstractType> getTypeArguments() {
         if (typeArguments == null) {
-            complete();
+           complete();
 
             if (typeArguments == null) {
                 typeArguments = new ArrayList<>();
@@ -85,6 +88,7 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     public void setTypeArguments(final List<AbstractType> typeArguments) {
         this.typeArguments = typeArguments;
+        validateTypeArguments();
     }
 
     private void complete() {

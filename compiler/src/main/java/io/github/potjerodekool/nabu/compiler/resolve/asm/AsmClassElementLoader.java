@@ -61,11 +61,12 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
             return (TypeElement) symbol;
         } else {
             final var shortName = resolveShortPart(flatName);
-            return symbolTable.enterClass(
+            final var clazz = symbolTable.enterClass(
                     packageModule,
                     shortName,
                     packageSymbol
             );
+            return clazz;
         }
     }
 

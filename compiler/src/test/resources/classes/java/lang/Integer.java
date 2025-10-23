@@ -1,6 +1,6 @@
 package java.lang;
 
-public class Integer {
+public class Integer extends Number {
 
     public int intValue() {
         return 0;

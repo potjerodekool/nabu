@@ -3,6 +3,9 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.log.LogLevel;
+import io.github.potjerodekool.nabu.compiler.log.Logger;
+import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
@@ -16,6 +19,8 @@ import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 
 public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
+
+    private static final Logger logger = LoggerFactory.getLogger(EnterClasses.class.getName());
 
     private final CompilerContextImpl compilerContext;
     private final ClassElementLoader classElementLoader;
@@ -84,6 +89,11 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
 
         clazzDeclaration.setClassSymbol(clazz);
         packageElement.getMembers().define(clazz);
+
+        if (clazz.getCompleter().isTerminal()) {
+            //logger.log(LogLevel.WARN, "Completer is terminal for " + clazz);
+        }
+
         clazz.setCompleter(typeEnter);
 
         typeEnter.put(

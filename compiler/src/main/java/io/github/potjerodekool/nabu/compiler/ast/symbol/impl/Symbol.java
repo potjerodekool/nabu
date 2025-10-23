@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
+import io.github.potjerodekool.nabu.compiler.log.LogLevel;
+import io.github.potjerodekool.nabu.compiler.log.Logger;
+import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -14,6 +17,8 @@ import java.lang.annotation.Annotation;
 import java.util.*;
 
 public abstract class Symbol implements Element {
+
+    private static final Logger logger = LoggerFactory.getLogger(Symbol.class.getName());
 
     private String simpleName;
 
@@ -44,19 +49,18 @@ public abstract class Symbol implements Element {
                   final String name,
                   final AbstractType type,
                   final Symbol owner) {
-
         this.kind = kind;
         this.flags = flags;
         setSimpleName(name);
         this.type = type;
         setEnclosingElement(owner);
-        this.completer = Completer.NULL_COMPLETER;
+        this.completer = Completer.DEFAULT_COMPLETER;
     }
 
     public static String createFlatName(final Symbol owner,
                                         final String name) {
         if (owner == null || owner instanceof PackageSymbol packageSymbol
-            && packageSymbol.isUnnamed()) {
+                && packageSymbol.isUnnamed()) {
             return name;
         } else {
             final var separator = owner.getKind().isDeclaredType() ? '$' : '.';
@@ -105,6 +109,7 @@ public abstract class Symbol implements Element {
 
     public void setSourceFile(final FileObject sourceFile) {
         this.sourceFile = sourceFile;
+        validateSourceAndClassFile();
     }
 
     public FileObject getClassFile() {
@@ -115,8 +120,14 @@ public abstract class Symbol implements Element {
         if (classFile.getKind() != FileObject.CLASS_KIND) {
             throw new UnsupportedOperationException();
         }
-
         this.classFile = classFile;
+        validateSourceAndClassFile();
+    }
+
+    private void validateSourceAndClassFile() {
+        if (sourceFile != null && classFile != null) {
+            //logger.log(LogLevel.WARN, "Symbol " + this + " has both source and class file");
+        }
     }
 
     @Override
@@ -270,12 +281,20 @@ public abstract class Symbol implements Element {
         isError = error;
     }
 
+    public Completer getCompleter() {
+        return completer;
+    }
+
     public void setCompleter(final Completer completer) {
         this.completer = completer;
     }
 
     public void complete() {
-        this.completer.complete(this);
+        if (completer != Completer.NULL_COMPLETER) {
+            final var oldCompleter = this.completer;
+            this.completer = Completer.NULL_COMPLETER;
+            oldCompleter.complete(this);
+        }
     }
 
     public WritableScope getMembers() {
@@ -329,7 +348,7 @@ public abstract class Symbol implements Element {
         } else if (base.hasFlag(Flags.INTERFACE)) {
             for (var t = type; t.isDeclaredType(); types.supertype(t)) {
                 if (types.interfaces(t).stream()
-                        .anyMatch(it -> ((Symbol)it.asElement()).isSubClass(base, types))) {
+                        .anyMatch(it -> ((Symbol) it.asElement()).isSubClass(base, types))) {
                     return true;
                 }
             }

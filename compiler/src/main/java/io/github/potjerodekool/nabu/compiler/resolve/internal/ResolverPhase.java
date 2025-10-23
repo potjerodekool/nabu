@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.AbstractResolver;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
@@ -22,11 +25,10 @@ import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.statement.ReturnStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
-import io.github.potjerodekool.nabu.type.ArrayType;
-import io.github.potjerodekool.nabu.type.DeclaredType;
-import io.github.potjerodekool.nabu.type.TypeKind;
-import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Pair;
+
+import java.util.Objects;
 
 public class ResolverPhase extends AbstractResolver {
 
@@ -61,7 +63,7 @@ public class ResolverPhase extends AbstractResolver {
 
         clazz.complete();
 
-        ((CompilerContextImpl)compilerContext).getEnumUsageMap().registerClass(classDeclaration);
+        ((CompilerContextImpl) compilerContext).getEnumUsageMap().registerClass(classDeclaration);
 
         final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
 
@@ -85,6 +87,14 @@ public class ResolverPhase extends AbstractResolver {
 
         classDeclaration.getEnclosedElements()
                 .forEach(enclosingElement -> enclosingElement.accept(this, classScope));
+
+        final var typeParameters = classDeclaration.getTypeParameters().stream()
+                .map(typeParameter -> (Element) typeParameter.accept(this, classScope))
+                .map(element -> (AbstractType) element.asType())
+                .toList();
+
+        final var declaredType = (CClassType) clazz.asType();
+        declaredType.setTypeArguments(typeParameters);
 
         return null;
     }
@@ -126,6 +136,18 @@ public class ResolverPhase extends AbstractResolver {
             }
         }
 
+        final var symbol = (VariableSymbol) variableDeclaratorStatement.getName().getSymbol();
+
+        if (symbol != null) {
+            //TODO remove non null check. When annotation can't be resolved, it should be an error type.
+            final var annotations = variableDeclaratorStatement.getAnnotations().stream()
+                    .map(annotation -> (CompoundAttribute) annotation.accept(this, scope))
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            symbol.setAnnotations(annotations);
+        }
+
         return null;
     }
 
@@ -147,12 +169,10 @@ public class ResolverPhase extends AbstractResolver {
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Scope scope) {
         final var methodSelector = methodInvocation.getMethodSelector();
-
-        if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-            fieldAccessExpressionTree.getSelected().accept(this, scope);
-        }
+        methodSelector.accept(this, scope);
 
         methodInvocation.getArguments().forEach(arg -> arg.accept(this, scope));
+        methodInvocation.getTypeArguments().forEach(typeArgument -> typeArgument.accept(this, scope));
 
         final var resolvedMethodTypeOptional = methodResolver.resolveMethod(methodInvocation, scope.getCurrentElement(), scope);
 
@@ -209,9 +229,9 @@ public class ResolverPhase extends AbstractResolver {
         final var selectorElement = switchScope.getSelectorElement();
 
         if (selectorElement instanceof VariableElement variableElement
-            && variableElement.asType().asElement() instanceof TypeElement typeElement
+                && variableElement.asType().asElement() instanceof TypeElement typeElement
                 && typeElement.getKind() == ElementKind.ENUM
-            && constantCaseLabel.getExpression() instanceof IdentifierTree identifierTree) {
+                && constantCaseLabel.getExpression() instanceof IdentifierTree identifierTree) {
 
             final var name = identifierTree.getName();
 
@@ -220,7 +240,7 @@ public class ResolverPhase extends AbstractResolver {
                         identifierTree.setSymbol(enumConstant);
 
                         final var currentClass = scope.getCurrentClass();
-                        ((CompilerContextImpl)compilerContext).getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
+                        ((CompilerContextImpl) compilerContext).getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
                     });
 
             return defaultAnswer(constantCaseLabel, scope);
@@ -267,8 +287,8 @@ public class ResolverPhase extends AbstractResolver {
             }
 
             final var values = newArrayExpression.getElements().stream()
-                            .map(this::createAnnotationValue)
-                                    .toList();
+                    .map(this::createAnnotationValue)
+                    .toList();
             attributeValue = AnnotationBuilder.createArrayValue(
                     componentType,
                     values
@@ -290,5 +310,10 @@ public class ResolverPhase extends AbstractResolver {
             return AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
         }
         throw new TodoException();
+    }
+
+    @Override
+    public Object visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final Scope scope) {
+        return super.visitLambdaExpression(lambdaExpression, scope);
     }
 }

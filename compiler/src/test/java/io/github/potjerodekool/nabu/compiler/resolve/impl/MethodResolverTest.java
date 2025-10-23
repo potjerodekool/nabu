@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.type.impl.CWildcardType;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.ClassScope;
@@ -8,6 +11,7 @@ import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.test.TestClassElementLoader;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
@@ -19,12 +23,18 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionT
 import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CLiteralExpressionTree;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
+import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -83,7 +93,7 @@ class MethodResolverTest extends AbstractCompilerTest {
         );
 
         final var methodType = methodResolver.resolveMethod(methodInvocationTree)
-                        .get();
+                .get();
         assertNotNull(methodType);
 
         final var printer = new TypePrinter();
@@ -175,7 +185,7 @@ class MethodResolverTest extends AbstractCompilerTest {
         final var methodInvocationTree = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
                         target,
-                    IdentifierTree.create("get")
+                        IdentifierTree.create("get")
                 ),
                 List.of(typeArg),
                 List.of(literal),
@@ -184,7 +194,7 @@ class MethodResolverTest extends AbstractCompilerTest {
         );
 
         final var methodType = methodResolver.resolveMethod(methodInvocationTree)
-                        .get();
+                .get();
         assertNotNull(methodType);
 
         final var printer = new TypePrinter();
@@ -355,12 +365,83 @@ class MethodResolverTest extends AbstractCompilerTest {
                         target,
                         new CIdentifierTree("println")
                 ))
-                        .arguments(List.of(argument))
-                                .build();
+                .arguments(List.of(argument))
+                .build();
 
-        final var resolvedMethod =  methodResolver.resolveMethod(methodInvocation).get();
+        final var resolvedMethod = methodResolver.resolveMethod(methodInvocation).get();
         final var paramType = resolvedMethod.getParameterTypes().getFirst();
 
         assertEquals(stringClass.asType(), paramType);
     }
+
+    @Test
+    void resolveCollectMethod() {
+        final Collector<String, ?, List<String>> collector = Collectors.<String>toList();
+
+        final var testLoader = new TestClassElementLoader();
+        final var streamClass = testLoader.loadClass(null, "java.util.stream.Stream");
+        final var collectorClass = testLoader.loadClass(null, "java.util.stream.Collector");
+        final var listClass = testLoader.loadClass(null, "java.util.List");
+        final var stringClass = testLoader.loadClass(null, "java.lang.String");
+        final var objectClass = testLoader.loadClass(null, "java.lang.Object");
+
+        final var streamOfStringType = types.getDeclaredType(
+                streamClass,
+                stringClass.asType()
+        );
+
+        final var streamIdentifier = new CIdentifierTree("stream");
+        streamIdentifier.setSymbol(
+                new VariableSymbolBuilderImpl()
+                        .kind(ElementKind.LOCAL_VARIABLE)
+                        .simpleName("stream")
+                        .type(streamOfStringType)
+                        .build()
+        );
+
+        final var methodSelector = new CFieldAccessExpressionTree(
+                streamIdentifier,
+                new CIdentifierTree("collect")
+        );
+
+        final var collectorsIdentifier = new CIdentifierTree("collectors");
+
+        final var stringListType = types.getDeclaredType(
+                listClass,
+                stringClass.asType()
+        );
+
+        final var wildcardType = new CWildcardType(
+                objectClass.asType(),
+                BoundKind.UNBOUND,
+                null
+        );
+
+        final var collectorType = types.getDeclaredType(
+                collectorClass,
+                stringClass.asType(),
+                wildcardType,
+                stringListType
+        );
+
+        final var variableSymbol = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.LOCAL_VARIABLE)
+                .simpleName("collector")
+                .type(collectorType)
+                .build();
+
+        collectorsIdentifier.setSymbol(variableSymbol);
+
+        final var methodInvocation = new MethodInvocationTreeBuilder()
+                .methodSelector(methodSelector)
+                .arguments(List.of(collectorsIdentifier))
+                .build();
+
+        final var resolvedMethod = methodResolver.resolveMethod(methodInvocation).get();
+        System.out.println(resolvedMethod);
+    }
+}
+
+class Dog {
+
 }

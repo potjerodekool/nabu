@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
@@ -31,7 +32,7 @@ public class NabuMojo extends AbstractMojo {
     private Set<String> sourceFileExtensions;
 
     @Override
-    public void execute() {
+    public void execute() throws MojoFailureException {
         getLog().info("Executing NabuMojo");
 
         configureLogging();
@@ -40,7 +41,11 @@ public class NabuMojo extends AbstractMojo {
 
         final var options = configureOptions();
 
-        nabuCompiler.compile(options);
+        final var resultCode =nabuCompiler.compile(options);
+
+        if (resultCode != 0) {
+            throw new MojoFailureException("Compilation failed with result code " + resultCode);
+        }
     }
 
     private CompilerOptions configureOptions() {

@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.resolve;
 
-import io.github.potjerodekool.nabu.lang.model.element.AnnotationValue;
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.scope.*;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
@@ -87,31 +86,6 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         castExpressionTree.getExpression().accept(this, scope);
         castExpressionTree.getTargetType().accept(this, scope);
         return defaultAnswer(castExpressionTree, scope);
-    }
-
-    @Override
-    public Object visitIdentifier(final IdentifierTree identifier,
-                                  final Scope scope) {
-
-        final var type = resolveType(identifier.getName(), scope);
-
-        if (type != null) {
-            identifier.setType(type);
-            identifier.setSymbol(null);
-        } else {
-            final var symbol = scope.resolve(identifier.getName());
-
-            if (symbol != null) {
-                identifier.setSymbol(symbol);
-            } else if (identifier.getSymbol() == null) {
-                identifier.setSymbol(
-                        compilerContext.getElementBuilders()
-                                .createErrorSymbol(identifier.getName())
-                );
-            }
-        }
-
-        return defaultAnswer(identifier, scope);
     }
 
     private TypeMirror resolveType(final String name,
@@ -331,6 +305,30 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         return defaultAnswer(fieldAccessExpression, scope);
     }
 
+    @Override
+    public Object visitIdentifier(final IdentifierTree identifier,
+                                  final Scope scope) {
+        final var type = resolveType(identifier.getName(), scope);
+
+        if (type != null) {
+            identifier.setType(type);
+            identifier.setSymbol(null);
+        } else {
+            final var symbol = scope.resolve(identifier.getName());
+
+            if (symbol != null) {
+                identifier.setSymbol(symbol);
+            } else if (identifier.getSymbol() == null) {
+                identifier.setSymbol(
+                        compilerContext.getElementBuilders()
+                                .createErrorSymbol(identifier.getName())
+                );
+            }
+        }
+
+        return defaultAnswer(identifier, scope);
+    }
+
     private DeclaredType asDeclaredType(final TypeMirror typeMirror) {
         if (typeMirror instanceof DeclaredType declaredType) {
             return declaredType;
@@ -407,6 +405,42 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         arrayAccessExpressionTree.getExpression().accept(this, scope);
         arrayAccessExpressionTree.getIndex().accept(this, scope);
         return defaultAnswer(arrayAccessExpressionTree, scope);
+    }
+
+    @Override
+    public Object visitTypeParameter(final TypeParameterTree typeParameterTree,
+                                     final Scope scope) {
+        final var currentClass = scope.getCurrentClass();
+
+        var typeBound = typeParameterTree.getTypeBound().stream()
+                .map(it -> (TypeMirror) it.accept(this, scope))
+                .toList();
+
+        final var upperBound = switch (typeBound.size()) {
+            case 0 -> loader.loadClass(
+                    findModuleElement(currentClass),
+                    Constants.OBJECT
+            ).asType();
+            case 1 -> typeBound.getFirst();
+            default -> types.getIntersectionType(typeBound);
+        };
+
+        return types.getTypeVariable(
+                typeParameterTree.getIdentifier().getName(),
+                upperBound,
+                null
+        ).asElement();
+    }
+
+    private ModuleElement findModuleElement(final Element element) {
+        if (element == null) {
+            return null;
+        }
+        if (element instanceof PackageElement packageElement) {
+            return packageElement.getModuleSymbol();
+        } else {
+            return findModuleElement(element.getEnclosingElement());
+        }
     }
 
 }

@@ -19,6 +19,7 @@ import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressionBuilder;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CDimmension;
+import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
@@ -155,7 +156,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitSingleStaticImportDeclaration(final Java20Parser.SingleStaticImportDeclarationContext ctx) {
         final var typeName = (ExpressionTree) ctx.typeName().accept(this);
-        final var identifier = (ExpressionTree) ctx.identifier().accept(this);
+        final var identifier = (IdentifierTree) ctx.identifier().accept(this);
         final var qualified = new FieldAccessExpressionBuilder()
                 .selected(typeName)
                 .field(identifier)
@@ -208,12 +209,57 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                     ctx.getStart().getCharPositionInLine()
             );
         } else {
-            return TreeMaker.fieldAccessExpressionTree(
+            final var fieldAccessExpression = createFieldAccessExpression(
                     identifier,
-                    packageName,
-                    identifier.getLineNumber(),
-                    identifier.getColumnNumber()
+                    packageName
             );
+
+            return fieldAccessExpression;
+        }
+    }
+
+    private ExpressionTree createFieldAccessExpression(final ExpressionTree first,
+                                                       final ExpressionTree second) {
+        CFieldAccessExpressionTree result;
+
+        if (second instanceof IdentifierTree selectorIdentifier) {
+            result = new CFieldAccessExpressionTree(
+                    first,
+                    selectorIdentifier
+            );
+        } else {
+            final var expressions = new ArrayList<ExpressionTree>();
+            expressions.add(first);
+            collectExpressions(second, expressions);
+
+            ExpressionTree newExpression = null;
+
+            for (final var expression : expressions) {
+                if (newExpression != null) {
+                    newExpression = new CFieldAccessExpressionTree(
+                            newExpression,
+                            (IdentifierTree) expression
+                    );
+                } else {
+                    newExpression = expression;
+                }
+            }
+            result = (CFieldAccessExpressionTree) newExpression;
+        }
+
+        return result.builder()
+                .lineNumber(first.getLineNumber())
+                .columnNumber(first.getColumnNumber())
+                .build();
+    }
+
+    private void collectExpressions(final ExpressionTree expressionTree,
+                                    final List<ExpressionTree> expressions) {
+        if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            collectExpressions(fieldAccessExpressionTree.getSelected(), expressions);
+            expressions.add(fieldAccessExpressionTree.getField());
+        } else {
+            expressions.add(expressionTree);
         }
     }
 
@@ -403,7 +449,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
             expressionTree = TreeMaker.fieldAccessExpressionTree(
                     packageName,
-                    expressionTree,
+                    (IdentifierTree) expressionTree,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -620,8 +666,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             case Java20Lexer.SEALED -> null; //TODO
             case Java20Lexer.NONSEALED -> null; //TODO
             case Java20Lexer.STRICTFP -> null; //TODO
-            case Java20Lexer.Identifier
-                    -> identifier(node.getSymbol());
+            case Java20Lexer.Identifier -> identifier(node.getSymbol());
             default -> null;
         };
     }
@@ -727,7 +772,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         if (prefix != null) {
             identifier = TreeMaker.fieldAccessExpressionTree(
                     prefix,
-                    identifier,
+                    (IdentifierTree) identifier,
                     prefix.getLineNumber(),
                     prefix.getColumnNumber()
             );
@@ -766,7 +811,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         final WildcardBound wildcardBound;
 
         if (ctx.wildcardBounds() != null) {
-            wildcardBound = (WildcardBound) ctx.wildcardBounds(). accept(this);
+            wildcardBound = (WildcardBound) ctx.wildcardBounds().accept(this);
         } else {
             wildcardBound = new WildcardBound(BoundKind.UNBOUND, null);
         }
@@ -1119,7 +1164,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         if (packageName != null) {
             result = TreeMaker.fieldAccessExpressionTree(
                     packageName,
-                    result,
+                    (IdentifierTree) result,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1140,7 +1185,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             final var coit = (ExpressionTree) ctx.coit().accept(this);
             result = TreeMaker.fieldAccessExpressionTree(
                     result,
-                    coit,
+                    (IdentifierTree) coit,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );

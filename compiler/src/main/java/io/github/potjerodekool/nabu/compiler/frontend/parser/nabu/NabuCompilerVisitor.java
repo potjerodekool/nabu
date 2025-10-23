@@ -132,7 +132,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         var identifier = (ExpressionTree) identifiers.getFirst().accept(this);
 
         for (var i = 1; i < identifiers.size(); i++) {
-            final var expression = (ExpressionTree) identifiers.get(i).accept(this);
+            final var expression = (IdentifierTree) identifiers.get(i).accept(this);
             identifier = new FieldAccessExpressionBuilder()
                     .lineNumber(identifier.getLineNumber())
                     .columnNumber(identifier.getColumnNumber())
@@ -252,7 +252,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final var moduleName = (ExpressionTree) ctx.moduleName().accept(this);
             return new FieldAccessExpressionBuilder()
                     .selected(identifier)
-                    .field(moduleName)
+                    .field((IdentifierTree) moduleName)
                     .lineNumber(ctx.getStart().getLine())
                     .columnNumber(ctx.getStart().getCharPositionInLine())
                     .build();
@@ -332,7 +332,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitSingleStaticImportDeclaration(final NabuParser.SingleStaticImportDeclarationContext ctx) {
         final var typeName = (ExpressionTree) ctx.typeName().accept(this);
-        final var identifier = (ExpressionTree) ctx.identifier().accept(this);
+        final var identifier = (IdentifierTree) ctx.identifier().accept(this);
         final var qualified = new FieldAccessExpressionBuilder()
                 .selected(typeName)
                 .field(identifier)
@@ -391,12 +391,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (packageOrTypeName == null) {
             return identifier;
         } else {
+            return createNewSelector(identifier, packageOrTypeName);
+            /*
             return new FieldAccessExpressionBuilder()
                     .selected(identifier)
-                    .field(packageOrTypeName)
+                    .field((IdentifierTree) packageOrTypeName)
                     .lineNumber(ctx.getStart().getLine())
                     .columnNumber(ctx.getStart().getCharPositionInLine())
                     .build();
+            */
         }
     }
 
@@ -893,8 +896,9 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         return lastExpression;
     }
 
-    private ExpressionTree combineExpressions(final ExpressionTree first,
-                                              final ExpressionTree second) {
+
+    public ExpressionTree combineExpressions(final ExpressionTree first,
+                                             final ExpressionTree second) {
         if (first == null) {
             return second;
         } else if (second == null) {
@@ -903,18 +907,117 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return fillExpression(arrayAccessExpressionTree, first);
         } else if (second instanceof MethodInvocationTree methodInvocationTree) {
             final var selector = methodInvocationTree.getMethodSelector();
-            final var newSelector = new CFieldAccessExpressionTree(
-                    first,
-                    selector
-            );
+            final ExpressionTree newSelector;
+
+            if (selector instanceof IdentifierTree identifierTree) {
+                newSelector = new CFieldAccessExpressionTree(
+                        first,
+                        identifierTree
+                );
+            } else {
+                final var fieldAccess = (CFieldAccessExpressionTree) selector;
+                final var selected = fieldAccess.getSelected();
+
+                if (selected instanceof IdentifierTree identifierTree) {
+                    newSelector = new CFieldAccessExpressionTree(
+                            new CFieldAccessExpressionTree(
+                                    first,
+                                    identifierTree
+                            ),
+                            fieldAccess.getField()
+                    );
+                } else if (selected instanceof MethodInvocationTree subInvocation) {
+                    var expr = combineExpressions(first, subInvocation);
+                    final var field = fieldAccess.getField();
+                    newSelector = new CFieldAccessExpressionTree(
+                            expr,
+                            field
+                    );
+                } else {
+                    throw new TodoException();
+                }
+            }
+
             return methodInvocationTree.builder()
                     .methodSelector(newSelector)
                     .build();
         } else {
             return new FieldAccessExpressionBuilder()
                     .selected(first)
-                    .field(second)
+                    .field((IdentifierTree) second)
                     .build();
+        }
+    }
+
+    private ExpressionTree createNewSelector(final ExpressionTree first,
+                                             final ExpressionTree second) {
+        CFieldAccessExpressionTree result;
+
+        if (second instanceof IdentifierTree selectorIdentifier) {
+            result = new CFieldAccessExpressionTree(
+                    first,
+                    selectorIdentifier
+            );
+        } else if (second instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            if (fieldAccessExpressionTree.getSelected() instanceof IdentifierTree identifierTree) {
+                result = new CFieldAccessExpressionTree(
+                        first,
+                        identifierTree
+                );
+
+                result = new CFieldAccessExpressionTree(
+                        result,
+                        fieldAccessExpressionTree.getField()
+                );
+
+            } else {
+                final var expressions = new ArrayList<ExpressionTree>();
+                collectExpressions(second, expressions);
+
+                ExpressionTree expression = first;
+
+                for (final var expressionTree : expressions) {
+                    expression = new CFieldAccessExpressionTree(
+                            expression,
+                            (IdentifierTree) expressionTree
+                    );
+                }
+
+                result = (CFieldAccessExpressionTree) expression;
+            }
+        } else {
+            final var expressions = new ArrayList<ExpressionTree>();
+            expressions.add(first);
+            collectExpressions(second, expressions);
+
+            ExpressionTree newExpression = null;
+
+            for (final var expression : expressions) {
+                if (newExpression != null) {
+                    newExpression = new CFieldAccessExpressionTree(
+                            newExpression,
+                            (IdentifierTree) expression
+                    );
+                } else {
+                    newExpression = expression;
+                }
+            }
+            result = (CFieldAccessExpressionTree) newExpression;
+        }
+
+        return result.builder()
+                .lineNumber(first.getLineNumber())
+                .columnNumber(first.getColumnNumber())
+                .build();
+    }
+
+    private void collectExpressions(final ExpressionTree expressionTree,
+                                    final List<ExpressionTree> expressions) {
+        if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            collectExpressions(fieldAccessExpressionTree.getSelected(), expressions);
+            expressions.add(fieldAccessExpressionTree.getField());
+        } else {
+            expressions.add(expressionTree);
         }
     }
 
@@ -926,7 +1029,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final var ambiguousName = (ExpressionTree) ctx.ambiguousName().accept(this);
             return TreeMaker.fieldAccessExpressionTree(
                     ambiguousName,
-                    identifier,
+                    (IdentifierTree) identifier,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -944,7 +1047,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final var ambiguousName = (ExpressionTree) ctx.ambiguousName().accept(this);
             return TreeMaker.fieldAccessExpressionTree(
                     identifierTree,
-                    ambiguousName,
+                    (IdentifierTree) ambiguousName,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -973,8 +1076,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     line,
                     charPositionInLine
             );
-            case NabuLexer.Identifier
-                    -> identifier(node.getSymbol());
+            case NabuLexer.Identifier -> identifier(node.getSymbol());
             case NabuLexer.INT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.INT, line, charPositionInLine);
             case NabuLexer.BYTE -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BYTE, line, charPositionInLine);
             case NabuLexer.SHORT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.SHORT, line, charPositionInLine);
@@ -1033,7 +1135,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             expressionTree = TreeMaker.fieldAccessExpressionTree(
                     packageName,
-                    expressionTree,
+                    (IdentifierTree) expressionTree,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1054,7 +1156,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             expressionTree = TreeMaker.fieldAccessExpressionTree(
                     expressionTree,
-                    ucoit,
+                    (IdentifierTree) ucoit,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1084,7 +1186,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             expression = TreeMaker.fieldAccessExpressionTree(
                     expression,
-                    uCoit,
+                    (IdentifierTree) uCoit,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1109,20 +1211,27 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
         ExpressionTree result = (ExpressionTree) ctx.typeIdentifier().accept(this);
 
+        if (packageName != null) {
+            result = createNewSelector(
+                    packageName,
+                    result
+            );
+            /*
+            result = TreeMaker.fieldAccessExpressionTree(
+                    packageName,
+                    (IdentifierTree) result,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+            */
+        }
+
+
         if (!annotations.isEmpty()) {
             result = TreeMaker.annotatedTypeTree(
                     annotations,
                     result,
                     List.of(),
-                    ctx.getStart().getLine(),
-                    ctx.getStart().getCharPositionInLine()
-            );
-        }
-
-        if (packageName != null) {
-            result = TreeMaker.fieldAccessExpressionTree(
-                    packageName,
-                    result,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1143,7 +1252,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final var coit = (ExpressionTree) ctx.coit().accept(this);
             result = TreeMaker.fieldAccessExpressionTree(
                     result,
-                    coit,
+                    (IdentifierTree) coit,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1181,7 +1290,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final var coit = (ExpressionTree) ctx.coit().accept(this);
             result = TreeMaker.fieldAccessExpressionTree(
                     result,
-                    coit,
+                    (IdentifierTree) coit,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -1214,11 +1323,9 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     ctx.getStart().getCharPositionInLine()
             );
         } else {
-            return TreeMaker.fieldAccessExpressionTree(
+            return createNewSelector(
                     identifier,
-                    packageName,
-                    identifier.getLineNumber(),
-                    identifier.getColumnNumber()
+                    packageName
             );
         }
     }
@@ -1538,7 +1645,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final WildcardBound wildcardBound;
 
         if (ctx.wildcardBounds() != null) {
-            wildcardBound = (WildcardBound) ctx.wildcardBounds(). accept(this);
+            wildcardBound = (WildcardBound) ctx.wildcardBounds().accept(this);
         } else {
             wildcardBound = new WildcardBound(BoundKind.UNBOUND, null);
         }
@@ -1727,7 +1834,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (prefix != null) {
             identifier = TreeMaker.fieldAccessExpressionTree(
                     prefix,
-                    identifier,
+                    (IdentifierTree) identifier,
                     prefix.getLineNumber(),
                     prefix.getColumnNumber()
             );
@@ -2166,7 +2273,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     .expression(
                             TreeMaker.fieldAccessExpressionTree(
                                     expressionTree,
-                                    exp,
+                                    (IdentifierTree) exp,
                                     expressionTree.getLineNumber(),
                                     expressionTree.getColumnNumber()
                             )
@@ -2473,7 +2580,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (pfe != null) {
             result = TreeMaker.fieldAccessExpressionTree(
                     result,
-                    pfe,
+                    (IdentifierTree) pfe,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -2985,7 +3092,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             } else {
                 fieldAccess = new CFieldAccessExpressionTree(
                         fieldAccess,
-                        result,
+                        (IdentifierTree) result,
                         fieldAccess.getLineNumber(),
                         fieldAccess.getColumnNumber()
                 );
@@ -3323,11 +3430,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitPackageModifier(final NabuParser.PackageModifierContext ctx) {
         return super.visitPackageModifier(ctx);
-    }
-
-    @Override
-    public Object visitImportDeclaration(final NabuParser.ImportDeclarationContext ctx) {
-        return super.visitImportDeclaration(ctx);
     }
 
     @Override

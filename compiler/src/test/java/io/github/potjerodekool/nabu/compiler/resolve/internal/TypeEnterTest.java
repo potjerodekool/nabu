@@ -17,6 +17,8 @@ import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.NewClassExpressionBuilder;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
@@ -317,28 +319,21 @@ class TypeEnterTest {
 
     private ImportItem createImportItem(final String className,
                                         final boolean isStatic) {
-        CFieldAccessExpressionTree fieldAccess = null;
+        ExpressionTree fieldAccess = null;
 
         for (final var name : className.split("\\.")) {
-            if (fieldAccess != null) {
-                if (fieldAccess.getField() == null) {
-                    fieldAccess.field(new CIdentifierTree(name));
-                } else {
-                    fieldAccess = new CFieldAccessExpressionTree(
-                            fieldAccess,
-                            new CIdentifierTree(name)
-                    );
-                }
+            if (fieldAccess == null) {
+                fieldAccess = new CIdentifierTree(name);
             } else {
                 fieldAccess = new CFieldAccessExpressionTree(
-                        new CIdentifierTree(name),
-                        null
+                        fieldAccess,
+                        new CIdentifierTree(name)
                 );
             }
         }
 
         return new CImportItemTree(
-                fieldAccess,
+                (FieldAccessExpressionTree) fieldAccess,
                 isStatic,
                 -1,
                 -1

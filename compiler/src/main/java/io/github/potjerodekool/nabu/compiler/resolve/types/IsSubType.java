@@ -1,17 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
+import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
-import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.HashMap;
 
 public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
 
-    private final Types types;
+    private final TypesImpl types;
 
-    public IsSubType(final Types types) {
+    public IsSubType(final TypesImpl types) {
         this.types = types;
     }
 
@@ -198,6 +198,36 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
             } else if (wildcardType.getSuperBound() != null) {
                 return wildcardType.getSuperBound().accept(this, otherWildcardType.getSuperBound());
             }
+        } else if (otherType instanceof TypeVariable typeVariable) {
+            switch (wildcardType.getBoundKind()) {
+                case EXTENDS -> {
+                    //  ? extends Object
+                    final var wildcardBound = wildcardType.getExtendsBound() != null
+                            ? wildcardType.getExtendsBound()
+                            : types.getObjectType();
+                    final var typeVariableBound = typeVariable.getUpperBound() != null
+                            ? typeVariable.getUpperBound()
+                            : types.getObjectType();
+                    return wildcardBound.accept(this, typeVariableBound);
+                }
+                case SUPER -> {
+                    //  ? super Object
+                    final var wildcardBound = wildcardType.getSuperBound();
+                    final var typeVariableBound = typeVariable.getUpperBound() != null
+                            ? typeVariable.getUpperBound()
+                            : types.getObjectType();
+
+                    return wildcardBound.accept(this, typeVariableBound);
+                }
+                case UNBOUND -> {
+                    final var wildcardBound = types.getObjectType();
+                    final var typeVariableBound = typeVariable.getUpperBound() != null
+                            ? typeVariable.getUpperBound()
+                            : types.getObjectType();
+                    return wildcardBound.accept(this, typeVariableBound);
+                }
+            }
+            return true;
         }
 
         return false;

@@ -15,7 +15,7 @@ public class GlobalScope implements Scope {
     private PackageElement packageElement;
 
     public GlobalScope(final CompilationUnit compilationUnit,
-                           final CompilerContext compilerContext) {
+                       final CompilerContext compilerContext) {
         this.compilationUnit = compilationUnit;
         this.compilerContext = compilerContext;
     }

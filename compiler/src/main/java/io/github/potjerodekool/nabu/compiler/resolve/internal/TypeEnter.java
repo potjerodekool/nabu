@@ -1,10 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
-import io.github.potjerodekool.nabu.resolve.scope.Scope;
-import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
-import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.resolve.scope.*;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
@@ -43,8 +41,9 @@ import java.util.stream.Collectors;
 public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
 
     private final Map<ClassSymbol, ClassDeclaration> symbolToTreeMap = new HashMap<>();
-    private final Map<Tree, CompilationUnit> treeToCompilationUnitMap = new HashMap<>();
+    private final Map<ClassDeclaration, CompilationUnit> treeToCompilationUnitMap = new HashMap<>();
 
+    private final CompilerContext compilerContext;
     private final ClassSymbolLoader loader;
     private final Types types;
     private final SymbolTable symbolTable;
@@ -52,6 +51,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
     private final Map<ElementKind, Completer> typeEnterMap = new HashMap<>();
 
     public TypeEnter(final CompilerContextImpl compilerContext) {
+        this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
         this.types = loader.getTypes();
         this.symbolTable = loader.getSymbolTable();
@@ -86,9 +86,16 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
                 currentClass.setMembers(new WritableScope());
             }
 
+            final var compilationUnit = this.treeToCompilationUnitMap.get(classDeclaration);
+
+            final var globalScope = new GlobalScope(
+                    compilationUnit,
+                    compilerContext
+            );
+
             classDeclaration.accept(this, new SymbolScope(
                     (DeclaredType) currentClass.asType(),
-                    null
+                    globalScope
             ));
 
             final var typeEnter = this.typeEnterMap.get(currentClass.getKind());
@@ -107,6 +114,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
 
         completeOwner(currentClass.getEnclosingElement());
         fillInSuper(scope, classDeclaration);
+        fillInInterfaces(scope, classDeclaration);
         generateConstructor(classDeclaration, scope);
         initInstanceFields(classDeclaration);
     }
@@ -138,6 +146,23 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         }
 
         currentClass.setSuperClass(superType);
+    }
+
+    private void fillInInterfaces(final Scope scope,
+                                  final ClassDeclaration classDeclaration) {
+        final var currentClass = (ClassSymbol) scope.getCurrentClass();
+
+        final List<ExpressionTree> interfaces = classDeclaration.getImplementing();
+
+        if (!interfaces.isEmpty()) {
+            final var interfaceTypes = interfaces.stream()
+                    .map(it -> it.accept(this, scope))
+                    .map(it -> (ExpressionTree) it)
+                    .map(ExpressionTree::getType)
+                    .toList();
+
+            currentClass.setInterfaces(interfaceTypes);
+        }
     }
 
     @Override

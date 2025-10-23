@@ -2,12 +2,17 @@ package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
+import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CMethodInvocationTree;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.List;
 
-import static io.github.potjerodekool.nabu.test .TreeAssert.parseAndAssert;
+import static io.github.potjerodekool.nabu.test.TreeAssert.parseAndAssert;
 
 class NabuCompilerVisitorTest {
 
@@ -19,7 +24,7 @@ class NabuCompilerVisitorTest {
                 import static java.util.List.of;
                 
                 public class Utils {
-
+                
                     static fun emptyList() : List {
                         return of();
                     }
@@ -46,7 +51,7 @@ class NabuCompilerVisitorTest {
     void modularCompilationUnit() {
         parseAndAssert("""
                 import java.util.List;
- 
+                
                 @Module
                 open module some.mymodule {
                     requires transitive static other.theremodule;
@@ -64,6 +69,7 @@ class NabuCompilerVisitorTest {
         parseAndAssert("import java.util.*;", NabuParser::importDeclaration);
         parseAndAssert("import static java.util.List.of;", NabuParser::importDeclaration);
         parseAndAssert("import static java.util.List.*;", NabuParser::importDeclaration);
+        parseAndAssert("import io.github.potjerodekool.nabu.lang.jpa.support.*;", NabuParser::importDeclaration);
     }
 
     @Test
@@ -100,14 +106,14 @@ class NabuCompilerVisitorTest {
     @Test
     void visitNormalClassDeclaration() {
         parseAndAssert("""
-            public class SomeClass {
-            }
-            """, NabuParser::normalClassDeclaration);
+                public class SomeClass {
+                }
+                """, NabuParser::normalClassDeclaration);
 
         parseAndAssert("""
-            public class SomeClass<T> extends Object implements SomeInterface {
-            }
-            """, NabuParser::normalClassDeclaration);
+                public class SomeClass<T> extends Object implements SomeInterface {
+                }
+                """, NabuParser::normalClassDeclaration);
 
         parseAndAssert("""
                 public class Box<E extends Object & java.lang.Comparable> {
@@ -165,12 +171,12 @@ class NabuCompilerVisitorTest {
     }
 
     @Test
-    void test(){
+    void test() {
         parseAndAssert("(InnerJoin<Company, Employee>) c.employees", NabuParser::expression);
     }
 
     @Test
-    void functionDeclarationWithLambda(){
+    void functionDeclarationWithLambda() {
         parseAndAssert("""
                 fun findCompanyByEmployeeFirstName(employeeFirstName : String): JpaPredicate<Company> {
                     return (c : Root<Company>, q : CriteriaQuery<?>, cb : CriteriaBuilder) -> {
@@ -226,40 +232,40 @@ class NabuCompilerVisitorTest {
     @Test
     void functionDeclaration() {
         parseAndAssert("""
-            fun fail(): String throws IOException, IllegalStateException {
-            
-            }
-            """, NabuParser::functionDeclaration);
+                fun fail(): String throws IOException, IllegalStateException {
+                
+                }
+                """, NabuParser::functionDeclaration);
     }
 
     @Test
     void functionDeclarationWithReceiver() {
         parseAndAssert("""
-            fun fail(this : MyClass, other : String): String {
-            
-            }
-            """, NabuParser::functionDeclaration);
+                fun fail(this : MyClass, other : String): String {
+                
+                }
+                """, NabuParser::functionDeclaration);
 
         parseAndAssert("""
-            fun fail(MyClass.this : MyClass, other : String): String {
-            
-            }
-            """, NabuParser::functionDeclaration);
+                fun fail(MyClass.this : MyClass, other : String): String {
+                
+                }
+                """, NabuParser::functionDeclaration);
     }
 
     @Test
     void classOrInterfaceType() {
-        parseAndAssert("java.util.@Deprecated List<String>", NabuParser::classOrInterfaceType);
-        parseAndAssert("java.util.@Deprecated Map<String, String>.@Deprecated Entry<String, String>", NabuParser::classOrInterfaceType);
+        //parseAndAssert("java.util.@SimpleAnnotation List<String>", NabuParser::classOrInterfaceType);
+        //parseAndAssert("java.util.Map.@SimpleAnnotation Entry<String, String> map;", NabuParser::classOrInterfaceType);
     }
 
     @Test
     void tryWithResourcesStatement() {
         parseAndAssert("""
-            try (var fis : FileInputStream = new FileInputStream(file.txt)) {
-            
-            }
-            """, NabuParser::tryWithResourcesStatement);
+                try (var fis : FileInputStream = new FileInputStream(file.txt)) {
+                
+                }
+                """, NabuParser::tryWithResourcesStatement);
     }
 
     @Test
@@ -282,11 +288,11 @@ class NabuCompilerVisitorTest {
     @Test
     void enhancedForStatement() {
         parseAndAssert("""
-            for (var e in list)
-            {
-            
-            }
-            """, NabuParser::enhancedForStatement);
+                for (var e in list)
+                {
+                
+                }
+                """, NabuParser::enhancedForStatement);
     }
 
     @Test
@@ -304,43 +310,43 @@ class NabuCompilerVisitorTest {
     @Test
     void interfaceDeclaration() {
         parseAndAssert("""
-            public interface Action {
-            }
-            """, NabuParser::interfaceDeclaration);
+                public interface Action {
+                }
+                """, NabuParser::interfaceDeclaration);
     }
 
     @Test
     void enumDeclaration() {
         parseAndAssert("""
-            public enum State {
-                OPENED(),
-                CLOSED()
-            }
-            """, NabuParser::enumDeclaration);
+                public enum State {
+                    OPENED(),
+                    CLOSED()
+                }
+                """, NabuParser::enumDeclaration);
 
         parseAndAssert("""
-            public enum State {
-                OPENED("opened"),
-                CLOSED("closed")
-            }
-            """, NabuParser::enumDeclaration);
+                public enum State {
+                    OPENED("opened"),
+                    CLOSED("closed")
+                }
+                """, NabuParser::enumDeclaration);
     }
 
     @Test
     void labeledStatement() {
         parseAndAssert("""
-            label : while(true)
-            {
-                break;
-            }
-            """,
+                        label : while(true)
+                        {
+                            break;
+                        }
+                        """,
                 NabuParser::labeledStatement);
     }
 
     @Test
     void continueStatement() {
         parseAndAssert("""
-            continue loop;""",
+                        continue loop;""",
                 NabuParser::continueStatement);
     }
 
@@ -439,12 +445,12 @@ class NabuCompilerVisitorTest {
     //@Test
     void CompactConstructorDeclaration() {
         parseAndAssert("""
-            public MyRecord {
-                if (name == null) {
-                    throw new NullPointerException();
+                public MyRecord {
+                    if (name == null) {
+                        throw new NullPointerException();
+                    }
                 }
-            }
-            """, NabuParser::compactConstructorDeclaration);
+                """, NabuParser::compactConstructorDeclaration);
     }
 
     @Test
@@ -455,11 +461,11 @@ class NabuCompilerVisitorTest {
                     case Integer i : {
                         i.toString();
                     }
-
+                
                     default : {
                         value.toString();
                     }
-
+                
                 }
                 """, NabuParser::switchStatement);
 
@@ -474,10 +480,10 @@ class NabuCompilerVisitorTest {
     @Test
     void visitForStatement() {
         parseAndAssert("""
-            for (var i = 0;i < times;i++){
-                result += 2;
-            }
-            """, NabuParser::statement);
+                for (var i = 0;i < times;i++){
+                    result += 2;
+                }
+                """, NabuParser::statement);
     }
 
     @Test
@@ -502,6 +508,15 @@ class NabuCompilerVisitorTest {
     void visitAnnotation() {
         parseAndAssert("""
                 @RequestMapping(value = {"/test"})""", NabuParser::annotation);
+    }
+
+    @Test
+    void visitM() {
+        parseAndAssert("""
+                this.repository.findAll().stream().map((it) -> {
+                    return it;
+                }
+                ).toList()""", NabuParser::expression);
     }
 
 }

@@ -1,8 +1,0 @@
-package bar;
-
-public class Other {
-
-    fun test() : void {
-        var test = "";
-    }
-}

@@ -601,15 +601,15 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             return null;
         }
 
-        if (variableDeclaratorStatement.getKind() == Kind.RESOURCE_VARIABLE
-            || variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE) {
-            write("var ");
-        }
-
         if (variableDeclaratorStatement.getKind()
                 != Kind.ENUM_CONSTANT &&
                 printModifierFlags(variableDeclaratorStatement.getFlags())) {
             write(" ");
+        }
+
+        if (variableDeclaratorStatement.getKind() == Kind.RESOURCE_VARIABLE
+            || variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE) {
+            write("var ");
         }
 
         variableDeclaratorStatement.getName().accept(this, param);
@@ -815,9 +815,16 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write("[]");
             return null;
         } else {
-            writeList(annotatedType.getAnnotations(), param, " ");
-            write(" ");
-            annotatedType.getClazz().accept(this, param);
+            if (clazz instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+                fieldAccessExpressionTree.getSelected().accept(this, param);
+                write(".");
+                writeList(annotatedType.getAnnotations(), param, " ");write(" ");
+                fieldAccessExpressionTree.getField().accept(this, param);
+            } else {
+                writeList(annotatedType.getAnnotations(), param, " ");
+                write(" ");
+                annotatedType.getClazz().accept(this, param);
+            }
 
             return null;
         }

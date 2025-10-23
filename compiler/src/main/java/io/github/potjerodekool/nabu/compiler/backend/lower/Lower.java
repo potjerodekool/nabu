@@ -294,11 +294,34 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
     public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                            final LowerContext param) {
         final var selected = access(fieldAccessExpression.getSelected(), null);
-        final var field = access(fieldAccessExpression.getField(), selected);
+        final var field = (IdentifierTree) access(fieldAccessExpression.getField(), selected);
         return fieldAccessExpression.builder()
                 .selected(selected)
                 .field(field)
                 .build();
+    }
+
+    @Override
+    public Tree visitIdentifier(final IdentifierTree identifier, final LowerContext param) {
+        final var symbol = identifier.getSymbol();
+
+        if (symbol instanceof VariableSymbol variableSymbol
+            && variableSymbol.getKind() == ElementKind.FIELD
+            && !variableSymbol.isStatic()) {
+
+            final var clazz = symbol.getEnclosingElement();
+            final var thisIdentifier = TreeMaker.identifier(Constants.THIS, -1, -1);
+            thisIdentifier.setSymbol(clazz);
+
+            return TreeMaker.fieldAccessExpressionTree(
+                    thisIdentifier,
+                    identifier,
+                    -1,
+                    -1
+            );
+        }
+
+        return super.visitIdentifier(identifier, param);
     }
 
     private ExpressionTree access(final ExpressionTree field,
@@ -315,7 +338,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
 
             return TreeMaker.fieldAccessExpressionTree(
                     thisIdentifier,
-                    field,
+                    (IdentifierTree) field,
                     -1,
                     -1
             );

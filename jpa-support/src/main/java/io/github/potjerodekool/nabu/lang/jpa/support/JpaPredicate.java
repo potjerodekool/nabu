@@ -5,6 +5,10 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 
+/**
+ * A type to define a predicate.
+ * @param <T>
+ */
 @FunctionalInterface
 public interface JpaPredicate<T> {
 

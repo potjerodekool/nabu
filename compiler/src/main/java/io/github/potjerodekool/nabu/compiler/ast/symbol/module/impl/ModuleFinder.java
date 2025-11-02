@@ -68,7 +68,12 @@ public class ModuleFinder {
             locations.forEach(location -> {
                 final var moduleName = fileManager.resolveModuleName(location);
                 final var module = symbolTable.enterModule(moduleName);
-                module.setClassLocation(location);
+
+                if (location.isSourceLocation()) {
+                    module.setSourceLocation(location);
+                } else if (location.isClassLocation()) {
+                    module.setClassLocation(location);
+                }
                 result.add(module);
             });
         }

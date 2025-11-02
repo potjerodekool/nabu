@@ -3,14 +3,15 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.tools.FileManager;
 import io.github.potjerodekool.nabu.tools.FileManager.Location;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 
@@ -19,25 +20,34 @@ import java.util.*;
 
 public class ClassFinder {
 
+    private static final CompilerContextImpl.Key<ClassFinder> KEY = new CompilerContextImpl.Key<>();
+
     private final SymbolTable symbolTable;
-    private final NabuCFileManager fileManager;
-    private final ClassSymbolLoader classElementLoader;
+    private final FileManager fileManager;
+    private final ClassElementLoader classElementLoader;
     private final Completer completer = this::complete;
     private final SourceTypeEnter sourceTypeEnter;
     private final CompilerContextImpl compilerContext;
-    //private final Set<FileObject.Kind> packageFileKinds;
     private final PluginRegistry pluginRegistry;
 
-    public ClassFinder(final SymbolTable symbolTable,
-                       final NabuCFileManager fileManager,
-                       final ClassSymbolLoader classElementLoader,
-                       final CompilerContextImpl compilerContext) {
-        this.symbolTable = symbolTable;
-        this.fileManager = fileManager;
-        this.classElementLoader = classElementLoader;
+    public ClassFinder(final CompilerContextImpl compilerContext) {
+        compilerContext.put(KEY, this);
+        this.fileManager = compilerContext.get(FileManager.class);
+        this.symbolTable = SymbolTable.getInstance(compilerContext);
+        this.classElementLoader = compilerContext.getClassElementLoader();
         this.sourceTypeEnter = new SourceTypeEnter(compilerContext);
         this.compilerContext = compilerContext;
         this.pluginRegistry = compilerContext.getPluginRegistry();
+    }
+
+    public static ClassFinder getInstance(final CompilerContextImpl compilerContext) {
+        var classFinder = compilerContext.get(KEY);
+
+        if (classFinder == null) {
+            classFinder = new ClassFinder(compilerContext);
+        }
+
+        return classFinder;
     }
 
     public Completer getCompleter() {
@@ -85,6 +95,8 @@ public class ClassFinder {
                     enclosing.complete();
                 }
             }
+        } else if (classSymbol.getEnclosingElement() instanceof ClassSymbol) {
+            classSymbol.setNestingKind(NestingKind.MEMBER);
         }
     }
 
@@ -188,19 +200,25 @@ public class ClassFinder {
     }
 
     private void scanModulePath(final ModuleSymbol moduleSymbol, final PackageSymbol packageSymbol) {
-        final var location = moduleSymbol.getClassLocation();
-
         final var kinds = getPackageFileKinds();
-
         final var classKinds = this.fileManager.copyOf(kinds);
-        classKinds.removeIf(FileObject.Kind::isSource);
+        final FileManager.Location location;
 
+        if (moduleSymbol.getSourceLocation() != null) {
+            classKinds.removeIf(kind -> !kind.isSource());
+            location = moduleSymbol.getSourceLocation();
+        } else {
+            classKinds.removeIf(FileObject.Kind::isSource);
+            location = moduleSymbol.getClassLocation();
+        }
         final var files = list(location, packageSymbol.getFullName(), classKinds);
 
         fillInPackage(packageSymbol, location, files);
     }
 
-    private void fillInPackage(final PackageSymbol packageSymbol, final Location location, final Iterable<? extends FileObject> files) {
+    private void fillInPackage(final PackageSymbol packageSymbol,
+                               final Location location,
+                               final Iterable<? extends FileObject> files) {
         final var members = packageSymbol.getMembers();
 
         files.forEach(file -> {
@@ -223,13 +241,18 @@ public class ClassFinder {
                     }
                 }
 
-                if (clazz.getEnclosingElement() == packageSymbol) {
+                if (samePackage(packageSymbol, clazz.getEnclosingElement())) {
                     members.define(clazz);
                 }
             } else {
                 throw new IllegalArgumentException("Invalid class name " + className);
             }
         });
+    }
+
+    private boolean samePackage(final PackageSymbol packageSymbol,
+                                final Symbol symbol) {
+        return symbol instanceof PackageSymbol otherPackage && packageSymbol.getQualifiedName().equals(otherPackage.getQualifiedName());
     }
 
     private Optional<LanguageParser> getLanguageParser(final FileObject.Kind kind) {
@@ -239,12 +262,26 @@ public class ClassFinder {
 
     private void enterSource(final ClassSymbol classSymbol,
                              final LanguageParser languageParser) {
-        final var compilationUnit = languageParser.parse(classSymbol.getSourceFile(), compilerContext);
+        final var compilationUnit = languageParser.parse(
+                classSymbol.getSourceFile(),
+                findModuleSymbol(classSymbol),
+                compilerContext
+        );
         final var classes = compilationUnit.getClasses();
         final var classDeclaration = classes.getFirst();
         final var typeEnter = compilerContext.getTypeEnter();
         typeEnter.put(classSymbol, classDeclaration, compilationUnit);
         classSymbol.setCompleter(typeEnter);
+    }
+
+    private ModuleSymbol findModuleSymbol(final ClassSymbol classSymbol) {
+        final var enclosingElement = classSymbol.getEnclosingElement();
+
+        if (enclosingElement instanceof PackageSymbol packageSymbol) {
+            return packageSymbol.getModuleSymbol();
+        } else {
+            return null;
+        }
     }
 
     private boolean isValidIdentifier(final String className) {

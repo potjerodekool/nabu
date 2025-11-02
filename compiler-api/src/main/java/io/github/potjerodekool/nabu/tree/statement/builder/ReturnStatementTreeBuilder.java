@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.ReturnStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CReturnStatementTree;
 
-public class ReturnStatementTreeBuilder extends StatementTreeBuilder<ReturnStatementTree, ReturnStatementTreeBuilder> {
+/**
+ * Builder for Return statements.
+ */
+public class ReturnStatementTreeBuilder extends StatementTreeBuilder<ReturnStatementTreeBuilder> {
 
     private ExpressionTree expression;
 

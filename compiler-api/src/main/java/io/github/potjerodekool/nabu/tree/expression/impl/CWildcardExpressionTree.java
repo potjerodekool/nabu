@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.WildcardExpressionTree;
 import io.github.potjerodekool.nabu.type.BoundKind;
 
+/**
+ * Implementation of WildcardExpressionTree.
+ */
 public class CWildcardExpressionTree extends CExpressionTree implements WildcardExpressionTree {
 
     private final BoundKind boundKind;

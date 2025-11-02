@@ -1,12 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.SymbolCreator;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.Tag;
@@ -38,12 +39,14 @@ import java.util.Optional;
 
 public abstract class AbstractCodeGenerator implements CodeGenerator {
 
-    protected final ClassSymbolLoader loader;
+    protected final CompilerContextImpl compilerContext;
+    protected final ClassElementLoader loader;
     protected final Types types;
     protected final SymbolCreator symbolCreator = new SymbolCreator();
 
-    public AbstractCodeGenerator(final ClassSymbolLoader loader) {
-        this.loader = loader;
+    public AbstractCodeGenerator(final CompilerContextImpl compilerContext) {
+        this.compilerContext = compilerContext;
+        this.loader = compilerContext.getClassElementLoader();
         this.types = loader.getTypes();
     }
 

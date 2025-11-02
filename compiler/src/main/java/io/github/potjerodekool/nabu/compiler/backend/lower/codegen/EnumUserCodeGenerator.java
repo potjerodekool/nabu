@@ -2,13 +2,14 @@ package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.Modifiers;
@@ -23,13 +24,9 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CPrimitiveTypeTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
-import io.github.potjerodekool.nabu.util.CollectionUtils;
 import io.github.potjerodekool.nabu.util.Types;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.StringJoiner;
+import java.util.*;
 
 public class EnumUserCodeGenerator implements CodeGenerator {
 
@@ -37,15 +34,13 @@ public class EnumUserCodeGenerator implements CodeGenerator {
     private static final char NINE = '9';
 
     private final CompilerContextImpl compilerContext;
-    private final ClassSymbolLoader loader;
     private final Types types;
 
     private final Map<String, EnumUsageInfoImpl> enumUsageMap = new HashMap<>();
 
     public EnumUserCodeGenerator(final CompilerContextImpl compilerContext) {
         this.compilerContext = compilerContext;
-        this.loader = compilerContext.getClassElementLoader();
-        this.types  = loader.getTypes();
+        this.types = compilerContext.getClassElementLoader().getTypes();
     }
 
     @Override
@@ -99,7 +94,7 @@ public class EnumUserCodeGenerator implements CodeGenerator {
                 null
         );
 
-        final var fieldSymbol = new VariableSymbolBuilderImpl()
+        final var fieldSymbol = (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.FIELD)
                 .simpleName(fieldTree.getName().getName())
                 .type(types.getArrayType(types.getPrimitiveType(TypeKind.INT)))
@@ -147,14 +142,16 @@ public class EnumUserCodeGenerator implements CodeGenerator {
                 packageSymbol
         );
 
-        ((ClassSymbol)memberClass.getClassSymbol()).complete();
+        ((ClassSymbol) memberClass.getClassSymbol()).complete();
+
+        final var symbolTable = SymbolTable.getInstance(compilerContext);
 
         final var memberClassSymbol = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
                 .nestingKind(NestingKind.MEMBER)
                 .simpleName(memberClassName)
                 .flags(Flags.STATIC + Flags.SYNTHETIC)
-                .superclass(loader.getSymbolTable().getObjectType())
+                .superclass(symbolTable.getObjectType())
                 .enclosingElement(classSymbol)
                 .build();
 
@@ -203,14 +200,15 @@ class EnumUsageInfoImpl implements EnumUsage {
     }
 
     public void addEnumMapping(final TypeElement typeElement) {
-        final var enumMapping = CollectionUtils.streamWithIndex(
-                ElementFilter.enumValuesIn(typeElement.getEnclosedElements())
-        ).map(it -> new EnumMapping(
-                it.second().getSimpleName(),
-                it.first() + 1
-        )).toList();
+        final var enumValues = ElementFilter.enumValuesIn(typeElement.getEnclosedElements());
+        final var enumMappingList = new ArrayList<EnumMapping>();
 
-        this.enumMappings.put(typeElement.getQualifiedName(), enumMapping);
+        for (var i = 0; i < enumValues.size(); i++) {
+            final var enumValue = enumValues.get(i);
+            enumMappingList.add(new EnumMapping(enumValue.getSimpleName(), i + 1));
+        }
+
+        this.enumMappings.put(typeElement.getQualifiedName(), enumMappingList);
     }
 
     @Override

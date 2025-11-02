@@ -16,6 +16,7 @@ import io.github.potjerodekool.nabu.tree.ImportItem;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.expression.impl.CVariableTypeTree;
 import io.github.potjerodekool.nabu.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.tree.statement.ThrowStatement;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
@@ -51,7 +52,8 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitImportItem(final ImportItem importItem,
                                   final Scope scope) {
-        if (importItem.getSymbol() == null) {
+        if (importItem.getSymbol() == null
+            || importItem.getSymbol().isError()) {
             final var className = importItem.getClassOrPackageName();
 
             reportUnresolvedSymbol(
@@ -114,10 +116,10 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
             final var compilationUnit = getCompilationUnit(scope);
 
-            listener.report(new DefaultDiagnostic(
-                    Diagnostic.Kind.ERROR,
+            reportError(
                     "Failed to resolve method " + methodName,
-                    compilationUnit.getFileObject()));
+                    compilationUnit
+            );
         }
 
         methodInvocation.getArguments().forEach(arg -> arg.accept(this, scope));
@@ -160,10 +162,15 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
     private void reportError(final String message,
                              final Scope scope) {
+        reportError(message, getCompilationUnit(scope));
+    }
+
+    private void reportError(final String message,
+                             final CompilationUnit compilationUnit) {
         listener.report(new DefaultDiagnostic(
                 Diagnostic.Kind.ERROR,
                 message,
-                getCompilationUnit(scope).getFileObject()
+                compilationUnit.getFileObject()
         ));
     }
 
@@ -220,7 +227,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                                            final Scope scope) {
         final var className = new StringBuilder();
         resolveClassName(expressionTree, className);
-        reportError("Failed to resolve " + className, scope);
+        reportError("Failed to resolve class " + className, scope);
     }
 
     private boolean isNullOrErrorType(final TypeMirror typeMirror) {
@@ -229,10 +236,10 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
     @Override
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
-        final var type = variableDeclaratorStatement.getType().getType();
+        final var type = variableDeclaratorStatement.getVariableType().getType();
 
         if (isNullOrErrorType(type)) {
-            reportFailedToResolveType(variableDeclaratorStatement.getType(), scope);
+            reportFailedToResolveType(variableDeclaratorStatement.getVariableType(), scope);
         }
 
         if (variableDeclaratorStatement.getValue() != null) {
@@ -250,6 +257,8 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
             resolveClassName(fieldAccessExpressionTree.getField(), builder);
         } else if (expressionTree instanceof IdentifierTree identifierTree) {
             builder.append(identifierTree.getName());
+        } else if (expressionTree instanceof CVariableTypeTree) {
+            builder.append("var");
         }
     }
 

@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -11,6 +14,7 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CNoType;
 import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.type.NullType;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -19,6 +23,8 @@ import io.github.potjerodekool.nabu.type.TypeVisitor;
 import java.util.*;
 
 public class SymbolTable {
+
+    private static final CompilerContextImpl.Key<SymbolTable> KEY = new CompilerContextImpl.Key<>();
 
     private final Map<String, ModuleSymbol> modulesMap = new HashMap<>();
     private final Map<String, Map<ModuleElement, PackageSymbol>> packagesMap = new HashMap<>();
@@ -29,35 +35,21 @@ public class SymbolTable {
             ""
     );
 
-    public static final ModuleSymbol NO_MODULE = new ModuleSymbol(0, "", null) {
+    public static final ModuleSymbol NO_MODULE = new ModuleSymbol(0, "") {
         @Override
         public boolean isNoModule() {
             return true;
         }
     };
 
-    private Completer initialCompleter;
+    private final Completer initialCompleter;
 
-    private Completer moduleCompleter;
+    private final Completer moduleCompleter;
 
     private final String JAVA_BASE_NAME = "java.base";
-    private ModuleSymbol javaBase;
+    private final ModuleSymbol javaBase;
 
-    private final ModuleSymbol unnamedModule = new ModuleSymbol(0, "<unnamed>", null) {
-        {
-            final var baseModule = enterModule(JAVA_BASE_NAME);
-            final var required = new io.github.potjerodekool.nabu.lang.model.element.Directive.RequiresDirective(
-                    baseModule,
-                    EnumSet.of(io.github.potjerodekool.nabu.lang.model.element.Directive.RequiresFlag.MANDATED)
-            );
-            setRequires(List.of(required));
-        }
-
-        @Override
-        public boolean isUnnamed() {
-            return true;
-        }
-    };
+    private final ModuleSymbol unnamedModule;
 
     private TypeMirror objectType;
     private TypeMirror classType;
@@ -72,10 +64,55 @@ public class SymbolTable {
     private final TypeSymbol noSymbol;
     private final ClassSymbol boundClass;
 
-    public SymbolTable() {
+    public SymbolTable(final CompilerContextImpl compilerContext) {
+        compilerContext.put(KEY, this);
+
+        final var classFinder = ClassFinder.getInstance(compilerContext);
+        this.initialCompleter = classFinder.getCompleter();
+        final var modules = Modules.getInstance(compilerContext);
+        this.moduleCompleter = modules.getModuleCompleter();
+
+        this.unnamedModule = createUnnamedModule();
+        unnamedModule.setCompleter(modules.getUnnamedModuleCompleter());
+
         this.noSymbol = createNoSymbol();
         this.boundClass = new ClassSymbol(Flags.PUBLIC, "Bound", noSymbol);
         this.boundClass.setMembers(new WritableScope());
+
+        getUnnamedModule().setSourceLocation(StandardLocation.SOURCE_PATH);
+        getUnnamedModule().setClassLocation(StandardLocation.CLASS_PATH);
+        this.javaBase = enterModule(JAVA_BASE_NAME);
+        modules.initAllModules();
+        loadPredefinedClasses();
+        loadBoxes();
+    }
+
+    private ModuleSymbol createUnnamedModule() {
+        return new ModuleSymbol(0, "<unnamed>") {
+            {
+                final var baseModule = enterModule(JAVA_BASE_NAME);
+                final var required = new io.github.potjerodekool.nabu.lang.model.element.Directive.RequiresDirective(
+                        baseModule,
+                        EnumSet.of(io.github.potjerodekool.nabu.lang.model.element.Directive.RequiresFlag.MANDATED)
+                );
+                setRequires(List.of(required));
+            }
+
+            @Override
+            public boolean isUnnamed() {
+                return true;
+            }
+        };
+    }
+
+    public static SymbolTable getInstance(final CompilerContextImpl compilerContext) {
+        var symbolTable = compilerContext.get(KEY);
+
+        if (symbolTable == null) {
+            symbolTable = new SymbolTable(compilerContext);
+        }
+
+        return symbolTable;
     }
 
     private TypeSymbol createNoSymbol() {
@@ -93,6 +130,11 @@ public class SymbolTable {
             }
 
             @Override
+            public ElementBuilder builder() {
+                return null;
+            }
+
+            @Override
             public <R, P> R accept(final SymbolVisitor<R, P> v, final P p) {
                 return v.visitUnknown(this, p);
             }
@@ -105,18 +147,6 @@ public class SymbolTable {
 
     public ModuleSymbol getUnnamedModule() {
         return unnamedModule;
-    }
-
-    public void init(final Modules modules,
-                     final ClassFinder classFinder) {
-        this.javaBase = enterModule(JAVA_BASE_NAME);
-
-        this.initialCompleter = classFinder.getCompleter();
-        this.moduleCompleter = modules.getModuleCompleter();
-        loadPredefinedClasses();
-        loadBoxes();
-        modules.initAllModules();
-        unnamedModule.setCompleter(modules.getUnnamedModuleCompleter());
     }
 
     public void loadPredefinedClasses() {
@@ -217,6 +247,7 @@ public class SymbolTable {
         );
 
         classSymbol.setCompleter(initialCompleter);
+        classSymbol.setError(true);
         return classSymbol;
     }
 
@@ -391,7 +422,7 @@ public class SymbolTable {
         return this.modulesMap.computeIfAbsent(name, k -> {
             final var module = ModuleSymbol.create(name, "module-info");
             addRootPackageFor(module);
-            module.setCompleter(s -> moduleCompleter.complete(s));
+            module.setCompleter(moduleCompleter);
             return module;
         });
     }

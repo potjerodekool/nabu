@@ -2,15 +2,10 @@ package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
-import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
-import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
-import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
-import io.github.potjerodekool.nabu.tree.expression.impl.CMethodInvocationTree;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.util.List;
 
 import static io.github.potjerodekool.nabu.test.TreeAssert.parseAndAssert;
 

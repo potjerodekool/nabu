@@ -8,6 +8,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * A scope to consists of other scopes.
+ */
 public class CompositeScope implements Scope {
 
     private final List<Scope> scopes;
@@ -18,6 +21,7 @@ public class CompositeScope implements Scope {
 
     @Override
     public void define(final Element element) {
+        //Elements shouldn't be defined in this scope.
     }
 
     @Override
@@ -25,6 +29,10 @@ public class CompositeScope implements Scope {
         return null;
     }
 
+    /**
+     * @param name An element name.
+     * @return Return a type from the scopes.
+     */
     @Override
     public TypeMirror resolveType(final String name) {
         return this.scopes.stream()
@@ -35,6 +43,9 @@ public class CompositeScope implements Scope {
                 .orElse(null);
     }
 
+    /**
+     * @return Returns all the elements defined in the scopes.
+     */
     @Override
     public Collection<? extends Element> elements() {
         return scopes.stream()

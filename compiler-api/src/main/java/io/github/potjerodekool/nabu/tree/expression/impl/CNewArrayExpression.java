@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.tree.expression.NewArrayExpression;
 
 import java.util.List;
 
+/**
+ * Implementation of NewArrayExpression.
+ */
 public class CNewArrayExpression extends CExpressionTree implements NewArrayExpression {
 
     private final ExpressionTree elementType;

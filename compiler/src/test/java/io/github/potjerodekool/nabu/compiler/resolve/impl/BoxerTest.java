@@ -6,7 +6,6 @@ import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.util.Types;
@@ -62,7 +61,6 @@ class BoxerTest extends AbstractCompilerTest {
     }
 
     private ModuleSymbol getModule() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        return asmLoader.getSymbolTable().getUnnamedModule();
+        return getCompilerContext().getSymbolTable().getUnnamedModule();
     }
 }

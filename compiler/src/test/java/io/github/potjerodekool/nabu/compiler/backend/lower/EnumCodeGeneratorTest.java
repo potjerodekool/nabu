@@ -1,11 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.test.TestClassElementLoader;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.EnumCodeGenerator;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
@@ -17,20 +18,22 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class EnumCodeGeneratorTest {
+class EnumCodeGeneratorTest extends AbstractCompilerTest {
 
-    private final ClassSymbolLoader loader = new TestClassElementLoader();
+    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
 
     @Test
     void generateCode() {
         final var generator = new EnumCodeGenerator(
-                loader
+                getCompilerContext()
         );
+
+        final var enumType = loader.loadClass(null, Constants.ENUM).asType();
 
         final var classSymbol = new ClassSymbolBuilder()
                 .kind(ElementKind.ENUM)
                 .simpleName("SomeEnum")
-                .superclass(loader.getSymbolTable().getEnumType())
+                .superclass(enumType)
                 .build();
 
         final var type = new CIdentifierTree("SomeEnum");
@@ -39,7 +42,7 @@ class EnumCodeGeneratorTest {
         final var enumConstant = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.ENUM_CONSTANT)
                 .name(new CIdentifierTree("ONE"))
-                .type(type)
+                .variableType(type)
                 .value(new NewClassExpressionBuilder()
                         .build()
                 )

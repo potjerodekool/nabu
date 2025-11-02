@@ -18,12 +18,12 @@ public final class ElementBuildersImpl implements ElementBuilders {
     private ElementBuildersImpl() {
     }
 
-    public <EB extends VariableElementBuilder<EB>> EB variableElementBuilder() {
-        return (EB) new VariableSymbolBuilderImpl();
+    public VariableElementBuilder<VariableSymbol> variableElementBuilder() {
+        return new VariableSymbolBuilderImpl();
     }
 
-    public <EB extends VariableElementBuilder<EB>> EB variableElementBuilder(final VariableElement variableElement) {
-        return (EB) new VariableSymbolBuilderImpl((VariableSymbol) variableElement);
+    public VariableElementBuilder<VariableSymbol> variableElementBuilder(final VariableElement variableElement) {
+        return new VariableSymbolBuilderImpl((VariableSymbol) variableElement);
     }
 
     @Override

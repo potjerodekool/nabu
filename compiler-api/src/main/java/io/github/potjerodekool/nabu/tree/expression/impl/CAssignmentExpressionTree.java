@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.AssignmentExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
+/**
+ * Implementation of AssignmentExpressionTree.
+ */
 public class CAssignmentExpressionTree extends CExpressionTree implements AssignmentExpressionTree {
 
     private final ExpressionTree left;

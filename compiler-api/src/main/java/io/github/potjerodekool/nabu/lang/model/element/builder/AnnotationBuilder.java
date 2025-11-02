@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Builder for building annotations.
+ */
 public final class AnnotationBuilder {
 
     private AnnotationBuilder() {

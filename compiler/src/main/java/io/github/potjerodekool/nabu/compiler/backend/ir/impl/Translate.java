@@ -519,7 +519,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         if (variableDeclaratorStatement.getValue() != null) {
             final var value = variableDeclaratorStatement.getValue().accept(this, context);
             final var identifier = variableDeclaratorStatement.getName();
-            final var varType = toIType(variableDeclaratorStatement.getType().getType());
+            final var varType = toIType(variableDeclaratorStatement.getVariableType().getType());
 
             var src = value.unEx();
 
@@ -623,8 +623,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                 .reduce((first, second) -> new Ex(new ExpList(first.unEx(), second.unEx())))
                 .orElse(new Ex(new TempExpr()));
 
-        final var condition = forStatement.getExpression() != null
-                ? forStatement.getExpression().accept(this, context)
+        final var condition = forStatement.getCondition() != null
+                ? forStatement.getCondition().accept(this, context)
                 : new Ex(new TempExpr());
 
         final var update = forStatement.getForUpdate().stream()

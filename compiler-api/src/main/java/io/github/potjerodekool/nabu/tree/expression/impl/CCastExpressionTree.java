@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.tree.expression.CastExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.CastExpressionTreeBuilder;
 
+/**
+ * Implementation of CastExpressionTree.
+ */
 public class CCastExpressionTree extends CExpressionTree implements CastExpressionTree {
 
     private ExpressionTree expression;

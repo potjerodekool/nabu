@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.type.DeclaredType;
 /**
  * Annotation attribute
  */
-public interface CompoundAttribute extends AnnotationMirror, Attribute {
+public non-sealed interface CompoundAttribute extends AnnotationMirror, Attribute {
 
     @Override
     default Object getValue() {

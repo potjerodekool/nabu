@@ -8,6 +8,9 @@ import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of AnnotationTree.
+ */
 public class CAnnotationTree extends CExpressionTree implements AnnotationTree {
 
     private final IdentifierTree name;

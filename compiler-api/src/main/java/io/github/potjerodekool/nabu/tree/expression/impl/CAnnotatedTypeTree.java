@@ -9,6 +9,9 @@ import io.github.potjerodekool.nabu.tree.expression.builder.AnnotatedTypeTreeBui
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of AnnotatedTypeTree.
+ */
 public class CAnnotatedTypeTree extends CExpressionTree implements AnnotatedTypeTree {
 
     private final List<AnnotationTree> annotations = new ArrayList<>();

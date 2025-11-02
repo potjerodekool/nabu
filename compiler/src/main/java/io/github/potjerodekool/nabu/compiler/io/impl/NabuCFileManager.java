@@ -20,7 +20,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-public class NabuCFileManager implements FileManager {
+public class NabuCFileManager implements CompilerFileManger {
 
     private final Logger logger = LoggerFactory.getLogger(NabuCFileManager.class.getName());
 
@@ -31,6 +31,7 @@ public class NabuCFileManager implements FileManager {
     private final Locations locations = new Locations();
     private final Map<Path, FileSystem> openFileSystems = new HashMap<>();
 
+    @Override
     public void initialize(final PluginRegistry pluginRegistry) {
         this.kindSet.addAll(
                 pluginRegistry.getExtensionManager().getLanguageParsers().stream()
@@ -178,11 +179,11 @@ public class NabuCFileManager implements FileManager {
     }
 
     @Override
-    public FileObject getFileObject(final Location location, final String s) {
+    public FileObject getFileObject(final Location location, final String className) {
         final Iterable<? extends Path> paths = getLocationAsPaths(location);
 
         for (final var path : paths) {
-            final var subPath = path.resolve(s + ".class");
+            final var subPath = path.resolve(className + ".class");
             if (Files.exists(subPath)) {
                 return new NabuFileObject(
                         FileObject.CLASS_KIND,

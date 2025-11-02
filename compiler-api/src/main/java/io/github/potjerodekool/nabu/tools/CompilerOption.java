@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.tools;
 
+/**
+ * Enumeration of compiler options.
+ */
 public enum CompilerOption {
     SOURCE_PATH,
     CLASS_PATH,

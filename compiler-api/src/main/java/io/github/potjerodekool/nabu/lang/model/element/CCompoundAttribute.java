@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.type.DeclaredType;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Implementation of CompoundAttribute.
+ */
 public final class CCompoundAttribute extends AbstractAttribute implements CompoundAttribute {
 
     private final DeclaredType annotationType;

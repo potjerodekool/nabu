@@ -2,6 +2,9 @@ package io.github.potjerodekool.nabu.type;
 
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 
+/**
+ * A type variable type.
+ */
 public interface TypeVariable extends ReferenceType {
 
     Element asElement();
@@ -12,8 +15,4 @@ public interface TypeVariable extends ReferenceType {
 
     boolean isCaptured();
 
-    @Override
-    default boolean isTypeVariable() {
-        return true;
-    }
 }

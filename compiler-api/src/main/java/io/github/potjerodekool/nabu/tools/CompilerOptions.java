@@ -7,6 +7,9 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * Compiler options.
+ */
 public interface CompilerOptions {
 
     Optional<String> getOption(CompilerOption compilerOption);
@@ -19,6 +22,9 @@ public interface CompilerOptions {
 
     JavaVersion getTargetVersion();
 
+    /**
+     * @return Returns a set of source file extensions that should include to compile.
+     */
     Set<String> getSourceFileExtensions();
 
     void forEach(final BiConsumer<CompilerOption, String> consumer);

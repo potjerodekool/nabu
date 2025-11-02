@@ -2,6 +2,9 @@ package io.github.potjerodekool.nabu.tree.expression;
 
 import io.github.potjerodekool.nabu.tree.Tree;
 
+/**
+ * Instance of expression.
+ */
 public interface InstanceOfExpression extends ExpressionTree {
 
     ExpressionTree getExpression();

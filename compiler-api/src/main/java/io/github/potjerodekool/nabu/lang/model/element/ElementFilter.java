@@ -6,6 +6,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+/**
+ * Utilities to filter on elements.
+ */
 public final class ElementFilter {
 
     private static final Set<ElementKind> TYPE_KINDS =

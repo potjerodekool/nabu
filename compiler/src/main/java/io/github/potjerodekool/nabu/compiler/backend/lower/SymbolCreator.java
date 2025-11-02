@@ -58,7 +58,7 @@ public class SymbolCreator extends AbstractTreeVisitor<Object, Scope> {
         final var symbol = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.valueOf(variableDeclaratorStatement.getKind().name()))
                 .simpleName(variableDeclaratorStatement.getName().getName())
-                .type(variableDeclaratorStatement.getType().getType())
+                .type(variableDeclaratorStatement.getVariableType().getType())
                 .flags(variableDeclaratorStatement.getFlags())
                 .build();
 

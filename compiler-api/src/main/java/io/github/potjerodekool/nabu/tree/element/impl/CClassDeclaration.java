@@ -17,6 +17,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Implementation of ClassDeclaration.
+ */
 public class CClassDeclaration extends CStatementTree implements ClassDeclaration {
 
     private final Kind kind;

@@ -9,6 +9,12 @@ public class TypePrinter implements TypeVisitor<Object, Object> {
 
     private final StringBuilder builder = new StringBuilder();
 
+    public static String print(final TypeMirror typeMirror) {
+        final var printer = new TypePrinter();
+        typeMirror.accept(printer, null);
+        return printer.getText();
+    }
+
     @Override
     public Object visitUnknownType(final TypeMirror typeMirror, final Object param) {
         return null;

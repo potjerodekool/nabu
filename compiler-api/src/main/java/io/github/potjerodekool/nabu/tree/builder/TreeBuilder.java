@@ -2,7 +2,12 @@ package io.github.potjerodekool.nabu.tree.builder;
 
 import io.github.potjerodekool.nabu.tree.Tree;
 
-public abstract class TreeBuilder<E extends Tree, TB extends TreeBuilder<E, TB>> {
+/**
+ * Base class for tree builders.
+ * @param <TB> TreeBuilder type. Should be the type that this class implements.
+ * This type variable is used as return type of the self method to allow method chaining.
+ */
+public abstract class TreeBuilder<TB extends TreeBuilder<TB>> {
 
     private int lineNumber;
     private int columnNumber;
@@ -37,6 +42,6 @@ public abstract class TreeBuilder<E extends Tree, TB extends TreeBuilder<E, TB>>
         return self();
     }
 
-    public abstract E build();
+    public abstract Tree build();
 
 }

@@ -6,8 +6,8 @@ import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.VariableElementBuilder;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
-public class VariableSymbolBuilderImpl extends AbstractSymbolBuilder<VariableSymbolBuilderImpl>
-        implements VariableElementBuilder<VariableSymbolBuilderImpl> {
+public class VariableSymbolBuilderImpl extends AbstractSymbolBuilder<VariableElementBuilder<VariableSymbol>>
+        implements VariableElementBuilder<VariableSymbol> {
 
     private TypeMirror type;
 

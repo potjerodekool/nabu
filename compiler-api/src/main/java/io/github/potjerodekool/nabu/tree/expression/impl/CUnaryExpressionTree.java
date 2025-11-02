@@ -6,6 +6,9 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.UnaryExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.ExpressionBuilder;
 
+/**
+ * Implementation of UnaryExpressionTree.
+ */
 public class CUnaryExpressionTree extends CExpressionTree implements UnaryExpressionTree {
 
     private Tag tag;
@@ -42,7 +45,7 @@ public class CUnaryExpressionTree extends CExpressionTree implements UnaryExpres
         return new UnaryExpressionBuilder(this);
     }
 
-    public static class UnaryExpressionBuilder extends ExpressionBuilder<CUnaryExpressionTree, UnaryExpressionBuilder> {
+    public static class UnaryExpressionBuilder extends ExpressionBuilder<UnaryExpressionBuilder> {
 
         private ExpressionTree expression;
 

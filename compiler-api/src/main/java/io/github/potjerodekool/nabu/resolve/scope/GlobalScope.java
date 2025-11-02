@@ -8,6 +8,9 @@ import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
+/**
+ * Global scope.
+ */
 public class GlobalScope implements Scope {
 
     private final CompilationUnit compilationUnit;

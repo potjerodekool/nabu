@@ -4,7 +4,11 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.SynchronizedStatement;
+import io.github.potjerodekool.nabu.tree.statement.builder.StatementTreeBuilder;
 
+/**
+ * Implementation of SynchronizedStatement
+ */
 public class CSynchronizedStatement extends CStatementTree implements SynchronizedStatement {
 
     private final ExpressionTree expression;
@@ -32,5 +36,10 @@ public class CSynchronizedStatement extends CStatementTree implements Synchroniz
     @Override
     public BlockStatementTree getBody() {
         return body;
+    }
+
+    @Override
+    public StatementTreeBuilder<?> builder() {
+        return new StatementTreeBuilder(this);
     }
 }

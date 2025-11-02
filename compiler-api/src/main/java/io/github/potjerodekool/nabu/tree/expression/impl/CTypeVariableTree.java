@@ -8,6 +8,9 @@ import io.github.potjerodekool.nabu.tree.impl.CTree;
 
 import java.util.List;
 
+/**
+ * Implementation of TypeVariableTree.
+ */
 public class CTypeVariableTree extends CTree implements TypeVariableTree {
 
     private final List<AnnotationTree> annotations;

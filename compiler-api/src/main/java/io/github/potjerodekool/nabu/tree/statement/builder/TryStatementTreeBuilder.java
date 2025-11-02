@@ -9,7 +9,10 @@ import io.github.potjerodekool.nabu.tree.statement.impl.CTryStatementTree;
 import java.util.List;
 import java.util.Objects;
 
-public class TryStatementTreeBuilder extends StatementTreeBuilder<TryStatementTree, TryStatementTreeBuilder> {
+/**
+ * Builder for try statements.
+ */
+public class TryStatementTreeBuilder extends StatementTreeBuilder<TryStatementTreeBuilder> {
 
     private BlockStatementTree body;
     private List<CatchTree> catchers;

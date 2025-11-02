@@ -16,6 +16,9 @@ import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of Function
+ */
 public class CFunction extends CTree implements Function {
 
     private final String simpleName;
@@ -24,7 +27,7 @@ public class CFunction extends CTree implements Function {
     private final List<TypeParameterTree> typeParameters = new ArrayList<>();
     private final VariableDeclaratorTree receiverParameter;
     private final List<VariableDeclaratorTree> parameters = new ArrayList<>();
-    private final ExpressionTree returnType;
+    private final Tree returnType;
     private final List<Tree> thrownTypes = new ArrayList<>();
     private BlockStatementTree body;
     private final ExpressionTree defaultValue;
@@ -138,12 +141,17 @@ public class CFunction extends CTree implements Function {
     }
 
     @Override
+    public void addParameter(final VariableDeclaratorTree parameter) {
+        this.parameters.add(parameter);
+    }
+
+    @Override
     public void addParameters(final int index,
                               final List<VariableDeclaratorTree> parameters) {
         this.parameters.addAll(index, parameters);
     }
 
-    public ExpressionTree getReturnType() {
+    public Tree getReturnType() {
         return returnType;
     }
 

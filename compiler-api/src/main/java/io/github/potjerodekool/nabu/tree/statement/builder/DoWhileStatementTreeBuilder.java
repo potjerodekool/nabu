@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.tree.statement.DoWhileStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CDoWhileStatementTree;
 
-public class DoWhileStatementTreeBuilder extends StatementTreeBuilder<DoWhileStatementTree, DoWhileStatementTreeBuilder> {
+/**
+ * Builder for Do while statements.
+ */
+public class DoWhileStatementTreeBuilder extends StatementTreeBuilder<DoWhileStatementTreeBuilder> {
 
     private StatementTree body;
     private ExpressionTree condition;

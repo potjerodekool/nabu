@@ -4,9 +4,13 @@ import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeVariable;
 
 import java.util.Optional;
 
+/**
+ * A scope for searching both instance as static fields.
+ */
 public class SymbolScope implements Scope {
 
     private final DeclaredType declaredType;
@@ -65,6 +69,16 @@ public class SymbolScope implements Scope {
                 searchType,
                 globalScope
         );
+    }
+
+    @Override
+    public TypeMirror resolveType(final String name) {
+        return declaredType.getTypeArguments().stream()
+                .filter(it -> it instanceof TypeVariable)
+                .filter(it -> it.asElement().getSimpleName().equals(name))
+                .map(it -> (TypeMirror) it)
+                .findFirst()
+                .orElseGet(() -> Scope.super.resolveType(name));
     }
 
     @Override

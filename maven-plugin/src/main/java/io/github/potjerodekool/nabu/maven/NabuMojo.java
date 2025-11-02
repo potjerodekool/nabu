@@ -18,10 +18,14 @@ import java.util.ArrayList;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * A maven mojo that invokes the Nabu compiler
+ */
 @Mojo(
         name = "compile",
         defaultPhase = LifecyclePhase.COMPILE,
-        requiresDependencyCollection = ResolutionScope.COMPILE
+        requiresDependencyCollection = ResolutionScope.COMPILE,
+        threadSafe = true
 )
 public class NabuMojo extends AbstractMojo {
 
@@ -30,6 +34,12 @@ public class NabuMojo extends AbstractMojo {
 
     @Parameter(readonly = true)
     private Set<String> sourceFileExtensions;
+
+    /**
+     * Create new instance.
+     */
+    public NabuMojo() {
+    }
 
     @Override
     public void execute() throws MojoFailureException {
@@ -92,10 +102,11 @@ public class NabuMojo extends AbstractMojo {
         );
     }
 
+    /*
+     * Configures a logger that delegates to maven.
+     */
     private void configureLogging() {
-        final var mavenLogger = new MavenLogger(
-                getLog()
-        );
+        final var mavenLogger = new MavenLogger(getLog());
         LoggerFactory.setProvider((name) -> mavenLogger);
     }
 }

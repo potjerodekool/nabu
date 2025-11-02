@@ -6,7 +6,10 @@ import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CEnhancedForStatementTree;
 
-public class EnhancedForStatementTreeBuilder extends StatementTreeBuilder<EnhancedForStatementTree, EnhancedForStatementTreeBuilder> {
+/**
+ * Builder for Enhanced For statements.
+ */
+public class EnhancedForStatementTreeBuilder extends StatementTreeBuilder<EnhancedForStatementTreeBuilder> {
 
     private VariableDeclaratorTree localVariable;
     private ExpressionTree expression;

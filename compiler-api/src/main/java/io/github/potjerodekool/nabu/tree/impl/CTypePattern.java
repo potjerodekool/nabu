@@ -1,16 +1,19 @@
 package io.github.potjerodekool.nabu.tree.impl;
 
 
-import io.github.potjerodekool.nabu.tree.BindingPattern;
+import io.github.potjerodekool.nabu.tree.TypePattern;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 
-public class CBindingPattern extends CPattern implements BindingPattern {
+/**
+ * Implementation of type pattern.
+ */
+public final class CTypePattern extends CPattern implements TypePattern {
 
     private final VariableDeclaratorTree variableDeclarator;
 
-    public CBindingPattern(final VariableDeclaratorTree variableDeclarator,
-                           final int lineNumber, final int columnNumber) {
+    public CTypePattern(final VariableDeclaratorTree variableDeclarator,
+                        final int lineNumber, final int columnNumber) {
         super(lineNumber, columnNumber);
         this.variableDeclarator = variableDeclarator;
     }
@@ -22,6 +25,6 @@ public class CBindingPattern extends CPattern implements BindingPattern {
 
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
-        return visitor.visitBindingPattern(this, param);
+        return visitor.visitTypePattern(this, param);
     }
 }

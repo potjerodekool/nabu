@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
@@ -17,8 +18,8 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
 
     private final TypesImpl types;
 
-    public AsmClassElementLoader(final SymbolTable symbolTable) {
-        this.symbolTable = symbolTable;
+    public AsmClassElementLoader(final CompilerContextImpl compilerContext) {
+        this.symbolTable = SymbolTable.getInstance(compilerContext);
         this.types = new TypesImpl(symbolTable);
     }
 
@@ -104,8 +105,7 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
     @Override
     public void importJavaLang(final ImportScope importScope) {
         final var javaLangPackage = symbolTable.lookupPackage(symbolTable.getUnnamedModule(), "java.lang");
-        ElementFilter.typesIn(javaLangPackage.getMembers().elements())
-                .forEach(importScope::define);
+        javaLangPackage.getMembers().elements().forEach(importScope::define);
     }
 
     @Override

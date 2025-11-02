@@ -4,10 +4,8 @@ import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmTypeResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.TypeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
@@ -29,20 +27,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TypesImplTest extends AbstractCompilerTest {
 
-    private final AsmClassElementLoader loader = (AsmClassElementLoader) getCompilerContext().getClassElementLoader();
-    private final Types types = loader.getTypes();
-    private final AsmTypeResolver typeResolver = new AsmTypeResolver(loader, null);
+    private final Types types = getCompilerContext().getClassElementLoader().getTypes();
+    private final AsmTypeResolver typeResolver = new AsmTypeResolver(getCompilerContext().getClassElementLoader(), null);
     private final TypeBuilder typeBuilder = new TypeBuilder();
-    private final SymbolTable symbolTable = loader.getSymbolTable();
+    private final SymbolTable symbolTable = getCompilerContext().getSymbolTable();
 
     @Test
     void asMemberOf() {
-        final var module = loader.getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
 
-        final var setClass = (ClassSymbol) loader.loadClass(module, "java.util.Set");
-        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
+        final var setClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.Set");
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.OBJECT).asType();
 
-        final var stringClass = loader.loadClass(module, Constants.STRING);
+        final var stringClass = getCompilerContext().getClassElementLoader().loadClass(module, Constants.STRING);
 
         final var stringType = types.getDeclaredType(
                 null,
@@ -83,7 +80,7 @@ class TypesImplTest extends AbstractCompilerTest {
 
     private VariableSymbol createParameter(final String name,
                                            final TypeMirror type) {
-        return new VariableSymbolBuilderImpl()
+        return (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName(name)
                 .type(type)
@@ -102,19 +99,21 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSubTypeNonGeneric() {
-        final var module = loader.getSymbolTable().getJavaBase();
-        final var arrayListType = (DeclaredType) loader.loadClass(module, "java.util.ArrayList").asType();
-        final var listType = (DeclaredType) loader.loadClass(module, "java.util.List").asType();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
+        final var arrayListClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.ArrayList");
+        final var arrayListType = types.getDeclaredType(arrayListClass);
+        final var listClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.List");
+        final var listType = types.getDeclaredType(listClass);
         assertTrue(types.isSubType(arrayListType, listType));
     }
 
     @Test
     void isSubTypeGeneric() {
-        final var module = loader.getSymbolTable().getJavaBase();
-        final var arrayListType = (DeclaredType) loader.loadClass(module, "java.util.ArrayList").asType();
-        final var listType = (DeclaredType) loader.loadClass(module, "java.util.List").asType();
-        final var objectType = (DeclaredType) loader.loadClass(module, "java.lang.Object").asType();
-        final var stringType = (DeclaredType) loader.loadClass(module, "java.lang.String").asType();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
+        final var arrayListType = (DeclaredType) getCompilerContext().getClassElementLoader().loadClass(module, "java.util.ArrayList").asType();
+        final var listType = (DeclaredType) getCompilerContext().getClassElementLoader().loadClass(module, "java.util.List").asType();
+        final var objectType = (DeclaredType) getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.Object").asType();
+        final var stringType = (DeclaredType) getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.String").asType();
 
         final var arrayListOfObjectType = types.getDeclaredType(
                 (TypeElement) arrayListType.asElement(),
@@ -144,11 +143,11 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSubTypeArray() {
-        final var module = loader.getSymbolTable().getJavaBase();
-        final var objectType = loader.loadClass(module, "java.lang.Object").asType();
-        final var stringType = loader.loadClass(module, "java.lang.String").asType();
-        final var cloneableType = loader.loadClass(module, Constants.CLONEABLE).asType();
-        final var serializableType = loader.loadClass(module, Constants.SERIALIZABLE).asType();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.Object").asType();
+        final var stringType = getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.String").asType();
+        final var cloneableType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.CLONEABLE).asType();
+        final var serializableType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.SERIALIZABLE).asType();
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
         assertTrue(types.isSubType(
@@ -194,10 +193,10 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSameType1() {
-        final var module = loader.getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
         final var actual = typeBuilder.parseFieldSignature("Ljava/util/Optional<*>;", typeResolver, module);
 
-        final var optionalClazz = loader.loadClass(module, "java.util.Optional");
+        final var optionalClazz = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.Optional");
 
         final var expected = types.getDeclaredType(
                 optionalClazz,
@@ -209,9 +208,9 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSameType2() {
-        final var module = loader.getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
         final var actual = typeBuilder.parseFieldSignature("TT;", typeResolver, module);
-        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.OBJECT).asType();
 
         final var expected = types.getTypeVariable("T", objectType, null);
         assertTrue(types.isSameType(expected, actual));
@@ -219,7 +218,7 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSameType3() {
-        final var module = loader.getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
 
         final var actual = typeBuilder.parseFieldSignature("Ljava/lang/invoke/ClassSpecializer<TT;TK;TS;>.Factory;", typeResolver, module);
 
@@ -234,7 +233,7 @@ class TypesImplTest extends AbstractCompilerTest {
                 ))
                 .build());
 
-        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.OBJECT).asType();
 
         classSpecializerType =
                 types.getDeclaredType(
@@ -260,10 +259,10 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSameType4() {
-        final var module = loader.getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
 
         final var actual = typeBuilder.parseFieldSignature("Ljava/util/List<Ljava/lang/module/Configuration;>;", typeResolver, module);
-        final var listClass = loader.loadClass(module, "java.util.List");
+        final var listClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.List");
 
         final var configurationClass = new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
@@ -283,10 +282,10 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSameType5() {
-        final var module = loader.getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
         final var actual = typeBuilder.parseFieldSignature("[Ljava/lang/reflect/TypeVariable<*>;", typeResolver, module);
 
-        final var typeVariableClass = loader.loadClass(module, "java.lang.reflect.TypeVariable");
+        final var typeVariableClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.reflect.TypeVariable");
 
         final var expected = types.getArrayType(
                 types.getDeclaredType(
@@ -303,8 +302,8 @@ class TypesImplTest extends AbstractCompilerTest {
 
     @Test
     void isSameType6() {
-        final var module = loader.getSymbolTable().getUnnamedModule();
-        final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.OBJECT).asType();
 
         final var actual = typeBuilder.parseFieldSignature("[TT;", typeResolver, module);
         final var expected = types.getArrayType(
@@ -319,7 +318,7 @@ class TypesImplTest extends AbstractCompilerTest {
         var wildcard = types.getWildcardType(null, null);
         assertEquals(BoundKind.UNBOUND, wildcard.getBoundKind());
 
-        final var stringClass = loader.loadClass(null, Constants.STRING)
+        final var stringClass = getCompilerContext().getClassElementLoader().loadClass(null, Constants.STRING)
                 .asType();
         wildcard = types.getWildcardType(stringClass, null);
         assertEquals(BoundKind.EXTENDS, wildcard.getBoundKind());

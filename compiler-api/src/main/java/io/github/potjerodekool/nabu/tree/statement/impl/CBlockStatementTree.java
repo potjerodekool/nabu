@@ -11,6 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Implementation of BlockStatement.
+ */
 public class CBlockStatementTree extends CStatementTree implements BlockStatementTree {
 
     private final List<StatementTree> statements = new ArrayList<>();

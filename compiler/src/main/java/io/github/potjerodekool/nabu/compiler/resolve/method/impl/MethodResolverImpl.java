@@ -177,7 +177,7 @@ public class MethodResolverImpl implements MethodResolver {
 
     private Optional<ExecutableType> doResolveMethod(final DeclaredType type,
                                                      final String methodName,
-                                                     final List<TypeMirror> typeArguments,
+                                                     final List<?extends TypeMirror> typeArguments,
                                                      final List<TypeMirror> argumentTypes,
                                                      final boolean onlyStaticCalls,
                                                      final Scope scope) {
@@ -217,8 +217,9 @@ public class MethodResolverImpl implements MethodResolver {
             throw new TodoException("Found multiple candidates for method " + methodName + " in " + clazz.getSimpleName());
         } else {
             final var interfaceMethodOptional = clazz.getInterfaces().stream()
+                    .map(interfaceType -> (DeclaredType) interfaceType)
                     .map(interfaceType -> doResolveMethod(
-                            (DeclaredType) interfaceType,
+                            interfaceType,
                             methodName,
                             typeArguments,
                             argumentTypes,
@@ -280,7 +281,7 @@ public class MethodResolverImpl implements MethodResolver {
 
     @Override
     public ExecutableType transform(final ExecutableType methodType,
-                                    final List<TypeMirror> typeArguments,
+                                    final List<? extends TypeMirror> typeArguments,
                                     final List<TypeMirror> argumentTypes) {
         final var typeMapFiller = new TypeMapFiller();
         final var map = typeMapFiller.getMap();

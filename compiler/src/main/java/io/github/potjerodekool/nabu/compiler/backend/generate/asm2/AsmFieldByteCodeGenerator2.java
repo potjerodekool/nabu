@@ -16,7 +16,7 @@ public class AsmFieldByteCodeGenerator2 {
 
     public void generate(final VariableDeclaratorTree variableDeclaratorStatement) {
         final var name = variableDeclaratorStatement.getName().getName();
-        final var type = variableDeclaratorStatement.getType().getType();
+        final var type = variableDeclaratorStatement.getVariableType().getType();
 
         final var fieldType = ToIType.toIType(type);
         final var descriptor = AsmISignatureGenerator.INSTANCE.getDescriptor(fieldType);

@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 
+/**
+ * A type element.
+ */
 public interface TypeElement extends Element, QualifiedNameable {
 
     NestingKind getNestingKind();

@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.lower;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.*;
@@ -10,16 +11,13 @@ import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConvert
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.Boxer;
 
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
-import io.github.potjerodekool.nabu.tree.expression.BinaryExpressionTree;
-import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
-import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
@@ -31,14 +29,23 @@ import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.*;
 
+
+/**
+ * Add code like:
+ * Generate code to init fields (both in constructor and client init).
+ * Generate code for enum and record classes.
+ * Add boxing and unboxing code.
+ * Add code to enhanced for statements.
+ */
 public class Lower extends AbstractTreeTranslator<LowerContext> {
 
+    private final CompilerContextImpl compilerContext;
     private final WideningConverter wideningConverter;
     private final Boxer boxer;
     private final Caster caster;
     private final MethodResolver methodResolver;
     private final Types types;
-    private final ClassSymbolLoader loader;
+    private final ClassElementLoader loader;
     private int varCounter = 0;
 
     private final DefaultCodeGenerator defaultCodeGenerator;
@@ -46,6 +53,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
     private final EnumUserCodeGenerator enumUserCodeGenerator;
 
     public Lower(final CompilerContextImpl compilerContext) {
+        this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getClassElementLoader().getTypes();
         this.boxer = new Boxer(
@@ -56,14 +64,14 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
         this.wideningConverter = new WideningConverter(types);
         this.methodResolver = compilerContext.getMethodResolver();
 
-        this.defaultCodeGenerator = new DefaultCodeGenerator(loader);
+        this.defaultCodeGenerator = new DefaultCodeGenerator(compilerContext);
         this.enumUserCodeGenerator = new EnumUserCodeGenerator(compilerContext);
         initCodeGenerators();
     }
 
     private void initCodeGenerators() {
-        codeGenerators.put(Kind.ENUM, new EnumCodeGenerator(loader));
-        codeGenerators.put(Kind.RECORD, new RecordCodeGenerator(loader));
+        codeGenerators.put(Kind.ENUM, new EnumCodeGenerator(compilerContext));
+        codeGenerators.put(Kind.RECORD, new RecordCodeGenerator(compilerContext));
     }
 
     public void process(final CompilationUnit compilationUnit) {
@@ -152,7 +160,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
         methodInvocation.getMethodSelector().setType(resolvedMethod.getOwner().asType());
         methodInvocation.setMethodType(resolvedMethod);
 
-        final var localVariableType = (DeclaredType) localVariable.getType().getType();
+        final var localVariableType = (DeclaredType) localVariable.getVariableType().getType();
         final var iteratorName = generateVariableName();
         final var iteratorClassElement = loader.loadClass(
                 context.module,
@@ -179,7 +187,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
         final var forInit = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.LOCAL_VARIABLE)
                 .modifiers(new Modifiers())
-                .type(iteratorTypeTree)
+                .variableType(iteratorTypeTree)
                 .name(createIdentifier(iteratorName, localVariableElement))
                 .value(methodInvocation)
                 .build();
@@ -232,7 +240,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
 
         final var statements = new ArrayList<StatementTree>();
         statements.add(localVariable.builder()
-                .type(typeTree)
+                .variableType(typeTree)
                 .value(cast)
                 .build());
 
@@ -453,6 +461,25 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
                 .get();
 
         return (ExecutableType) ordinalMethod.asType();
+    }
+
+    @Override
+    public Tree visitFunction(final Function function, final LowerContext param) {
+        return super.visitFunction(function, param);
+    }
+
+    @Override
+    public Tree visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
+                                                 final LowerContext lowerContext) {
+        var newValue = (ExpressionTree) accept(variableDeclaratorStatement.getValue(), lowerContext);
+        //Add cast if needed.
+        newValue = variableDeclaratorStatement
+                .getVariableType()
+                .getType()
+                .accept(caster, newValue);
+        return variableDeclaratorStatement.builder()
+                .value(newValue)
+                .build();
     }
 }
 

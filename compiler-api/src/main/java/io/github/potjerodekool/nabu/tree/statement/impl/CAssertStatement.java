@@ -3,7 +3,11 @@ package io.github.potjerodekool.nabu.tree.statement.impl;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.AssertStatement;
+import io.github.potjerodekool.nabu.tree.statement.builder.StatementTreeBuilder;
 
+/**
+ * Implementation of AssertStatement.
+ */
 public class CAssertStatement extends CStatementTree implements AssertStatement {
 
     private final ExpressionTree condition;
@@ -31,5 +35,10 @@ public class CAssertStatement extends CStatementTree implements AssertStatement 
     @Override
     public ExpressionTree getDetail() {
         return detail;
+    }
+
+    @Override
+    public StatementTreeBuilder<?> builder() {
+        return new StatementTreeBuilder(this);
     }
 }

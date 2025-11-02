@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.element.RequiresTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
-public class CRequiresTree extends CDirective implements RequiresTree {
+/**
+ * Implementation of RequiresTree
+ */
+public final class CRequiresTree extends CDirective implements RequiresTree {
 
     private final long flags;
     private final ExpressionTree moduleName;

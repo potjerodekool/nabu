@@ -17,11 +17,14 @@ import java.util.stream.Collectors;
 
 import static io.github.potjerodekool.nabu.tree.TreeUtils.typeOf;
 
+/**
+ * Base class for resolver.
+ */
 public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope> {
 
-    protected final CompilerContext compilerContext;
-    protected final ClassElementLoader loader;
-    protected final Types types;
+    private final CompilerContext compilerContext;
+    private final ClassElementLoader loader;
+    private final Types types;
 
     protected AbstractResolver(final CompilerContext compilerContext) {
         this.compilerContext = compilerContext;
@@ -29,6 +32,9 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         this.types = loader.getTypes();
     }
 
+    /**
+     * @return Returns the compiler context.
+     */
     public CompilerContext getCompilerContext() {
         return compilerContext;
     }
@@ -44,7 +50,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
         return super.visitCompilationUnit(compilationUnit, createScope(compilationUnit));
     }
 
-    protected Scope createScope(final CompilationUnit compilationUnit) {
+    private Scope createScope(final CompilationUnit compilationUnit) {
         return new GlobalScope(compilationUnit, compilerContext);
     }
 
@@ -63,9 +69,9 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             variableDeclaratorStatement.getValue().accept(this, scope);
         }
 
-        variableDeclaratorStatement.getType().accept(this, scope);
+        variableDeclaratorStatement.getVariableType().accept(this, scope);
 
-        var type = variableDeclaratorStatement.getType().getType();
+        var type = variableDeclaratorStatement.getVariableType().getType();
 
         if (type instanceof VariableType) {
             if (variableDeclaratorStatement.getValue() == null) {
@@ -74,7 +80,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
                 final var interferedType = typeOf(variableDeclaratorStatement.getValue());
                 type = types.getVariableType(interferedType);
             }
-            variableDeclaratorStatement.getType().setType(type);
+            variableDeclaratorStatement.getVariableType().setType(type);
         }
 
         return defaultAnswer(variableDeclaratorStatement, scope);
@@ -211,7 +217,7 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     public Object visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Scope scope) {
         enhancedForStatement.getExpression().accept(this, scope);
 
-        if (enhancedForStatement.getLocalVariable().getType() instanceof VariableTypeTree variableTypeTree) {
+        if (enhancedForStatement.getLocalVariable().getVariableType() instanceof VariableTypeTree variableTypeTree) {
             final var symbol = enhancedForStatement.getExpression().getSymbol();
             final var expressionType = (DeclaredType) symbol.asType();
             final var type = expressionType.getTypeArguments().getFirst();
@@ -226,10 +232,13 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
+        var type = typeIdentifier.getType();
         final var clazz = typeIdentifier.getClazz();
         final var name = TreeUtils.getClassName(clazz);
 
-        TypeMirror type = resolveType(name, scope);
+        if (type == null) {
+            type = resolveType(name, scope);
+        }
 
         if (type == null) {
             type = loader.getTypes().getErrorType(name);
@@ -308,7 +317,11 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
     @Override
     public Object visitIdentifier(final IdentifierTree identifier,
                                   final Scope scope) {
-        final var type = resolveType(identifier.getName(), scope);
+        var type = identifier.getType();
+
+        if (type == null) {
+            type = resolveType(identifier.getName(), scope);
+        }
 
         if (type != null) {
             identifier.setType(type);

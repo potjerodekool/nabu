@@ -11,6 +11,9 @@ import io.github.potjerodekool.nabu.tree.impl.CTree;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of ModuleDeclaration.
+ */
 public class CModuleDeclaration extends CTree implements ModuleDeclaration {
 
     private final ModuleKind kind;

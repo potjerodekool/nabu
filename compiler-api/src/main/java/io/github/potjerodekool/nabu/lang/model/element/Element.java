@@ -1,10 +1,14 @@
 package io.github.potjerodekool.nabu.lang.model.element;
 
+import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 import java.util.Set;
 
+/**
+ * Root interface for elements.
+ */
 public interface Element extends AnnotatedConstruct {
 
     String getSimpleName();
@@ -55,6 +59,12 @@ public interface Element extends AnnotatedConstruct {
         return true;
     }
 
+    default boolean isError() {
+        return false;
+    }
+
     CompoundAttribute attribute(TypeElement typeElement);
+
+    ElementBuilder<?> builder();
 
 }

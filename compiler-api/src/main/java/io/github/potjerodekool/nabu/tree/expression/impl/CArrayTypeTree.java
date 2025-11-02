@@ -8,6 +8,9 @@ import io.github.potjerodekool.nabu.tree.expression.Dimension;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of ArrayTypeTree.
+ */
 public class CArrayTypeTree extends CExpressionTree implements ArrayTypeTree {
 
     private final Tree componentType;

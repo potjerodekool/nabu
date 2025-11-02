@@ -18,7 +18,7 @@ import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressionBuilder;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
-import io.github.potjerodekool.nabu.tree.expression.impl.CDimmension;
+import io.github.potjerodekool.nabu.tree.expression.impl.CDimension;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
@@ -317,6 +317,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
 
         final var functionHeader = (MethodHeader) ctx.methodHeader().accept(this);
+
         return createFunction(
                 modifiers,
                 functionHeader,
@@ -375,7 +376,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .map(fieldDeclaration -> fieldDeclaration.builder()
                         .kind(Kind.FIELD)
                         .modifiers(fieldModifiers)
-                        .type(type)
+                        .variableType(type)
                         .build())
                 .toList();
     }
@@ -429,8 +430,8 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     public Object visitUnannClassOrInterfaceType(final Java20Parser.UnannClassOrInterfaceTypeContext ctx) {
         ExpressionTree packageName = accept(ctx.packageName());
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
-        final var identifier = (ExpressionTree) ctx.typeIdentifier().accept(this);
-        ExpressionTree expressionTree;
+        final var identifier = (Tree) ctx.typeIdentifier().accept(this);
+        Tree expressionTree;
 
         if (packageName == null) {
             expressionTree = identifier;
@@ -438,7 +439,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             if (!annotations.isEmpty()) {
                 expressionTree = TreeMaker.annotatedTypeTree(
                         annotations,
-                        identifier,
+                        (ExpressionTree) identifier,
                         List.of(),
                         ctx.getStart().getLine(),
                         ctx.getStart().getCharPositionInLine()
@@ -458,7 +459,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         if (ctx.typeArguments() != null) {
             final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
             expressionTree = TreeMaker.typeApplyTree(
-                    expressionTree,
+                    (ExpressionTree) expressionTree,
                     typeArguments,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
@@ -491,7 +492,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitMethodDeclaration(final Java20Parser.MethodDeclarationContext ctx) {
-        var modifiers = parseModifiers(ctx.methodModifier());
+        final var modifiers = parseModifiers(ctx.methodModifier());
         final var functionHeader = (MethodHeader) ctx.methodHeader().accept(this);
         final BlockStatementTree body = new CBlockStatementTree(List.of());
         return createFunction(
@@ -510,7 +511,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .map(it -> (AnnotationTree) it.accept(this))
                 .toList();
 
-        final var result = (ExpressionTree) ctx.result().accept(this);
+        final var result = (Tree) ctx.result().accept(this);
         final var functionDeclarator = (MethodDeclarator) ctx.methodDeclarator().accept(this);
 
         final List<Tree> exceptions = acceptList(ctx.throwsT());
@@ -733,13 +734,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .map(it -> (AnnotationTree) it.accept(this))
                 .toList();
 
-        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
-
+        final var typeIdentifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
         final List<ExpressionTree> typeBound = acceptList(ctx.typeBound());
 
         return TreeMaker.typeParameterTree(
                 annotations,
-                identifier,
+                typeIdentifier,
                 typeBound,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
@@ -860,15 +860,15 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitTypeBound(final Java20Parser.TypeBoundContext ctx) {
         if (ctx.typeVariable() != null) {
-            final var expression = (ExpressionTree) ctx.typeVariable().accept(this);
+            final var expression = (Tree) ctx.typeVariable().accept(this);
             return List.of(expression);
         } else if (ctx.classOrInterfaceType() != null) {
-            final var list = new ArrayList<ExpressionTree>();
-            final var classOrInterfaceType = (ExpressionTree) ctx.classOrInterfaceType().accept(this);
+            final var list = new ArrayList<Tree>();
+            final var classOrInterfaceType = (Tree) ctx.classOrInterfaceType().accept(this);
             list.add(classOrInterfaceType);
 
             for (final var additionalBoundContext : ctx.additionalBound()) {
-                final var additionalBound = (ExpressionTree) additionalBoundContext.accept(this);
+                final var additionalBound = (Tree) additionalBoundContext.accept(this);
                 list.add(additionalBound);
             }
 
@@ -887,7 +887,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         for (final var child : ctx.children) {
             if (child instanceof TerminalNode terminalNode) {
                 if ("]".equals(terminalNode.getText())) {
-                    dimensions.add(new CDimmension(annotations, -1, -1));
+                    dimensions.add(new CDimension(annotations, -1, -1));
                     annotations = new ArrayList<>();
                 }
             } else {
@@ -961,7 +961,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                                 .build();
 
                         return variableDeclaratorTree.builder()
-                                .type(identifier)
+                                .variableType(identifier)
                                 .value(newClassExpression)
                                 .build();
                     } else {
@@ -1149,12 +1149,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     public Object visitClassOrInterfaceType(final Java20Parser.ClassOrInterfaceTypeContext ctx) {
         ExpressionTree packageName = accept(ctx.packageName());
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
-        ExpressionTree result = (ExpressionTree) ctx.typeIdentifier().accept(this);
+        Tree result = (Tree) ctx.typeIdentifier().accept(this);
 
         if (!annotations.isEmpty()) {
             result = TreeMaker.annotatedTypeTree(
                     annotations,
-                    result,
+                    (ExpressionTree) result,
                     List.of(),
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
@@ -1174,7 +1174,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         if (!typeArguments.isEmpty()) {
             result = TreeMaker.typeApplyTree(
-                    result,
+                    (ExpressionTree) result,
                     typeArguments,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
@@ -1184,7 +1184,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         if (ctx.coit() != null) {
             final var coit = (ExpressionTree) ctx.coit().accept(this);
             result = TreeMaker.fieldAccessExpressionTree(
-                    result,
+                    (ExpressionTree) result,
                     (IdentifierTree) coit,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()

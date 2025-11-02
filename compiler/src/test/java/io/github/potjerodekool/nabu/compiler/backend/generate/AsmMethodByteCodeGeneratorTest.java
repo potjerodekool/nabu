@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.test.TestClassElementLoader;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
@@ -37,9 +38,7 @@ import static io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceTy
 import static java.util.List.of;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class AsmMethodByteCodeGeneratorTest {
-
-    private final TestClassElementLoader loader = new TestClassElementLoader();
+class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
 
     private ClassWriter createClassWriter() {
         final var writer = new ClassWriter(ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES);
@@ -510,7 +509,7 @@ class AsmMethodByteCodeGeneratorTest {
 
         final var method = createMethod(l);
 
-        final var javaLangPackage = loader.findOrCreatePackage(
+        final var javaLangPackage = getCompilerContext().getClassElementLoader().findOrCreatePackage(
                 null,
                 "java.lang"
         );
@@ -526,7 +525,7 @@ class AsmMethodByteCodeGeneratorTest {
                 List.of()
         );
 
-        final var parameter = new VariableSymbolBuilderImpl()
+        final var parameter = (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName("s")
                 .type(paramType)

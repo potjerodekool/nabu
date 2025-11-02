@@ -8,6 +8,9 @@ import io.github.potjerodekool.nabu.tree.statement.builder.SwitchStatementBuilde
 
 import java.util.List;
 
+/**
+ * Implementation of SwitchStatement
+ */
 public class CSwitchStatement extends CStatementTree implements SwitchStatement {
 
     private final ExpressionTree selector;

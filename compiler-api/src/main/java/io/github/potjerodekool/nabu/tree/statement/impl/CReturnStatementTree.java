@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.tree.statement.builder.ReturnStatementTreeBu
 
 import java.util.Objects;
 
+/**
+ * Implementation of ReturnStatement.
+ */
 public class CReturnStatementTree extends CStatementTree implements ReturnStatementTree {
 
     private ExpressionTree expression;

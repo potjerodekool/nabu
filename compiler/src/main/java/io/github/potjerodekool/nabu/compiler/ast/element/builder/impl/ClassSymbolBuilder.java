@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
@@ -66,7 +65,7 @@ public class ClassSymbolBuilder extends AbstractSymbolBuilder<ClassSymbolBuilder
 
     private ClassSymbol build(final boolean errorType) {
         final var typeArguments = typeParameters.stream()
-                .map(it -> (AbstractType) it.asType())
+                .map(TypeParameterElement::asType)
                 .toList();
 
         final CClassType type;

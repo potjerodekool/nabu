@@ -2,7 +2,12 @@ package io.github.potjerodekool.nabu.tree.expression;
 
 import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
 
-public interface IdentifierTree extends ExpressionTree, Identifier {
+/**
+ * Identifier expression.
+ */
+public interface IdentifierTree extends ExpressionTree {
+
+    String getName();
 
     static IdentifierTree create(final String name) {
         return new CIdentifierTree(name, -1, -1);

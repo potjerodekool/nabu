@@ -4,7 +4,10 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.element.UsesTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
-public class CUsesTree extends CDirective implements UsesTree {
+/**
+ * Implementation of UsesTree
+ */
+public final class CUsesTree extends CDirective implements UsesTree {
 
     private final ExpressionTree serviceName;
 

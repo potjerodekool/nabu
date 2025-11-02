@@ -1,12 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda.TypeExpressionCreator;
 import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
@@ -20,7 +21,6 @@ import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
-import io.github.potjerodekool.nabu.tree.expression.Identifier;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CBinaryExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
@@ -38,8 +38,8 @@ import java.util.stream.Collectors;
 
 public class RecordCodeGenerator extends AbstractCodeGenerator {
 
-    public RecordCodeGenerator(final ClassSymbolLoader loader) {
-        super(loader);
+    public RecordCodeGenerator(final CompilerContextImpl compilerContext) {
+        super(compilerContext);
     }
 
     @Override
@@ -68,7 +68,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
         compactConstructor.getParameters().forEach(parameter -> {
             final var type = parameter.getName().getSymbol().asType();
 
-            clazz.addEnclosedElement(new VariableSymbolBuilderImpl()
+            clazz.addEnclosedElement((VariableSymbol) new VariableSymbolBuilderImpl()
                     .kind(ElementKind.RECORD_COMPONENT)
                     .simpleName(parameter.getName().getName())
                     .type(type)
@@ -152,7 +152,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
 
         final var componentNames = compactConstructor.getParameters().stream()
                 .map(VariableDeclaratorTree::getName)
-                .map(Identifier::getName)
+                .map(IdentifierTree::getName)
                 .collect(Collectors.toSet());
 
         final var fields = ElementFilter.fieldsIn(clazz.getEnclosedElements()).stream()

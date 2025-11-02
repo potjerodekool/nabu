@@ -11,6 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Implementation of MethodInvocation.
+ */
 public class CMethodInvocationTree extends CExpressionTree implements MethodInvocationTree {
 
     private final ExpressionTree methodSelector;

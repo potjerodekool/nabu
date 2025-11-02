@@ -50,8 +50,4 @@ public class CArrayType extends AbstractType implements ArrayType {
         return "[" + componentType.getClassName();
     }
 
-    @Override
-    public boolean isArrayType() {
-        return true;
-    }
 }

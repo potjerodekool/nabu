@@ -6,6 +6,9 @@ import io.github.potjerodekool.nabu.tree.expression.builder.BinaryExpressionBuil
 import io.github.potjerodekool.nabu.tree.Tag;
 import java.util.Objects;
 
+/**
+ * Implementation of BinaryExpressionTree.
+ */
 public class CBinaryExpressionTree extends CExpressionTree implements BinaryExpressionTree {
 
     private final ExpressionTree left;

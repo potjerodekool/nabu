@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 
 public class DefaultCodeGenerator extends AbstractCodeGenerator {
 
-    public DefaultCodeGenerator(final ClassSymbolLoader loader) {
-        super(loader);
+    public DefaultCodeGenerator(final CompilerContextImpl compilerContext) {
+        super(compilerContext);
     }
 }

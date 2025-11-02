@@ -4,7 +4,10 @@ package io.github.potjerodekool.nabu.tree.impl;
 import io.github.potjerodekool.nabu.tree.DefaultCaseLabel;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 
-public class CDefaultCaseLabel extends CCaseLabel implements DefaultCaseLabel {
+/**
+ * Implementation of DefaultCaselabel.
+ */
+public final class CDefaultCaseLabel extends CCaseLabel implements DefaultCaseLabel {
 
     public CDefaultCaseLabel(final int lineNumber,
                              final int columnNumber) {

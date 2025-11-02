@@ -3,6 +3,9 @@ package io.github.potjerodekool.nabu.tree.expression.impl;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.PrimitiveTypeTree;
 
+/**
+ * Implementation of PrimitiveTypeTree.
+ */
 public class CPrimitiveTypeTree extends CExpressionTree implements PrimitiveTypeTree {
 
     private final Kind kind;

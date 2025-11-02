@@ -1,8 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
-import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -17,8 +15,6 @@ import java.lang.annotation.Annotation;
 import java.util.*;
 
 public abstract class Symbol implements Element {
-
-    private static final Logger logger = LoggerFactory.getLogger(Symbol.class.getName());
 
     private String simpleName;
 
@@ -109,6 +105,7 @@ public abstract class Symbol implements Element {
 
     public void setSourceFile(final FileObject sourceFile) {
         this.sourceFile = sourceFile;
+        this.isError = false;
         validateSourceAndClassFile();
     }
 
@@ -121,6 +118,7 @@ public abstract class Symbol implements Element {
             throw new UnsupportedOperationException();
         }
         this.classFile = classFile;
+        this.isError = false;
         validateSourceAndClassFile();
     }
 
@@ -162,6 +160,15 @@ public abstract class Symbol implements Element {
                 .map(it -> (TypeVariable) it)
                 .map(it -> (TypeVariableSymbol) it.asElement())
                 .toList();
+    }
+
+    public void addTypeParameters(final List<TypeParameterElement> typeParameters) {
+        final var classType = (CClassType) type;
+        classType.setTypeArguments(
+                typeParameters.stream()
+                        .map(TypeParameterElement::asType)
+                        .toList()
+        );
     }
 
     @Override

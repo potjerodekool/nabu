@@ -4,19 +4,21 @@ import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.AnnotationTree;
 import io.github.potjerodekool.nabu.tree.expression.Dimension;
-import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.ExpressionBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class CDimmension extends CExpressionTree implements Dimension  {
+/**
+ * Implementation of Dimension.
+ */
+public class CDimension extends CExpressionTree implements Dimension  {
 
     private final List<AnnotationTree> annotations;
 
-    public CDimmension(final List<AnnotationTree> annotations,
-                       final int lineNumber,
-                       final int columnNumber) {
+    public CDimension(final List<AnnotationTree> annotations,
+                      final int lineNumber,
+                      final int columnNumber) {
         super(lineNumber, columnNumber);
         this.annotations = new ArrayList<>(annotations);
     }
@@ -26,7 +28,7 @@ public class CDimmension extends CExpressionTree implements Dimension  {
         return annotations;
     }
 
-    public <E extends ExpressionTree, EB extends ExpressionBuilder<E, EB>> CDimmension(final ExpressionBuilder<E, EB> builder) {
+    public <EB extends ExpressionBuilder<EB>> CDimension(final ExpressionBuilder<EB> builder) {
         super(builder);
         //TODO Set annotations
         throw new TodoException();

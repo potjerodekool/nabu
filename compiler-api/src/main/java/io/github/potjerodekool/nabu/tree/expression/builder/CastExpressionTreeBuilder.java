@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.tree.expression.CastExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CCastExpressionTree;
 
-public class CastExpressionTreeBuilder extends ExpressionBuilder<CastExpressionTree, CastExpressionTreeBuilder> {
+/**
+ * Builder for cast expressions.
+ */
+public class CastExpressionTreeBuilder extends ExpressionBuilder<CastExpressionTreeBuilder> {
 
     private ExpressionTree expression;
     private ExpressionTree targetType;

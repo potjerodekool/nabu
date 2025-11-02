@@ -16,6 +16,9 @@ import io.github.potjerodekool.nabu.type.BoundKind;
 
 import java.util.List;
 
+/**
+ * Utility methods of creating trees.
+ */
 public final class TreeMaker {
 
     private TreeMaker() {

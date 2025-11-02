@@ -133,7 +133,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
             variableDeclaratorStatement.getValue().accept(this, param);
         }
 
-        variableDeclaratorStatement.getType().accept(this, param);
+        variableDeclaratorStatement.getVariableType().accept(this, param);
 
         return defaultAnswer(variableDeclaratorStatement, param);
     }
@@ -167,7 +167,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
     @Override
     public R visitForStatement(final ForStatementTree forStatement, final P param) {
         forStatement.getForInit().forEach(it -> it.accept(this, param));
-        accept(forStatement.getExpression(), param);
+        accept(forStatement.getCondition(), param);
         forStatement.getForUpdate().forEach(it -> it.accept(this, param));
         forStatement.getStatement().accept(this, param);
         return defaultAnswer(forStatement, param);

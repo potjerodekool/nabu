@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CIntersectionTypeTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class IntersectionTypeTreeBuilder extends ExpressionBuilder<IntersectionTypeTree, IntersectionTypeTreeBuilder> {
+/**
+ * Builder for Intersection type trees.
+ */
+public class IntersectionTypeTreeBuilder extends ExpressionBuilder<IntersectionTypeTreeBuilder> {
 
     private final List<Tree> bounds = new ArrayList<>();
 

@@ -4,11 +4,12 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class AbstractSymbolBuilder<EB extends AbstractSymbolBuilder<EB>> {
+public abstract class AbstractSymbolBuilder<EB extends ElementBuilder<EB>> implements ElementBuilder<EB> {
 
     protected String simpleName;
     protected ElementKind kind;

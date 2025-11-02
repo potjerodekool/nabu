@@ -6,10 +6,15 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 import java.util.*;
 import java.util.function.Predicate;
 
+/**
+ * Base class for scopes.
+ */
 public abstract class AbstractScope implements Scope {
 
+    //Map the element by simple name.
     private final Map<String, Element> locals = new LinkedHashMap<>();
 
+    //The parent scope.
     private final Scope parent;
 
     public AbstractScope(final Scope parent) {
@@ -29,10 +34,6 @@ public abstract class AbstractScope implements Scope {
     @Override
     public Collection<Element> elements() {
         return locals.values();
-    }
-
-    public void reset() {
-        this.locals.clear();
     }
 
     @Override

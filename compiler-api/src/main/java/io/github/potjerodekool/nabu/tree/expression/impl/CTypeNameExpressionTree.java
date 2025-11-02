@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.TypeNameExpressionTree;
 
+/**
+ * Implementation of TypeNameExpressionTree.
+ */
 public class CTypeNameExpressionTree extends CExpressionTree implements TypeNameExpressionTree {
 
     private final ExpressionTree packageName;
@@ -23,7 +26,7 @@ public class CTypeNameExpressionTree extends CExpressionTree implements TypeName
         return packageName;
     }
 
-    public ExpressionTree getIdenifier() {
+    public ExpressionTree getIdentifier() {
         return idenifier;
     }
 

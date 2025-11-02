@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.backend.ByteCodePhase;
@@ -41,18 +43,18 @@ public class NabuCompiler {
 
     public int compile(final CompilerOptions compilerOptions) {
         final var pluginRegistry = new PluginRegistry();
-
         try (final NabuCFileManager fileManager = new NabuCFileManager();
              final var compilerContext = new CompilerContextImpl(
                      fileManager,
-                     pluginRegistry
+                     pluginRegistry,
+                     AsmClassElementLoader::new
              )) {
-            setup(fileManager, compilerContext, compilerOptions);
+            setup(fileManager, compilerOptions);
 
             final var sourceFileKinds = getSourceFileKinds(compilerOptions);
 
             final var nabuSourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
-            final var compilationUnits = processFiles(nabuSourceFiles, compilerContext);
+            final var compilationUnits = processFiles(nabuSourceFiles, null, compilerContext);
 
             return byteCodePhase.generate(
                     compilationUnits,
@@ -81,10 +83,7 @@ public class NabuCompiler {
     }
 
     private void setup(final NabuCFileManager fileManager,
-                       final CompilerContextImpl compilerContext,
                        final CompilerOptions compilerOptions) {
-        compilerContext.getPluginRegistry().registerPlugins(compilerContext);
-        fileManager.initialize(compilerContext.getPluginRegistry());
         fileManager.processOptions(compilerOptions);
 
         compilerOptions.getTargetDirectory()
@@ -101,8 +100,9 @@ public class NabuCompiler {
     }
 
     private List<CompilationUnit> processFiles(final List<FileObject> files,
+                                               final ModuleElement moduleElement,
                                                final CompilerContextImpl compilerContext) {
-        var fileObjectAndCompilationUnits = parseFiles(files, compilerContext).stream()
+        var fileObjectAndCompilationUnits = parseFiles(files, moduleElement, compilerContext).stream()
                 .map(it -> enterPhase(it, compilerContext))
                 .toList();
 
@@ -126,15 +126,17 @@ public class NabuCompiler {
     }
 
     private List<FileObjectAndCompilationUnit> parseFiles(final List<FileObject> files,
+                                                          final ModuleElement moduleElement,
                                                           final CompilerContext compilerContext) {
         return files.stream()
-                .map(file -> new FileObjectAndCompilationUnit(file, parseFile(file, compilerContext)))
+                .map(file -> new FileObjectAndCompilationUnit(file, parseFile(file, moduleElement, compilerContext)))
                 .toList();
     }
 
     public CompilationUnit parseFile(final FileObject fileObject,
+                                     final ModuleElement moduleElement,
                                      final CompilerContext compilerContext) {
-        return new NabuLanguageParser().parse(fileObject, compilerContext);
+        return new NabuLanguageParser().parse(fileObject, moduleElement, compilerContext);
     }
 
 }

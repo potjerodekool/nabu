@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CTypeUnionTreeExpressio
 import java.util.List;
 import java.util.Objects;
 
-public class TypeUnionExpressionBuilder extends ExpressionBuilder<TypeUnionExpressionTree, TypeUnionExpressionBuilder> {
+/**
+ * Builder for Type union expressions.
+ */
+public class TypeUnionExpressionBuilder extends ExpressionBuilder<TypeUnionExpressionBuilder> {
 
     private List<ExpressionTree> alternatives;
 

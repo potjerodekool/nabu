@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 
+/**
+ * An executable element like method and constructors.
+ */
 public interface ExecutableElement extends Element, Parameterizable {
 
     TypeMirror getReturnType();

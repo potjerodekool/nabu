@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.TypeVariableSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
@@ -16,6 +17,10 @@ public class TypeVariableSymbol extends TypeSymbol implements TypeParameterEleme
     public TypeVariableSymbol(final String name,
                               final Symbol owner) {
         super(ElementKind.TYPE_PARAMETER, 0, name, null, owner);
+    }
+
+    public TypeVariableSymbol(final TypeVariableSymbolBuilder typeVariableSymbolBuilder) {
+        this(typeVariableSymbolBuilder.getSimpleName(), (Symbol) typeVariableSymbolBuilder.getEnclosingElement());
     }
 
     @Override
@@ -57,6 +62,11 @@ public class TypeVariableSymbol extends TypeSymbol implements TypeParameterEleme
     @Override
     public <R, P> R accept(final ElementVisitor<R, P> v, final P p) {
         return v.visitTypeParameter(this, p);
+    }
+
+    @Override
+    public TypeVariableSymbolBuilder builder() {
+        return new TypeVariableSymbolBuilder();
     }
 
     @Override

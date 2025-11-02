@@ -6,7 +6,6 @@ import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableTypeVariable;
-import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 
@@ -52,9 +51,9 @@ public class SignatureParser extends AbstractVisitor {
         this.type = type;
     }
 
-    public List<AbstractType> createFormalTypeParameters() {
+    public List<TypeMirror> createFormalTypeParameters() {
         return formalTypeParameters.stream()
-                .map(it -> (AbstractType) it.toType(loader, new HashMap<>()))
+                .map(it -> it.toType(loader, new HashMap<>()))
                 .toList();
     }
 

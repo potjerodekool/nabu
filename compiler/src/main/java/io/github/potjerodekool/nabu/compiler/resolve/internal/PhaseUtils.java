@@ -20,7 +20,7 @@ public final class PhaseUtils {
 
     public VariableSymbol createVariable(final VariableDeclaratorTree variableDeclaratorStatement) {
         final var identifier = variableDeclaratorStatement.getName();
-        var type = variableDeclaratorStatement.getType().getType();
+        var type = variableDeclaratorStatement.getVariableType().getType();
 
         if (type instanceof VariableType) {
             if (variableDeclaratorStatement.getValue() == null) {
@@ -29,10 +29,12 @@ public final class PhaseUtils {
                 final var interferedType = typeOf(variableDeclaratorStatement.getValue());
                 type = types.getVariableType(interferedType);
             }
-            variableDeclaratorStatement.getType().setType(type);
+            variableDeclaratorStatement.getVariableType().setType(type);
+        } else if (type == null) {
+            type = types.getErrorType("error");
         }
 
-        return new VariableSymbolBuilderImpl()
+        return (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(toElementKind(variableDeclaratorStatement.getKind()))
                 .simpleName(identifier.getName())
                 .type(type)

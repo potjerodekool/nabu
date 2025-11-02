@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.tree.expression.ArrayAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.ArrayAccessExpressionBuilder;
 
+/**
+ * Implementation of ArrayAccessExpressionTree.
+ */
 public class CArrayAccessExpressionTree extends CExpressionTree implements ArrayAccessExpressionTree {
 
     private final ExpressionTree expression;

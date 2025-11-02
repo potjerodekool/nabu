@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 
+/**
+ * A type parameter element.
+ */
 public interface TypeParameterElement extends Element {
 
     @Override

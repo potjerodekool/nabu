@@ -10,6 +10,31 @@
     </parent>
 
     <artifactId>nabu-daemon</artifactId>
+    <packaging>jar</packaging>
+    <name>${project.groupId}:${project.artifactId}</name>
+    <description>Nabu compiler daemon</description>
+    <url>https://github.com/potjerodekool/nabu</url>
+
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Evert Tigchelaar</name>
+            <email>everttigchelaar@gmail.com</email>
+            <organizationUrl>https://github.com/potjerodekool</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>https://github.com/potjerodekool/nabu.git</connection>
+        <developerConnection>https://github.com/potjerodekool/nabu.git</developerConnection>
+        <url>http://github.com/potjerodekool/nabu/tree/main</url>
+    </scm>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -49,6 +74,48 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <additionalOptions>
+                        <additionalOption>--add-modules</additionalOption>
+                        <additionalOption>ALL-MODULE-PATH</additionalOption>
+                    </additionalOptions>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>${maven.gpg.plugin.version}</version>
+                <configuration>
+                    <useAgent>true</useAgent>
+                    <!--
+                    <keyname>${gpg.keyname}</keyname>
+                    <passphraseServerId>${gpg.keyname}</passphraseServerId>
+                    -->
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.9.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>ossrh</publishingServerId>
+                    <autoPublish>true</autoPublish>
+                    <waitUntil>published</waitUntil>
+                </configuration>
             </plugin>
         </plugins>
     </build>

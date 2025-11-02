@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
+/**
+ * A class scope to resolve static fields and enum constants.
+ */
 public class ClassScope implements Scope {
 
     private final DeclaredType declaredType;

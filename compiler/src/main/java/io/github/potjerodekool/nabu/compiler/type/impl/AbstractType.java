@@ -26,7 +26,7 @@ public abstract class AbstractType implements TypeMirror {
     public abstract int hashCode();
 
     @Override
-    public List<AbstractType> getTypeArguments() {
+    public List<TypeMirror> getTypeArguments() {
         return List.of();
     }
 

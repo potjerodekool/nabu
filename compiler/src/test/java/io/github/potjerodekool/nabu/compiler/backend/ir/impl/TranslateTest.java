@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.impl;
 
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.INode;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.test.TestClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
@@ -35,7 +35,6 @@ import io.github.potjerodekool.nabu.tree.statement.impl.CSwitchStatement;
 import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -44,11 +43,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class TranslateTest {
+class TranslateTest extends AbstractCompilerTest {
 
-    final Translate translate = new Translate(null);
-
-    private final TestClassElementLoader loader = new TestClassElementLoader();
+    final Translate translate = new Translate(getCompilerContext());
 
     @BeforeEach
     void setup() {
@@ -56,11 +53,12 @@ class TranslateTest {
 
     @Test
     void visitBinaryExpression() {
+        addFakeClass("SomeClass");
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
                 .build();
 
-        final var stringType = loader.getSymbolTable()
+        final var stringType = getCompilerContext().getSymbolTable()
                 .getStringType();
 
         final var thisSymbol = new VariableSymbolBuilderImpl()
@@ -129,6 +127,9 @@ class TranslateTest {
 
     @Test
     void visitFieldAccess() {
+        addFakeClass("SomeClass");
+        addFakeClass("JoinType");
+
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
                         .build();
@@ -142,7 +143,7 @@ class TranslateTest {
 
         final var joinTypeIdentifier = new CIdentifierTree("JoinType");
 
-        final var joinTypeClazz = loader.loadClass(
+        final var joinTypeClazz = getCompilerContext().getClassElementLoader().loadClass(
                 null,
                 "JoinType"
         );
@@ -179,6 +180,8 @@ class TranslateTest {
 
     @Test
     void visitFieldAccess2() {
+        addFakeClass("ShapeKind");
+
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
                         .build();
@@ -192,14 +195,14 @@ class TranslateTest {
 
         final var shapeKindIdentifier = new CIdentifierTree("ShapeKind");
 
-        final var shapeKindClazz = loader.loadClass(
+        final var shapeKindClazz = getCompilerContext().getClassElementLoader().loadClass(
                 null,
                 "ShapeKind"
         );
 
         shapeKindIdentifier.setType(shapeKindClazz.asType());
 
-        final var classClazz = loader.loadClass(null,"Class");
+        final var classClazz = getCompilerContext().getClassElementLoader().loadClass(null,"java.lang.Class");
 
         final var classIdentifier = new CIdentifierTree("class");
         classIdentifier.setType(classClazz.asType());
@@ -223,11 +226,15 @@ class TranslateTest {
     }
 
     @Test
-    @Disabled
     void visitFieldAccess3() {
-        final var classField =new VariableSymbolBuilderImpl()
+        addFakeClass("Fields");
+
+        final var integerClass = getCompilerContext().getClassElementLoader().loadClass(null, "java.lang.Integer");
+
+        final var classField = (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.FIELD)
                 .simpleName("b")
+                .type(integerClass.asType())
                 .build();
 
         final var clazz = new ClassSymbolBuilder()
@@ -518,10 +525,6 @@ class CodePrinter implements CodeVisitor<Frame> {
     public Temp visitName(final Name name, final Frame param) {
         writeLn(name.getLabel().getName());
         return null;
-    }
-
-    private void write(final String text) {
-        builder.append(text);
     }
 
     private void writeLn(final String text) {

@@ -53,7 +53,7 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
     }
 
     @Override
-    public void tranform(final CompilationUnit compilationUnit) {
+    public void transform(final CompilationUnit compilationUnit) {
         compilationUnit.accept(this, null);
     }
 
@@ -404,12 +404,12 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
 
     @Override
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
-        final var newType = (ExpressionTree) variableDeclaratorStatement.getType().accept(this, scope);
+        final var newType = (ExpressionTree) variableDeclaratorStatement.getVariableType().accept(this, scope);
         final var newIdentifier = (IdentifierTree) variableDeclaratorStatement.getName().accept(this, scope);
         final var newValue = accept(variableDeclaratorStatement.getValue(), scope);
 
         final var newVariableDeclaratorStatement = variableDeclaratorStatement.builder()
-                .type(newType)
+                .variableType(newType)
                 .name(newIdentifier)
                 .value(newValue)
                 .build();
@@ -417,7 +417,7 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
         final TypeMirror type;
 
         if (newVariableDeclaratorStatement.getValue() != null
-                && variableDeclaratorStatement.getType() instanceof VariableTypeTree) {
+                && variableDeclaratorStatement.getVariableType() instanceof VariableTypeTree) {
             type = TreeUtils.typeOf(newVariableDeclaratorStatement.getValue());
         } else {
             type = TreeUtils.typeOf(newType);

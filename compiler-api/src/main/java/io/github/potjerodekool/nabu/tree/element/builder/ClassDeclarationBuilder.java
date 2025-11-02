@@ -13,7 +13,10 @@ import io.github.potjerodekool.nabu.tree.statement.builder.StatementTreeBuilder;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ClassDeclarationBuilder extends StatementTreeBuilder<CClassDeclaration, ClassDeclarationBuilder> {
+/**
+ * Builder for class declarations.
+ */
+public class ClassDeclarationBuilder extends StatementTreeBuilder<ClassDeclarationBuilder> {
 
     private Modifiers modifiers = new Modifiers();
     private Kind kind;

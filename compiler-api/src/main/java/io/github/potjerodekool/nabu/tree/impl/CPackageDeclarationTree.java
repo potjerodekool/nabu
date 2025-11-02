@@ -9,6 +9,9 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of PackageDeclaration.
+ */
 public class CPackageDeclarationTree extends CTree implements PackageDeclaration {
 
     private final List<AnnotationTree> annotations = new ArrayList<>();

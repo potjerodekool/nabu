@@ -1,51 +1,22 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.lang.model.element.Modifier;
 import org.objectweb.asm.Opcodes;
 
-import java.util.HashSet;
-import java.util.Set;
-
+/**
+ * Utilities to convert access to flags and vice versa.
+ */
 public final class AccessUtils {
 
     private AccessUtils() {
     }
 
-    public static Set<Modifier> parseModifiers(final int access) {
-        final var modifiers = new HashSet<Modifier>();
-
-        if (hasOpcode(access, Opcodes.ACC_PUBLIC)) {
-            modifiers.add(Modifier.PUBLIC);
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_PRIVATE)) {
-            modifiers.add(Modifier.PRIVATE);
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_PROTECTED)) {
-            modifiers.add(Modifier.PROTECTED);
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_FINAL)) {
-            modifiers.add(Modifier.FINAL);
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_STATIC)) {
-            modifiers.add(Modifier.STATIC);
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_TRANSIENT)) {
-            modifiers.add(Modifier.TRANSIENT);
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_VOLATILE)) {
-            modifiers.add(Modifier.VOLATILE);
-        }
-
-        return modifiers;
-    }
-
+    /**
+     * Converts access to flags.
+     *
+     * @param access Access value
+     * @return Return flags
+     */
     public static long parseClassAccessToFlags(final int access) {
         long flags = 0;
 
@@ -104,6 +75,12 @@ public final class AccessUtils {
         return flags;
     }
 
+    /**
+     * Converts field access to flags.
+     *
+     * @param access Access value
+     * @return Returns flags
+     */
     public static long parseFieldAccessToFlags(final int access) {
         long flags = 0;
 
@@ -150,6 +127,12 @@ public final class AccessUtils {
         return flags;
     }
 
+    /**
+     * Converts method access to flags.
+     *
+     * @param access Access value
+     * @return Return flags
+     */
     public static long parseMethodAccessToFlags(final int access) {
         long flags = 0;
 
@@ -208,45 +191,17 @@ public final class AccessUtils {
         return flags;
     }
 
-    public static long toFlags(final int access) {
-        long flags = 0;
 
-        if (hasOpcode(access, Opcodes.ACC_PUBLIC)) {
-            flags += Flags.PUBLIC;
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_PRIVATE)) {
-            flags += Flags.PRIVATE;
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_PROTECTED)) {
-            flags += Flags.PROTECTED;
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_FINAL)) {
-            flags += Flags.FINAL;
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_STATIC)) {
-            flags += Flags.STATIC;
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_TRANSIENT)) {
-            flags += Flags.TRANSIENT;
-        }
-
-        if (hasOpcode(access, Opcodes.ACC_VOLATILE)) {
-            flags += Flags.VOLATILE;
-        }
-
-        return flags;
-    }
-
-    public static boolean hasOpcode(final int access,
-                                    final int opcode) {
+    private static boolean hasOpcode(final int access,
+                                     final int opcode) {
         return (access & opcode) == opcode;
     }
 
+    /**
+     * Converts flags to access.
+     * @param flags Flags value
+     * @return Returns the access value
+     */
     public static int flagsToAccess(final long flags) {
         int access = 0;
 

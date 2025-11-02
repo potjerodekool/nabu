@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.InstanceOfExpression;
 
+/**
+ * Implementation of InstanceOfExpression.
+ */
 public class CInstanceOfExpression extends CExpressionTree implements InstanceOfExpression {
 
     private final ExpressionTree expression;

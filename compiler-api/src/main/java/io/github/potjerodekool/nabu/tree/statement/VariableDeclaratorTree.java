@@ -19,7 +19,7 @@ public interface VariableDeclaratorTree extends StatementTree {
 
     boolean hasFlag(final long flag);
 
-    ExpressionTree getType();
+    ExpressionTree getVariableType();
 
     IdentifierTree getName();
 

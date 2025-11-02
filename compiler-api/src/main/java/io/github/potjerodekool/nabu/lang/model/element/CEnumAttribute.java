@@ -2,6 +2,9 @@ package io.github.potjerodekool.nabu.lang.model.element;
 
 import io.github.potjerodekool.nabu.type.DeclaredType;
 
+/**
+ * Implementation of {{@link EnumAttribute}
+ */
 public final class CEnumAttribute extends AbstractAttribute implements EnumAttribute {
 
     private final DeclaredType type;

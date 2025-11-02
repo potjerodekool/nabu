@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.ExpressionStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.StatementExpressionTreeBuilder;
 
+/**
+ * Implementation of ExpressionStatement.
+ */
 public class CExpressionStatementTree extends CStatementTree implements ExpressionStatementTree {
 
     final ExpressionTree expression;

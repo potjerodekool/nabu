@@ -1,12 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.type.DeclaredType;
-import io.github.potjerodekool.nabu.type.TypeKind;
-import io.github.potjerodekool.nabu.type.TypeMirror;
-import io.github.potjerodekool.nabu.type.TypeVisitor;
+import io.github.potjerodekool.nabu.type.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,11 +10,9 @@ import java.util.Objects;
 
 public class CClassType extends AbstractType implements DeclaredType {
 
-
-
     private TypeMirror outerType;
 
-    private List<AbstractType> typeArguments;
+    private List<TypeMirror> typeArguments;
 
     private List<TypeMirror> allParameters;
 
@@ -74,7 +68,7 @@ public class CClassType extends AbstractType implements DeclaredType {
     }
 
     @Override
-    public List<AbstractType> getTypeArguments() {
+    public List<TypeMirror> getTypeArguments() {
         if (typeArguments == null) {
            complete();
 
@@ -86,8 +80,16 @@ public class CClassType extends AbstractType implements DeclaredType {
         return typeArguments;
     }
 
-    public void setTypeArguments(final List<AbstractType> typeArguments) {
-        this.typeArguments = typeArguments;
+    public void setTypeArguments(final List<TypeMirror> typeArguments) {
+        this.typeArguments = typeArguments != null ? new ArrayList<>(typeArguments) : null;
+        validateTypeArguments();
+    }
+
+    public void addTypeArgument(final TypeMirror typeArgument) {
+        if (this.typeArguments == null) {
+            this.typeArguments = new ArrayList<>();
+        }
+        this.typeArguments.add(typeArgument);
         validateTypeArguments();
     }
 

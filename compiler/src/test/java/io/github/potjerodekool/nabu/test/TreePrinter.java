@@ -564,7 +564,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                                     final Object param) {
         write("for (");
         writeList(forStatement.getForInit(), param, ", ");
-        forStatement.getExpression().accept(this, param);
+        forStatement.getCondition().accept(this, param);
         write(";");
 
         if (!forStatement.getForUpdate().isEmpty()) {
@@ -592,7 +592,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                 write(" : ");
             }
 
-            variableDeclaratorStatement.getType().accept(this, param);
+            variableDeclaratorStatement.getVariableType().accept(this, param);
 
             if (Flags.hasFlag(variableDeclaratorStatement.getFlags(), Flags.VARARGS)) {
                 write("...");
@@ -615,10 +615,10 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         variableDeclaratorStatement.getName().accept(this, param);
 
         if (variableDeclaratorStatement.getKind() != Kind.ENUM_CONSTANT
-            && variableDeclaratorStatement.getType() != null
-            && !(variableDeclaratorStatement.getType() instanceof VariableTypeTree)) {
+            && variableDeclaratorStatement.getVariableType() != null
+            && !(variableDeclaratorStatement.getVariableType() instanceof VariableTypeTree)) {
             write(" : ");
-            variableDeclaratorStatement.getType().accept(this, param);
+            variableDeclaratorStatement.getVariableType().accept(this, param);
         }
 
         if (variableDeclaratorStatement.getKind() == Kind.ENUM_CONSTANT) {
@@ -768,7 +768,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     private void visitLocalVariable(final VariableDeclaratorTree localVariable,
                                     final Object param) {
-        localVariable.getType().accept(this, param);
+        localVariable.getVariableType().accept(this, param);
         write(" ");
         localVariable.getName().accept(this, param);
     }
@@ -1101,9 +1101,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
-    public Object visitBindingPattern(final BindingPattern bindingPattern, final Object param) {
-        final var variableDeclarator = bindingPattern.getVariableDeclarator();
-        variableDeclarator.getType().accept(this, param);
+    public Object visitTypePattern(final TypePattern typePattern, final Object param) {
+        final var variableDeclarator = typePattern.getVariableDeclarator();
+        variableDeclarator.getVariableType().accept(this, param);
         write(" ");
         variableDeclarator.getName().accept(this, param);
         return null;

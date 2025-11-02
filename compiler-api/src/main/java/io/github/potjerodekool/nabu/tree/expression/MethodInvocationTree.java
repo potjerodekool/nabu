@@ -6,6 +6,9 @@ import io.github.potjerodekool.nabu.type.ExecutableType;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Method invocation expresion.
+ */
 public interface MethodInvocationTree extends ExpressionTree {
 
     ExpressionTree getMethodSelector();

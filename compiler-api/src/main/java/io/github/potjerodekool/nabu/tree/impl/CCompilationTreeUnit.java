@@ -13,6 +13,9 @@ import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of CompilationUnit.
+ */
 public class CCompilationTreeUnit extends CTree implements CompilationUnit {
 
     private final List<Tree> definitions = new ArrayList<>();

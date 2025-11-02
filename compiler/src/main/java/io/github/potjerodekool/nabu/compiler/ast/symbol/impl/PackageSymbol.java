@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.PackageSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPackageType;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
@@ -31,6 +32,10 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
             throw new IllegalArgumentException();
         }
         this.fullName = createFullName(parentPackage, packageName);
+    }
+
+    public PackageSymbol(final PackageSymbolBuilder packageSymbolBuilder) {
+        this(null, packageSymbolBuilder.getSimpleName());
     }
 
     @Override
@@ -120,4 +125,8 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
         this.classSymbol = classSymbol;
     }
 
+    @Override
+    public PackageSymbolBuilder builder() {
+        return new PackageSymbolBuilder (this);
+    }
 }

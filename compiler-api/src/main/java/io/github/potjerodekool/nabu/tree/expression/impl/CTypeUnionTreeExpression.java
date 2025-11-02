@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.tree.expression.builder.TypeUnionExpressionB
 
 import java.util.List;
 
+/**
+ * Implementation of TypeUnionTree.
+ */
 public class CTypeUnionTreeExpression extends CExpressionTree implements TypeUnionExpressionTree {
 
     private final List<ExpressionTree> alternatives;

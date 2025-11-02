@@ -13,11 +13,14 @@ import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTre
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Implementation of VariableDeclaratorTree
+ */
 public class CVariableDeclaratorTree extends CStatementTree implements VariableDeclaratorTree {
 
     private final Kind kind;
     private final Modifiers modifiers;
-    private final ExpressionTree type;
+    private final ExpressionTree variableType;
     private final IdentifierTree name;
     private final ExpressionTree nameExpression;
     private Tree value;
@@ -33,7 +36,7 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
 
     public CVariableDeclaratorTree(final Kind kind,
                                    final Modifiers modifiers,
-                                   final ExpressionTree type,
+                                   final ExpressionTree variableType,
                                    final IdentifierTree name,
                                    final ExpressionTree nameExpression,
                                    final Tree value,
@@ -43,7 +46,7 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
         this.kind = kind;
         Objects.requireNonNull(modifiers);
         this.modifiers = modifiers;
-        this.type = type;
+        this.variableType = variableType;
         this.name = name;
         this.nameExpression = nameExpression;
         this.value = value;
@@ -53,7 +56,7 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
         super(builder);
         this.kind = builder.getKind();
         this.modifiers = builder.getModifiers();
-        this.type = builder.getType();
+        this.variableType = builder.getVariableType();
         this.name = builder.getName();
         this.nameExpression = builder.getNameExpression();
         this.value = builder.getValue();
@@ -80,8 +83,8 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
     }
 
     @Override
-    public ExpressionTree getType() {
-        return type;
+    public ExpressionTree getVariableType() {
+        return variableType;
     }
 
     @Override

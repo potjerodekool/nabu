@@ -12,16 +12,22 @@ public class ModuleLocationHandler extends LocationHandler implements FileManage
     private final String moduleName;
     private final Path modulePath;
     private final boolean output;
+    private final boolean isSourceLocation;
+    private final boolean isClassLocation;
     private Collection<Path> searchPath;
 
     public ModuleLocationHandler(final String name,
                                  final String moduleName,
                                  final Path modulePath,
-                                 final boolean output) {
+                                 final boolean output,
+                                 final boolean isSourceLocation,
+                                 final boolean isClassLocation) {
         this.name = name;
         this.moduleName = moduleName;
         this.modulePath = modulePath;
         this.output = output;
+        this.isSourceLocation = isSourceLocation;
+        this.isClassLocation = isClassLocation;
     }
 
     @Override
@@ -57,5 +63,15 @@ public class ModuleLocationHandler extends LocationHandler implements FileManage
     @Override
     public Path findPackage(final String packageName) {
         return modulePath.resolve(packageName.replace('.', '/'));
+    }
+
+    @Override
+    public boolean isClassLocation() {
+        return isClassLocation;
+    }
+
+    @Override
+    public boolean isSourceLocation() {
+        return isSourceLocation;
     }
 }

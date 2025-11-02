@@ -2,11 +2,14 @@
 * [Parse](#parse-phase)
 * [Enter](#enter-phase)
 * [Resolve](#resolve-phase)
+* [Transform](#transform-phase)
 * [Check](#check-phase)
 * [Lambda](#lambda-phase)
 * [Lower](#lower-phase)
 * [IR](#ir-phase)
 * [Bytecode](#bytecode-phase)
+
+![Alt text](compiler-phases.png)
 
 # Parse phase
 Parse source files.
@@ -21,8 +24,6 @@ Resolve classes, methods, fields, etc.
 # Transform phase
 Run the transformers (io.github.potjerodekool.nabu.compiler.transform.CodeTransformer)
 which are present on the classpath of the compiler.
-
-After this phase is complete the resolve phase will be executed again.
 
 # Check phase
 Check the compilation units for unresolved symbols(methods, fields, etc.) and types.

@@ -9,6 +9,9 @@ import io.github.potjerodekool.nabu.tree.expression.builder.MemberReferenceBuild
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of MemberReference.
+ */
 public class CMemberReference extends CExpressionTree implements MemberReference {
 
     private final MemberReference.ReferenceKind mode;

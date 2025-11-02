@@ -2,13 +2,15 @@ package io.github.potjerodekool.nabu.resolve.scope;
 
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
 
+/**
+ * A mutable scope that can be used by the compiler
+ * to add elements while loading a class.
+ */
 public class WritableScope implements Scope {
 
     private final List<Element> elements = new LinkedList<>();
@@ -67,7 +69,8 @@ public class WritableScope implements Scope {
 
     private Element resolveByName(final String name) {
         final var list = new ArrayList<>(this.elements);
-        return ElementFilter.typesIn(list).stream()
+        return list.stream()
+                .filter(it -> it instanceof TypeElement)
                 .filter(it -> it.getSimpleName().equals(name))
                 .findFirst()
                 .orElse(null);

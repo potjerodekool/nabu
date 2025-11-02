@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class BlockStatementTreeBuilder extends StatementTreeBuilder<BlockStatementTree, BlockStatementTreeBuilder> {
+/**
+ * Builder for Block statements.
+ */
+public class BlockStatementTreeBuilder extends StatementTreeBuilder<BlockStatementTreeBuilder> {
 
     private final List<StatementTree> statements = new ArrayList<>();
 

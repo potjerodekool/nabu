@@ -59,11 +59,6 @@ public abstract class AbstractTypeVisitor<R,P> implements TypeVisitor<R, P> {
     }
 
     @Override
-    public R visitNoneType(final NoType noType, final P param) {
-        return visitType(noType, param);
-    }
-
-    @Override
     public R visitCapturedType(final CapturedType capturedType, final P param) {
         return visitType(capturedType, param);
     }

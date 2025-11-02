@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.type.DeclaredType;
 
 import java.util.Map;
 
+/**
+ * An annotation mirror.
+ */
 public interface AnnotationMirror {
 
     DeclaredType getAnnotationType();

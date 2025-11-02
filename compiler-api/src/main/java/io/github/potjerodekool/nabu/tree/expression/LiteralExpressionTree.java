@@ -4,6 +4,9 @@ import io.github.potjerodekool.nabu.tree.expression.builder.LiteralExpressionTre
 
 import java.util.Arrays;
 
+/**
+ * Literal expression.
+ */
 public interface LiteralExpressionTree extends ExpressionTree {
 
     Kind getLiteralKind();

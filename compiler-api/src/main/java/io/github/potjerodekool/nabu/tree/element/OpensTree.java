@@ -1,10 +1,19 @@
 package io.github.potjerodekool.nabu.tree.element;
 
+import io.github.potjerodekool.nabu.tree.element.impl.COpensTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
 import java.util.List;
 
-public interface OpensTree extends DirectiveTree {
+/**
+ * Represents a opens is a module:
+ * For example:
+ * <p> </p>
+ * module MyModule {
+ *    opens myPackage;
+ * }
+ */
+public sealed interface OpensTree extends DirectiveTree permits COpensTree {
 
     ExpressionTree getPackageName();
 

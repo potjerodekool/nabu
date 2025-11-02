@@ -5,10 +5,14 @@ import io.github.potjerodekool.nabu.tree.TypeParameterTree;
 import io.github.potjerodekool.nabu.tree.expression.AnnotationTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.TypeVariableTree;
 
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of TypeParameterTree.
+ */
 public class CTypeParameterTree extends CTree implements TypeParameterTree {
 
     private final List<AnnotationTree> annotations;

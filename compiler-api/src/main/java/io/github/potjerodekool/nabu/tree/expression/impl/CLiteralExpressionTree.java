@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.tree.expression.builder.LiteralExpressionTre
 
 import java.util.Objects;
 
+/**
+ * Implementation of LiteralExpressionTree.
+ */
 public class CLiteralExpressionTree extends CExpressionTree implements LiteralExpressionTree {
 
     private Object literal;

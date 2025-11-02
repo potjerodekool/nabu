@@ -11,6 +11,9 @@ import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 
 import java.util.List;
 
+/**
+ * A function/method.
+ */
 public interface Function extends Tree {
 
     ExecutableElement getMethodSymbol();
@@ -31,10 +34,12 @@ public interface Function extends Tree {
 
     void addParameters(List<VariableDeclaratorTree> parameters);
 
+    void addParameter(VariableDeclaratorTree parameter);
+
     void addParameters(int index,
                        List<VariableDeclaratorTree> parameters);
 
-    ExpressionTree getReturnType();
+    Tree getReturnType();
 
     List<? extends Tree> getThrownTypes();
 

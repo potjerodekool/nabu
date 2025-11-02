@@ -10,6 +10,31 @@
     </parent>
 
     <artifactId>compiler-test</artifactId>
+    <packaging>jar</packaging>
+    <name>${project.groupId}:${project.artifactId}</name>
+    <description>Nabu compiler tests</description>
+    <url>https://github.com/potjerodekool/nabu</url>
+
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Evert Tigchelaar</name>
+            <email>everttigchelaar@gmail.com</email>
+            <organizationUrl>https://github.com/potjerodekool</organizationUrl>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>https://github.com/potjerodekool/nabu.git</connection>
+        <developerConnection>https://github.com/potjerodekool/nabu.git</developerConnection>
+        <url>http://github.com/potjerodekool/nabu/tree/main</url>
+    </scm>
 
     <properties>
     </properties>
@@ -126,6 +151,38 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>${maven.gpg.plugin.version}</version>
+                <configuration>
+                    <!--
+                    <keyname>${gpg.keyname}</keyname>
+                    <passphraseServerId>${gpg.keyname}</passphraseServerId>
+                    -->
+                    <useAgent>true</useAgent>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.9.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>ossrh</publishingServerId>
+                    <autoPublish>true</autoPublish>
+                    <waitUntil>published</waitUntil>
+                </configuration>
             </plugin>
         </plugins>
     </build>

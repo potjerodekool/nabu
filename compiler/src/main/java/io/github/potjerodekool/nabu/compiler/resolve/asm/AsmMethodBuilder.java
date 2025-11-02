@@ -114,7 +114,7 @@ public class AsmMethodBuilder extends MethodVisitor {
 
     private VariableSymbol createParameter(final String name,
                                            final TypeMirror argType) {
-        return new VariableSymbolBuilderImpl()
+        return (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName(name)
                 .type(argType)

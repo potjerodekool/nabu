@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
 import java.util.List;
 
+/**
+ * A module declaration.
+ */
 public interface ModuleDeclaration extends Tree {
 
     List<AnnotationTree> getAnnotations();

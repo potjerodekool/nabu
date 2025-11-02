@@ -44,7 +44,7 @@ public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
         final var module = scope.findModuleElement();
 
         final var selected = (IdentifierTree) fieldAccessExpression.getSelected();
-        final var field = (IdentifierTree) fieldAccessExpression.getField();
+        final var field = fieldAccessExpression.getField();
         final var targetScope = visitFieldAccessExpressionTarget(
                 fieldAccessExpression,
                 scope

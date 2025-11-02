@@ -1,6 +1,9 @@
 package io.github.potjerodekool.nabu.lang.model.element;
 
-public interface AnnotationValue {
+/**
+ * Root interface for annotation values.
+ */
+public sealed interface AnnotationValue permits Attribute {
 
     Object getValue();
 

@@ -7,7 +7,10 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CProvidesTree extends CDirective implements ProvidesTree {
+/**
+ * Implementation of ProvidesTree
+ */
+public final class CProvidesTree extends CDirective implements ProvidesTree {
 
     private final ExpressionTree serviceName;
     private final List<ExpressionTree> implementations;

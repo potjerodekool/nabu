@@ -4,9 +4,13 @@ import io.github.potjerodekool.nabu.tree.CaseLabel;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
+import io.github.potjerodekool.nabu.tree.statement.builder.StatementTreeBuilder;
 
 import java.util.List;
 
+/**
+ * Implementation of CaseStatement.
+ */
 public class CCaseStatement extends CStatementTree implements CaseStatement {
 
     private final CaseKind caseKind;
@@ -42,5 +46,10 @@ public class CCaseStatement extends CStatementTree implements CaseStatement {
     @Override
     public Tree getBody() {
         return body;
+    }
+
+    @Override
+    public StatementTreeBuilder<?> builder() {
+        return new StatementTreeBuilder(this);
     }
 }

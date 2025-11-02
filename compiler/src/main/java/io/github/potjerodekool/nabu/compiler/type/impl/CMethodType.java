@@ -14,7 +14,7 @@ public class CMethodType extends AbstractType implements ExecutableType {
 
     private TypeMirror returnType;
 
-    private List<TypeMirror> parameterTypes = new ArrayList<>();
+    private final List<TypeMirror> parameterTypes = new ArrayList<>();
 
     private final List<TypeVariable> typeVariables = new ArrayList<>();
 
@@ -51,13 +51,14 @@ public class CMethodType extends AbstractType implements ExecutableType {
         this.parameterTypes.add(parameterType);
     }
 
-    public void setParameterTypes(final List<TypeMirror> parameterTypes) {
-        this.parameterTypes = parameterTypes;
-    }
-
     @Override
     public List<? extends TypeVariable> getTypeVariables() {
         return typeVariables;
+    }
+
+    @Override
+    public void addTypeVariable(final TypeVariable typeVariable) {
+        this.typeVariables.add(typeVariable);
     }
 
     @Override
@@ -87,6 +88,11 @@ public class CMethodType extends AbstractType implements ExecutableType {
     @Override
     public List<? extends TypeMirror> getThrownTypes() {
         return thrownTypes;
+    }
+
+    public void setThrownTypes(final List<TypeMirror> thrownTypes) {
+        this.thrownTypes.clear();
+        this.thrownTypes.addAll(thrownTypes);
     }
 
     @Override

@@ -1,15 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.test.TestClassElementLoader;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.ImportItem;
@@ -31,20 +29,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
-class TypeEnterTest {
+class TypeEnterTest extends AbstractCompilerTest {
 
-    private final CompilerContextImpl compilerContext = mock(CompilerContextImpl.class);
-    private final ClassSymbolLoader loader = new TestClassElementLoader();
     private TypeEnter typeEnter;
 
     @BeforeEach
     void setup() {
-        when(compilerContext.getClassElementLoader()).thenReturn(loader);
-        typeEnter = new TypeEnter(compilerContext);
+        //when(compilerContext.getClassElementLoader()).thenReturn(loader);
+        //when(compilerContext.getSymbolTable()).thenReturn(loader.getSymbolTable());
+        typeEnter = new TypeEnter(getCompilerContext());
     }
 
     @Test
@@ -155,7 +153,7 @@ class TypeEnterTest {
         final var parameter = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.PARAMETER)
                 .name(new CIdentifierTree("text"))
-                .type(new CIdentifierTree("java.lang.String"))
+                .variableType(new CIdentifierTree("java.lang.String"))
                 .build();
 
         final var constructor = new FunctionBuilder()
@@ -209,21 +207,27 @@ class TypeEnterTest {
 
     @Test
     void starImportItem() {
-        loader.loadClass(null, "java.util.List");
-        loader.loadClass(null, "java.util.Iterator");
-        loader.loadClass(null, "java.util.Collection");
+        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+
+        getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.util.List");
+        getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.util.Iterator");
+        getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.util.Collection");
 
         final var compilationUnit = doImport(createImportItem("java.util.*", false));
 
         final var importedClassNames = getClasses(compilationUnit).stream()
                 .map(ClassSymbol::getQualifiedName)
-                .toList();
+                .collect(Collectors.toSet());
 
         assertEquals(
-                List.of(
-                        "java.util.List",
+                Set.of(
+                        "java.util.AbstractList",
+                        "java.util.ArrayList",
+                        "java.util.Collection",
                         "java.util.Iterator",
-                        "java.util.Collection"
+                        "java.util.List",
+                        "java.util.Optional",
+                        "java.util.Set"
                 ),
                 importedClassNames
         );
@@ -240,6 +244,7 @@ class TypeEnterTest {
 
         assertEquals(
                 List.of(
+                        "add",
                         "iterator",
                         "of"
                 ),
@@ -284,6 +289,9 @@ class TypeEnterTest {
                 ""
         );
 
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        packageSymbol.setModuleSymbol(module);
+
         final var clazz = new ClassSymbolBuilder()
                 .enclosingElement(packageSymbol)
                 .kind(ElementKind.CLASS)
@@ -293,7 +301,7 @@ class TypeEnterTest {
                 .modifiers(new Modifiers(0))
                 .build();
 
-        loader.loadClass(
+        getCompilerContext().getClassElementLoader().loadClass(
                 null,
                 "java.util.Collection"
         );
@@ -344,7 +352,7 @@ class TypeEnterTest {
     void initFields() {
         final var field = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.FIELD)
-                .type(IdentifierTree.create("List"))
+                .variableType(IdentifierTree.create("List"))
                 .name(IdentifierTree.create("list"))
                 .value(new NewClassExpressionBuilder()
                         .name(IdentifierTree.create("ArrayList"))

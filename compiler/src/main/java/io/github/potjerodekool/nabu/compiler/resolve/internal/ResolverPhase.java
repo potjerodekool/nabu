@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.AbstractResolver;
@@ -63,7 +62,7 @@ public class ResolverPhase extends AbstractResolver {
 
         clazz.complete();
 
-        ((CompilerContextImpl) compilerContext).getEnumUsageMap().registerClass(classDeclaration);
+        ((CompilerContextImpl) getCompilerContext()).getEnumUsageMap().registerClass(classDeclaration);
 
         final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
 
@@ -90,7 +89,7 @@ public class ResolverPhase extends AbstractResolver {
 
         final var typeParameters = classDeclaration.getTypeParameters().stream()
                 .map(typeParameter -> (Element) typeParameter.accept(this, classScope))
-                .map(element -> (AbstractType) element.asType())
+                .map(Element::asType)
                 .toList();
 
         final var declaredType = (CClassType) clazz.asType();
@@ -179,7 +178,7 @@ public class ResolverPhase extends AbstractResolver {
         resolvedMethodTypeOptional.ifPresent(resolvedMethodType -> {
             methodSelector.setType(resolvedMethodType.getOwner().asType());
             methodInvocation.setMethodType(resolvedMethodType);
-            final var boxer = compilerContext.getArgumentBoxer();
+            final var boxer = getCompilerContext().getArgumentBoxer();
             boxer.boxArguments(methodInvocation);
         });
 
@@ -189,7 +188,7 @@ public class ResolverPhase extends AbstractResolver {
     @Override
     public Object visitLiteralExpression(final LiteralExpressionTree literalExpression,
                                          final Scope scope) {
-        final var loader = compilerContext.getClassElementLoader();
+        final var loader = getCompilerContext().getClassElementLoader();
         final var types = loader.getTypes();
 
         final TypeMirror type = switch (literalExpression.getLiteralKind()) {
@@ -240,7 +239,7 @@ public class ResolverPhase extends AbstractResolver {
                         identifierTree.setSymbol(enumConstant);
 
                         final var currentClass = scope.getCurrentClass();
-                        ((CompilerContextImpl) compilerContext).getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
+                        ((CompilerContextImpl) getCompilerContext()).getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
                     });
 
             return defaultAnswer(constantCaseLabel, scope);

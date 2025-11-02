@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+/**
+ * Base class for module directives.
+ */
 public abstract class Directive implements ModuleElement.Directive {
 
     private final ModuleElement.DirectiveKind kind;

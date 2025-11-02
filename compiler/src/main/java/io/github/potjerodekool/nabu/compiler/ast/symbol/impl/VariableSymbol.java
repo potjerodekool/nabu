@@ -37,12 +37,12 @@ public class VariableSymbol extends Symbol implements VariableElement {
     }
 
     @Override
-    public boolean isUnnamed() {
-        return false;
+    public VariableSymbolBuilderImpl builder() {
+        return new VariableSymbolBuilderImpl(this);
     }
 
     @Override
-    public VariableSymbolBuilderImpl builder() {
-        return new VariableSymbolBuilderImpl(this);
+    public void setType(final AbstractType type) {
+        super.setType(type);
     }
 }

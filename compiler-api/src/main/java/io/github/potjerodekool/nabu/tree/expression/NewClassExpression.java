@@ -5,6 +5,14 @@ import io.github.potjerodekool.nabu.tree.expression.builder.NewClassExpressionBu
 
 import java.util.List;
 
+/**
+ * New class expression.
+ * For example:
+ *
+ * final Animal animal = new Dog() {
+ *
+ * };
+ */
 public interface NewClassExpression extends ExpressionTree {
 
     ExpressionTree getName();

@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.EnhancedForStatementTreeBuilder;
 
+/**
+ * Implementation of EnhancedFOrStatement.
+ */
 public class CEnhancedForStatementTree extends CStatementTree implements EnhancedForStatementTree {
 
     private final VariableDeclaratorTree localVariable;

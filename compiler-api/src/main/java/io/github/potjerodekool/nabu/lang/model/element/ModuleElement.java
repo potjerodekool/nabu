@@ -2,6 +2,9 @@ package io.github.potjerodekool.nabu.lang.model.element;
 
 import java.util.List;
 
+/**
+ * A module element.
+ */
 public interface ModuleElement extends Element, QualifiedNameable  {
 
     @Override

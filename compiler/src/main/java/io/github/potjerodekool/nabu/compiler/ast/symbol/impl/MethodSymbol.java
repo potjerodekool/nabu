@@ -105,6 +105,10 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         return asType().getThrownTypes();
     }
 
+    public void setThrownTypes(final List<TypeMirror> thrownTypes) {
+        asType().setThrownTypes(thrownTypes);
+    }
+
     @Override
     public AnnotationValue getDefaultValue() {
         return this.defaultValue;

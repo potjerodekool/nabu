@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class COpensTree extends CDirective implements OpensTree {
+/**
+ * Implementation of OpensTree
+ */
+public final class COpensTree extends CDirective implements OpensTree {
 
     private final IdentifierTree packageName;
     private final ArrayList<ExpressionTree> moduleNames;

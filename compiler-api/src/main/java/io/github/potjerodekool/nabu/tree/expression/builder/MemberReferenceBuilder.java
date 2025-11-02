@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CMemberReference;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MemberReferenceBuilder extends ExpressionBuilder<MemberReference, MemberReferenceBuilder> {
+/**
+ * Builder for Method references.
+ */
+public class MemberReferenceBuilder extends ExpressionBuilder<MemberReferenceBuilder> {
 
     private final List<IdentifierTree> typeArguments = new ArrayList<>();
     private IdentifierTree expression;

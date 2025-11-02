@@ -5,11 +5,15 @@ import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.TryStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.builder.StatementTreeBuilder;
 import io.github.potjerodekool.nabu.tree.statement.builder.TryStatementTreeBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Implementation of TryStatementTree
+ */
 public class CTryStatementTree extends CStatementTree implements TryStatementTree {
 
     private final BlockStatementTree body;
@@ -61,5 +65,10 @@ public class CTryStatementTree extends CStatementTree implements TryStatementTre
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
         return visitor.visitTryStatement(this, param);
+    }
+
+    @Override
+    public StatementTreeBuilder<?> builder() {
+        return new StatementTreeBuilder(this);
     }
 }

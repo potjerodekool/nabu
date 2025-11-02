@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CExportsTree extends CDirective implements ExportsTree {
+/**
+ * Implementation of ExportsTree.
+ */
+public final class CExportsTree extends CDirective implements ExportsTree {
 
     private final IdentifierTree packageName;
     private final List<ExpressionTree> moduleNames;

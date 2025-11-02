@@ -232,7 +232,7 @@ public abstract class AbstractTreeTranslator<P> implements TreeVisitor<Tree, P> 
                 .map(it -> (StatementTree) it.accept(this, param))
                 .toList();
 
-        final ExpressionTree newExpression = accept(forStatement.getExpression(), param);
+        final ExpressionTree newExpression = accept(forStatement.getCondition(), param);
         final var newUpdate = forStatement.getForUpdate().stream()
                 .map(it -> (StatementTree) it.accept(this, param))
                 .toList();

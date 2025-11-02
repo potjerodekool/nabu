@@ -1,6 +1,9 @@
 package io.github.potjerodekool.nabu.lang.model.element;
 
-public interface ConstantAttribute extends Attribute {
+/**
+ * Defines a constant attribute.
+ */
+public non-sealed interface ConstantAttribute extends Attribute {
 
     @Override
     default <R, P> R accept(final AnnotationValueVisitor<R, P> v, final P p) {

@@ -1,5 +1,10 @@
 package io.github.potjerodekool.nabu.lang.model.element;
 
+/**
+ * A visitor for elements.
+ * @param <R> The return type.
+ * @param <P> The parameter type.
+ */
 public interface ElementVisitor<R, P> {
 
     R visitUnknown(Element e, P p);

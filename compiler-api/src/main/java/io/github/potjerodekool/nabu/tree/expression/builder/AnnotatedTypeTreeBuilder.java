@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CAnnotatedTypeTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class AnnotatedTypeTreeBuilder extends ExpressionBuilder<AnnotatedTypeTree, AnnotatedTypeTreeBuilder> {
+/**
+ * Builder for annotated type trees.
+ */
+public class AnnotatedTypeTreeBuilder extends ExpressionBuilder<AnnotatedTypeTreeBuilder> {
 
     private final List<AnnotationTree> annotations = new ArrayList<>();
 

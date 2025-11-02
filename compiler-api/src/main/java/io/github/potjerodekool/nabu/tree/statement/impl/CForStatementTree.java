@@ -8,6 +8,9 @@ import io.github.potjerodekool.nabu.tree.statement.builder.ForStatementTreeBuild
 
 import java.util.List;
 
+/**
+ * Implementation of ForStatement.
+ */
 public class CForStatementTree extends CStatementTree implements ForStatementTree {
 
     private final List<StatementTree> forInit;
@@ -40,7 +43,7 @@ public class CForStatementTree extends CStatementTree implements ForStatementTre
         return forInit;
     }
 
-    public ExpressionTree getExpression() {
+    public ExpressionTree getCondition() {
         return expression;
     }
 

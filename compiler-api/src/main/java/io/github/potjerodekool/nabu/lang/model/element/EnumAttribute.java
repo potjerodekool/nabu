@@ -2,7 +2,10 @@ package io.github.potjerodekool.nabu.lang.model.element;
 
 import io.github.potjerodekool.nabu.type.DeclaredType;
 
-public interface EnumAttribute extends Attribute {
+/**
+ * Defines an enum attribute
+ */
+public non-sealed interface EnumAttribute extends Attribute {
 
     DeclaredType getType();
 

@@ -3,9 +3,9 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
@@ -15,6 +15,7 @@ import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 
@@ -39,10 +40,15 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
         if (compilationUnit.getModuleDeclaration() != null) {
             compilationUnit.getModuleDeclaration().accept(this, globalScope);
             final var module = compilationUnit.getModuleDeclaration().getModuleSymbol();
-            ((CCompilationTreeUnit) compilationUnit).setModuleElement((ModuleSymbol) module);
-        } else {
-            final var module = compilerContext.getSymbolTable().getUnnamedModule();
             ((CCompilationTreeUnit) compilationUnit).setModuleElement(module);
+        } else {
+            final var unit = (CCompilationTreeUnit) compilationUnit;
+            var module = unit.getModuleElement();
+
+            if (module == null) {
+                module = SymbolTable.getInstance(compilerContext).getUnnamedModule();
+                unit.setModuleElement(module);
+            }
         }
 
         if (compilationUnit.getPackageDeclaration() != null) {
@@ -72,7 +78,7 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
         final var packageElement = (PackageSymbol) scope.getPackageElement();
         final var module = (ModuleSymbol) scope.findModuleElement();
 
-        final var clazz = compilerContext.getSymbolTable()
+        final var clazz = SymbolTable.getInstance(compilerContext)
                 .enterClass(
                         module,
                         classDeclaration.getSimpleName(),
@@ -104,5 +110,4 @@ public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
 
         return classDeclaration;
     }
-
 }

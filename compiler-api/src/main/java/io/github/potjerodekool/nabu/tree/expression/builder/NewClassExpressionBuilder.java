@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CNewClassExpression;
 import java.util.ArrayList;
 import java.util.List;
 
-public class NewClassExpressionBuilder extends ExpressionBuilder<NewClassExpression, NewClassExpressionBuilder> {
+/**
+ * Builder for new class expressions.
+ */
+public class NewClassExpressionBuilder extends ExpressionBuilder<NewClassExpressionBuilder> {
 
     private ExpressionTree name;
     private final List<ExpressionTree> typeArguments = new ArrayList<>();

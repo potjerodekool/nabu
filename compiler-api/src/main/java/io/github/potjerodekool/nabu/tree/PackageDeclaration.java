@@ -7,6 +7,11 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
 import java.util.List;
 
+/**
+ * A package declaration.
+ * <p> </p>
+ * package foo.bar;
+ */
 public interface PackageDeclaration extends Tree, QualifiedNameable {
 
     PackageElement getPackageElement();

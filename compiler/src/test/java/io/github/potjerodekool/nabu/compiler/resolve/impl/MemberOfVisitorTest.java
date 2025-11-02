@@ -7,7 +7,6 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymb
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.MemberOfVisitor;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
@@ -24,8 +23,7 @@ class MemberOfVisitorTest extends AbstractCompilerTest {
 
     @Test
     void visitDeclaredType() {
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getSymbolTable().getJavaBase();
 
         final var visitor = new MemberOfVisitor(types);
         final var listSymbol = loader.loadClass(module, "java.util.List");
@@ -70,7 +68,7 @@ class MemberOfVisitorTest extends AbstractCompilerTest {
 
     private VariableSymbol createParameter(final String name,
                                            final TypeMirror type) {
-        return new VariableSymbolBuilderImpl()
+        return (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName(name)
                 .type(type)

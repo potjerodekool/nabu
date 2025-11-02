@@ -2,6 +2,9 @@ package io.github.potjerodekool.nabu.lang.model.element;
 
 import io.github.potjerodekool.nabu.lang.Flags;
 
+/**
+ * An enumeration of modifiers.
+ */
 public enum Modifier {
     PUBLIC(Flags.PUBLIC),
     PRIVATE(Flags.PRIVATE),

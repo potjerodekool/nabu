@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.lang.model.element.CCompoundAttribute;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -16,6 +17,7 @@ import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.CollectionUtils;
 import io.github.potjerodekool.nabu.util.Elements;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.io.Writer;
 import java.util.*;
@@ -24,15 +26,13 @@ import java.util.stream.Collectors;
 public class ElementsImpl implements Elements {
 
     private final SymbolTable symbolTable;
-    private final TypesImpl types;
+    private final Types types;
     private final Modules modules;
 
-    public ElementsImpl(final SymbolTable symbolTable,
-                        final TypesImpl types,
-                        final Modules modules) {
-        this.symbolTable = symbolTable;
-        this.types = types;
-        this.modules = modules;
+    public ElementsImpl(final CompilerContextImpl compilerContext) {
+        this.symbolTable = SymbolTable.getInstance(compilerContext);
+        this.types = compilerContext.getClassElementLoader().getTypes();
+        this.modules = Modules.getInstance(compilerContext);
     }
 
     @Override
@@ -158,7 +158,7 @@ public class ElementsImpl implements Elements {
         var annotationMirrors = new ArrayList<>(symbol.getAnnotationMirrors());
 
         while (symbol.getKind() == ElementKind.CLASS) {
-            final var superclass = (AbstractType) ((ClassSymbol) symbol).getSuperclass();
+            final var superclass = (AbstractType) symbol.getSuperclass();
 
             if (superclass.isError()
                     || superclass.asTypeElement() == symbolTable.getObjectType().asTypeElement()) {
@@ -529,9 +529,7 @@ public class ElementsImpl implements Elements {
 
     @Override
     public boolean isCanonicalConstructor(final ExecutableElement e) {
-        return e.hasFlag(
-                Flags.RECORD
-        );
+        return e.hasFlag(Flags.RECORD);
     }
 
     @Override

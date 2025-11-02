@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.lang.model.element.Modifier;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Flags to use on elements.
+ */
 public class Flags {
 
     public static final long ABSTRACT = 1;

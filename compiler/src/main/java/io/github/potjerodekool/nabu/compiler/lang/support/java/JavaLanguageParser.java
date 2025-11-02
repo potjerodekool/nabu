@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
@@ -20,10 +21,11 @@ public class JavaLanguageParser implements LanguageParser {
 
     @Override
     public CompilationUnit parse(final FileObject fileObject,
+                                 final ModuleElement moduleElement,
                                  final CompilerContext compilerContext) {
         final var enterClasses = new EnterClasses((CompilerContextImpl) compilerContext);
 
         final var sourceEnterClasses = new JavaSourceEnterClasses(enterClasses);
-        return sourceEnterClasses.parse(fileObject);
+        return sourceEnterClasses.parse(fileObject, moduleElement);
     }
 }

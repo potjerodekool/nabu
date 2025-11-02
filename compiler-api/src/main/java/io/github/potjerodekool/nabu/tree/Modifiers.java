@@ -6,6 +6,9 @@ import io.github.potjerodekool.nabu.tree.expression.AnnotationTree;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * A container for annotations and flags.
+ */
 public class Modifiers {
 
     private final List<AnnotationTree> annotations = new ArrayList<>();

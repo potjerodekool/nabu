@@ -4,7 +4,10 @@ import io.github.potjerodekool.nabu.tree.ConstantCaseLabel;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
-public class CConstantCaseLabel extends CCaseLabel implements ConstantCaseLabel {
+/**
+ * Implementation of ConstantCaseLabel.
+ */
+public final class CConstantCaseLabel extends CCaseLabel implements ConstantCaseLabel {
 
     private final ExpressionTree expression;
 

@@ -9,7 +9,10 @@ import io.github.potjerodekool.nabu.type.ExecutableType;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocationTree, MethodInvocationTreeBuilder> {
+/**
+ * Builder for Method invocation trees.
+ */
+public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocationTreeBuilder> {
 
     private ExpressionTree methodSelector;
 

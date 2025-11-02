@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.tree.impl.CCatchTree;
 import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 
-public class CatchTreeBuilder extends TreeBuilder<CatchTree, CatchTreeBuilder> {
+public class CatchTreeBuilder extends TreeBuilder<CatchTreeBuilder> {
 
     private VariableDeclaratorTree variable;
     private BlockStatementTree body;

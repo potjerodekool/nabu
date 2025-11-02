@@ -1,10 +1,12 @@
 package io.github.potjerodekool.nabu.type;
 
 import io.github.potjerodekool.nabu.lang.model.element.Element;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 
 import java.util.List;
 
+/**
+ * A declared type, i.e. class, interface, enum, annotation or record.
+ */
 public interface DeclaredType extends ReferenceType {
 
     Element asElement();
@@ -16,10 +18,5 @@ public interface DeclaredType extends ReferenceType {
     @Override
     default boolean isDeclaredType() {
         return true;
-    }
-
-    @Override
-    default TypeElement asTypeElement() {
-        return (TypeElement) asElement();
     }
 }

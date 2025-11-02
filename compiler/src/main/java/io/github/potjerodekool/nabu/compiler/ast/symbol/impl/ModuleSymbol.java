@@ -1,13 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ModuleSymbolBuilder;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tools.FileManager.Location;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.ModuleTypeImpl;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
-import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,20 +33,19 @@ public class ModuleSymbol extends TypeSymbol implements ModuleElement {
     private Location classLocation;
 
     public ModuleSymbol(final long flags,
-                        final String name,
-                        final Symbol owner) {
+                        final String name) {
         super(
                 ElementKind.MODULE,
                 flags,
                 name,
                 new ModuleTypeImpl(null),
-                owner
+                null
         );
     }
 
     public static ModuleSymbol create(final String name,
                                       String moduleInfo) {
-        final var module = new ModuleSymbol(0, name, null);
+        final var module = new ModuleSymbol(0, name);
         final var moduleInfoClass = new ClassSymbol(
                 ElementKind.CLASS,
                 NestingKind.TOP_LEVEL,
@@ -105,6 +102,11 @@ public class ModuleSymbol extends TypeSymbol implements ModuleElement {
     @Override
     public <R, P> R accept(final ElementVisitor<R, P> v, final P p) {
         return v.visitModule(this, p);
+    }
+
+    @Override
+    public ModuleSymbolBuilder builder() {
+        return new ModuleSymbolBuilder();
     }
 
     @Override
@@ -195,4 +197,5 @@ public class ModuleSymbol extends TypeSymbol implements ModuleElement {
     public void setClassLocation(final Location classLocation) {
         this.classLocation = classLocation;
     }
+
 }

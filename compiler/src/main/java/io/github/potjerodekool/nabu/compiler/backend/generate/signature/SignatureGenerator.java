@@ -202,15 +202,6 @@ abstract class AbstractTypeParamSignatureVisitor
                 .collect(Collectors.joining());
     }
 
-    @Override
-    public String visitNoneType(final NoType noType, final Void param) {
-        if (noType.getKind() == TypeKind.VOID) {
-            return "V";
-        } else {
-            throw new UnsupportedOperationException();
-        }
-    }
-
     public String visitTypeParameters(final List<? extends TypeParameterElement> typeParameters) {
         if (typeParameters.isEmpty()) {
             return "";

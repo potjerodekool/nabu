@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressionBuilder;
 
+/**
+ * Implementation of FieldAccessExpressionTree.
+ */
 public class CFieldAccessExpressionTree extends CExpressionTree implements FieldAccessExpressionTree {
 
     private ExpressionTree selected;
@@ -21,11 +24,6 @@ public class CFieldAccessExpressionTree extends CExpressionTree implements Field
                                       final int lineNumber,
                                       final int columnNumber) {
         super(lineNumber, columnNumber);
-
-        if (!(field instanceof IdentifierTree)) {
-            throw new IllegalArgumentException("Field must not be an identifier");
-        }
-
         this.selected = selected;
         this.field = field;
     }

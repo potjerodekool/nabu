@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.tree.expression;
 
+/**
+ * Primitive type.
+ */
 public interface PrimitiveTypeTree extends ExpressionTree {
 
     Kind getKind();

@@ -310,7 +310,7 @@ public class TypesImpl implements Types {
         }
 
         switch (bound.getKind()) {
-            case DECLARED, ARRAY, ERROR, TYPEVAR -> {
+            case DECLARED, ARRAY, ERROR, TYPE_VAR -> {
                 return new CWildcardType(bound, kind, symbolTable.getBoundClass());
             }
             default -> throw new IllegalArgumentException(bound.toString());
@@ -350,7 +350,7 @@ public class TypesImpl implements Types {
                  PACKAGE,
                  DECLARED,
                  INTERSECTION,
-                 TYPEVAR,
+                 TYPE_VAR,
                  ERROR -> {
                 final var type = (AbstractType) t;
                 yield type.asElement();
@@ -503,7 +503,9 @@ public class TypesImpl implements Types {
         throw new TodoException();
     }
 
-    private TypeMirror subst(final TypeMirror ui, final List<AbstractType> a, final List<TypeMirror> s) {
+    private TypeMirror subst(final TypeMirror ui,
+                             final List<TypeMirror> a,
+                             final List<TypeMirror> s) {
         throw new TodoException();
     }
 
@@ -608,6 +610,7 @@ public class TypesImpl implements Types {
         return declared.asTypeElement().getInterfaces();
     }
 
+    @Override
     public TypeMirror getObjectType() {
         return symbolTable.getObjectType();
     }

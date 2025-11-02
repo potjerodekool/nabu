@@ -15,7 +15,7 @@ public final class TransformPhase {
                 .getExtensionManager()
                 .getCodeTransformers();
 
-        codeTransformers.forEach(codeTransformer -> codeTransformer.tranform(compilationUnit));
+        codeTransformers.forEach(codeTransformer -> codeTransformer.transform(compilationUnit));
         return fileObjectAndCompilationUnit;
     }
 

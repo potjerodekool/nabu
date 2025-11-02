@@ -10,6 +10,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Implementation of NewClassExpression.
+ */
 public class CNewClassExpression extends CExpressionTree implements NewClassExpression {
 
     private final ExpressionTree name;

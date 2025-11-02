@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
@@ -32,8 +31,7 @@ class CasterTest extends AbstractCompilerTest {
                 -1
         );
 
-        final var asmLoader = (AsmClassElementLoader) loader;
-        final var module = asmLoader.getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
 
         final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 

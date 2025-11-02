@@ -48,13 +48,16 @@ public abstract class TypeSymbol extends Symbol {
 
     public static String createFullName(final Symbol owner,
                                         final String name) {
+        final String fullName;
         if (owner == null) {
-            return name;
+            fullName = name;
         } else if (owner.isError()) {
-            return name;
+            fullName = name;
         } else {
-            return owner.getQualifiedName() + "." + name;
+            fullName =  owner.getQualifiedName() + "." + name;
         }
+
+        return fullName;
     }
 
     protected TypeMirror getErasureField() {

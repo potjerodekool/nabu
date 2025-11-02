@@ -10,6 +10,9 @@ import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 
 import java.util.List;
 
+/**
+ * Class declaration.
+ */
 public interface ClassDeclaration extends StatementTree {
 
     String getSimpleName();

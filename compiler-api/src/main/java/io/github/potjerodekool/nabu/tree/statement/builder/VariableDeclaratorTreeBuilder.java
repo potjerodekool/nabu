@@ -10,11 +10,14 @@ import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
 
 import java.util.Objects;
 
-public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<VariableDeclaratorTree, VariableDeclaratorTreeBuilder> {
+/**
+ * Builder for variable declarator statements.
+ */
+public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<VariableDeclaratorTreeBuilder> {
 
     private Kind kind;
     private Modifiers modifiers;
-    private ExpressionTree type;
+    private ExpressionTree variableType;
     private IdentifierTree name;
     private ExpressionTree nameExpression;
     private Tree value;
@@ -28,7 +31,7 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
         super(original);
         this.kind = original.getKind();
         this.modifiers = new Modifiers(original.getAnnotations(), original.getFlags());
-        type = original.getType();
+        variableType = original.getVariableType();
         name = original.getName();
         value = original.getValue();
     }
@@ -41,8 +44,8 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
         return modifiers;
     }
 
-    public ExpressionTree getType() {
-        return type;
+    public ExpressionTree getVariableType() {
+        return variableType;
     }
 
     public IdentifierTree getName() {
@@ -58,9 +61,9 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
         return this;
     }
 
-    public VariableDeclaratorTreeBuilder type(final ExpressionTree type) {
-        Objects.requireNonNull(type);
-        this.type = type;
+    public VariableDeclaratorTreeBuilder variableType(final ExpressionTree variableType) {
+        Objects.requireNonNull(variableType);
+        this.variableType = variableType;
         return this;
     }
 
@@ -93,7 +96,7 @@ public class VariableDeclaratorTreeBuilder extends StatementTreeBuilder<Variable
         return nameExpression;
     }
 
-    public VariableDeclaratorTreeBuilder nameExpresion(final ExpressionTree nameExpression) {
+    public VariableDeclaratorTreeBuilder nameExpression(final ExpressionTree nameExpression) {
         this.nameExpression = nameExpression;
         return this;
     }

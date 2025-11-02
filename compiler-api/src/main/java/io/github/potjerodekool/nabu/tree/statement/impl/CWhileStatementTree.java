@@ -6,7 +6,10 @@ import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.WhileStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.WhileStatementTreeBuilder;
 
-public class CWhileStatementTree extends CStatementTree implements WhileStatementTree {
+/**
+ * Implementation of WhileStatement
+ */
+public non-sealed class CWhileStatementTree extends CStatementTree implements WhileStatementTree {
 
     final ExpressionTree condition;
     final StatementTree body;

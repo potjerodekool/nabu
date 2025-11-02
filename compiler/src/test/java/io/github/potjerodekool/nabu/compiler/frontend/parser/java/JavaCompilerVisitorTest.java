@@ -18,6 +18,19 @@ import java.util.function.Function;
 
 class JavaCompilerVisitorTest {
 
+
+    @Test
+    void testClassDeclaration() {
+        parse("""
+                class SomeClass<A,B extends A> {
+                
+                    public <C> C work(final A a) {
+                        return null;
+                    }
+                }
+                """,Java20Parser::normalClassDeclaration);
+    }
+
     @Test
     void test() throws IOException {
         final var root = Paths.get("src/main/java");
@@ -43,6 +56,7 @@ class JavaCompilerVisitorTest {
         final var printer = new TreePrinter();
         final ParseTree functionResult = function1.apply(parser);
         final var visitorResult = functionResult.accept(visitor);
+        System.out.println(visitorResult);
     }
 
     private static Java20Parser createParser(final String code) {
@@ -69,5 +83,12 @@ class SimplePathVisitor extends SimpleFileVisitor<Path> {
         }
 
         return super.visitFile(file, attrs);
+    }
+}
+
+class SomeClass<A,B extends A> {
+
+    public <C> C work(final A a) {
+        return null;
     }
 }

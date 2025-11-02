@@ -2,8 +2,12 @@ package io.github.potjerodekool.nabu.tree;
 
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.impl.CImportItemTree;
 
-public interface ImportItem extends Tree {
+/**
+ * Root interfaces for import items.
+ */
+public sealed interface ImportItem extends Tree permits CImportItemTree {
 
     boolean isStatic();
 

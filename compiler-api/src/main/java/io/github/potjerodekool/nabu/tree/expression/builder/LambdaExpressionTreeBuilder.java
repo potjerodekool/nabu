@@ -9,7 +9,10 @@ import io.github.potjerodekool.nabu.type.ExecutableType;
 import java.util.ArrayList;
 import java.util.List;
 
-public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpressionTree, LambdaExpressionTreeBuilder> {
+/**
+ * Builder for Lambda expressions.
+ */
+public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpressionTreeBuilder> {
 
     private List<VariableDeclaratorTree> variables;
 

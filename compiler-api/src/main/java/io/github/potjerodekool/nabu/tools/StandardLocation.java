@@ -1,9 +1,15 @@
 package io.github.potjerodekool.nabu.tools;
 
+/**
+ * Enumeration of standard locations for files.
+ */
 public enum StandardLocation implements FileManager.Location {
 
+    /** Location for source output */
     SOURCE_OUTPUT,
+    /** Location for class output */
     CLASS_OUTPUT,
+    /** Location for modular source */
     MODULE_SOURCE_PATH,
     UPGRADE_MODULE_PATH,
     SOURCE_PATH,
@@ -40,5 +46,15 @@ public enum StandardLocation implements FileManager.Location {
                  PATCH_MODULE_PATH -> true;
             default -> false;
         };
+    }
+
+    @Override
+    public boolean isClassLocation() {
+        return false;
+    }
+
+    @Override
+    public boolean isSourceLocation() {
+        return false;
     }
 }

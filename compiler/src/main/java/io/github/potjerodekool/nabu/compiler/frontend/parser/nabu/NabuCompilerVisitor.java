@@ -17,7 +17,7 @@ import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.tree.element.impl.*;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.builder.*;
-import io.github.potjerodekool.nabu.tree.expression.impl.CDimmension;
+import io.github.potjerodekool.nabu.tree.expression.impl.CDimension;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CNewArrayExpression;
 import io.github.potjerodekool.nabu.tree.expression.impl.CVariableTypeTree;
@@ -1347,14 +1347,14 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final var list = variableDeclarators.stream()
                 .map(variableDeclarator -> {
-                    final var type = variableDeclarator.getType() != null
-                            ? variableDeclarator.getType()
+                    final var type = variableDeclarator.getVariableType() != null
+                            ? variableDeclarator.getVariableType()
                             : new CVariableTypeTree(-1, -1);
 
                     return variableDeclarator.builder()
                             .kind(Kind.LOCAL_VARIABLE)
                             .modifiers(modifiers)
-                            .type(type)
+                            .variableType(type)
                             .lineNumber(ctx.getStart().getLine())
                             .columnNumber(ctx.getStart().getCharPositionInLine())
                             .build();
@@ -1380,7 +1380,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .map(variableDeclarator -> variableDeclarator.builder()
                         .kind(Kind.LOCAL_VARIABLE)
                         .modifiers(modifiers)
-                        .type(type)
+                        .variableType(type)
                         .lineNumber(ctx.getStart().getLine())
                         .columnNumber(ctx.getStart().getCharPositionInLine())
                         .build())
@@ -2474,7 +2474,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         for (final var child : ctx.children) {
             if (child instanceof TerminalNode terminalNode) {
                 if ("]".equals(terminalNode.getText())) {
-                    dimensions.add(new CDimmension(annotations, -1, -1));
+                    dimensions.add(new CDimension(annotations, -1, -1));
                     annotations = new ArrayList<>();
                 }
             } else {
@@ -2559,7 +2559,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         return new VariableDeclaratorTreeBuilder()
                 .kind(Kind.FIELD)
                 .modifiers(fieldModifiers)
-                .type(type)
+                .variableType(type)
                 .name(name)
                 .value(value)
                 .build();
@@ -2644,7 +2644,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .lineNumber(ctx.getStart().getLine())
                 .columnNumber(ctx.getStart().getCharPositionInLine())
                 .modifiers(modifiers)
-                .type(catchType)
+                .variableType(catchType)
                 .name(variableDeclarator)
                 .build();
     }
@@ -2820,7 +2820,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return new VariableDeclaratorTreeBuilder()
                     .kind(Kind.PARAMETER)
                     .modifiers(modifiers)
-                    .type(type)
+                    .variableType(type)
                     .name(identifier)
                     .build();
         }
@@ -2911,7 +2911,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                                 .build();
 
                         return variableDeclaratorTree.builder()
-                                .type(identifier)
+                                .variableType(identifier)
                                 .value(newClassExpression)
                                 .build();
                     } else {
@@ -3337,7 +3337,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         return new VariableDeclaratorTreeBuilder()
                 .kind(Kind.PARAMETER)
                 .modifiers(modifiers)
-                .type(type)
+                .variableType(type)
                 .name(identifier)
                 .build();
     }
@@ -3345,7 +3345,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitTypePattern(final NabuParser.TypePatternContext ctx) {
         final var variableDeclarator = (VariableDeclaratorTree) ctx.localVariableDeclaration().accept(this);
-        return new CBindingPattern(
+        return new CTypePattern(
                 variableDeclarator,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()

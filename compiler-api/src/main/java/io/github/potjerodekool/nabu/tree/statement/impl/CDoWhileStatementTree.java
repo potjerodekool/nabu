@@ -6,6 +6,9 @@ import io.github.potjerodekool.nabu.tree.statement.DoWhileStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.DoWhileStatementTreeBuilder;
 
+/**
+ * Implementation of DoWhileStatement.
+ */
 public class CDoWhileStatementTree extends CStatementTree implements DoWhileStatementTree {
 
     final StatementTree body;

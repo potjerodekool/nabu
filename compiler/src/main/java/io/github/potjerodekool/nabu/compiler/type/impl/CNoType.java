@@ -17,7 +17,7 @@ public class CNoType extends AbstractType implements NoType {
 
     @Override
     public <R, P> R accept(final TypeVisitor<R, P> visitor, final P param) {
-        return visitor.visitNoneType(this, param);
+        return visitor.visitNoType(this, param);
     }
 
     @Override

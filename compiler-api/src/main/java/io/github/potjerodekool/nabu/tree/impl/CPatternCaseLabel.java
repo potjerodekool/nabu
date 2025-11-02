@@ -4,7 +4,10 @@ package io.github.potjerodekool.nabu.tree.impl;
 import io.github.potjerodekool.nabu.tree.PatternCaseLabel;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 
-public class CPatternCaseLabel extends CTree implements PatternCaseLabel {
+/**
+ * Implementation of PatternCaseLabel.
+ */
+public final class CPatternCaseLabel extends CTree implements PatternCaseLabel {
 
     private final CPattern pattern;
 

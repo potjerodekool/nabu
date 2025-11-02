@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 
-public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessExpressionTree, FieldAccessExpressionBuilder> {
+/**
+ * Builder for field access expressions.
+ */
+public class FieldAccessExpressionBuilder extends ExpressionBuilder<FieldAccessExpressionBuilder> {
 
     private ExpressionTree selected;
     private IdentifierTree field;

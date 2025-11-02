@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.tree.expression.BinaryExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CBinaryExpressionTree;
 
-public class BinaryExpressionBuilder extends ExpressionBuilder<BinaryExpressionTree, BinaryExpressionBuilder> {
+/**
+ * Builder for Binary expressions.
+ */
+public class BinaryExpressionBuilder extends ExpressionBuilder<BinaryExpressionBuilder> {
 
     private ExpressionTree left;
     private Tag tag;

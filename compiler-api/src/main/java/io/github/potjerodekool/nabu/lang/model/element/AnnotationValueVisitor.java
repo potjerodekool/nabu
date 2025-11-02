@@ -4,6 +4,11 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 
+/**
+ * A visitor to visit annotation values.
+ * @param <R> Return type
+ * @param <P> Parameter type
+ */
 public interface AnnotationValueVisitor<R, P> {
 
     default R visit(AnnotationValue av, P p) {

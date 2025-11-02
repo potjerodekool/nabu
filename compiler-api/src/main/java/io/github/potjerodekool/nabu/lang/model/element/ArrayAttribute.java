@@ -4,7 +4,10 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 
-public interface ArrayAttribute extends Attribute {
+/**
+ * Defines an array attribute
+ */
+public non-sealed interface ArrayAttribute extends Attribute {
 
     TypeMirror getType();
 

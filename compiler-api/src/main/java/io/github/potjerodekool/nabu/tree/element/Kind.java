@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.tree.element;
 
+/**
+ * An enumeration of element kinds.
+ */
 public enum Kind {
     PARAMETER,
     LOCAL_VARIABLE,

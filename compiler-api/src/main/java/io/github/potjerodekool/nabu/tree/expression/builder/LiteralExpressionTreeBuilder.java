@@ -4,7 +4,10 @@ package io.github.potjerodekool.nabu.tree.expression.builder;
 import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CLiteralExpressionTree;
 
-public class LiteralExpressionTreeBuilder extends ExpressionBuilder<LiteralExpressionTree, LiteralExpressionTreeBuilder> {
+/**
+ * Builder for Literal expressions.
+ */
+public class LiteralExpressionTreeBuilder extends ExpressionBuilder<LiteralExpressionTreeBuilder> {
 
     private Object literal;
 

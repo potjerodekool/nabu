@@ -5,7 +5,10 @@ import io.github.potjerodekool.nabu.tree.statement.IfStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CIfStatementTree;
 
-public class IfStatementTreeBuilder extends StatementTreeBuilder<IfStatementTree, IfStatementTreeBuilder> {
+/**
+ * Builder for if statements.
+ */
+public class IfStatementTreeBuilder extends StatementTreeBuilder<IfStatementTreeBuilder> {
 
     private ExpressionTree expression;
     private StatementTree thenStatement;

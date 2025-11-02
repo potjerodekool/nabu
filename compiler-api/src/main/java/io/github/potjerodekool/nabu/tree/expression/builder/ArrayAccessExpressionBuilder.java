@@ -4,7 +4,10 @@ import io.github.potjerodekool.nabu.tree.expression.ArrayAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayAccessExpressionTree;
 
-public class ArrayAccessExpressionBuilder extends ExpressionBuilder<ArrayAccessExpressionTree,ArrayAccessExpressionBuilder> {
+/**
+ * Builder for array access expressions.
+ */
+public class ArrayAccessExpressionBuilder extends ExpressionBuilder<ArrayAccessExpressionBuilder> {
 
     private ExpressionTree expression;
     private ExpressionTree index;

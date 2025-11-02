@@ -13,6 +13,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Implementation of LambdaExpression.
+ */
 public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpressionTree {
 
     private final List<VariableDeclaratorTree> variables = new ArrayList<>();

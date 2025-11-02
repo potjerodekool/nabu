@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.type;
 
+/**
+ * An enumeration of the different types.
+ */
 public enum TypeKind {
     VOID(false),
     BOOLEAN(true),
@@ -18,13 +21,16 @@ public enum TypeKind {
     INTERSECTION(false),
     UNION(false),
     NONE(false),
-    TYPEVAR(false),
+    TYPE_VAR(false),
     PACKAGE(false),
     MODULE(false),
     ERROR(false);
 
     final boolean isPrimitive;
 
+    /**
+     * @param isPrimitive If the kind is a primitive or not.
+     */
     TypeKind(final boolean isPrimitive) {
         this.isPrimitive = isPrimitive;
     }

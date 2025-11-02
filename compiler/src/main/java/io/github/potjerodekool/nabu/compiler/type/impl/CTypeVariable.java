@@ -57,7 +57,7 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
 
     @Override
     public TypeKind getKind() {
-        return TypeKind.TYPEVAR;
+        return TypeKind.TYPE_VAR;
     }
 
     @Override
@@ -83,6 +83,19 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
             return name + " extends " + upperBound.getClassName();
         } else if (lowerBound != null) {
             return name + " super " + lowerBound.getClassName();
+        } else {
+            return name;
+        }
+    }
+
+    @Override
+    public String toString() {
+        final var name = element.getSimpleName();
+
+        if (upperBound != null) {
+            return name + " extends " + upperBound;
+        } else if (lowerBound != null) {
+            return name + " super " + lowerBound;
         } else {
             return name;
         }

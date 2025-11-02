@@ -3,7 +3,11 @@ package io.github.potjerodekool.nabu.tree.statement.impl;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.statement.LabeledStatement;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
+import io.github.potjerodekool.nabu.tree.statement.builder.StatementTreeBuilder;
 
+/**
+ * Implementation of LabeledStatement.
+ */
 public class CLabeledStatement extends CStatementTree implements LabeledStatement {
 
     private final String label;
@@ -31,5 +35,10 @@ public class CLabeledStatement extends CStatementTree implements LabeledStatemen
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
         return visitor.visitLabeledStatement(this, param);
+    }
+
+    @Override
+    public StatementTreeBuilder<?> builder() {
+        return new StatementTreeBuilder(this);
     }
 }

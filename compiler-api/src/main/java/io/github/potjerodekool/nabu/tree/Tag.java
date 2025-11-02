@@ -2,6 +2,9 @@ package io.github.potjerodekool.nabu.tree;
 
 import java.util.Arrays;
 
+/**
+ * An enumeration of tags that can be applied to trees.
+ */
 public enum Tag {
     EQ("=="),
     NE("!="),

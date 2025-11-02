@@ -5,6 +5,9 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * An implementation of @{@link ArrayAttribute}
+ */
 public final class CArrayAttribute extends AbstractAttribute
         implements ArrayAttribute {
 

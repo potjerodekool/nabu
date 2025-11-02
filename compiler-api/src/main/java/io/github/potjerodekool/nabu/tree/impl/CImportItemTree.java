@@ -7,7 +7,10 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 
-public class CImportItemTree extends CTree implements ImportItem {
+/**
+ * Implementation of ImportItem.
+ */
+public final class CImportItemTree extends CTree implements ImportItem {
 
     private final boolean isStatic;
     private final FieldAccessExpressionTree qualified;

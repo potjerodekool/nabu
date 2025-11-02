@@ -1,11 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.test.TestClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
@@ -14,7 +18,6 @@ import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.Tag;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
@@ -23,6 +26,8 @@ import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
+import io.github.potjerodekool.nabu.tree.expression.builder.MethodInvocationTreeBuilder;
+import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 import io.github.potjerodekool.nabu.tree.impl.CConstantCaseLabel;
 import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
@@ -48,8 +53,7 @@ import static org.mockito.Mockito.when;
 
 class LowerTest extends AbstractCompilerTest {
 
-    private final ClassSymbolLoader loader = new TestClassElementLoader();
-
+    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
     private final Types types = loader.getTypes();
     private Lower lower;
 
@@ -82,7 +86,8 @@ class LowerTest extends AbstractCompilerTest {
 
     @Test
     void visitBinaryExpression() {
-        final var module = loader.getSymbolTable().getUnnamedModule();
+        final var symbolTable = SymbolTable.getInstance(getCompilerContext());
+        final var module = symbolTable.getUnnamedModule();
 
         assertBinaryExpression(
                 """
@@ -139,7 +144,8 @@ class LowerTest extends AbstractCompilerTest {
 
     @Test
     void visitEnhancedForStatement() {
-        final var module = loader.getSymbolTable().getJavaBase();
+        final var symbolTable = SymbolTable.getInstance(getCompilerContext());
+        final var module = symbolTable.getJavaBase();
         final var stringType = loader.loadClass(module, Constants.STRING).asType();
         final var listType = loader.loadClass(module, "java.util.List").asType();
         final var stringListType = types.getDeclaredType(
@@ -164,7 +170,7 @@ class LowerTest extends AbstractCompilerTest {
         final var localVariable = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.LOCAL_VARIABLE)
                 .modifiers(new Modifiers())
-                .type(stringTypeTree)
+                .variableType(stringTypeTree)
                 .name(IdentifierTree.create("s"))
                 .build();
 
@@ -218,8 +224,6 @@ class LowerTest extends AbstractCompilerTest {
 
     @Test
     void visitSwitchWithEnum() {
-        final var methods = SomEnum.class.getDeclaredMethods();
-
         final var packageSymbol = loader.findOrCreatePackage(
                 null,
                 "foo.bar"
@@ -272,7 +276,7 @@ class LowerTest extends AbstractCompilerTest {
                 .superclass(enumClass.asType())
                 .build();
 
-        final var onConstant = new VariableSymbolBuilderImpl()
+        final var onConstant = (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.ENUM_CONSTANT)
                 .simpleName("ON")
                 .type(null)
@@ -352,8 +356,62 @@ class LowerTest extends AbstractCompilerTest {
         tree.setType(typeMirror);
         return tree;
     }
-}
 
-enum SomEnum {
+    @Test
+    public void visitVariableDeclaratorStatementAddCast() {
+        final var variableType = IdentifierTree.create("Integer");
+        final var integerType = loader.loadClass(null, "java.lang.Integer")
+                .asType();
+
+        final var methodInvocation = new MethodInvocationTreeBuilder()
+                .methodSelector(new CIdentifierTree("get"))
+                .build();
+
+        final var returnType = new CTypeVariable(
+                "T",
+                null,
+                null,
+                null
+        );
+
+        final var methodSymbol = new MethodSymbol(
+                ElementKind.METHOD,
+                0,
+                "get",
+                null,
+                null,
+                List.of(),
+                returnType,
+                List.of(),
+                List.of(),
+                List.of()
+        );
+
+        final var methodType = new CMethodType(
+                methodSymbol,
+                null,
+                List.of(),
+                integerType,
+                List.of(),
+                List.of()
+        );
+
+        methodInvocation.setMethodType(methodType);
+
+        variableType.setType(integerType);
+
+        final var variableDeclarator = new VariableDeclaratorTreeBuilder()
+                .variableType(variableType)
+                .name(IdentifierTree.create("item"))
+                .value(methodInvocation)
+                .build();
+
+        final var actual = lower.accept(variableDeclarator, null);
+        final var actualText = TreePrinter.print(actual);
+        System.out.println(actualText);
+
+        assertEquals("""
+                item : Integer = (java.lang.Integer) get()""", actualText);
+    }
 
 }

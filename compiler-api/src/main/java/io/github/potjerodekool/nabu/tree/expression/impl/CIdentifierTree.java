@@ -3,6 +3,10 @@ package io.github.potjerodekool.nabu.tree.expression.impl;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.IdentifierTreeBuilder;
+
+/**
+ * Implementation of IdentifierTree.
+ */
 public class CIdentifierTree extends CExpressionTree implements IdentifierTree {
 
     private final String name;
@@ -37,4 +41,5 @@ public class CIdentifierTree extends CExpressionTree implements IdentifierTree {
     public String toString() {
         return name;
     }
+
 }

@@ -6,6 +6,9 @@ import io.github.potjerodekool.nabu.tree.statement.IfStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.IfStatementTreeBuilder;
 
+/**
+ * Implementation of IfStatement.
+ */
 public class CIfStatementTree extends CStatementTree implements IfStatementTree {
 
     private final ExpressionTree expression;

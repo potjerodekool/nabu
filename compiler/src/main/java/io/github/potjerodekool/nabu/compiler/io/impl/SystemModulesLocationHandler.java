@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.io.impl;
 
+import io.github.potjerodekool.nabu.compiler.log.LogLevel;
+import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.tools.FileManager.Location;
@@ -11,8 +13,11 @@ import java.util.*;
 
 public class SystemModulesLocationHandler extends BasicLocationHandler implements AutoCloseable {
 
+    private static final Logger LOGGER = Logger.getLogger(SystemModulesLocationHandler.class.getName());
+
     private final List<FileSystem> openFileSystems = new ArrayList<>();
     private final ModuleTable moduleTable = new ModuleTable();
+    private String systemValue;
 
     public SystemModulesLocationHandler() {
         super(StandardLocation.SYSTEM_MODULES, CompilerOption.SYSTEM);
@@ -25,13 +30,14 @@ public class SystemModulesLocationHandler extends BasicLocationHandler implement
     }
 
     private void initModules() {
-        final Path javaHome = FileSystems.getDefault().getPath(System.getProperty("java.home"));
-
+        final Path javaHome = systemValue != null
+                ? Paths.get(systemValue)
+                : FileSystems.getDefault().getPath(System.getProperty("java.home"));
         URI jrtURI = URI.create("jrt:/");
 
         Map<String, String> attrMap =
                 Collections.singletonMap("java.home", javaHome.toString());
-        try{
+        try {
             final var jrtfs = FileSystems.newFileSystem(jrtURI, attrMap);
             openFileSystems.add(jrtfs);
             final var modules = jrtfs.getPath("/modules");
@@ -43,12 +49,14 @@ public class SystemModulesLocationHandler extends BasicLocationHandler implement
                             getLocation().getName(),
                             moduleName,
                             module,
-                            false
+                            false,
+                            false,
+                            true
                     ));
                 }
             }
         } catch (final IOException e) {
-            throw new RuntimeException(e);
+            LOGGER.log(LogLevel.WARN, e.getMessage());
         }
     }
 
@@ -56,6 +64,14 @@ public class SystemModulesLocationHandler extends BasicLocationHandler implement
     public void close() throws Exception {
         for (final var openFileSystem : openFileSystems) {
             openFileSystem.close();
+        }
+    }
+
+    @Override
+    public void processOption(final CompilerOption compilerOption, final String value) {
+        super.processOption(compilerOption, value);
+        if (compilerOption == CompilerOption.SYSTEM) {
+            this.systemValue = value;
         }
     }
 }

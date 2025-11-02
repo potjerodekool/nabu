@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.type.ExecutableType;
 
 import java.util.List;
 
+/**
+ * Lambda expression.
+ */
 public interface LambdaExpressionTree extends ExpressionTree {
 
     List<VariableDeclaratorTree> getVariables();

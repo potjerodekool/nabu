@@ -8,7 +8,10 @@ import io.github.potjerodekool.nabu.tree.statement.impl.CForStatementTree;
 import java.util.List;
 import java.util.Objects;
 
-public class ForStatementTreeBuilder extends StatementTreeBuilder<ForStatementTree, ForStatementTreeBuilder> {
+/**
+ * Builder for For statements.
+ */
+public class ForStatementTreeBuilder extends StatementTreeBuilder<ForStatementTreeBuilder> {
 
     private List<StatementTree> forInit;
     private ExpressionTree expression;
@@ -18,7 +21,7 @@ public class ForStatementTreeBuilder extends StatementTreeBuilder<ForStatementTr
     public ForStatementTreeBuilder(final ForStatementTree original) {
         super(original);
         this.forInit = original.getForInit();
-        this.expression = original.getExpression();
+        this.expression = original.getCondition();
         this.forUpdate = original.getForUpdate();
         this.statement = original.getStatement();
     }

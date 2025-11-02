@@ -5,20 +5,21 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CWildcardType;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.type.BoundKind;
+import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class IsSubTypeTest extends AbstractCompilerTest {
 
-    private final TypesImpl types = getCompilerContext()
-            .getClassElementLoader().getTypes();
-    private IsSubType isSubType = new IsSubType(types);
+    private final Types types = getCompilerContext().getClassElementLoader().getTypes();
+    private final IsSubType isSubType = new IsSubType((TypesImpl) types);
 
     @Test
     void visitWildcardType() {
-        final var objectType = types.getObjectType();
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(null, Constants.OBJECT).asType();
         final var integerClass = (ClassSymbol) getCompilerContext().getClassElementLoader().loadClass(
                 null,
                 "java.lang.Integer"

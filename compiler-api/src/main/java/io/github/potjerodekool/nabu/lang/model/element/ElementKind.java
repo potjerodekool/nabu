@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.lang.model.element;
 
+/**
+ * An enumeration of element kinds.
+ */
 public enum ElementKind {
     PACKAGE,
     ENUM,

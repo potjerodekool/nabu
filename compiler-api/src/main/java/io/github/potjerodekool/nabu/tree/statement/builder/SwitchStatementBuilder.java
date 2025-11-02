@@ -7,7 +7,10 @@ import io.github.potjerodekool.nabu.tree.statement.impl.CSwitchStatement;
 
 import java.util.List;
 
-public class SwitchStatementBuilder extends StatementTreeBuilder<SwitchStatement, SwitchStatementBuilder> {
+/**
+ * Builder for Switch statements.
+ */
+public class SwitchStatementBuilder extends StatementTreeBuilder<SwitchStatementBuilder> {
 
     private ExpressionTree selector;
     private List<CaseStatement> cases;

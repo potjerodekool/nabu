@@ -15,14 +15,17 @@ import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import java.util.ArrayList;
 import java.util.List;
 
-public class FunctionBuilder extends TreeBuilder<Function, FunctionBuilder> {
+/**
+ * Builder for functions.
+ */
+public class FunctionBuilder extends TreeBuilder<FunctionBuilder> {
 
     private String simpleName;
     private Kind kind;
     private Modifiers modifiers;
     private final List<TypeParameterTree> typeParameters = new ArrayList<>();
     private final List<VariableDeclaratorTree> parameters = new ArrayList<>();
-    private ExpressionTree returnType;
+    private Tree returnType;
     private BlockStatementTree body;
     private ExecutableElement methodSymbol;
     private ExpressionTree defaultValue;
@@ -71,7 +74,7 @@ public class FunctionBuilder extends TreeBuilder<Function, FunctionBuilder> {
         return parameters;
     }
 
-    public ExpressionTree getReturnType() {
+    public Tree getReturnType() {
         return returnType;
     }
 
@@ -97,7 +100,7 @@ public class FunctionBuilder extends TreeBuilder<Function, FunctionBuilder> {
         return this;
     }
 
-    public FunctionBuilder returnType(final ExpressionTree returnType) {
+    public FunctionBuilder returnType(final Tree returnType) {
         this.returnType = returnType;
         return this;
     }

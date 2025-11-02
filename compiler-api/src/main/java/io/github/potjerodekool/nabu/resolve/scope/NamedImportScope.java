@@ -7,6 +7,9 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 import java.util.*;
 import java.util.function.Predicate;
 
+/**
+ * Named import scope.
+ */
 public class NamedImportScope extends ImportScope {
 
     private final Map<String, Element> elements = new HashMap<>();

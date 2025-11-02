@@ -60,17 +60,20 @@ class ModuleCompleter implements Completer {
     private void completeModule(final ModuleSymbol module) {
         final var classFile = module.moduleInfo.getClassFile();
 
-        try (final var inputStream = classFile.openInputStream()) {
-            final var bytecode = inputStream.readAllBytes();
-            ClazzReader.read(
-                    bytecode,
-                    symbolTable,
-                    loader,
-                    module.moduleInfo,
-                    module
-            );
-            initVisiblePackages(module);
-        } catch (final IOException ignored) {
+        //May be null during testing.
+        if (classFile != null) {
+            try (final var inputStream = classFile.openInputStream()) {
+                final var bytecode = inputStream.readAllBytes();
+                ClazzReader.read(
+                        bytecode,
+                        symbolTable,
+                        loader,
+                        module.moduleInfo,
+                        module
+                );
+                initVisiblePackages(module);
+            } catch (final IOException ignored) {
+            }
         }
     }
 

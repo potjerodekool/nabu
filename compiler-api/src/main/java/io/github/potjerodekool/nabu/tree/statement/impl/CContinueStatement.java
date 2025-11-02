@@ -4,7 +4,11 @@ package io.github.potjerodekool.nabu.tree.statement.impl;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.statement.ContinueStatement;
+import io.github.potjerodekool.nabu.tree.statement.builder.StatementTreeBuilder;
 
+/**
+ * Implementation of ContinueStatement.
+ */
 public class CContinueStatement extends CStatementTree implements ContinueStatement {
 
     private final Tree target;
@@ -24,5 +28,10 @@ public class CContinueStatement extends CStatementTree implements ContinueStatem
     @Override
     public Tree getTarget() {
         return target;
+    }
+
+    @Override
+    public StatementTreeBuilder<?> builder() {
+        return new StatementTreeBuilder(this);
     }
 }

@@ -1,11 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
+import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.ClassSymbolLoader;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tree.Modifiers;
@@ -29,8 +30,8 @@ import io.github.potjerodekool.nabu.type.TypeKind;
 import java.util.List;
 
 public class EnumCodeGenerator extends AbstractCodeGenerator {
-    public EnumCodeGenerator(final ClassSymbolLoader loader) {
-        super(loader);
+    public EnumCodeGenerator(final CompilerContextImpl compilerContext) {
+        super(compilerContext);
     }
 
     @Override
@@ -90,7 +91,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
 
         final var field = new VariableDeclaratorTreeBuilder()
                 .kind(Kind.FIELD)
-                .type(arrayTypeTree)
+                .variableType(arrayTypeTree)
                 .name(new CIdentifierTree("$VALUES"))
                 .modifiers(new Modifiers(Flags.PRIVATE + Flags.STATIC + Flags.FINAL))
                 .build();
@@ -251,7 +252,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         final var clazz = (ClassSymbol) clazzDeclaration.getClassSymbol();
 
         final var parameterType = new CIdentifierTree("String");
-        parameterType.setType(loader.getSymbolTable().getStringType());
+        parameterType.setType(SymbolTable.getInstance(compilerContext).getStringType());
 
         final var parameter = new CVariableDeclaratorTree(
                 Kind.PARAMETER,
@@ -288,7 +289,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
                 )
         );
 
-        final var enumClazz = loader.getSymbolTable().getEnumType().asTypeElement();
+        final var enumClazz = SymbolTable.getInstance(compilerContext).getEnumType().asTypeElement();
 
         final var enumValueOfMethod = findMethod((ClassSymbol) enumClazz, "valueOf")
                 .get();

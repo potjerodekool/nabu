@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.nabu;
 
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
@@ -25,6 +26,7 @@ public class NabuLanguageParser implements LanguageParser {
 
     @Override
     public CompilationUnit parse(final FileObject fileObject,
+                                 final ModuleElement moduleElement,
                                  final CompilerContext compilerContext) {
         logger.log(LogLevel.INFO, "Parsing " + fileObject.getFileName());
 

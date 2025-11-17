@@ -31,11 +31,6 @@ jobs:
       - name: Generate Javadoc with Maven (aggregate)
         run: mvn javadoc:aggregate
 
-      - name: Copy docs
-        run: |
-          mkdir -p docs
-          cp -r docs/* docs/        
-
       - name: Prepare docs structure
         run: |
           mkdir -p docs/api

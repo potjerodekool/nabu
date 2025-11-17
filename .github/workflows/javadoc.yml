@@ -85,7 +85,7 @@ jobs:
 
       - name: Copy docs
         run: |
-          cp docs/* docs/
+          cp -r docs/* docs/
 
       - name: Add .nojekyll file
         run: touch docs/.nojekyll

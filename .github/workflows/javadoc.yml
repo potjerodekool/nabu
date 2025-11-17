@@ -83,21 +83,6 @@ jobs:
           </html>
           EOF
 
-      - name: Create root index page
-        run: |
-          cat > docs/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-              <title>Project Documentation</title>
-              <meta http-equiv="refresh" content="0; url=api/">
-          </head>
-          <body>
-              <p>Redirecting to <a href="api/">API Documentation</a>...</p>
-          </body>
-          </html>
-          EOF
-
       - name: Add .nojekyll file
         run: touch docs/.nojekyll
 

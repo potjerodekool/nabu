@@ -1,0 +1,47 @@
+---
+layout: nabu
+title: Nabu - Compiler design
+---
+<h1>Compiler design</h1>
+
+<h2>Compiler phases</h2>
+
+<img src="{{ site.baseurl }}/nabu/compiler-design/compiler-phases.png" alt="compiler phases"/>
+
+<h3>Parse phase</h3>
+Parse source files.
+
+<h3>Enter phase</h3>
+Enter the compilation units and add the classes to the symbol table
+so they can be resolved later if they are referenced by other classes.
+
+<h3>Resolve phase</h3>
+Resolve classes, methods, fields, etc.
+
+<h3>Transform phase</h3>
+Run the transformers (io.github.potjerodekool.nabu.compiler.transform.CodeTransformer)
+which are present on the classpath of the compiler.
+
+<h3>Check phase</h3>
+Check the compilation units for unresolved symbols(methods, fields, etc.) and types.
+
+<h3>Lambda phase</h3>
+Create methods for the lambda expressions
+
+<h3>Lower phase</h3>
+Add additional code like:
+
+<ul>
+    <li>Generate code to init fields (both in constructor and client init)</li>
+    <li>Generate code for enum and record classes</li>
+    <li>Add boxing and unboxing code</li>
+    <li>Add code to enhanced for statements</li>
+</ul>
+
+<h3>IR phase</h3>
+
+Create intermediate representations.
+
+<h3>Bytecode phase</h3>
+
+Generate bytecode for the JVM.

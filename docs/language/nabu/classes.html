@@ -1,0 +1,49 @@
+---
+layout: nabu-lang
+title: Nabu language - Classes
+---
+<pre class="code">
+    <span class="keyword">package</span> foo.bar.shape;
+
+    <span class="keyword">public</span> <span class="keyword">class</span> Rectangle <span
+        class="keyword">extends</span> AbstractShape <span class="keyword">implements</span> Shape {
+    }
+</pre>
+
+<h1>Interfaces</h1>
+<pre class="code">
+    <span class="keyword">package</span> foo.bar.shape;
+
+    <span class="keyword">public</span> <span class="keyword">interface</span> Shape {
+        <span class="keyword">abstract fun</span> points() : List&lt;Point&gt;;
+    }
+</pre>
+
+<h1>Enum</h1>
+<pre class="code">
+    <span class="keyword">package</span> foo.bar.shape;
+
+    <span class="keyword">public</span> <span class="keyword">enum</span> Status {
+    ON("On"),
+    OFF("Off");
+
+    <span class="keyword">private</span> <span class="keyword">final</span> text : String;
+
+    <span class="keyword">private</span> Status(<span class="keyword">final</span> text : String) {
+        this.text = text;
+    }
+
+    <span class="keyword">public</span> <span class="keyword">fun</span> getText() : String {
+        return text;
+    }
+}
+</pre>
+
+<h1>Records</h1>
+<pre class="code">
+    <span class="keyword">package</span> foo.bar.shape;
+
+    <span class="keyword">public</span> <span class="keyword">record</span> IdAndName(id : String, name : String) {
+
+    }
+</pre>

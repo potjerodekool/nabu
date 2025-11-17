@@ -1,0 +1,43 @@
+---
+layout: nabu
+title: Nabu - Compiler plugins
+---
+<h1>Compiler plugins</h1>
+With compiler plugins the compiler can be extended.<br/>
+The compiler defines extension points, an extension point provides an interface which can be implemented by the plugin.
+These extensions are registered in the plugin.xml of the plugin.
+
+<pre class="code">
+&lt;?xml version="1.0" encoding="UTF-8" ?&gt;
+&lt;plugin&gt;
+    &lt;id>io.github.potjerodekool.nabu.plugin.simple&lt;/id&gt;
+    &lt;version>0.0.1&lt;/version&gt;
+    &lt;description>Simple plugin for Nabu compiler&lt;/description&gt;
+    &lt;extensions&gt;
+    &lt;/extensions&gt;
+&lt;/plugin&gt;
+</pre>
+
+<table>
+    <thead>
+        <tr><th>Description</th><th>Interface</th><th>More</th></tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Custom element resolver for a DSL</td>
+            <td>io.github.potjerodekool.nabu.resolve.spi.ElementResolver</td>
+            <td><a href="../dsl-support/index.html">More info</a></td>
+        </tr>
+        <tr>
+            <td>A transformer to transform the AST. Used to transform a DSL AST to a normal AST.</td>
+            <td>io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer</td>
+            <td><a href="../dsl-support/index.html">More info</a></td>
+        </tr>
+        <tr>
+            <td>A parser to parse source code and build an AST</td>
+            <td>io.github.potjerodekool.nabu.lang.spi.LanguageParser</td>
+            <td><a href="../language-support/index.html">More info</a></td>
+
+        </tr>
+    </tbody>
+</table>

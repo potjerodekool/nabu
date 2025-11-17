@@ -83,6 +83,10 @@ jobs:
           </html>
           EOF
 
+      - name: Copy docs
+        run: |
+          cp docs/* docs/
+
       - name: Add .nojekyll file
         run: touch docs/.nojekyll
 

@@ -1,0 +1,36 @@
+---
+layout: nabu
+title: Nabu - language support
+---
+<h1>Language Parser</h1>
+
+<p>A language parser is responsible for parsing source files of a specific language and converting them into an abstract syntax tree (AST).</p>
+
+<pre class="code">
+        <span class="keyword">import</span> io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+
+        <span class="keyword">public</span> <span class="keyword">class</span> SimpleLanguageParser <span class="keyword">implements</span> LanguageParser {
+
+            <span class="keyword">private</span> <span class="keyword">final</span> FileObject.Kind SOURCE_KIND = <span class="keyword">new</span> FileObject.Kind(".simple", <span class="keyword">true</span>);
+
+            <span class="annotation">@Override</span>
+            <span class="keyword">public</span> FileObject.Kind getSourceKind() {
+                <span class="keyword">return</span> SOURCE_KIND;
+            }
+
+            <span class="annotation">@Override</span>
+            <span class="keyword">public</span> CompilationUnit parse(<span class="keyword">final</span> FileObject fileObject,
+                                         <span class="keyword">final</span> CompilerContext compilerContext) {
+                // TODO: Implement parsing logic for .simple files
+                 <span class="keyword">return</span> <span class="keyword">null</span>;
+            }
+        }
+    </pre>
+
+The language parser can be registered in the plugin.xml
+<br/>
+
+<pre class="code">
+   &lt;language-parser implementationClass="com.example.SimpleLanguageParser"/&gt;
+</pre>
+

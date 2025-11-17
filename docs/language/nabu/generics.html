@@ -1,0 +1,18 @@
+---
+layout: nabu-lang
+title: Nabu language - Generics
+---
+<pre class="code">
+    <span class="keyword">public</span> <span class="keyword">class</span> Box&lt;T&gt; {
+
+    <span class="keyword">private</span> <span class="keyword">final</span> value: T;
+
+        <span class="keyword">public</span> Box(value: T) {
+            <span class="keyword">this</span>.value = value;
+        }
+
+        <span class="keyword">public</span> <span class="keyword">fun</span> getValue(): T {
+            <span class="keyword">return</span> value;
+        }
+    }
+</pre>

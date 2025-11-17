@@ -33,7 +33,7 @@ jobs:
 
       - name: Copy docs
         run: |
-          mlkdir -p docs
+          mkdir -p docs
           cp -r docs/* docs/        
 
       - name: Prepare docs structure

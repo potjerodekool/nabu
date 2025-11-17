@@ -1,0 +1,109 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+.container {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    height: 100%;
+}
+
+.side-bar {
+    width: 15% !important;
+    height: 100% !important;
+    border: none;
+}
+
+.content {
+    width: 85% !important;
+    height: 100% !important;
+    border: none;
+}
+
+#wrapper {
+    margin: 0px;
+    padding: 0px;
+    overflow: hidden;
+    height: 99%;
+}
+#menu {
+    width: 15em;
+    float:left;
+}
+#content {
+    overflow: hidden;
+    height: 100%;
+}
+
+.keyword {
+    color: #CF7345;
+}
+
+.annotation {
+    color: #CCCC00;
+}
+
+.linkButton {
+    border: 1px solid black;
+    border-radius: 5px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    width: 10em;
+    background-color: lightgray;
+}
+
+/* Navigation */
+
+nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+nav li {
+}
+
+nav a {
+    display: block;
+    padding: 10px;
+    text-decoration: none;
+    color: #333;
+}
+
+nav a:hover {
+    background: #f0f0f0;
+    border: 1px solid #333;
+    border-radius: 10px;
+}
+
+.code {
+    border: 1px solid black;
+}
+
+table {
+    border: 1px solid #ccc;
+    width: 100%;
+}
+
+th {
+    border-bottom: 1px solid #ccc;
+    border-left: 1px solid #ccc;
+    border-right: 1px solid #ccc;
+    background-color: #f9f9f9;
+}
+
+td {
+    border-bottom: 1px solid #ccc;
+    border-left: 1px solid #ccc;
+    border-right: 1px solid #ccc;
+    padding: 5px;
+}
+
+.top {
+    padding-left:5px;
+}

@@ -69,6 +69,6 @@ public class CTryStatementTree extends CStatementTree implements TryStatementTre
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

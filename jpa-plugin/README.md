@@ -4,7 +4,7 @@ Plugin for a JPA DSL.
 With the JPA DSL you can write more readable JPA code without the need to use the typesafe
 api directly.
 
-To create an join you can cast it to type of join you want.
+To create a join you can cast it to type of join you want.
 JPA DSL supports operator overloading if a CriteriaBuilder is in scope.
     
     fun findCompanyByEmployeeFirstName(employeeFirstName: String): JpaPredicate<Company> {

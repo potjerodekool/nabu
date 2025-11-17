@@ -1,2 +1,0 @@
-This directory contains some Java classes for testing the compiler.
-These classes are used instead of the real classes in the JDK.

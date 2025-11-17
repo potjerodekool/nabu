@@ -15,7 +15,6 @@ import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 

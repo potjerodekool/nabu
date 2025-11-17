@@ -31,7 +31,7 @@ public class FieldBuilder extends FieldVisitor {
             type = typeBuilder.parseFieldSignature(signature, asmTypeResolver, clazz.resolveModuleSymbol());
         }
 
-        final var field = (VariableSymbol) new VariableSymbolBuilderImpl()
+        final var field = new VariableSymbolBuilderImpl()
                 .kind(elementKind)
                 .simpleName(name)
                 .enclosingElement(clazz)

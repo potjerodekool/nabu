@@ -9,7 +9,6 @@ import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
-import io.github.potjerodekool.nabu.tree.TreeUtils;
 import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
@@ -23,6 +22,15 @@ import static io.github.potjerodekool.nabu.tree.TreeUtils.getSymbol;
 import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.createBuilderCall;
 import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.resolvePathType;
 
+/**
+ * Converts a DSL Join to an JPA join.
+ * <p>
+ * For example:
+ * final var employeeJoin = (InnerJoin&lt;Company,Employee&gt;) company.employees
+ * <p>
+ * to:
+ * final var employeeJoin = company.join("employees", JoinType.INNER);
+ */
 public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
 
     private final CompilerContext compilerContext;
@@ -60,8 +68,8 @@ public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
         final var stringType = loader.loadClass(module, ClassNames.STRING_CLASS_NAME).asType();
         literalExpression.setType(stringType);
 
-        final var targetType = (DeclaredType) TreeUtils.typeOf(selected);
-        final var fieldType = (DeclaredType) TreeUtils.typeOf(field);
+        final var targetType = (DeclaredType) compilerContext.getTreeUtils().typeOf(selected);
+        final var fieldType = (DeclaredType) compilerContext.getTreeUtils().typeOf(field);
 
         final var fromType = (DeclaredType) targetType.getTypeArguments().getFirst();
         final DeclaredType toType;
@@ -139,7 +147,7 @@ public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
         selected.accept(this, scope);
 
         final var targetSymbol = getSymbol(fieldAccessExpression.getSelected());
-        final DeclaredType declaredType = switch (targetSymbol) {
+        final var declaredType = switch (targetSymbol) {
             case VariableElement variableElement -> {
                 var dt = asDeclaredType(variableElement.asType());
 
@@ -167,5 +175,51 @@ public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
         } else {
             return (DeclaredType) ((VariableType) typeMirror).getInterferedType();
         }
+    }
+
+    @Override
+    public Object visitIdentifier(final IdentifierTree identifier,
+                                  final Scope scope) {
+        var type = identifier.getType();
+
+        if (type == null) {
+            type = resolveType(identifier.getName(), scope);
+        }
+
+        if (type != null) {
+            identifier.setType(type);
+            identifier.setSymbol(null);
+        } else {
+            final var symbol = scope.resolve(identifier.getName());
+
+            if (symbol != null) {
+                identifier.setSymbol(symbol);
+            } else if (identifier.getSymbol() == null) {
+                identifier.setSymbol(
+                        compilerContext.getElementBuilders()
+                                .createErrorSymbol(identifier.getName())
+                );
+            }
+        }
+
+        return defaultAnswer(identifier, scope);
+    }
+
+    private TypeMirror resolveType(final String name,
+                                   final Scope scope) {
+        TypeMirror type = scope.resolveType(name);
+
+        if (type == null) {
+            final var resolvedClass = loader.loadClass(
+                    scope.findModuleElement(),
+                    name
+            );
+
+            if (resolvedClass != null) {
+                type = resolvedClass.asType();
+            }
+        }
+
+        return type;
     }
 }

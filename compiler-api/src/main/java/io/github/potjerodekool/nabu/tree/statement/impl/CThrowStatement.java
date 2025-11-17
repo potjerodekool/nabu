@@ -31,6 +31,6 @@ public class CThrowStatement extends CStatementTree implements ThrowStatement {
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

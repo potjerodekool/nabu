@@ -10,6 +10,10 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * Processor that deproxies an annotation because some things are not known
+ * when reading an annotation from a .class file.
+ */
 public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<Attribute, ExecutableElement> {
 
     public CompoundAttribute process(final AnnotationMirror annotationMirror) {
@@ -32,8 +36,6 @@ public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<A
                     }
 
                     if (newValue == null) {
-
-
                         throw new NullPointerException(method.getSimpleName() + " for " + annotationName + " value is null");
                     }
 
@@ -60,7 +62,8 @@ public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<A
     }
 
     @Override
-    public Attribute visitAnnotation(final AnnotationMirror a, final ExecutableElement executableElement) {
+    public Attribute visitAnnotation(final AnnotationMirror a,
+                                     final ExecutableElement executableElement) {
         return this.process(a);
     }
 
@@ -79,7 +82,8 @@ public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<A
     }
 
     @Override
-    public Attribute visitEnumConstant(final VariableElement c, final ExecutableElement executableElement) {
+    public Attribute visitEnumConstant(final VariableElement c,
+                                       final ExecutableElement executableElement) {
         final var type = (DeclaredType) c.asType();
         final var variable = ElementFilter.enumConstantByName(type.asTypeElement(), c.getSimpleName())
                 .orElse(c);
@@ -91,7 +95,8 @@ public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<A
     }
 
     @Override
-    public Attribute visitUnknown(final AnnotationValue av, final ExecutableElement executableElement) {
+    public Attribute visitUnknown(final AnnotationValue av,
+                                  final ExecutableElement executableElement) {
         throw new IllegalArgumentException("Unsupported annotation value type: " + av.getClass().getName());
     }
 }

@@ -10,6 +10,7 @@ import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;
@@ -134,10 +135,10 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
                 -1
         );
 
-        final var methodType = methodResolver.resolveMethod(methodInvocation)
-                        .get();
-        methodInvocation.getMethodSelector().setType(methodType.getOwner().asType());
-        methodInvocation.setMethodType(methodType);
+        methodResolver.resolveMethod(methodInvocation).ifPresent(methodType -> {
+            methodInvocation.getMethodSelector().setType(methodType.getOwner().asType());
+            methodInvocation.setMethodType(methodType);
+        });
 
         return methodInvocation;
     }
@@ -191,6 +192,18 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
     public ExpressionTree unbox(final ExpressionTree expressionTree,
                                 final String methodName) {
+        final var methodInvocation = createMethodInvocationForUnbox(expressionTree, methodName);
+
+        methodResolver.resolveMethod(methodInvocation).ifPresent(methodType -> {
+            methodInvocation.getMethodSelector().setType(methodType.getOwner().asType());
+            methodInvocation.setMethodType(methodType);
+        });
+
+        return methodInvocation;
+    }
+
+    private MethodInvocationTree createMethodInvocationForUnbox(final ExpressionTree expressionTree,
+                                                                final String methodName) {
         var methodInvocation = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
                         expressionTree,
@@ -202,8 +215,6 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
                 -1
         );
 
-        final var methodType = methodResolver.resolveMethod(methodInvocation).get();
-
         methodInvocation = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
                         expressionTree,
@@ -214,9 +225,6 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
                 -1,
                 -1
         );
-
-        methodInvocation.getMethodSelector().setType(methodType.getOwner().asType());
-        methodInvocation.setMethodType(methodType);
 
         return methodInvocation;
     }

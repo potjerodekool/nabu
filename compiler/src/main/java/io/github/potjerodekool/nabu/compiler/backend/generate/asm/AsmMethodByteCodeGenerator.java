@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
+import io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
@@ -82,17 +83,17 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         final var procFrag = methodSymbol.getFrag();
 
-        visitParameters(methodHeader, frame);
         visitAnnotations(methodSymbol);
+        visitParameters(methodHeader, frame);
 
         if (!methodSymbol.isAbstract()) {
             var frag = IrCleaner.cleanUp(procFrag);
             frag = IrCleaner.insertReturnIfNeeded(frag);
             final var body = frag.getBody();
             visitBody(body, frame);
-        }
 
-        visitLocalVariables(frame);
+            visitLocalVariables(frame);
+        }
 
         methodWriter.visitMaxs(-1, -1);
         methodWriter.visitEnd();
@@ -103,7 +104,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 .map(parameter -> {
                     final var name = parameter.getSimpleName();
                     final var type = parameter.asType();
-                    return new Parameter(name, ToIType.toIType(type));
+                    return new Parameter(name, ToIType.toIType(type), parameter.getAnnotationMirrors());
                 })
                 .toList();
 
@@ -128,12 +129,22 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     }
 
     private String createMethodSignature(final MethodHeader methodHeader) {
-        return AsmISignatureGenerator.INSTANCE.getMethodSignature(
-                methodHeader.parameters().stream()
-                        .map(Parameter::type)
-                        .toList(),
-                methodHeader.returnType()
-        );
+        if (isGeneric(methodHeader)) {
+            return AsmISignatureGenerator.INSTANCE.getMethodSignature(
+                    methodHeader.parameters().stream()
+                            .map(Parameter::type)
+                            .toList(),
+                    methodHeader.returnType()
+            );
+        } else {
+            return null;
+        }
+    }
+
+    private boolean isGeneric(final MethodHeader methodHeader) {
+        return methodHeader.parameters().stream()
+                .anyMatch(parameter -> parameter.type().isGeneric())
+                || methodHeader.returnType().isGeneric();
     }
 
     private String[] createExceptions(final List<? extends TypeMirror> thrownTypes) {
@@ -150,9 +161,34 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
     private void visitParameters(final MethodHeader methodHeader,
                                  final Frame frame) {
-        methodHeader.parameters().forEach(parameter ->
+        final var parameters = methodHeader.parameters();
+
+        parameters.forEach(parameter ->
                 frame.allocateLocal(parameter.name(), parameter.type(), true)
         );
+
+        methodWriter.visitAnnotableParameterCount(methodHeader.parameters().size(), true);
+
+        for (var parameterIndex = 0; parameterIndex < parameters.size(); parameterIndex++) {
+            final var parameter = parameters.get(parameterIndex);
+            final var annotationMirrors = parameter.annotationMirrors();
+
+            for (final var annotation : annotationMirrors) {
+                final var descriptor = ClassUtils.getDescriptor(annotation.getAnnotationType());
+                final var visible = AsmUtils.isVisible(annotation);
+
+                final var annotationVisitor = methodWriter.visitParameterAnnotation(
+                        parameterIndex,
+                        descriptor,
+                        visible
+                );
+
+                AsmAnnotationGenerator.generate(
+                        annotation,
+                        annotationVisitor
+                );
+            }
+        }
     }
 
     private void visitAnnotations(final ExecutableElement executableElement) {
@@ -739,9 +775,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     private Temp visitDefaultCall(final Call call,
                                   final Frame frame) {
         final var opcode = invocationTypeToOpcode(call.getInvocationType());
-        final var owner = call.getOwner() != null
-                ? toAsmType(call.getOwner()).getInternalName()
-                : null;
+        final var owner = toAsmType(call.getOwner()).getInternalName();
+        final var isInterface = call.getOwner().isInterface();
 
         var name = call.getFunction().getLabel().getName();
 
@@ -786,7 +821,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 owner,
                 name,
                 methodDescriptor,
-                opcode == Opcodes.INVOKEINTERFACE
+                isInterface
         );
 
         return null;
@@ -1219,7 +1254,11 @@ record MethodHeader(List<Parameter> parameters,
                     IType returnType) {
 }
 
-record Parameter(String name, IType type) {
+record Parameter(String name, IType type,
+                 List<? extends AnnotationMirror> annotationMirrors) {
+}
+
+record Annotation(String descriptor, boolean isVisible) {
 }
 
 class StringConcatCodeVisitor implements CodeVisitor<Frame> {

@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.compiler.resolve.spi.internal.StandardElementResolver;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
@@ -19,7 +18,7 @@ public class ExtensionManager {
 
     private final Map<FileObject.Kind, LanguageParser> languageParsers = new HashMap<>();
     private final List<ElementResolver> symbolResolvers = new ArrayList<>();
-    private final ElementResolver standardResolver = new StandardElementResolver();
+    //private final ElementResolver standardResolver = new StandardElementResolver();
 
     private CompilerContext compilerContext;
 
@@ -84,10 +83,13 @@ public class ExtensionManager {
     public Optional<ElementResolver> findSymbolResolver(final TypeMirror searchType,
                                                         final Scope scope) {
         this.initSymbolResolvers();
+        /*
         return this.symbolResolvers.stream()
                 .filter(resolver -> resolver.supports(searchType, compilerContext, scope))
                 .findFirst()
                 .or(() -> Optional.of(this.standardResolver));
+        */
+        return Optional.empty();
     }
 
     public List<CodeTransformer> getCodeTransformers() {

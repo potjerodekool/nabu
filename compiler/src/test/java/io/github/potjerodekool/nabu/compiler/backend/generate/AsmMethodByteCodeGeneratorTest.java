@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
@@ -139,23 +138,7 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
         methodGenerator.generate(method);
         final var actual = asString(methodGenerator.getTextifier().getText());
 
-        final var expected = """
-                   L0
-                    ILOAD 0
-                    IFEQ L1
-                   L2
-                    ICONST_1
-                    IRETURN
-                   L1
-                    ICONST_0
-                    IRETURN
-                   L3
-                    IRETURN
-                   L4
-                    LOCALVARIABLE this LSomeClass; L0 L4 0
-                    MAXSTACK = -1
-                    MAXLOCALS = -1
-                """;
+        final var expected = loadResource("AsmMethodByteCodeGenerator/generate-if-expected.txt");
 
         assertEquals(
                 expected,
@@ -221,19 +204,7 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
 
         methodGenerator.generate(method);
 
-        final var expected = """
-                   L0
-                    ALOAD 0
-                    LDC Ljava/lang/String;.class
-                    PUTFIELD SomeClass.stringType : Ljava/lang/class;
-                    GOTO L1
-                   L1
-                    RETURN
-                   L2
-                    LOCALVARIABLE this LSomeClass; L0 L2 0
-                    MAXSTACK = -1
-                    MAXLOCALS = -1
-                """;
+        final var expected = loadResource("AsmMethodByteCodeGenerator/classLiteral-expected.txt");
 
         final var actual = asString(methodGenerator.getTextifier().getText());
 
@@ -297,29 +268,7 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
         methodGenerator.generate(method);
 
         final var actual = asString(methodGenerator.getTextifier().getText());
-        final var expected = """
-                   L0
-                    ALOAD 0
-                    INVOKEVIRTUAL SomeClass.getName ()Ljava/lang/String;
-                    INVOKEDYNAMIC makeConcatWithConstants(Ljava/lang/String;)Ljava/lang/String; [
-                      // handle kind 0x6 : INVOKESTATIC
-                      java/lang/invoke/StringConcatFactory.makeConcatWithConstants(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;
-                      // arguments:
-                      "Hello\\u0001"
-                    ]
-                    GOTO L1
-                   L1
-                    ARETURN
-                   L2
-                    LOCALVARIABLE this LSomeClass; L0 L2 0
-                    MAXSTACK = -1
-                    MAXLOCALS = -1
-                """;
-
-        System.out.println(actual);
-
-        assertEquals(expected, actual);
-
+        final var expected = loadResource("AsmMethodByteCodeGenerator/stringconcat-expected.txt");
         assertEquals(expected, actual);
     }
 
@@ -377,7 +326,7 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
         );
 
         final var statements = of(
-                new IExpressionStatement(new Mem(new TempExpr(0, IReferenceType.createClassType("SomeClass")))) ,
+                new IExpressionStatement(new Mem(new TempExpr(0, IReferenceType.createClassType("SomeClass")))),
                 new IExpressionStatement(fieldAccess),
                 new Move(
                         new TempExpr(),
@@ -443,7 +392,10 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
     }
 
     @Test
-    void test() {
+    void ifElseIfElse() {
+        final var javaBase = getCompilerContext().getSymbolTable()
+                .getJavaBase();
+
         final var symbol = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .simpleName("result")
@@ -480,11 +432,11 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
                 new ILabelStatement(new ILabel("L19")),
                 new CJump(
                         Tag.EQ
-                        ,new BinOp(
-                                new TempExpr(1, createClassType("java.lang.String")),
-                                Tag.NE,
-                                new Const(null)
-                        ),
+                        , new BinOp(
+                        new TempExpr(1, createClassType("java.lang.String")),
+                        Tag.NE,
+                        new Const(null)
+                ),
                         new Const(1),
                         new ILabel("L15"),
                         new ILabel("L17")
@@ -510,7 +462,7 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
         final var method = createMethod(l);
 
         final var javaLangPackage = getCompilerContext().getClassElementLoader().findOrCreatePackage(
-                null,
+                javaBase,
                 "java.lang"
         );
 
@@ -525,11 +477,11 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
                 List.of()
         );
 
-        final var parameter = (VariableSymbol) new VariableSymbolBuilderImpl()
+        final var parameter = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName("s")
                 .type(paramType)
-                        .build();
+                .build();
 
         method.addParameter(parameter);
 
@@ -548,36 +500,7 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
                     .map(Object::toString)
                     .collect(Collectors.joining(""));
 
-            final var expected = """
-                        ICONST_0
-                        ISTORE 2
-                       L0
-                        ALOAD 1
-                        IFNONNULL L1
-                       L2
-                        ICONST_1
-                        ISTORE 2
-                       L3
-                        GOTO L4
-                       L1
-                        ALOAD 1
-                        IFNULL L5
-                       L6
-                        ICONST_0
-                        ISTORE 2
-                       L7
-                        GOTO L5
-                       L5
-                        GOTO L4
-                       L4
-                        ILOAD 2
-                        IRETURN
-                        LOCALVARIABLE this LSomeClass; L0 L4 0
-                        LOCALVARIABLE s Ljava/lang/String; L0 L4 1
-                        LOCALVARIABLE result Z L0 L4 2
-                        MAXSTACK = -1
-                        MAXLOCALS = -1
-                    """;
+            final var expected = loadResource("AsmMethodByteCodeGenerator/if-elseif-else-expected.txt");
 
             assertEquals(expected, actual);
         }

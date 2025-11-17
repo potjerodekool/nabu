@@ -94,7 +94,7 @@ public class EnumUserCodeGenerator implements CodeGenerator {
                 null
         );
 
-        final var fieldSymbol = (VariableSymbol) new VariableSymbolBuilderImpl()
+        final var fieldSymbol = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.FIELD)
                 .simpleName(fieldTree.getName().getName())
                 .type(types.getArrayType(types.getPrimitiveType(TypeKind.INT)))

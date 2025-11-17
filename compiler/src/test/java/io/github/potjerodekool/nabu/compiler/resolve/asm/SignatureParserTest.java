@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.internal.Factory;
-import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
 import io.github.potjerodekool.nabu.tools.Constants;
@@ -18,10 +16,6 @@ import org.objectweb.asm.signature.SignatureVisitor;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SignatureParserTest extends AbstractCompilerTest {
-
-    protected Factory<ClassElementLoader> createElementLoader() {
-        return AsmClassElementLoader::new;
-    }
 
     @Test
     void test1() {

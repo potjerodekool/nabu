@@ -18,6 +18,7 @@ import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.TypePrinter;
 import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.Test;
 
@@ -71,16 +72,14 @@ class TypesImplTest extends AbstractCompilerTest {
                 method
         );
 
-        final var printer = new TypePrinter();
-        methodType.accept(printer, null);
-        final var actual = printer.getText();
+        final var actual = TypePrinter.print(methodType);
 
-        assertEquals("void (int, java.lang.String)", actual);
+        assertEquals("void add(int, java.lang.String)", actual);
     }
 
     private VariableSymbol createParameter(final String name,
                                            final TypeMirror type) {
-        return (VariableSymbol) new VariableSymbolBuilderImpl()
+        return new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName(name)
                 .type(type)

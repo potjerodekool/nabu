@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
+import io.github.potjerodekool.nabu.tree.TreeUtils;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Elements;
 
@@ -48,4 +49,6 @@ public interface CompilerContext extends AutoCloseable {
      * @return Returns a builder for elements.
      */
     ElementBuilders getElementBuilders();
+
+    TreeUtils getTreeUtils();
 }

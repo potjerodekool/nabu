@@ -33,6 +33,10 @@ public sealed abstract class IType permits IArrayType, IIntersectionType, IPrimi
         return false;
     }
 
+    public boolean isInterface() {
+        return kind == ITypeKind.INTERFACE;
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) {

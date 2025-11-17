@@ -6,7 +6,7 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import java.util.List;
 
 /**
- * Represents a opens is a module:
+ * Represents an opens is a module:
  * For example:
  * <p> </p>
  * module MyModule {

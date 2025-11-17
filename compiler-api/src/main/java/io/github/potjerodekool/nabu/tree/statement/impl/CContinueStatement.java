@@ -32,6 +32,6 @@ public class CContinueStatement extends CStatementTree implements ContinueStatem
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

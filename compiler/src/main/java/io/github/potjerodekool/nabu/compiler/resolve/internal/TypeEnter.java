@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
@@ -37,7 +38,7 @@ import java.util.stream.Collectors;
 
 public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
 
-    private final Map<ClassSymbol, ClassDeclaration> symbolToTreeMap = new HashMap<>();
+    private final Map<TypeElement, ClassDeclaration> symbolToTreeMap = new HashMap<>();
     private final Map<ClassDeclaration, CompilationUnit> treeToCompilationUnitMap = new HashMap<>();
 
     private final CompilerContext compilerContext;
@@ -59,7 +60,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         typeEnterMap.put(ElementKind.RECORD, new RecordTypeEnter(elements));
     }
 
-    public void put(final ClassSymbol symbol,
+    public void put(final TypeElement symbol,
                     final ClassDeclaration tree,
                     final CompilationUnit compilationUnit) {
         this.symbolToTreeMap.put(symbol, tree);
@@ -101,7 +102,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
                 typeEnter.complete(currentClass);
             }
 
-            completeClass(classDeclaration, new SymbolScope((DeclaredType) currentClass.asType(), null));
+            completeClass(classDeclaration, new SymbolScope((DeclaredType) currentClass.asType(), globalScope));
         }
     }
 
@@ -126,6 +127,10 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
     private void fillInSuper(final Scope scope,
                              final ClassDeclaration classDeclaration) {
         final var currentClass = (ClassSymbol) scope.getCurrentClass();
+
+        if (Constants.OBJECT.equals(currentClass.getQualifiedName())) {
+            return;
+        }
 
         final TypeMirror superType;
 
@@ -400,18 +405,6 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         method.setThrownTypes(thrownTypes);
         method.setAnnotations(annotations);
 
-        /*
-        final var method = new MethodSymbolBuilderImpl()
-                .kind(toElementKind(function.getKind()))
-                .simpleName(function.getSimpleName())
-                .enclosingElement(currentClass)
-                .receiverType(receiverType)
-                .thrownTypes(thrownTypes)
-                .flags(flags)
-                .annotations(annotations)
-                .build();
-         */
-
         function.getReturnType().accept(this, functionScope);
 
         final TypeMirror returnType;
@@ -442,12 +435,29 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         return function;
     }
 
+    private boolean isVarArgFunction(final Function function) {
+        final var parameters = function.getParameters();
+
+        if (parameters.isEmpty()) {
+            return false;
+        }
+
+        return parameters.getLast().hasFlag(Flags.VARARGS);
+    }
+
+
     @Override
     public Void visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
                                                  final Scope scope) {
         final var currentClass = (ClassSymbol) scope.getCurrentClass();
 
         variableDeclaratorStatement.getVariableType().accept(this, scope);
+
+        if (variableDeclaratorStatement.hasFlag(Flags.VARARGS)) {
+            var arrayType = (CArrayType) variableDeclaratorStatement.getVariableType().getType();
+            arrayType = arrayType.makeVarArg();
+            variableDeclaratorStatement.getVariableType().setType(arrayType);
+        }
 
         final var symbol = createVariable(variableDeclaratorStatement);
         variableDeclaratorStatement.getName().setSymbol(symbol);
@@ -471,7 +481,7 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
             constantValue = null;
         }
 
-        return (VariableSymbol) new VariableSymbolBuilderImpl()
+        return new VariableSymbolBuilderImpl()
                 .kind(ElementKind.valueOf(variableDeclaratorTree.getKind().name()))
                 .simpleName(variableDeclaratorTree.getName().getName())
                 .type(type)
@@ -509,6 +519,16 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
             primitiveType.setType(type);
         }
 
+        return null;
+    }
+
+    @Override
+    public Object visitArrayType(final ArrayTypeTree arrayTypeTree,
+                                 final Scope scope) {
+        arrayTypeTree.getComponentType().accept(this, scope);
+        final var componentType = arrayTypeTree.getComponentType().getType();
+        final var arrayType = types.getArrayType(componentType);
+        arrayTypeTree.setType(arrayType);
         return null;
     }
 
@@ -570,9 +590,11 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
             }
         }
 
-        if (type != null) {
-            identifier.setType(type);
+        if (type == null) {
+            type = types.getErrorType(identifier.getName());
         }
+
+        identifier.setType(type);
         return identifier;
     }
 
@@ -811,30 +833,13 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
         return superConstructor.getParameters().stream()
                 .map(superParameter -> {
                     final var name = IdentifierTree.create(superParameter.getSimpleName());
-
-                    final var param = new VariableDeclaratorTreeBuilder()
+                    return new VariableDeclaratorTreeBuilder()
                             .variableType(createTypeTree(superParameter.asType()))
                             .kind(Kind.PARAMETER)
                             .name(name)
                             .build();
-                    param.accept(this, scope);
-                    return param;
                 })
                 .toList();
-
-/*
-        return arguments.stream()
-                .map(argument -> {
-                    final var identifier = (IdentifierTree) argument;
-                    final var param = new VariableDeclaratorTreeBuilder()
-                            .variableType(createTypeTree(argument.getType()))
-                            .kind(Kind.PARAMETER)
-                            .name(identifier)
-                            .build();
-                    param.accept(this, scope);
-                    return param;
-                }).toList();
-        */
     }
 
     private ExecutableElement findConstructor(final TypeElement typeElement) {
@@ -1111,15 +1116,13 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
             wildCardExpression.getBound().accept(this, scope);
         }
 
-        final var type = wildCardExpression.getBound().getType();
-
         TypeMirror extendsBound = null;
         TypeMirror superBound = null;
 
         if (wildCardExpression.getBoundKind() == BoundKind.EXTENDS) {
-            extendsBound = type;
+            extendsBound = wildCardExpression.getBound().getType();
         } else if (wildCardExpression.getBoundKind() == BoundKind.SUPER) {
-            superBound = type;
+            superBound = wildCardExpression.getBound().getType();
         }
 
         final var wilcardType = types.getWildcardType(extendsBound, superBound);
@@ -1127,4 +1130,44 @@ public class TypeEnter implements Completer, TreeVisitor<Object, Scope> {
 
         return wildCardExpression;
     }
+
+    public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
+                                             final Scope scope) {
+        final var selected = fieldAccessExpression.getSelected();
+        selected.accept(this, scope);
+
+        final var varElement = TreeUtils.getSymbol(selected);
+
+        if (varElement != null) {
+            final var varType = varElement.asType();
+            final DeclaredType declaredType = asDeclaredType(varType);
+            final var symbolScope = new SymbolScope(
+                    declaredType,
+                    scope
+            );
+            fieldAccessExpression.getField().accept(this, symbolScope);
+        } else if (selected.getType() != null) {
+            final DeclaredType declaredType = asDeclaredType(selected.getType());
+            final var classScope = new ClassScope(
+                    declaredType,
+                    null,
+                    scope.getCompilationUnit(),
+                    loader
+            );
+            fieldAccessExpression.getField().accept(this, classScope);
+        }
+
+        fieldAccessExpression.setType(fieldAccessExpression.getField().getType());
+        return fieldAccessExpression;
+    }
+
+    private DeclaredType asDeclaredType(final TypeMirror typeMirror) {
+        if (typeMirror instanceof DeclaredType declaredType) {
+            return declaredType;
+        } else {
+            final var variableType = (VariableType) typeMirror;
+            return (DeclaredType) variableType.getInterferedType();
+        }
+    }
+
 }

@@ -18,7 +18,7 @@ public class CMethodInvocationTree extends CExpressionTree implements MethodInvo
 
     private final ExpressionTree methodSelector;
 
-    private final List<IdentifierTree> typeArguments = new ArrayList<>();
+    private final List<ExpressionTree> typeArguments = new ArrayList<>();
 
     private final List<ExpressionTree> arguments = new ArrayList<>();
 
@@ -65,7 +65,7 @@ public class CMethodInvocationTree extends CExpressionTree implements MethodInvo
     }
 
 
-    public List<IdentifierTree> getTypeArguments() {
+    public List<ExpressionTree> getTypeArguments() {
         return typeArguments;
     }
 

@@ -6,4 +6,7 @@ package io.github.potjerodekool.nabu.lang.jpa.support;
  * @param <X> Taget of the join
  */
 public final class LeftJoin<Z,X> implements Join<Z,X> {
+
+    private LeftJoin(){
+    }
 }

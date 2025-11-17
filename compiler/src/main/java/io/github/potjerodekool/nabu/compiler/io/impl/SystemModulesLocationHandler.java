@@ -16,6 +16,7 @@ public class SystemModulesLocationHandler extends BasicLocationHandler implement
     private static final Logger LOGGER = Logger.getLogger(SystemModulesLocationHandler.class.getName());
 
     private final List<FileSystem> openFileSystems = new ArrayList<>();
+    private boolean isInit = false;
     private final ModuleTable moduleTable = new ModuleTable();
     private String systemValue;
 
@@ -30,6 +31,11 @@ public class SystemModulesLocationHandler extends BasicLocationHandler implement
     }
 
     private void initModules() {
+        if (isInit) {
+            return;
+        }
+        isInit = true;
+
         final Path javaHome = systemValue != null
                 ? Paths.get(systemValue)
                 : FileSystems.getDefault().getPath(System.getProperty("java.home"));

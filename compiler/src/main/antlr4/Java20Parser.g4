@@ -344,11 +344,11 @@ moduleDeclaration
     ;
 
 moduleDirective
-    : 'requires' requiresModifier* moduleName ';'
-    | 'exports' packageName ('to' moduleName ( ',' moduleName)*)? ';'
-    | 'opens' packageName ('to' moduleName ( ',' moduleName)*)? ';'
-    | 'uses' typeName ';'
-    | 'provides' typeName 'with' typeName ( ',' typeName)* ';'
+    : directiveType='requires' requiresModifier* moduleName ';'
+    | directiveType='exports' packageName ('to' moduleName ( ',' moduleName)*)? ';'
+    | directiveType='opens' packageName ('to' moduleName ( ',' moduleName)*)? ';'
+    | directiveType='uses' typeName ';'
+    | directiveType='provides' typeName 'with' typeName ( ',' typeName)* ';'
     ;
 
 requiresModifier

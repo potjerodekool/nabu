@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MethodSymbol extends Symbol implements ExecutableElement {
-    private final List<VariableSymbol> parameters = new ArrayList<>();
+    private final List<VariableElement> parameters = new ArrayList<>();
     private final List<TypeParameterElement> typeParameters = new ArrayList<>();
     private final boolean isDefaultMethod;
     private AnnotationValue defaultValue;
@@ -26,15 +26,10 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
                         final List<TypeParameterElement> typeParameters,
                         final TypeMirror returnType,
                         final List<TypeMirror> thrownTypes,
-                        final List<VariableSymbol> parameters,
+                        final List<VariableElement> parameters,
                         final List<AnnotationMirror> annotations) {
         super(kind, flags, name, null, owner);
         this.typeParameters.addAll(typeParameters);
-
-        final var parameterTypes = parameters.stream()
-                .map(Symbol::asType)
-                .toList();
-
         this.setAnnotations(annotations);
         final var methodType = new CMethodType(
                 this,
@@ -81,7 +76,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         asType().setReturnType(returnType);
     }
 
-    public List<VariableSymbol> getParameters() {
+    public List<VariableElement> getParameters() {
         return parameters;
     }
 
@@ -118,7 +113,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         this.defaultValue = defaultValue;
     }
 
-    public void addParameter(final VariableSymbol parameter) {
+    public void addParameter(final VariableElement parameter) {
         this.parameters.forEach(p -> {
             if (p.getSimpleName().equals(parameter.getSimpleName())) {
                 throw new IllegalArgumentException();

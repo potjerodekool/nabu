@@ -8,8 +8,8 @@ import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 public interface ArgumentBoxer {
 
     /**
-     * @param methodInvocation A method invocation.
      * Box and unbox arguments.
+     * @param methodInvocation A method invocation.
      */
     void boxArguments(MethodInvocationTree methodInvocation);
 }

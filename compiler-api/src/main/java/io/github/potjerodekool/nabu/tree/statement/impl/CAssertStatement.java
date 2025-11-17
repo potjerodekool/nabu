@@ -39,6 +39,6 @@ public class CAssertStatement extends CStatementTree implements AssertStatement 
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

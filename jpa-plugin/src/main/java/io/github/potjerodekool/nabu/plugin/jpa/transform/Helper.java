@@ -12,6 +12,9 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 
+/**
+ * Utility methods
+ */
 public final class Helper {
 
     private static final String PATH_CLASS = "jakarta.persistence.criteria.Path";

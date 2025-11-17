@@ -25,6 +25,7 @@ import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.ArrayList;
@@ -132,7 +133,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
             final var originalElement = scope.resolve(localName);
             final var typeMirror = originalElement.asType();
 
-            final var parameterElement = (VariableSymbol) new VariableSymbolBuilderImpl()
+            final var parameterElement = new VariableSymbolBuilderImpl()
                     .kind(ElementKind.PARAMETER)
                     .simpleName(localName)
                     .type(typeMirror)

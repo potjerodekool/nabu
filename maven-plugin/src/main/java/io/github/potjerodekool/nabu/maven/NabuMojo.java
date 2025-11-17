@@ -51,7 +51,7 @@ public class NabuMojo extends AbstractMojo {
 
         final var options = configureOptions();
 
-        final var resultCode =nabuCompiler.compile(options);
+        final var resultCode = nabuCompiler.compile(options);
 
         if (resultCode != 0) {
             throw new MojoFailureException("Compilation failed with result code " + resultCode);

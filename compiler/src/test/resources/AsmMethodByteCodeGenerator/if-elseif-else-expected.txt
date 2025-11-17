@@ -1,0 +1,29 @@
+    // annotable parameter count: 1 (visible)
+    ICONST_0
+    ISTORE 2
+   L0
+    ALOAD 1
+    IFNONNULL L1
+   L2
+    ICONST_1
+    ISTORE 2
+   L3
+    GOTO L4
+   L1
+    ALOAD 1
+    IFNULL L5
+   L6
+    ICONST_0
+    ISTORE 2
+   L7
+    GOTO L5
+   L5
+    GOTO L4
+   L4
+    ILOAD 2
+    IRETURN
+    LOCALVARIABLE this LSomeClass; L0 L4 0
+    LOCALVARIABLE s Ljava/lang/String; L0 L4 1
+    LOCALVARIABLE result Z L0 L4 2
+    MAXSTACK = -1
+    MAXLOCALS = -1

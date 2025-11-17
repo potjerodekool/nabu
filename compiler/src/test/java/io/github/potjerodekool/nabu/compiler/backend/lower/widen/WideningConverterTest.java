@@ -18,7 +18,7 @@ class WideningConverterTest extends AbstractCompilerTest {
 
     private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
     private final Types types = loader.getTypes();
-    private final WideningConverter wideningConverter = new WideningConverter(types);
+    private final WideningConverter wideningConverter = new WideningConverter(getCompilerContext());
 
     @AfterEach
     void teardown() throws Exception {

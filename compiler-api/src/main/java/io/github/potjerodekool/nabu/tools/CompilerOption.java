@@ -5,6 +5,7 @@ package io.github.potjerodekool.nabu.tools;
  */
 public enum CompilerOption {
     SOURCE_PATH,
+    MODULE_SOURCE_PATH,
     CLASS_PATH,
     SYSTEM,
     TARGET_VERSION,

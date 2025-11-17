@@ -6,7 +6,6 @@ import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.objectweb.asm.AnnotationVisitor;
-import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
 
@@ -19,17 +18,6 @@ public class AsmAnnotationGenerator extends AbstractAnnotationValueVisitor<Void,
     private static final AsmAnnotationGenerator INSTANCE = new AsmAnnotationGenerator();
 
     private AsmAnnotationGenerator() {
-    }
-
-    public static void generate(final AnnotationMirror annotation,
-                                final ClassVisitor classWriter) {
-        final var descriptor = ClassUtils.getDescriptor(annotation.getAnnotationType());
-
-        final var annotationVisitor = classWriter.visitAnnotation(
-                descriptor,
-                isVisible(annotation)
-        );
-        generate(annotation, annotationVisitor);
     }
 
     public static void generate(final AnnotationMirror annotation,

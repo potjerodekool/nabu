@@ -25,13 +25,13 @@ public class Call extends IExpression {
     protected final Call lambdaCall;
 
     /**
-     * Create a non dynamic call
-     * @param invocationType
-     * @param owner
-     * @param function
-     * @param returnType
-     * @param paramTypes
-     * @param args
+     * Create a non-dynamic call
+     * @param invocationType Invocation type
+     * @param owner Owner of where the function is called on.
+     * @param function Function name.
+     * @param returnType Return type.
+     * @param paramTypes Parameter types.
+     * @param args Call arguments. On non-static calls the first argument should be the 'this' expression.
      */
     public Call(final InvocationType invocationType,
                 final IType owner,
@@ -44,12 +44,12 @@ public class Call extends IExpression {
 
     /**
      * Create a dynamic call.
-     * @param function
-     * @param returnType
-     * @param paramTypes
-     * @param args
-     * @param lambdaFunctionCall
-     * @param lambdaCall
+     * @param function  Function name.
+     * @param returnType Return type.
+     * @param paramTypes Parameter types.
+     * @param args Call arguments. On non-static calls the first argument should be the 'this' expression.
+     * @param lambdaFunctionCall Lambda function call.
+     * @param lambdaCall Lambda call.
      */
     public Call(final Name function,
                 final IType returnType,

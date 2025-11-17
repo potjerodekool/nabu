@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
@@ -207,7 +206,7 @@ class LowerTest extends AbstractCompilerTest {
                 0
         );
 
-        final var lowerContext = new LowerContext(cu);
+        final var lowerContext = new Lower.LowerContext(cu);
 
         final var result = enhancedForStatement.accept(lower, lowerContext);
         final var actual = TreePrinter.print(result);
@@ -224,8 +223,10 @@ class LowerTest extends AbstractCompilerTest {
 
     @Test
     void visitSwitchWithEnum() {
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+
         final var packageSymbol = loader.findOrCreatePackage(
-                null,
+                module,
                 "foo.bar"
         );
 
@@ -276,7 +277,7 @@ class LowerTest extends AbstractCompilerTest {
                 .superclass(enumClass.asType())
                 .build();
 
-        final var onConstant = (VariableSymbol) new VariableSymbolBuilderImpl()
+        final var onConstant = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.ENUM_CONSTANT)
                 .simpleName("ON")
                 .type(null)
@@ -315,7 +316,7 @@ class LowerTest extends AbstractCompilerTest {
                 .cases(List.of(caseStatement))
                 .build();
 
-        final var lowerContext = new LowerContext(cu);
+        final var lowerContext = new Lower.LowerContext(cu);
         lowerContext.currentClass = currentClassTree;
 
         final var result = switchStatement.accept(lower, lowerContext);

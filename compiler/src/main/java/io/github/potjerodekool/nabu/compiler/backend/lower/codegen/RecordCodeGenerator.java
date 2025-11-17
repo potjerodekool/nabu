@@ -68,7 +68,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
         compactConstructor.getParameters().forEach(parameter -> {
             final var type = parameter.getName().getSymbol().asType();
 
-            clazz.addEnclosedElement((VariableSymbol) new VariableSymbolBuilderImpl()
+            clazz.addEnclosedElement(new VariableSymbolBuilderImpl()
                     .kind(ElementKind.RECORD_COMPONENT)
                     .simpleName(parameter.getName().getName())
                     .type(type)

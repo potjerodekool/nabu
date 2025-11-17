@@ -49,7 +49,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
                                         final ClassDeclaration classDeclaration) {
         final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
         final var valuesMethod = findMethod(clazz, "$values")
-                .get();
+                .orElseThrow(() -> new IllegalStateException("Missing $values method"));
 
         final var methodInvocation = new CMethodInvocationTree(
                 new CIdentifierTree("$values"),
@@ -61,7 +61,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         methodInvocation.setMethodType(valuesMethod.asType());
 
         final var valuesFieldSymbol = findField(clazz, "$VALUES")
-                .get();
+                .orElseThrow(() -> new IllegalStateException("Missing $VALUES field"));
 
         final var left = new CIdentifierTree("$VALUES");
         left.setSymbol(valuesFieldSymbol);
@@ -183,7 +183,10 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         arrayTypeTree.setType(types.getArrayType(componentType.getType()));
 
         final var valuesFieldIdentifier = new CIdentifierTree("$VALUES");
-        valuesFieldIdentifier.setSymbol(findField(clazz, "$VALUES").get());
+        valuesFieldIdentifier.setSymbol(
+                findField(clazz, "$VALUES")
+                        .orElseThrow(() -> new IllegalStateException("Missing $VALUES field"))
+        );
 
         final var owner = new CIdentifierTree(clazz.getQualifiedName());
         owner.setType(clazz.asType());
@@ -204,7 +207,10 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
                 List.of()
         );
 
-        final var cloneMethod = withOwner(findMethod(clazz, "clone").get(), clazz);
+        final var cloneMethod = withOwner(
+                findMethod(clazz, "clone").orElseThrow(() -> new IllegalStateException("Missing clone method")),
+                clazz
+        );
 
         methodInvocation.setMethodType(cloneMethod.asType());
 
@@ -292,7 +298,8 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         final var enumClazz = SymbolTable.getInstance(compilerContext).getEnumType().asTypeElement();
 
         final var enumValueOfMethod = findMethod((ClassSymbol) enumClazz, "valueOf")
-                .get();
+                .orElseThrow(() -> new IllegalStateException("Missing valueOf method"));
+
 
         methodInvocation.getMethodSelector().setType(enumValueOfMethod.asType().getOwner().asType());
         methodInvocation.setMethodType(enumValueOfMethod.asType());

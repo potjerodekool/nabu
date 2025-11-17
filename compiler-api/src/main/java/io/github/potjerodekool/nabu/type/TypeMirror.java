@@ -187,4 +187,6 @@ public interface TypeMirror {
     default boolean isArrayType() {
         return this instanceof ArrayType;
     }
+
+    boolean isError();
 }

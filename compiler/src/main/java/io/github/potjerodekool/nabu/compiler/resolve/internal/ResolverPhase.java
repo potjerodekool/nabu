@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.resolve.AbstractResolver;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
@@ -36,9 +35,8 @@ public class ResolverPhase extends AbstractResolver {
 
     public ResolverPhase(final CompilerContextImpl compilerContext) {
         super(compilerContext);
-        final var loader = compilerContext.getClassElementLoader();
         this.methodResolver = compilerContext.getMethodResolver();
-        this.phaseUtils = new PhaseUtils(loader.getTypes());
+        this.phaseUtils = new PhaseUtils(compilerContext);
     }
 
     @Override
@@ -120,18 +118,26 @@ public class ResolverPhase extends AbstractResolver {
     }
 
     @Override
-    public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
+    public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
+                                                   final Scope scope) {
         super.visitVariableDeclaratorStatement(variableDeclaratorStatement, scope);
 
         if (!(variableDeclaratorStatement.getKind() == Kind.FIELD
                 || variableDeclaratorStatement.getKind() == Kind.ENUM_CONSTANT)) {
-            final var symbol = phaseUtils.createVariable(variableDeclaratorStatement);
-            variableDeclaratorStatement.getName()
-                    .setSymbol(symbol);
 
-            if (variableDeclaratorStatement.getKind() == Kind.PARAMETER
-                    || variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE) {
+            if (variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE) {
+                final var symbol = phaseUtils.createVariable(variableDeclaratorStatement);
+                variableDeclaratorStatement.getName().setSymbol(symbol);
                 scope.define(symbol);
+            } else if (variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
+                var symbol = variableDeclaratorStatement.getName().getSymbol();
+
+                if (symbol == null) {
+                    //Should only occur with lambda parameters.
+                    symbol = phaseUtils.createVariable(variableDeclaratorStatement);
+                    variableDeclaratorStatement.getName().setSymbol(symbol);
+                    scope.define(symbol);
+                }
             }
         }
 
@@ -309,10 +315,5 @@ public class ResolverPhase extends AbstractResolver {
             return AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
         }
         throw new TodoException();
-    }
-
-    @Override
-    public Object visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final Scope scope) {
-        return super.visitLambdaExpression(lambdaExpression, scope);
     }
 }

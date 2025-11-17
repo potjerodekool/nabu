@@ -16,5 +16,5 @@ public interface VariableElement extends Element {
      * See {@link Element#builder()}
      */
     @Override
-    VariableElementBuilder builder();
+    VariableElementBuilder<? extends VariableElement> builder();
 }

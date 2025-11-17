@@ -98,4 +98,4 @@ To use Nabu and Java in the same project the nabu-maven-plugin must be placed be
 Intellij ([Nabu Idea](https://github.com/potjerodekool/nabu-idea))
 
 # Documentation
-[documentation](docs/index.html)
+[documentation](https://potjerodekool.github.io/nabu/)

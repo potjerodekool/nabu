@@ -1,0 +1,12 @@
+    // annotable parameter count: 0 (visible)
+   L0
+    ALOAD 0
+    LDC Ljava/lang/String;.class
+    PUTFIELD SomeClass.stringType : Ljava/lang/class;
+    GOTO L1
+   L1
+    RETURN
+   L2
+    LOCALVARIABLE this LSomeClass; L0 L2 0
+    MAXSTACK = -1
+    MAXLOCALS = -1

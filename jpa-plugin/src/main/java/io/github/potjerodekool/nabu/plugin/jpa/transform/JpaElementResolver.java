@@ -9,6 +9,13 @@ import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
+/**
+ * Resolve elements on Path instances.
+ * <p>
+ * final var personRoot : Root&lt;Person&gt;
+ * //Access the firstName of Person class
+ * personRoot.firstName
+ */
 public class JpaElementResolver implements ElementResolver {
 
     private static final String PATH_CLASS = "jakarta.persistence.criteria.Path";

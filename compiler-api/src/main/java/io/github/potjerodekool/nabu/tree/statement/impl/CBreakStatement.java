@@ -32,6 +32,6 @@ public class CBreakStatement extends CStatementTree implements BreakStatement {
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

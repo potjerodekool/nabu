@@ -132,7 +132,7 @@ public interface TreeVisitor<R, P> {
      * Visit method invocation.
      *
      * @param methodInvocation A method invocation.
-     * @param param A paraameter.
+     * @param param A parameter.
      * @return Returns a result.
      */
     default R visitMethodInvocation(MethodInvocationTree methodInvocation,
@@ -143,7 +143,7 @@ public interface TreeVisitor<R, P> {
     /**
      * Visit literal expression.
      *
-     * @param literalExpression A literal expresion.
+     * @param literalExpression A literal expression.
      * @param param A parameter.
      * @return Returns a result.
      */
@@ -192,7 +192,7 @@ public interface TreeVisitor<R, P> {
      * Visit import item.
      * @param importItem An import item.
      * @param param A parameter.
-     * @return Returns a resulot.
+     * @return Returns a result.
      */
     default R visitImportItem(ImportItem importItem,
                               P param) {
@@ -332,7 +332,7 @@ public interface TreeVisitor<R, P> {
     }
 
     /**
-     * Visit enchanged for statement.
+     * Visit 'enhanced for statement'.
      *
      * @param enhancedForStatement An enhanced for statement.
      * @param param A parameter.
@@ -395,7 +395,7 @@ public interface TreeVisitor<R, P> {
     /**
      * Visit do while statement.
      *
-     * @param doWhileStatement A do while statement.
+     * @param doWhileStatement A do-while statement.
      * @param param A parameter.
      * @return Returns a result.
      */
@@ -561,7 +561,7 @@ public interface TreeVisitor<R, P> {
     /**
      * Visit requires.
      *
-     * @param requiresTree A requires
+     * @param requiresTree A 'requires'
      * @param param A parameter.
      * @return Returns a result.
      */
@@ -571,7 +571,7 @@ public interface TreeVisitor<R, P> {
     }
 
     /**
-     * Visit providddes.
+     * Visit provides.
      *
      * @param providesTree A provides
      * @param param A parameter

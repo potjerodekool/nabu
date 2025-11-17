@@ -55,7 +55,13 @@ public class CandidateMatcher implements TypeVisitor<Boolean, TypeMirror> {
         final var parameterTypeElement = parameterType.asTypeElement();
 
         while (argumentTypeElement != parameterTypeElement) {
-            argumentTypeElement = argumentTypeElement.getSuperclass().asTypeElement();
+            final var superClass = argumentTypeElement.getSuperclass();
+
+            if (superClass == null) {
+                break;
+            }
+
+            argumentTypeElement = superClass.asTypeElement();
             offset++;
         }
 

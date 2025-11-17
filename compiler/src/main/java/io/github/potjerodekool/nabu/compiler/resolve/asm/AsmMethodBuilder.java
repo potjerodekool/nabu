@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
@@ -87,7 +88,7 @@ public class AsmMethodBuilder extends MethodVisitor {
             );
         }
 
-        final var parameters = new ArrayList<VariableSymbol>();
+        final var parameters = new ArrayList<VariableElement>();
         final var argumentTypes = methodSignature.argumentTypes();
 
         for (var i = 0; i < argumentTypes.size(); i++) {
@@ -114,7 +115,7 @@ public class AsmMethodBuilder extends MethodVisitor {
 
     private VariableSymbol createParameter(final String name,
                                            final TypeMirror argType) {
-        return (VariableSymbol) new VariableSymbolBuilderImpl()
+        return new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName(name)
                 .type(argType)
@@ -130,7 +131,7 @@ public class AsmMethodBuilder extends MethodVisitor {
             return;
         }
 
-        final var parameter = parameters.get(parameterIndex++);
+        final var parameter = (VariableSymbol) parameters.get(parameterIndex++);
         if (name != null) {
             parameter.setSimpleName(name);
         }

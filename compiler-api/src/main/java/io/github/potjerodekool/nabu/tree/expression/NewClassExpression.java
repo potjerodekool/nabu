@@ -8,9 +8,9 @@ import java.util.List;
 /**
  * New class expression.
  * For example:
- *
+ *<p>
  * final Animal animal = new Dog() {
- *
+ *<p>
  * };
  */
 public interface NewClassExpression extends ExpressionTree {

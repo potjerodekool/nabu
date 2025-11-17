@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.type;
 
 /**
- * A error type.
+ * An error type.
  */
 public interface ErrorType extends DeclaredType {
 

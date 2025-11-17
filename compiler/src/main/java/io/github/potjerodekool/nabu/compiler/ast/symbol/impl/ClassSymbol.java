@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.*;
-import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.type.ArrayType;
 import io.github.potjerodekool.nabu.type.DeclaredType;
@@ -185,7 +184,10 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
             final var enclosingName = enclosing instanceof QualifiedNameable qn
                     ? qn.getQualifiedName()
                     : enclosing.getSimpleName();
-            qualifiedName = enclosingName + "." + getSimpleName();
+
+            final var separator = nestingKind == NestingKind.MEMBER ? "$" : ".";
+
+            qualifiedName = enclosingName + separator + getSimpleName();
         } else {
             qualifiedName = getSimpleName();
         }

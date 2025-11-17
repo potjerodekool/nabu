@@ -182,7 +182,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         final String methodName;
 
         if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-            methodName = ((IdentifierTree) fieldAccessExpressionTree.getField()).getName();
+            methodName = fieldAccessExpressionTree.getField().getName();
         } else {
             methodName = ((IdentifierTree) methodSelector).getName();
         }
@@ -588,8 +588,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     @Override
     public Exp visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final TranslateContext context) {
         final var selected = (IdentifierTree) fieldAccessExpression.getSelected();
-        final var field = (IdentifierTree) fieldAccessExpression.getField();
-        final var fieldType = toIType(TreeUtils.typeOf(field));
+        final var field = fieldAccessExpression.getField();
+        final var fieldType = toIType(compilerContext.getTreeUtils().typeOf(field));
 
         final var selectedExpr = selected.accept(this, context).unEx();
         final var fieldExpr = field.accept(this, context).unEx();

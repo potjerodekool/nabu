@@ -39,6 +39,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
 
     @Override
     public R visitFunction(final Function function, final P param) {
+        function.getModifiers().getAnnotations().forEach(annotationTree -> annotationTree.accept(this, param));
+
         function.getParameters().forEach(fp -> fp.accept(this, param));
         final var returnType = function.getReturnType();
 
@@ -106,6 +108,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
 
     @Override
     public R visitMethodInvocation(final MethodInvocationTree methodInvocation, final P param) {
+        methodInvocation.getTypeArguments()
+                        .forEach(typeArg -> typeArg.accept(this, param));
         methodInvocation.getMethodSelector().accept(this, param);
         methodInvocation.getArguments().forEach(arg -> arg.accept(this, param));
         return defaultAnswer(methodInvocation, param);
@@ -134,6 +138,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P> {
         }
 
         variableDeclaratorStatement.getVariableType().accept(this, param);
+
+        variableDeclaratorStatement.getAnnotations().forEach(a -> a.accept(this, param));
 
         return defaultAnswer(variableDeclaratorStatement, param);
     }

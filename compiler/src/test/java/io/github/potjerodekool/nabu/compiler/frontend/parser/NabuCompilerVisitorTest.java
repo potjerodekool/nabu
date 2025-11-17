@@ -2,14 +2,32 @@ package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
+import io.github.potjerodekool.nabu.test.NabuLangTreeAssert;
+import org.antlr.v4.runtime.tree.ParseTree;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-
-import static io.github.potjerodekool.nabu.test.TreeAssert.parseAndAssert;
+import java.util.function.Function;
 
 class NabuCompilerVisitorTest {
+
+    protected void parseAndAssert(final String code,
+                                  final Function<NabuParser, ParseTree> parseTreeBuilder) {
+        NabuLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder);
+    }
+
+    public void parseAndAssert(final String code,
+                               final Function<NabuParser, ParseTree> parseTreeBuilder,
+                               final String actualPrefix) {
+        NabuLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder, actual -> actualPrefix + actual);
+    }
+
+    public void parseAndAssert(final String code,
+                               final Function<NabuParser, ParseTree> parseTreeBuilder,
+                               final Function<String, String> actualTransformer) {
+        NabuLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder, actualTransformer);
+    }
 
     @Test
     void ordinaryCompilationUnit() throws IOException {

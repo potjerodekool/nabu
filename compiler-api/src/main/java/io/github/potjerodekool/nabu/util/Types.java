@@ -54,7 +54,7 @@ public interface Types {
                                  TypeMirror... typeArgs);
 
     /**
-     * @param enclosing A enclosing type, may be null.
+     * @param enclosing An enclosing type, may be null.
      * @param typeElem A type element.
      * @param typeArgs Zero or more type arguments.
      * @return Return a type with the given type arguments.
@@ -221,4 +221,6 @@ public interface Types {
      * @return Returns the type representing java.lang.Object.
      */
     TypeMirror getObjectType();
+
+    TypeMirror getUnknownType();
 }

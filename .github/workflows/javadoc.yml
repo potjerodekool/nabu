@@ -1,0 +1,114 @@
+name: Generate and Deploy Javadoc
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build project with Maven
+        run: mvn clean install -DskipTests
+
+      - name: Generate Javadoc with Maven (aggregate)
+        run: mvn javadoc:aggregate
+
+      - name: Prepare docs structure
+        run: |
+          mkdir -p docs/api
+          mv target/site/apidocs/* docs/api/
+
+      - name: Create index page
+        run: |
+          cat > docs/api/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>API Documentation</title>
+              <meta charset="UTF-8">
+              <style>
+                  body {
+                      font-family: Arial, sans-serif;
+                      max-width: 800px;
+                      margin: 50px auto;
+                      padding: 20px;
+                  }
+                  h1 { color: #333; }
+                  .module {
+                      background: #f5f5f5;
+                      padding: 20px;
+                      margin: 10px 0;
+                      border-radius: 5px;
+                  }
+                  a { color: #0066cc; text-decoration: none; }
+                  a:hover { text-decoration: underline; }
+              </style>
+          </head>
+          <body>
+              <h1>Nabu Project API Documentation</h1>
+              <div class="module">
+                  <h2>compiler-api</h2>
+                  <p>Core API interfaces and definitions</p>
+                  <a href="compiler-api/index.html">View Documentation →</a>
+              </div>
+              <div class="module">
+                  <h2>compiler</h2>
+                  <p>Compiler implementation</p>
+                  <a href="compiler/index.html">View Documentation →</a>
+              </div>
+              <div class="module">
+                  <h2>testing</h2>
+                  <p>Compiler testing framework</p>
+                  <a href="testing/index.html">View Documentation →</a>
+              </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Create root index page
+        run: |
+          cat > docs/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Project Documentation</title>
+              <meta http-equiv="refresh" content="0; url=api/">
+          </head>
+          <body>
+              <p>Redirecting to <a href="api/">API Documentation</a>...</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Add .nojekyll file
+        run: touch docs/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './docs'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -310,6 +310,7 @@ public abstract class Symbol implements Element {
 
     public boolean isAccessibleIn(final Symbol clazz,
                                   final Types types) {
+        Objects.requireNonNull(clazz);
         if (Flags.hasFlag(flags, Flags.PUBLIC)) {
             return true;
         } else if (Flags.hasFlag(flags, Flags.PRIVATE)) {

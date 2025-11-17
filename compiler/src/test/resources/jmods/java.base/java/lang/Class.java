@@ -1,4 +1,4 @@
 package java.lang;
 
-public class Class {
+public class Class<T> {
 }

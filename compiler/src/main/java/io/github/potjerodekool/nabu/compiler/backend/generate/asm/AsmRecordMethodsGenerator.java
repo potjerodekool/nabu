@@ -160,7 +160,7 @@ public class AsmRecordMethodsGenerator {
                     return parameterTypes.size() == 1 && parameterTypes.getFirst() instanceof DeclaredType declaredType
                             && Constants.OBJECT.equals(declaredType.getClassName());
                 })) {
-            //record contains an equals method. No need to generate it.
+            //record contains an 'equals' method. No need to generate it.
             return;
         }
 

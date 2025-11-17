@@ -1,0 +1,16 @@
+    // annotable parameter count: 0 (visible)
+   L0
+    ILOAD 0
+    IFEQ L1
+   L2
+    ICONST_1
+    IRETURN
+   L1
+    ICONST_0
+    IRETURN
+   L3
+    IRETURN
+   L4
+    LOCALVARIABLE this LSomeClass; L0 L4 0
+    MAXSTACK = -1
+    MAXLOCALS = -1

@@ -136,6 +136,10 @@ public class ClassFinder {
     }
 
     private void completeOwner(final Symbol symbol) {
+        if (symbol instanceof PackageSymbol packageSymbol) {
+            packageSymbol.markExists();
+        }
+
         if (symbol.getKind() != ElementKind.PACKAGE) {
             completeOwner(symbol.getEnclosingElement());
         }
@@ -197,9 +201,14 @@ public class ClassFinder {
         } else {
             scanModulePath(module, packageSymbol);
         }
+
+        if (!packageSymbol.getEnclosedElements().isEmpty()) {
+            packageSymbol.markExists();
+        }
     }
 
-    private void scanModulePath(final ModuleSymbol moduleSymbol, final PackageSymbol packageSymbol) {
+    private void scanModulePath(final ModuleSymbol moduleSymbol,
+                                final PackageSymbol packageSymbol) {
         final var kinds = getPackageFileKinds();
         final var classKinds = this.fileManager.copyOf(kinds);
         final FileManager.Location location;

@@ -3,19 +3,20 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.VariableType;
 import io.github.potjerodekool.nabu.util.Types;
 
-import static io.github.potjerodekool.nabu.tree.TreeUtils.typeOf;
-
 public final class PhaseUtils {
 
+    private final CompilerContext compilerContext;
     private final Types types;
 
-    public PhaseUtils(final Types types) {
-        this.types = types;
+    public PhaseUtils(final CompilerContext compilerContext) {
+        this.compilerContext = compilerContext;
+        this.types = compilerContext.getClassElementLoader().getTypes();
     }
 
     public VariableSymbol createVariable(final VariableDeclaratorTree variableDeclaratorStatement) {
@@ -26,7 +27,7 @@ public final class PhaseUtils {
             if (variableDeclaratorStatement.getValue() == null) {
                 type = types.getErrorType("error");
             } else {
-                final var interferedType = typeOf(variableDeclaratorStatement.getValue());
+                final var interferedType = compilerContext.getTreeUtils().typeOf(variableDeclaratorStatement.getValue());
                 type = types.getVariableType(interferedType);
             }
             variableDeclaratorStatement.getVariableType().setType(type);
@@ -34,7 +35,7 @@ public final class PhaseUtils {
             type = types.getErrorType("error");
         }
 
-        return (VariableSymbol) new VariableSymbolBuilderImpl()
+        return new VariableSymbolBuilderImpl()
                 .kind(toElementKind(variableDeclaratorStatement.getKind()))
                 .simpleName(identifier.getName())
                 .type(type)

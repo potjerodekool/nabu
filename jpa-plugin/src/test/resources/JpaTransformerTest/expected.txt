@@ -1,0 +1,16 @@
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Root;
+import io.github.potjerodekool.nabu.lang.jpa.support.InnerJoin;
+import foo.Company;
+import foo.Employee;
+
+public class MyClass {
+    fun findCompanyByEmployeeFirstName(employeeFirstName : String): Specification<Company> {
+        return (c : Root<Company>, q : CriteriaQuery<?>, cb : CriteriaBuilder) -> {
+            var e = c.<foo.Company, foo.Employee>join("employees", jakarta.persistence.criteria.JoinType.INNER);
+            return cb.equal(e.<java.lang.String>get("firstName"), employeeFirstName);
+        }
+        ;
+    }
+
+}

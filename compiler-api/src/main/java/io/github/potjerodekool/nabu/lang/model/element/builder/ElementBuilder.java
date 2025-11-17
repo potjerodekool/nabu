@@ -22,4 +22,6 @@ public interface ElementBuilder<EB extends ElementBuilder<EB>>  {
     EB kind(ElementKind elementKind);
 
     EB flags(long flags);
+
+    EB enclosedElement(Element element);
 }

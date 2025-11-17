@@ -6,7 +6,6 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
-import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
@@ -29,7 +28,7 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
         final var flatName = Symbol.createFlatName(name);
         final var module = moduleElement != null
                 ? (ModuleSymbol) moduleElement
-                : symbolTable.getJavaBase();
+                : symbolTable.getUnnamedModule();
 
         final var packageName = resolvePackagePart(flatName);
 
@@ -41,6 +40,13 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
                 module,
                 packageName
         );
+
+        packageSymbol.complete();
+
+        if (!packageSymbol.exists()) {
+            return null;
+        }
+
         final var packageModule = packageSymbol.getModuleSymbol();
 
         if (flatName.contains("$")) {
@@ -62,12 +68,11 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
             return (TypeElement) symbol;
         } else {
             final var shortName = resolveShortPart(flatName);
-            final var clazz = symbolTable.enterClass(
+            return symbolTable.enterClass(
                     packageModule,
                     shortName,
                     packageSymbol
             );
-            return clazz;
         }
     }
 

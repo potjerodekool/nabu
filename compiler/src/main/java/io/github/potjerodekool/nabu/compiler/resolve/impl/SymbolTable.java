@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
@@ -130,7 +129,7 @@ public class SymbolTable {
             }
 
             @Override
-            public ElementBuilder builder() {
+            public ElementBuilder<?> builder() {
                 return null;
             }
 
@@ -391,6 +390,12 @@ public class SymbolTable {
         }
 
         return result;
+    }
+
+    public PackageSymbol findPackage(final ModuleSymbol module,
+                                     final String flatName) {
+        return this.packagesMap.getOrDefault(flatName, Collections.emptyMap())
+                .get(module);
     }
 
     private void doEnterPackage(final ModuleSymbol module,

@@ -614,5 +614,10 @@ public class TypesImpl implements Types {
     public TypeMirror getObjectType() {
         return symbolTable.getObjectType();
     }
+
+    @Override
+    public TypeMirror getUnknownType() {
+        return new CUnknownType();
+    }
 }
 

@@ -25,11 +25,11 @@ public abstract class AbstractBoxer {
             final var unboxed = unbox(expressionTree);
 
             if (unboxed instanceof MethodInvocationTree methodInvocation) {
-                final var methodType = methodResolver.resolveMethod(methodInvocation)
-                                .get();
-                methodInvocation.getMethodSelector()
-                                .setType(methodType.getOwner().asType());
-                methodInvocation.setMethodType(methodType);
+                methodResolver.resolveMethod(methodInvocation).ifPresent(methodType -> {
+                    methodInvocation.getMethodSelector()
+                            .setType(methodType.getOwner().asType());
+                    methodInvocation.setMethodType(methodType);
+                });
                 return methodInvocation;
             } else {
                 return unboxed;

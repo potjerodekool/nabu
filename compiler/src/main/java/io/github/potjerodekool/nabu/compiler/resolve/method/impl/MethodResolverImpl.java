@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
+import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
+import io.github.potjerodekool.nabu.compiler.type.impl.CUnknownType;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
@@ -18,7 +20,7 @@ import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.*;
 import java.util.function.Predicate;
-import java.util.stream.IntStream;
+import java.util.stream.Collectors;
 
 public class MethodResolverImpl implements MethodResolver {
 
@@ -129,7 +131,13 @@ public class MethodResolverImpl implements MethodResolver {
         if (expression instanceof FieldAccessExpressionTree fieldAccessExpression) {
             return resolveType(fieldAccessExpression.getField());
         } else if (expression instanceof MethodInvocationTree methodInvocationTree) {
-            return methodInvocationTree.getMethodType().getReturnType();
+            final var methodType = methodInvocationTree.getMethodType();
+
+            if (methodType != null) {
+                return methodType.getReturnType();
+            } else {
+                return new CUnknownType();
+            }
         }
 
         var type = expression.getType();
@@ -177,7 +185,7 @@ public class MethodResolverImpl implements MethodResolver {
 
     private Optional<ExecutableType> doResolveMethod(final DeclaredType type,
                                                      final String methodName,
-                                                     final List<?extends TypeMirror> typeArguments,
+                                                     final List<? extends TypeMirror> typeArguments,
                                                      final List<TypeMirror> argumentTypes,
                                                      final boolean onlyStaticCalls,
                                                      final Scope scope) {
@@ -196,8 +204,12 @@ public class MethodResolverImpl implements MethodResolver {
         }
 
         final var methodTypes = new ArrayList<>(methods.stream()
-                .map(method -> (ExecutableType) types.asMemberOf(type, method))
-                .map(mt -> transform(mt, typeArguments, argumentTypes))
+                .map(method -> transform(
+                        type,
+                        method,
+                        typeArguments,
+                        argumentTypes
+                ))
                 .filter(method -> match(method, argumentTypes))
                 .toList());
 
@@ -217,6 +229,7 @@ public class MethodResolverImpl implements MethodResolver {
             throw new TodoException("Found multiple candidates for method " + methodName + " in " + clazz.getSimpleName());
         } else {
             final var interfaceMethodOptional = clazz.getInterfaces().stream()
+                    .map(interfaceType -> mapToType(type, interfaceType))
                     .map(interfaceType -> (DeclaredType) interfaceType)
                     .map(interfaceType -> doResolveMethod(
                             interfaceType,
@@ -279,33 +292,80 @@ public class MethodResolverImpl implements MethodResolver {
         return Optional.of(bestMatch);
     }
 
-    @Override
-    public ExecutableType transform(final ExecutableType methodType,
-                                    final List<? extends TypeMirror> typeArguments,
-                                    final List<TypeMirror> argumentTypes) {
+    private ExecutableType transform(final DeclaredType targetType,
+                                     final ExecutableElement method,
+                                     final List<? extends TypeMirror> typeArguments,
+                                     final List<TypeMirror> argumentTypes) {
+        final var methodType = (ExecutableType) method.asType();
+
         final var typeMapFiller = new TypeMapFiller();
-        final var map = typeMapFiller.getMap();
-        final var methodArgumentTypes = methodType.getParameterTypes();
+        final var typeMap = typeMapFiller.getTypeMap();
+        final var typeMapApplier = new TypeMapApplier(typeMap, types);
+        final var typeApplier2 = new TypeMapApplier2(typeMap, types);
 
-        for (var i = 0; i < methodArgumentTypes.size(); i++) {
-            final var methodArgType = methodArgumentTypes.get(i);
+        if (!method.isStatic()) {
+            targetType.accept(typeMapFiller, null);
+        }
 
-            if (argumentTypes.size() > i) {
-                final var argType = argumentTypes.get(i);
-                argType.accept(typeMapFiller, methodArgType);
+        if (!typeArguments.isEmpty()) {
+            applyTypes(typeArguments, methodType.getTypeVariables(), typeApplier2);
+        }
+
+        var parameterTypes = applyTypes(methodType.getParameterTypes(), typeMapApplier);
+        var argTypes = applyTypes(argumentTypes, typeMapApplier);
+
+        argTypes = applyTypes(argTypes, parameterTypes, typeApplier2);
+        parameterTypes = applyTypes(parameterTypes, argTypes, typeApplier2);
+
+        final var returnType = methodType.getReturnType().accept(typeMapApplier, null);
+        final var thrownTypes = methodType.getThrownTypes().stream()
+                .map(thrownType -> thrownType.accept(typeMapApplier, null))
+                .toList();
+
+        return types.getExecutableType(
+                method,
+                methodType.getTypeVariables(),
+                returnType,
+                parameterTypes,
+                thrownTypes
+        );
+    }
+
+    private List<TypeMirror> applyTypes(final List<? extends TypeMirror> types,
+                                        final TypeVisitor<TypeMirror, TypeMirror> typeVisitor) {
+        return types.stream()
+                .map(parameterType -> parameterType.accept(
+                        typeVisitor,
+                        null
+                ))
+                .collect(Collectors.toList());
+    }
+
+    private List<TypeMirror> applyTypes(final List<? extends TypeMirror> firstTypes,
+                                        final List<? extends TypeMirror> secondTypes,
+                                        final TypeVisitor<TypeMirror, TypeMirror> typeVisitor) {
+        final var types = new ArrayList<TypeMirror>();
+
+        for (var i = 0; i < firstTypes.size(); i++) {
+            final var firstType = getOrNull(firstTypes, i);
+            final var secondType = getOrNull(secondTypes, i);
+
+            if (firstType != null && secondType != null) {
+                types.add(firstType.accept(typeVisitor, secondType));
+            } else if (firstType != null) {
+                types.add(firstType);
             }
         }
 
-        if (typeArguments.size() == methodType.getTypeVariables().size()) {
-            for (var i = 0; i < typeArguments.size(); i++) {
-                final var typeArg = typeArguments.get(i);
-                final var typeVar = methodType.getTypeVariables().get(i);
-                typeArg.accept(typeMapFiller, typeVar);
-            }
+        return types;
+    }
+
+    private TypeMirror getOrNull(final List<? extends TypeMirror> types, final int index) {
+        if (index < types.size()) {
+            return types.get(index);
         }
 
-        final var filler3 = new Filer3(types);
-        return (ExecutableType) methodType.accept(filler3, map);
+        return null;
     }
 
     private boolean methodFilter(final ExecutableElement method,
@@ -323,16 +383,61 @@ public class MethodResolverImpl implements MethodResolver {
         }
     }
 
-    private boolean match(final ExecutableType methodType,
-                          final List<TypeMirror> argumentTypes) {
-        final var argTypes = methodType.getParameterTypes();
+    public boolean match(final ExecutableType methodType,
+                         final List<TypeMirror> argumentTypes) {
+        final var parameterTypes = methodType.getParameterTypes();
 
-        if (argTypes.size() != argumentTypes.size()) {
-            return false;
+        if (argumentTypes.isEmpty() && parameterTypes.isEmpty()) {
+            return true;
         }
 
-        return IntStream.range(0, argTypes.size())
-                .allMatch(index -> types.isAssignable(argumentTypes.get(index), argTypes.get(index)));
+        var matchCount = 0;
+        final var parameterCount = parameterTypes.size();
+        final var lastParameterIndex = parameterCount - 1;
+        final var argumentCount = argumentTypes.size();
+        var isVarArg = false;
+        var index = 0;
+
+        for (; index < argumentCount; index++) {
+            final var argumentType = argumentTypes.get(index);
+            TypeMirror parameterType;
+
+            if (isVarArg) {
+                parameterType = parameterTypes.getLast();
+            } else if (index <= lastParameterIndex) {
+                parameterType = parameterTypes.get(index);
+            } else {
+                parameterType = null;
+            }
+
+            if (parameterType != null) {
+                if (isVarArgType(parameterType)) {
+                    final var arrayType = (ArrayType) parameterType;
+                    parameterType = arrayType.getComponentType();
+                    isVarArg = true;
+                }
+
+                if (types.isAssignable(argumentType, parameterType)) {
+                    matchCount++;
+                }
+            }
+        }
+
+        if (lastParameterIndex > -1
+                && isVarArgType(parameterTypes.getLast())
+                && matchCount >= parameterCount - 1) {
+            //Last parameter type is vararg but no argument was provided.
+            return true;
+        }
+
+        //No vararg so all must match.
+        return argumentCount == parameterCount
+                && matchCount == parameterCount;
+    }
+
+    private boolean isVarArgType(TypeMirror typeMirror) {
+        return typeMirror instanceof CArrayType arrayType
+                && arrayType.isVarArgs();
     }
 
     private Optional<ExecutableType> resolveMethodInScope(final String methodName,
@@ -373,126 +478,217 @@ public class MethodResolverImpl implements MethodResolver {
     private Predicate<Element> methodFilter() {
         return symbol -> symbol instanceof MethodSymbol;
     }
+
+    private TypeMirror mapToType(final TypeMirror sourceType,
+                                 final TypeMirror targetType) {
+        final var typeMapFiller = new TypeMapFiller();
+        sourceType.accept(typeMapFiller, null);
+        final var typeMap = typeMapFiller.getTypeMap();
+
+        final var applier = new TypeMapApplier(typeMap, types);
+        return targetType.accept(applier, null);
+    }
 }
 
-class TypeMapFiller implements TypeVisitor<Void, TypeMirror> {
+class TypeMapFiller implements TypeVisitor<Object, Object> {
 
-    private final HashMap<String, TypeMirror> map = new HashMap<>();
+    private final TypeMap typeMap = new TypeMap();
 
-    public HashMap<String, TypeMirror> getMap() {
-        return map;
+    public TypeMap getTypeMap() {
+        return typeMap;
     }
 
     @Override
-    public Void visitUnknownType(final TypeMirror typeMirror, final TypeMirror param) {
-        return null;
-    }
-
-    @Override
-    public Void visitDeclaredType(final DeclaredType declaredType, final TypeMirror otherType) {
-        final var typeArgs = declaredType.getTypeArguments();
-
-        switch (otherType) {
-            case DeclaredType otherDeclaredType -> {
-                final var typeArgs2 = otherDeclaredType.getTypeArguments();
-                if (typeArgs2 != null && typeArgs2.size() == typeArgs.size()) {
-                    for (var i = 0; i < typeArgs.size(); i++) {
-                        final var typeArg = typeArgs.get(i);
-                        final var typeArg2 = typeArgs2.get(i);
-                        typeArg.accept(this, typeArg2);
-                    }
-                }
-            }
-            case WildcardType wildcardType -> {
-                if (wildcardType.getExtendsBound() != null) {
-                    declaredType.accept(this, wildcardType.getExtendsBound());
-                } else if (wildcardType.getSuperBound() != null) {
-                    declaredType.accept(this, wildcardType.getSuperBound());
-                }
-            }
-            case TypeVariable typeVariable -> {
-                final var name = typeVariable.asElement().getSimpleName();
-                map.putIfAbsent(name, declaredType);
-            }
-            default -> {
-                //Nothing todo
-            }
-        }
-
-        return null;
-    }
-
-}
-
-class Filer3 implements TypeVisitor<TypeMirror, Map<String, TypeMirror>> {
-
-    private final Types types;
-
-    Filer3(final Types types) {
-        this.types = types;
-    }
-
-    @Override
-    public TypeMirror visitUnknownType(final TypeMirror typeMirror, final Map<String, TypeMirror> param) {
+    public Object visitUnknownType(final TypeMirror typeMirror, final Object param) {
         return typeMirror;
     }
 
     @Override
-    public TypeMirror visitArrayType(final ArrayType arrayType, final Map<String, TypeMirror> map) {
-        final var componentType = arrayType.getComponentType().accept(this, map);
-        return types.getArrayType(componentType);
+    public Object visitDeclaredType(final DeclaredType declaredType, final Object param) {
+        final var typeArguments = declaredType.getTypeArguments();
+        final var typeParameters = declaredType.asTypeElement()
+                .getTypeParameters();
+        final var typeParameterCount = typeParameters.size();
+
+        for (int index = 0; index < typeParameterCount; index++) {
+            final var typeParameter = typeParameters.get(index);
+            final var name = typeParameter.getSimpleName();
+            final var typeArg = typeArguments.get(index);
+            this.typeMap.put(name, typeArg);
+        }
+
+        return null;
+    }
+}
+
+class TypeMapApplier implements TypeVisitor<TypeMirror, TypeMirror> {
+
+    private final TypeMap typeMap;
+    private final Types types;
+
+    public TypeMapApplier(final TypeMap typeMap,
+                          final Types types) {
+        this.typeMap = typeMap;
+        this.types = types;
     }
 
     @Override
-    public TypeMirror visitDeclaredType(final DeclaredType declaredType, final Map<String, TypeMirror> map) {
+    public TypeMirror visitPrimitiveType(final PrimitiveType primitiveType, final TypeMirror param) {
+        return primitiveType;
+    }
+
+    @Override
+    public TypeMirror visitArrayType(final ArrayType arrayType, final TypeMirror param) {
+        return arrayType;
+    }
+
+    @Override
+    public TypeMirror visitVariableType(final VariableType variableType, final TypeMirror param) {
+        return variableType.getInterferedType().accept(this, param);
+    }
+
+    @Override
+    public TypeMirror visitUnknownType(final TypeMirror typeMirror,
+                                       final TypeMirror param) {
+        return typeMirror;
+    }
+
+    @Override
+    public TypeMirror visitNoType(final NoType noType, final TypeMirror param) {
+        return noType;
+    }
+
+    @Override
+    public TypeMirror visitDeclaredType(final DeclaredType declaredType,
+                                        final TypeMirror param) {
         final var typeArguments = declaredType.getTypeArguments().stream()
-                .map(it -> it.accept(this, map))
+                .map(typeArgument ->
+                        typeArgument.accept(this, param))
                 .toArray(TypeMirror[]::new);
 
         return types.getDeclaredType(
-                (TypeElement) declaredType.asElement(),
+                declaredType.asTypeElement(),
                 typeArguments
         );
     }
 
     @Override
-    public TypeMirror visitMethodType(final ExecutableType methodType, final Map<String, TypeMirror> map) {
-        final var typeVariables = new ArrayList<TypeVariable>(methodType.getTypeVariables());
-
-        final var returnType = methodType.getReturnType().accept(this, map);
-        final var argumentTypes = methodType.getParameterTypes().stream()
-                .map(it -> it.accept(this, map))
-                .toList();
-
-        return types.getExecutableType(
-                methodType.getMethodSymbol(),
-                typeVariables,
-                returnType,
-                argumentTypes,
-                new ArrayList<>()
-        );
+    public TypeMirror visitWildcardType(final WildcardType wildcardType,
+                                        final TypeMirror param) {
+        return switch (wildcardType.getBoundKind()) {
+            case UNBOUND -> types.getWildcardType(null, null);
+            case EXTENDS -> {
+                final var extendsBound = wildcardType.getExtendsBound().accept(this, param);
+                yield types.getWildcardType(extendsBound, null);
+            }
+            case SUPER -> {
+                final var superBound = wildcardType.getSuperBound().accept(this, param);
+                yield types.getWildcardType(null, superBound);
+            }
+        };
     }
 
     @Override
-    public TypeMirror visitVariableType(final VariableType variableType, final Map<String, TypeMirror> map) {
-        final var interferedType = variableType.getInterferedType().accept(this, map);
-        return types.getVariableType(interferedType);
+    public TypeMirror visitTypeVariable(final TypeVariable typeVariable,
+                                        final TypeMirror param) {
+        final var name = typeVariable.asElement().getSimpleName();
+        return this.typeMap.getOrDefault(name, typeVariable);
+    }
+}
+
+class TypeMapApplier2 implements TypeVisitor<TypeMirror, TypeMirror> {
+
+    private final TypeMap typeMap;
+    private final Types types;
+
+    public TypeMapApplier2(final TypeMap typeMap,
+                           final Types types) {
+        this.typeMap = typeMap;
+        this.types = types;
     }
 
     @Override
-    public TypeMirror visitWildcardType(final WildcardType wildcardType, final Map<String, TypeMirror> map) {
-        if (wildcardType.getExtendsBound() != null) {
-            return wildcardType.getExtendsBound().accept(this, map);
-        } else if (wildcardType.getSuperBound() != null) {
-            return wildcardType.getSuperBound().accept(this, map);
+    public TypeMirror visitPrimitiveType(final PrimitiveType primitiveType, final TypeMirror param) {
+        return primitiveType;
+    }
+
+    @Override
+    public TypeMirror visitArrayType(final ArrayType arrayType, final TypeMirror param) {
+        return arrayType;
+    }
+
+    @Override
+    public TypeMirror visitVariableType(final VariableType variableType, final TypeMirror param) {
+        return variableType.getInterferedType().accept(this, param);
+    }
+
+    @Override
+    public TypeMirror visitUnknownType(final TypeMirror typeMirror, final TypeMirror param) {
+        return typeMirror;
+    }
+
+    @Override
+    public TypeMirror visitDeclaredType(final DeclaredType argumentType,
+                                        final TypeMirror parameterType) {
+        if (parameterType instanceof DeclaredType) {
+            final var argumentTypeArgs = argumentType.getTypeArguments();
+            final var parameterTypeArgs = parameterType.getTypeArguments();
+
+            if (argumentTypeArgs.size() != parameterTypeArgs.size()) {
+                return argumentType;
+            }
+
+            final var newTypeArgs = new TypeMirror[argumentTypeArgs.size()];
+
+            for (var i = 0; i < argumentTypeArgs.size(); i++) {
+                newTypeArgs[i] = argumentTypeArgs.get(i).accept(this, parameterTypeArgs.get(i));
+            }
+
+            return types.getDeclaredType(
+                    argumentType.asTypeElement(),
+                    newTypeArgs
+            );
         } else {
-            return wildcardType;
+            if (parameterType instanceof TypeVariable typeVariable) {
+                typeMap.put(typeVariable.asElement().getSimpleName(), argumentType);
+            }
+            return parameterType;
         }
     }
 
     @Override
-    public TypeMirror visitTypeVariable(final TypeVariable typeVariable, final Map<String, TypeMirror> map) {
-        final var name = typeVariable.asElement().getSimpleName();
-        return map.getOrDefault(name, typeVariable);
+    public TypeMirror visitTypeVariable(final TypeVariable argumentType,
+                                        final TypeMirror parameterType) {
+        return this.typeMap.getOrDefault(argumentType.asElement().getSimpleName(), argumentType);
+    }
+
+    @Override
+    public TypeMirror visitWildcardType(final WildcardType argumentType,
+                                        final TypeMirror parameterType) {
+        if (parameterType instanceof TypeVariable typeVariable) {
+            this.typeMap.put(typeVariable.asElement().getSimpleName(), argumentType);
+            return argumentType;
+        } else {
+            return parameterType;
+        }
+    }
+}
+
+class TypeMap {
+
+    private final Map<String, TypeMirror> map = new HashMap<>();
+
+    public Map<String, TypeMirror> getMap() {
+        return map;
+    }
+
+    public void put(final String name,
+                    final TypeMirror typeArg) {
+        this.map.putIfAbsent(name, typeArg);
+    }
+
+    public TypeMirror getOrDefault(final String name,
+                                   final TypeMirror defaultType) {
+        return this.map.getOrDefault(name, defaultType);
     }
 }

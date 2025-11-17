@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbo
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
+import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
 import io.github.potjerodekool.nabu.lang.model.element.AnnotationValue;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmUtils.isVisible;
 import static org.junit.jupiter.api.Assertions.*;
 
 class AsmAnnotationGeneratorTest {
@@ -49,9 +51,15 @@ class AsmAnnotationGeneratorTest {
                 writer
         );
 
+        final var descriptor = ClassUtils.getDescriptor(annotation.getAnnotationType());
+        final var annotationVisitor = classWriterMock.visitAnnotation(
+                descriptor,
+                isVisible(annotation)
+        );
+
         AsmAnnotationGenerator.generate(
                 annotation,
-                classWriterMock
+                annotationVisitor
         );
 
         final var actual = asText(printer.getText());
@@ -103,9 +111,15 @@ class AsmAnnotationGeneratorTest {
                 writer
         );
 
+        final var descriptor = ClassUtils.getDescriptor(annotation.getAnnotationType());
+        final var annotationVisitor = classWriterMock.visitAnnotation(
+                descriptor,
+                isVisible(annotation)
+        );
+
         AsmAnnotationGenerator.generate(
                 annotation,
-                classWriterMock
+                annotationVisitor
         );
 
         final var actual = asText(printer.getText());
@@ -157,9 +171,15 @@ class AsmAnnotationGeneratorTest {
                 writer
         );
 
+        final var descriptor = ClassUtils.getDescriptor(annotation.getAnnotationType());
+        final var annotationVisitor = classWriterMock.visitAnnotation(
+                descriptor,
+                isVisible(annotation)
+        );
+
         AsmAnnotationGenerator.generate(
                 annotation,
-                classWriterMock
+                annotationVisitor
         );
 
         final var actual = asText(printer.getText());
@@ -208,9 +228,15 @@ class AsmAnnotationGeneratorTest {
                 writer
         );
 
+        final var descriptor = ClassUtils.getDescriptor(annotation.getAnnotationType());
+        final var annotationVisitor = classWriterMock.visitAnnotation(
+                descriptor,
+                isVisible(annotation)
+        );
+
         AsmAnnotationGenerator.generate(
                 annotation,
-                classWriterMock
+                annotationVisitor
         );
 
         final var actual = asText(printer.getText());

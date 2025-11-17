@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.internal;
 
+import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.*;
@@ -55,7 +56,13 @@ class TypeArgApplyer implements ElementVisitor<TypeMirror, Map<String, TypeMirro
     @Override
     public TypeMirror visitArrayType(final ArrayType arrayType, final Map<String, TypeMirror> typeArgMap) {
         final var componentType = arrayType.getComponentType().accept(this, typeArgMap);
-        return types.getArrayType(componentType);
+        var newArrayType = types.getArrayType(componentType);
+
+        if (arrayType instanceof CArrayType cArrayType && cArrayType.isVarArgs()) {
+            newArrayType = cArrayType.makeVarArg();
+        }
+
+        return newArrayType;
     }
 
     @Override

@@ -7,6 +7,7 @@ import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 public abstract class AbstractSymbolBuilder<EB extends ElementBuilder<EB>> implements ElementBuilder<EB> {
@@ -79,14 +80,15 @@ public abstract class AbstractSymbolBuilder<EB extends ElementBuilder<EB>> imple
         return enclosedElements;
     }
 
-    public EB enclosedElement(final Symbol enclosedElement) {
-        this.enclosedElements.add(enclosedElement);
+    @Override
+    public EB enclosedElement(final Element enclosedElement) {
+        this.enclosedElements.add((Symbol)enclosedElement);
         return self();
     }
 
-    public EB enclosedElements(final List<? extends Symbol> enclosedElements) {
+    public EB enclosedElements(final List<? extends Element> enclosedElements) {
         this.enclosedElements.clear();
-        this.enclosedElements.addAll(enclosedElements);
+        this.enclosedElements.addAll((Collection<? extends Symbol>) enclosedElements);
         return self();
     }
 

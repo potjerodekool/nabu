@@ -40,8 +40,6 @@ class TypeEnterTest extends AbstractCompilerTest {
 
     @BeforeEach
     void setup() {
-        //when(compilerContext.getClassElementLoader()).thenReturn(loader);
-        //when(compilerContext.getSymbolTable()).thenReturn(loader.getSymbolTable());
         typeEnter = new TypeEnter(getCompilerContext());
     }
 
@@ -194,13 +192,14 @@ class TypeEnterTest extends AbstractCompilerTest {
 
     @Test
     void singleImportItem() {
-        final var compilationUnit = doImport(createImportItem("java.lang.Class", false));
+        final var compilationUnit = doImport(createImportItem("java.util.List", false));
         final var importedClassNames = getClasses(compilationUnit).stream()
                 .map(ClassSymbol::getQualifiedName)
+                .filter(it -> !it.startsWith("java.lang."))
                 .toList();
 
         assertEquals(
-                List.of("java.lang.Class"),
+                List.of("java.util.List"),
                 importedClassNames
         );
     }
@@ -215,8 +214,12 @@ class TypeEnterTest extends AbstractCompilerTest {
 
         final var compilationUnit = doImport(createImportItem("java.util.*", false));
 
+        /* Check the imported classes. Since java.lang is auto imported ignore them and
+         * check other other classes that are imported.
+         */
         final var importedClassNames = getClasses(compilationUnit).stream()
                 .map(ClassSymbol::getQualifiedName)
+                .filter(it -> !it.startsWith("java.lang."))
                 .collect(Collectors.toSet());
 
         assertEquals(
@@ -301,8 +304,10 @@ class TypeEnterTest extends AbstractCompilerTest {
                 .modifiers(new Modifiers(0))
                 .build();
 
+        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+
         getCompilerContext().getClassElementLoader().loadClass(
-                null,
+                javaBase,
                 "java.util.Collection"
         );
 

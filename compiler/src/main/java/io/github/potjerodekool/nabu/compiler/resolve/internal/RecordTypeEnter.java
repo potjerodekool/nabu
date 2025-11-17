@@ -72,7 +72,7 @@ public class RecordTypeEnter implements Completer {
 
     private VariableSymbol createRecordComponent(final VariableElement parameter,
                                                  final ElementKind kind) {
-        return (VariableSymbol) new VariableSymbolBuilderImpl()
+        return new VariableSymbolBuilderImpl()
                 .kind(kind)
                 .type(parameter.asType())
                 .simpleName(parameter.getSimpleName())

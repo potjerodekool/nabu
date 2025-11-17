@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.frontend.parser.java;
 import io.github.potjerodekool.nabu.Java20Lexer;
 import io.github.potjerodekool.nabu.Java20Parser;
 import io.github.potjerodekool.nabu.Java20ParserBaseVisitor;
+import io.github.potjerodekool.nabu.compiler.frontend.parser.VariableArityParameter;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodDeclarator;
@@ -15,6 +16,7 @@ import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
+import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressionBuilder;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
@@ -22,6 +24,7 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CDimension;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
 import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
 import io.github.potjerodekool.nabu.type.BoundKind;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -39,6 +42,7 @@ import static io.github.potjerodekool.nabu.compiler.frontend.parser.SourceVisito
 public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     private final FileObject fileObject;
+    private boolean isTopLevel = true;
 
     public JavaCompilerVisitor(final FileObject fileObject) {
         this.fileObject = fileObject;
@@ -209,12 +213,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                     ctx.getStart().getCharPositionInLine()
             );
         } else {
-            final var fieldAccessExpression = createFieldAccessExpression(
+            return createFieldAccessExpression(
                     identifier,
                     packageName
             );
-
-            return fieldAccessExpression;
         }
     }
 
@@ -265,6 +267,15 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitNormalInterfaceDeclaration(final Java20Parser.NormalInterfaceDeclarationContext ctx) {
+        final NestingKind nestingKind;
+
+        if (isTopLevel) {
+            nestingKind = NestingKind.TOP_LEVEL;
+            isTopLevel = false;
+        } else {
+            nestingKind = NestingKind.MEMBER;
+        }
+
         var modifiers = parseModifiers(ctx.interfaceModifier());
         final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
         final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
@@ -280,6 +291,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .lineNumber(ctx.getStart().getLine())
                 .columnNumber(ctx.getStart().getCharPositionInLine())
                 .kind(Kind.INTERFACE)
+                .nestingKind(nestingKind)
                 .modifiers(modifiers)
                 .simpleName(identifier.getName())
                 .typeParameters(typeParameters)
@@ -328,6 +340,15 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitNormalClassDeclaration(final Java20Parser.NormalClassDeclarationContext ctx) {
+        final NestingKind nestingKind;
+
+        if (isTopLevel) {
+            nestingKind = NestingKind.TOP_LEVEL;
+            isTopLevel = false;
+        } else {
+            nestingKind = NestingKind.MEMBER;
+        }
+
         final var classModifiers = parseModifiers(ctx.classModifier());
         final var simpleName = ((IdentifierTree) ctx.typeIdentifier().accept(this)).getName();
         final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
@@ -338,7 +359,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         return TreeMaker.classDeclaration(
                 Kind.CLASS,
-                NestingKind.TOP_LEVEL,
+                nestingKind,
                 classModifiers,
                 simpleName,
                 enclosedElements,
@@ -410,7 +431,6 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         if (ctx.Identifier() != null) {
             return ctx.Identifier().accept(this);
         } else {
-            final var keyWord = ctx.contextualKeyword().getText();
             return identifier(ctx.contextualKeyword().getStart());
         }
     }
@@ -595,10 +615,20 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitFormalParameter(final Java20Parser.FormalParameterContext ctx) {
-        final var modifiers = parseModifiers(ctx.variableModifier());
+        final Modifiers modifiers;
+        final IdentifierTree name;
+        final ExpressionTree type;
 
-        final var name = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
-        final var type = (ExpressionTree) ctx.unannType().accept(this);
+        if (ctx.variableArityParameter() != null) {
+            final var parameter = (VariableArityParameter) ctx.variableArityParameter().accept(this);
+            modifiers = parameter.modifiers();
+            name = parameter.name();
+            type = parameter.type();
+        } else {
+            modifiers = parseModifiers(ctx.variableModifier());
+            name = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
+            type = (ExpressionTree) ctx.unannType().accept(this);
+        }
 
         return TreeMaker.variableDeclarator(
                 Kind.PARAMETER,
@@ -616,6 +646,23 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         );
     }
 
+    @Override
+    public Object visitVariableArityParameter(final Java20Parser.VariableArityParameterContext ctx) {
+        final var modifiers = parseModifiers(ctx.variableModifier()).with(Flags.VARARGS);
+        final var componentType = (ExpressionTree) ctx.unannType().accept(this);
+        final var identifierName = (IdentifierTree) ctx.identifier().accept(this);
+        final var type = TreeMaker.arrayTypeTree(
+                componentType,
+                List.of(),
+                componentType.getLineNumber(),
+                componentType.getColumnNumber()
+        );
+        return new VariableArityParameter(
+                modifiers,
+                type,
+                identifierName
+        );
+    }
 
     private Modifiers parseModifiers(final List<? extends ParserRuleContext> modifierList) {
         final List<AnnotationTree> annotations = new ArrayList<>();
@@ -1192,5 +1239,145 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
 
         return result;
+    }
+
+    @Override
+    public Object visitRecordDeclaration(final Java20Parser.RecordDeclarationContext ctx) {
+        var modifiers = parseModifiers(ctx.classModifier());
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
+        final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
+        final List<VariableDeclaratorTree> header = acceptList(ctx.recordHeader());
+        final List<ExpressionTree> classImplements = acceptList(ctx.classImplements());
+        final List<Tree> body = acceptList(ctx.recordBody());
+
+        if (modifiers.hasFlag(Flags.FINAL)) {
+            modifiers = modifiers.with(Flags.FINAL);
+        }
+
+        final var constructor = createCompactConstructor(header);
+
+        final var enclosedElements = new ArrayList<Tree>();
+        enclosedElements.add(constructor);
+        enclosedElements.addAll(body);
+
+        return new ClassDeclarationBuilder()
+                .kind(Kind.RECORD)
+                .modifiers(modifiers)
+                .simpleName(identifier.getName())
+                .typeParameters(typeParameters)
+                .implemention(classImplements)
+                .enclosedElements(enclosedElements)
+                .build();
+    }
+
+    @Override
+    public Object visitRecordHeader(final Java20Parser.RecordHeaderContext ctx) {
+        return accept(ctx.recordComponentList());
+    }
+
+    @Override
+    public Object visitRecordComponentList(final Java20Parser.RecordComponentListContext ctx) {
+        return ctx.recordComponent().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitRecordComponent(final Java20Parser.RecordComponentContext ctx) {
+        if (ctx.variableArityRecordComponent() != null) {
+            return ctx.variableArityRecordComponent().accept(this);
+        } else {
+            final var modifiers = parseModifiers(ctx.recordComponentModifier());
+            final var type = (ExpressionTree) ctx.unannType().accept(this);
+            final var identifier = (IdentifierTree) ctx.identifier().accept(this);
+
+            return new VariableDeclaratorTreeBuilder()
+                    .kind(Kind.PARAMETER)
+                    .modifiers(modifiers)
+                    .variableType(type)
+                    .name(identifier)
+                    .build();
+        }
+    }
+
+    @Override
+    public Object visitVariableArityRecordComponent(final Java20Parser.VariableArityRecordComponentContext ctx) {
+        final var identifier = (IdentifierTree) ctx.identifier().accept(this);
+
+        var modifiers = parseModifiers(ctx.recordComponentModifier());
+        final List<AnnotationTree> annotations = acceptList(ctx.annotation());
+
+        if (!annotations.isEmpty()) {
+            final List<? extends AnnotationTree> allAnnotations = Stream.concat(
+                            modifiers.getAnnotations().stream(),
+                            annotations.stream())
+                    .toList();
+            modifiers = new Modifiers(
+                    allAnnotations,
+                    modifiers.getFlags()
+            );
+        }
+
+        modifiers = modifiers.with(Flags.VARARGS);
+
+        final var type = (ExpressionTree) ctx.unannType().accept(this);
+
+        return new VariableDeclaratorTreeBuilder()
+                .kind(Kind.PARAMETER)
+                .modifiers(modifiers)
+                .variableType(type)
+                .name(identifier)
+                .build();
+    }
+
+    @Override
+    public Object visitRecordBody(final Java20Parser.RecordBodyContext ctx) {
+        return ctx.recordBodyDeclaration().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
+    public Object visitCompactConstructorDeclaration(final Java20Parser.CompactConstructorDeclarationContext ctx) {
+        var modifiers = parseModifiers(ctx.constructorModifier());
+        modifiers = modifiers.with(Flags.COMPACT_RECORD_CONSTRUCTOR);
+
+        final var body = (BlockStatementTree) ctx.constructorBody().accept(this);
+
+        return new FunctionBuilder()
+                .kind(Kind.CONSTRUCTOR)
+                .modifiers(modifiers)
+                .simpleName(Constants.INIT)
+                .body(body)
+                .returnType(
+                        TreeMaker.primitiveTypeTree(
+                                PrimitiveTypeTree.Kind.VOID,
+                                -1,
+                                -1
+                        )
+                )
+                .build();
+    }
+
+    private Function createCompactConstructor(final List<VariableDeclaratorTree> header) {
+        return new FunctionBuilder()
+                .kind(Kind.CONSTRUCTOR)
+                .modifiers(
+                        new Modifiers(
+                                List.of(),
+                                Flags.PUBLIC + Flags.COMPACT_RECORD_CONSTRUCTOR
+                        )
+                )
+                .simpleName(Constants.INIT)
+                .parameters(header)
+                .body(TreeMaker.blockStatement(List.of(), -1, -1))
+                .returnType(
+                        TreeMaker.primitiveTypeTree(
+                                PrimitiveTypeTree.Kind.VOID,
+                                -1,
+                                -1
+                        )
+                )
+                .build();
     }
 }

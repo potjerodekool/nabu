@@ -34,6 +34,6 @@ public abstract class CExpressionTree extends CTree implements ExpressionTree {
 
     @Override
     public ExpressionBuilder<?> builder() {
-        return new ExpressionBuilder(this);
+        return new ExpressionBuilder<>(this);
     }
 }

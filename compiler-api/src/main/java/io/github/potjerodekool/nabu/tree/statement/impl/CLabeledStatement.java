@@ -39,6 +39,6 @@ public class CLabeledStatement extends CStatementTree implements LabeledStatemen
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

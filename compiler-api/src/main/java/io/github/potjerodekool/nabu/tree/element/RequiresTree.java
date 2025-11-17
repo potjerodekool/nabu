@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.tree.element.impl.CRequiresTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
 /**
- * Represents a requires in a module.
+ * Represents a 'requires' in a module.
  * For example:
  * module MyModule {
  *     requires java.sql;

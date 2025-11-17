@@ -16,7 +16,7 @@ public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocat
 
     private ExpressionTree methodSelector;
 
-    private final List<IdentifierTree> typeArguments = new ArrayList<>();
+    private final List<ExpressionTree> typeArguments = new ArrayList<>();
 
     private final List<ExpressionTree> arguments = new ArrayList<>();
 
@@ -48,7 +48,7 @@ public class MethodInvocationTreeBuilder extends ExpressionBuilder<MethodInvocat
         return this;
     }
 
-    public List<? extends IdentifierTree> getTypeArguments() {
+    public List<? extends ExpressionTree> getTypeArguments() {
         return typeArguments;
     }
 

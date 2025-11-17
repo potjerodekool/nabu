@@ -50,6 +50,6 @@ public class CCaseStatement extends CStatementTree implements CaseStatement {
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

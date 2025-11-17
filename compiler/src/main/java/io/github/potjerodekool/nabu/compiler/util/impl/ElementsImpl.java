@@ -7,7 +7,6 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.lang.model.element.CCompoundAttribute;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;

@@ -105,7 +105,6 @@ public interface FileManager extends AutoCloseable {
      */
     boolean hasLocation(Location location);
 
-
     /**
      * A location where files can be located.
      */

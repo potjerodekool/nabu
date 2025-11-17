@@ -53,7 +53,7 @@ class TranslateTest extends AbstractCompilerTest {
 
     @Test
     void visitBinaryExpression() {
-        addFakeClass("SomeClass");
+        //createFakeClass("SomeClass");
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
                 .build();
@@ -127,8 +127,7 @@ class TranslateTest extends AbstractCompilerTest {
 
     @Test
     void visitFieldAccess() {
-        addFakeClass("SomeClass");
-        addFakeClass("JoinType");
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
 
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
@@ -144,8 +143,8 @@ class TranslateTest extends AbstractCompilerTest {
         final var joinTypeIdentifier = new CIdentifierTree("JoinType");
 
         final var joinTypeClazz = getCompilerContext().getClassElementLoader().loadClass(
-                null,
-                "JoinType"
+                module,
+                "foo.JoinType"
         );
 
         joinTypeIdentifier.setType(joinTypeClazz.asType());
@@ -171,7 +170,7 @@ class TranslateTest extends AbstractCompilerTest {
         result.accept(printer,null);
         final var actual = printer.getText();
         final var expected = """
-                JoinType
+                foo.JoinType
                 INNER
                 """;
 
@@ -180,7 +179,8 @@ class TranslateTest extends AbstractCompilerTest {
 
     @Test
     void visitFieldAccess2() {
-        addFakeClass("ShapeKind");
+        //createFakeClass("ShapeKind");
+        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
 
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
@@ -196,8 +196,8 @@ class TranslateTest extends AbstractCompilerTest {
         final var shapeKindIdentifier = new CIdentifierTree("ShapeKind");
 
         final var shapeKindClazz = getCompilerContext().getClassElementLoader().loadClass(
-                null,
-                "ShapeKind"
+                module,
+                "foo.ShapeKind"
         );
 
         shapeKindIdentifier.setType(shapeKindClazz.asType());
@@ -218,7 +218,7 @@ class TranslateTest extends AbstractCompilerTest {
         result.accept(printer,null);
         final var actual = printer.getText();
         final var expected = """
-                ShapeKind
+                foo.ShapeKind
                 class
                 """;
 
@@ -227,9 +227,9 @@ class TranslateTest extends AbstractCompilerTest {
 
     @Test
     void visitFieldAccess3() {
-        addFakeClass("Fields");
+        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
 
-        final var integerClass = getCompilerContext().getClassElementLoader().loadClass(null, "java.lang.Integer");
+        final var integerClass = getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.lang.Integer");
 
         final var classField = (VariableSymbol) new VariableSymbolBuilderImpl()
                 .kind(ElementKind.FIELD)

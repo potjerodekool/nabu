@@ -45,6 +45,7 @@
         <failsafe.version>2.22.2</failsafe.version>
         <asm.version>9.8</asm.version>
         <maven.gpg.plugin.version>3.2.4</maven.gpg.plugin.version>
+        <maven.javadoc.plugin.version>3.6.3</maven.javadoc.plugin.version>
       </properties>
     <dependencies>
         <dependency>
@@ -58,11 +59,12 @@
     <modules>
         <module>compiler-api</module>
         <module>compiler</module>
-        <module>jpa-plugin</module>
         <module>jpa-support</module>
+        <module>jpa-plugin</module>
         <module>maven-plugin</module>
         <module>compiler-test</module>
         <module>nabu-daemon</module>
+        <module>testing</module>
     </modules>
 
     <build>
@@ -73,11 +75,7 @@
                 <version>${maven.gpg.plugin.version}</version>
                 <configuration>
                     <useAgent>true</useAgent>
-                    <!--
-                    <keyname>${gpg.keyname}</keyname>
-                    <passphraseServerId>${gpg.keyname}</passphraseServerId>
-                    -->
-                </configuration>
+                  </configuration>
                 <executions>
                     <execution>
                         <id>sign-artifacts</id>
@@ -160,7 +158,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-javadoc-plugin</artifactId>
-                    <version>3.6.3</version>
+                    <version>${maven.javadoc.plugin.version}</version>
                     <configuration>
                         <failOnError>false</failOnError>
                     </configuration>
@@ -174,7 +172,6 @@
                     </executions>
                 </plugin>
 
-                <!-- hier -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-resources-plugin</artifactId>

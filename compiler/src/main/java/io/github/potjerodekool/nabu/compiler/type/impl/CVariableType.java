@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVisitor;
@@ -52,5 +54,23 @@ public class CVariableType extends AbstractType implements VariableType {
     @Override
     public int hashCode() {
         return Objects.hash(interferedType);
+    }
+
+    @Override
+    public TypeElement asTypeElement() {
+        if (interferedType == null) {
+            return null;
+        } else {
+            return interferedType.asTypeElement();
+        }
+    }
+
+    @Override
+    public Element asElement() {
+        if (interferedType == null) {
+            return null;
+        } else {
+            return interferedType.asElement();
+        }
     }
 }

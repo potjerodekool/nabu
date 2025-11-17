@@ -22,6 +22,6 @@ public class CEmptyStatementTree extends CStatementTree implements EmptyStatemen
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

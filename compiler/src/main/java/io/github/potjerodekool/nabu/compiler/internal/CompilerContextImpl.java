@@ -2,7 +2,10 @@ package io.github.potjerodekool.nabu.compiler.internal;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ElementBuildersImpl;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
-import io.github.potjerodekool.nabu.compiler.io.impl.CompilerFileManger;
+import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
+import io.github.potjerodekool.nabu.compiler.log.LogLevel;
+import io.github.potjerodekool.nabu.compiler.log.Logger;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilders;
 import io.github.potjerodekool.nabu.resolve.ArgumentBoxer;
@@ -18,6 +21,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.internal.SymbolGenerator;
 import io.github.potjerodekool.nabu.compiler.resolve.internal.TypeEnter;
 import io.github.potjerodekool.nabu.compiler.resolve.method.impl.MethodResolverImpl;
 import io.github.potjerodekool.nabu.compiler.util.impl.ElementsImpl;
+import io.github.potjerodekool.nabu.tree.TreeUtils;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Elements;
 
@@ -29,6 +33,9 @@ public class CompilerContextImpl implements CompilerContext {
 
     public static class Key<T> {}
 
+
+    private final Logger logger = Logger.getLogger(CompilerContextImpl.class.getName());
+    private final NabuCFileManager fileManager;
     private final Elements elements;
     private final MethodResolver methodResolver;
     private final ArgumentBoxer argumentBoxer;
@@ -39,9 +46,14 @@ public class CompilerContextImpl implements CompilerContext {
     private final Map<Key<?>, Object> data = new HashMap<>();
     private final Map<Class<?>, Key<?>> keyTable = new HashMap<>();
 
-    public CompilerContextImpl(final CompilerFileManger fileManager,
+    public CompilerContextImpl(final NabuCFileManager fileManager) {
+        this(fileManager, new PluginRegistry(), AsmClassElementLoader::new);
+    }
+
+    public CompilerContextImpl(final NabuCFileManager fileManager,
                                final PluginRegistry pluginRegistry,
                                final Factory<ClassElementLoader> loaderFactory) {
+        this.fileManager = fileManager;
         this.pluginRegistry = pluginRegistry;
         put(FileManager.class, fileManager);
         put(ClassElementLoader.class, loaderFactory);
@@ -115,6 +127,10 @@ public class CompilerContextImpl implements CompilerContext {
         return key;
     }
 
+    public NabuCFileManager getFileManager() {
+        return fileManager;
+    }
+
     public SymbolTable getSymbolTable() {
         return SymbolTable.getInstance(this);
     }
@@ -139,8 +155,17 @@ public class CompilerContextImpl implements CompilerContext {
     }
 
     @Override
-    public void close() throws Exception {
-        this.getClassElementLoader().close();
+    public void close() {
+        close(this.fileManager);
+        close(this.getClassElementLoader());
+    }
+
+    private void close(final AutoCloseable closeable) {
+        try {
+            closeable.close();
+        } catch (final Exception e) {
+            logger.log(LogLevel.ERROR, "Failed to close " + closeable.getClass().getName(), e);
+        }
     }
 
     public TypeEnter getTypeEnter() {
@@ -165,6 +190,11 @@ public class CompilerContextImpl implements CompilerContext {
     @Override
     public ElementBuilders getElementBuilders() {
         return ElementBuildersImpl.getInstance();
+    }
+
+    @Override
+    public TreeUtils getTreeUtils() {
+        return new TreeUtils(getClassElementLoader().getTypes());
     }
 
     public PluginRegistry getPluginRegistry() {

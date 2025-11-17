@@ -19,6 +19,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 
+import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmUtils.isVisible;
 import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator.toAsmType;
 import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;
 
@@ -63,7 +64,7 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator,
         };
 
         if (classSymbol.getKind() == ElementKind.CLASS
-            && classSymbol.getNestingKind() == NestingKind.TOP_LEVEL) {
+                && classSymbol.getNestingKind() == NestingKind.TOP_LEVEL) {
             access += Opcodes.ACC_SUPER;
         }
 
@@ -71,8 +72,17 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator,
     }
 
     private void generateAnnotations(final TypeElement typeElement) {
-        typeElement.getAnnotationMirrors().forEach(annotation ->
-                AsmAnnotationGenerator.generate(annotation, classWriter));
+        typeElement.getAnnotationMirrors().forEach(annotation -> {
+            final var descriptor = ClassUtils.getDescriptor(annotation.getAnnotationType());
+
+            final var annotationVisitor = classWriter.visitAnnotation(
+                    descriptor,
+                    isVisible(annotation)
+            );
+
+            AsmAnnotationGenerator.generate(annotation, annotationVisitor);
+        });
+
     }
 
     private void generatePermittedSubClasses(final TypeElement typeElement) {

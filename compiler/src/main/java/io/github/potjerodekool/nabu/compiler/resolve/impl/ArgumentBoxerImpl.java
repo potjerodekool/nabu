@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
-import io.github.potjerodekool.nabu.util.CollectionUtils;
 
 import java.util.ArrayList;
 

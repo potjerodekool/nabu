@@ -5,6 +5,5 @@
     <description>JPA plugin for Nabu compiler</description>
     <extensions>
         <code-transformer implementationClass="io.github.potjerodekool.nabu.plugin.jpa.transform.JpaTransformer"/>
-        <element-resolver implementationClass="io.github.potjerodekool.nabu.plugin.jpa.transform.JpaElementResolver"/>
     </extensions>
 </plugin>

@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Builder for For statements.
+ * Builder for a For loop.
  */
 public class ForStatementTreeBuilder extends StatementTreeBuilder<ForStatementTreeBuilder> {
 

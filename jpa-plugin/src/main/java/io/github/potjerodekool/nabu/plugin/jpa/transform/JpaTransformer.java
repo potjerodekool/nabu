@@ -1,16 +1,12 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
-import io.github.potjerodekool.nabu.resolve.AbstractResolver;
-import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.scope.ClassScope;
-import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
-import io.github.potjerodekool.nabu.resolve.scope.Scope;
-import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
-import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.resolve.scope.*;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
@@ -28,9 +24,14 @@ import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.createBui
 import static io.github.potjerodekool.nabu.plugin.jpa.transform.Helper.resolvePathType;
 import static io.github.potjerodekool.nabu.tree.TreeUtils.getSymbol;
 
-public class JpaTransformer extends AbstractResolver implements CodeTransformer {
+/**
+ * Transform JPA dsl to normal code.
+ */
+public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implements CodeTransformer {
 
     private static final String CRITERIA_BUILDER_CLASS = "jakarta.persistence.criteria.CriteriaBuilder";
+    private static final String PATH_CLASS = "jakarta.persistence.criteria.Path";
+    private static final String JOIN_CLASS = "jakarta.persistence.criteria.Join";
 
     private final CompilerContext compilerContext;
     private final ClassElementLoader loader;
@@ -46,7 +47,6 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
     );
 
     public JpaTransformer(final CompilerContext compilerContext) {
-        super(compilerContext);
         this.compilerContext = compilerContext;
         loader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getClassElementLoader().getTypes();
@@ -54,7 +54,8 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
 
     @Override
     public void transform(final CompilationUnit compilationUnit) {
-        compilationUnit.accept(this, null);
+        final var globalScope = new GlobalScope(compilationUnit, compilerContext);
+        compilationUnit.accept(this, globalScope);
     }
 
     @Override
@@ -75,7 +76,7 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
         final var symbolScope = new SymbolScope((DeclaredType) clazz.asType(), classScope);
         classDeclaration.getEnclosedElements()
                 .forEach(enclosingElement -> enclosingElement.accept(this, symbolScope));
-                return null;
+        return null;
     }
 
     @Override
@@ -131,13 +132,13 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
 
         if (selected.getSymbol() instanceof VariableElement variableElement) {
             targetScope = new SymbolScope(
-                    asDeclaredType(variableElement.asType()),
-                    scope
+                    resolveSearchType(asDeclaredType(variableElement.asType()), scope),
+                    scope.getGlobalScope()
             );
         } else if (selected.getType() != null) {
             targetScope = new SymbolScope(
-                    (DeclaredType) selected.getType(),
-                    scope
+                    resolveSearchType((DeclaredType) selected.getType(), scope),
+                    scope.getGlobalScope()
             );
         } else {
             targetScope = scope;
@@ -146,7 +147,7 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
         final var newField = (IdentifierTree) field.accept(this, targetScope);
 
         if (changed
-            || newField != field) {
+                || newField != field) {
             System.out.println();
         }
 
@@ -203,6 +204,27 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
         }
 
         return fieldAccessExpression;
+    }
+
+    private DeclaredType resolveSearchType(final DeclaredType declaredType,
+                                           final Scope scope) {
+        final var pathType = compilerContext.getClassElementLoader().loadClass(scope.findModuleElement(), PATH_CLASS).asType();
+        final var types = compilerContext.getClassElementLoader().getTypes();
+
+        if (types.isSubType(declaredType, pathType)) {
+            if (isJoinType(declaredType)) {
+                return (DeclaredType) declaredType.getTypeArguments().getLast();
+            } else {
+                return (DeclaredType) declaredType.getTypeArguments().getFirst();
+            }
+        } else {
+            return declaredType;
+        }
+    }
+
+    private boolean isJoinType(final DeclaredType declaredType) {
+        final var classSymbol = (TypeElement) declaredType.asElement();
+        return JOIN_CLASS.equals(classSymbol.getQualifiedName());
     }
 
     private DeclaredType asDeclaredType(final TypeMirror typeMirror) {
@@ -418,9 +440,9 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
 
         if (newVariableDeclaratorStatement.getValue() != null
                 && variableDeclaratorStatement.getVariableType() instanceof VariableTypeTree) {
-            type = TreeUtils.typeOf(newVariableDeclaratorStatement.getValue());
+            type = compilerContext.getTreeUtils().typeOf(newVariableDeclaratorStatement.getValue());
         } else {
-            type = TreeUtils.typeOf(newType);
+            type = compilerContext.getTreeUtils().typeOf(newType);
         }
 
         final var kind = ElementKind.valueOf(variableDeclaratorStatement.getKind().name());
@@ -429,7 +451,7 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
         final var oldSymbol = variableDeclaratorStatement.getName()
                 .getSymbol();
 
-        final var enclosingElement = oldSymbol !=null
+        final var enclosingElement = oldSymbol != null
                 ? oldSymbol.getEnclosingElement()
                 : null;
 
@@ -547,7 +569,9 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
                 }
             }
 
-            return castExpressionTree.getExpression().accept(
+            final var newCastExpression = (CastExpressionTree) super.visitCastExpression(castExpressionTree, scope);
+
+            return newCastExpression.getExpression().accept(
                     converter,
                     scope
             );
@@ -561,4 +585,57 @@ public class JpaTransformer extends AbstractResolver implements CodeTransformer 
                                final Scope Param) {
         return tree;
     }
+
+    @Override
+    public Object defaultAnswer(final Tree tree, final Scope param) {
+        return tree;
+    }
+
+    @Override
+    public Object visitIdentifier(final IdentifierTree identifier,
+                                  final Scope scope) {
+        var type = identifier.getType();
+
+        if (type == null) {
+            type = resolveType(identifier.getName(), scope);
+        }
+
+        if (type != null && !type.isError()) {
+            identifier.setType(type);
+            identifier.setSymbol(null);
+        } else {
+            final var symbol = scope.resolve(identifier.getName());
+
+            if (symbol != null) {
+                identifier.setType(null);
+                identifier.setSymbol(symbol);
+            } else if (identifier.getSymbol() == null) {
+                identifier.setSymbol(
+                        compilerContext.getElementBuilders()
+                                .createErrorSymbol(identifier.getName())
+                );
+            }
+        }
+
+        return defaultAnswer(identifier, scope);
+    }
+
+    private TypeMirror resolveType(final String name,
+                                   final Scope scope) {
+        TypeMirror type = scope.resolveType(name);
+
+        if (type == null) {
+            final var resolvedClass = loader.loadClass(
+                    scope.findModuleElement(),
+                    name
+            );
+
+            if (resolvedClass != null) {
+                type = resolvedClass.asType();
+            }
+        }
+
+        return type;
+    }
+
 }

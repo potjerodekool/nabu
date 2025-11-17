@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.PackageSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPackageType;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
 import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
@@ -128,5 +129,16 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
     @Override
     public PackageSymbolBuilder builder() {
         return new PackageSymbolBuilder (this);
+    }
+
+    @Override
+    public boolean exists() {
+        return hasFlag(Flags.EXISTS);
+    }
+
+    public void markExists() {
+        if (!hasFlag(Flags.EXISTS)) {
+            setFlags(getFlags() | Flags.EXISTS);
+        }
     }
 }

@@ -1,0 +1,2 @@
+Source files in classes and jmods are used in test
+to make test independently of the installed JDK.

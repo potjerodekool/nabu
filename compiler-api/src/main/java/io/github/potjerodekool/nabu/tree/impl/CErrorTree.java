@@ -42,6 +42,6 @@ public class CErrorTree extends CTree implements ErrorTree {
 
     @Override
     public ExpressionBuilder<?> builder() {
-        return new ExpressionBuilder(this);
+        return new ExpressionBuilder<>(this);
     }
 }

@@ -11,7 +11,7 @@ public final class SignatureGenerator {
 
     private static final TypeParamSignatureVisitor TYPE_PARAM_SIGNATURE_VISITOR = new TypeParamSignatureVisitor();
 
-    private static final StandardSignatureVisitor STANDARD_VISITOR = new StandardSignatureVisitor();
+    static final StandardSignatureVisitor STANDARD_VISITOR = new StandardSignatureVisitor();
 
     private SignatureGenerator() {
     }
@@ -147,7 +147,7 @@ abstract class AbstractTypeParamSignatureVisitor
                 .toList();
         final var typeVarSignature = visitTypeParameters(typeParameters);
         final var parameterSignature = methodType.getParameterTypes().stream()
-                .map(it -> it.accept(this, param))
+                .map(it -> it.accept(SignatureGenerator.STANDARD_VISITOR, param))
                 .collect(Collectors.joining("", "(", ")"));
         final var returnTypeSignature = methodType.getReturnType().accept(this, param);
         return typeVarSignature + parameterSignature + returnTypeSignature;

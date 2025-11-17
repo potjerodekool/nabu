@@ -3,6 +3,7 @@ import io.github.potjerodekool.nabu.type.DeclaredType;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Implementation of CompoundAttribute.
@@ -16,6 +17,7 @@ public final class CCompoundAttribute extends AbstractAttribute implements Compo
                               final Map<ExecutableElement, AnnotationValue> values) {
         this.annotationType = annotationType;
         this.values.putAll(values);
+        validateValues();
     }
 
     @Override
@@ -31,6 +33,14 @@ public final class CCompoundAttribute extends AbstractAttribute implements Compo
     public void addValue(final ExecutableElement name,
                          final AnnotationValue value) {
         this.values.put(name, value);
+        validateValues();
+    }
+
+    private void validateValues() {
+        this.values.forEach((k, v) -> {
+            Objects.requireNonNull(k);
+            Objects.requireNonNull(v);
+        });
     }
 
     @Override

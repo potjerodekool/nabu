@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -19,6 +20,7 @@ public class SymbolScope implements Scope {
 
     public SymbolScope(final DeclaredType declaredType,
                        final Scope parentScope) {
+        Objects.requireNonNull(declaredType);
         this.declaredType = declaredType;
         this.parentScope = parentScope;
     }
@@ -64,6 +66,11 @@ public class SymbolScope implements Scope {
 
     private Optional<ElementResolver> findSymbolResolver(final TypeMirror searchType) {
         final var globalScope = getGlobalScope();
+
+        if (globalScope == null) {
+            return Optional.empty();
+        }
+
         final var compilerContext = globalScope.getCompilerContext();
         return compilerContext.findSymbolResolver(
                 searchType,

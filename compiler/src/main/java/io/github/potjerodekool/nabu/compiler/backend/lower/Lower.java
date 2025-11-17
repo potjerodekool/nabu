@@ -37,7 +37,7 @@ import java.util.*;
  * Add boxing and unboxing code.
  * Add code to enhanced for statements.
  */
-public class Lower extends AbstractTreeTranslator<LowerContext> {
+public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
     private final CompilerContextImpl compilerContext;
     private final WideningConverter wideningConverter;
@@ -61,7 +61,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
                 compilerContext.getMethodResolver()
         );
         this.caster = new Caster();
-        this.wideningConverter = new WideningConverter(types);
+        this.wideningConverter = new WideningConverter(compilerContext);
         this.methodResolver = compilerContext.getMethodResolver();
 
         this.defaultCodeGenerator = new DefaultCodeGenerator(compilerContext);
@@ -120,8 +120,8 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
                 binaryExpression.getLeft()
         );
 
-        left = TreeUtils.typeOf(right).accept(caster, left);
-        right = TreeUtils.typeOf(left).accept(caster, right);
+        left = compilerContext.getTreeUtils().typeOf(right).accept(caster, left);
+        right = compilerContext.getTreeUtils().typeOf(left).accept(caster, right);
 
         left = unboxIfNeeded(left, right);
         right = unboxIfNeeded(right, left);
@@ -155,10 +155,10 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
                 -1
         );
 
-        final var resolvedMethod = methodResolver.resolveMethod(methodInvocation)
-                .get();
-        methodInvocation.getMethodSelector().setType(resolvedMethod.getOwner().asType());
-        methodInvocation.setMethodType(resolvedMethod);
+        methodResolver.resolveMethod(methodInvocation).ifPresent(resolvedMethod -> {
+            methodInvocation.getMethodSelector().setType(resolvedMethod.getOwner().asType());
+            methodInvocation.setMethodType(resolvedMethod);
+        });
 
         final var localVariableType = (DeclaredType) localVariable.getVariableType().getType();
         final var iteratorName = generateVariableName();
@@ -204,7 +204,8 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
         );
 
         final var resolvedHasNextMethod = methodResolver.resolveMethod(check)
-                .get();
+                .orElseThrow(() -> new IllegalStateException("Failed to resolve hasNext method"));
+
         check.getMethodSelector().setType(resolvedHasNextMethod.getOwner().asType());
         check.setMethodType(resolvedHasNextMethod);
 
@@ -221,7 +222,9 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
                 -1
         );
 
-        final var resolvedNextMethod = methodResolver.resolveMethod(nextInvocation).get();
+        final var resolvedNextMethod = methodResolver.resolveMethod(nextInvocation)
+                        .orElseThrow(() -> new IllegalStateException("Failed to resolve next method"));
+
         nextInvocation.getMethodSelector().setType(resolvedNextMethod.getOwner().asType());
         nextInvocation.setMethodType(resolvedNextMethod);
 
@@ -287,8 +290,8 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
 
     public ExpressionTree unboxIfNeeded(final ExpressionTree left,
                                         final ExpressionTree right) {
-        final var leftType = TreeUtils.typeOf(left);
-        final var rightType = TreeUtils.typeOf(right);
+        final var leftType = compilerContext.getTreeUtils().typeOf(left);
+        final var rightType = compilerContext.getTreeUtils().typeOf(right);
 
         if (leftType instanceof DeclaredType
                 && rightType instanceof PrimitiveType primitiveType) {
@@ -458,7 +461,7 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
         final var ordinalMethod = ElementFilter.methodsIn(enumClass.getEnclosedElements()).stream()
                 .filter(it -> "ordinal".equals(it.getSimpleName()))
                 .findFirst()
-                .get();
+                .orElseThrow(() -> new IllegalStateException("Failed to resolve ordinal method"));
 
         return (ExecutableType) ordinalMethod.asType();
     }
@@ -481,15 +484,16 @@ public class Lower extends AbstractTreeTranslator<LowerContext> {
                 .value(newValue)
                 .build();
     }
-}
 
-class LowerContext {
+    public static class LowerContext {
 
-    final CompilationUnit compilationUnit;
-    ModuleElement module;
-    ClassDeclaration currentClass;
+        final CompilationUnit compilationUnit;
+        ModuleElement module;
+        ClassDeclaration currentClass;
 
-    public LowerContext(final CompilationUnit compilationUnit) {
-        this.compilationUnit = compilationUnit;
+        LowerContext(final CompilationUnit compilationUnit) {
+            this.compilationUnit = compilationUnit;
+        }
     }
 }
+

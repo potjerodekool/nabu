@@ -116,8 +116,8 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
         } else if (otherType instanceof WildcardType otherWildCardType) {
             return switch (otherWildCardType.getBoundKind()) {
                 case UNBOUND -> true;
-                case EXTENDS -> declaredType.accept(this, otherWildCardType.getBound());
-                case SUPER -> throw new TodoException();
+                case EXTENDS -> declaredType.accept(this, otherWildCardType.getExtendsBound());
+                case SUPER -> declaredType.accept(this, otherWildCardType.getSuperBound());
             };
         }
 
@@ -193,10 +193,14 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
     public Boolean visitWildcardType(final WildcardType wildcardType,
                                      final TypeMirror otherType) {
         if (otherType instanceof WildcardType otherWildcardType) {
-            if (wildcardType.getExtendsBound() != null) {
+            if (wildcardType.getBoundKind() != otherWildcardType.getBoundKind()) {
+                return false;
+            } else if (wildcardType.getExtendsBound() != null) {
                 return wildcardType.getExtendsBound().accept(this, otherWildcardType.getExtendsBound());
             } else if (wildcardType.getSuperBound() != null) {
                 return wildcardType.getSuperBound().accept(this, otherWildcardType.getSuperBound());
+            } else {
+                return true;
             }
         } else if (otherType instanceof TypeVariable typeVariable) {
             switch (wildcardType.getBoundKind()) {

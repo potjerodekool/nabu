@@ -40,6 +40,6 @@ public class CSynchronizedStatement extends CStatementTree implements Synchroniz
 
     @Override
     public StatementTreeBuilder<?> builder() {
-        return new StatementTreeBuilder(this);
+        return new StatementTreeBuilder<>(this);
     }
 }

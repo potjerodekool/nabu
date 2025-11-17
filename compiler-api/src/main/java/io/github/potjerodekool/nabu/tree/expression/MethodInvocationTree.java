@@ -15,7 +15,7 @@ public interface MethodInvocationTree extends ExpressionTree {
 
     List<ExpressionTree> getArguments();
 
-    List<IdentifierTree> getTypeArguments();
+    List<ExpressionTree> getTypeArguments();
 
     ExecutableType getMethodType();
 

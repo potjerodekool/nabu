@@ -82,13 +82,26 @@ public class ModuleFinder {
     }
 
     private void findModuleInfo(final ModuleSymbol moduleSymbol) {
-        final var location = moduleSymbol.getClassLocation();
+        final FileManager.Location location;
+
+        if (moduleSymbol.getSourceLocation() != null) {
+            location = moduleSymbol.getSourceLocation();
+        } else if (moduleSymbol.getClassLocation() != null) {
+            location = moduleSymbol.getClassLocation();
+        } else {
+            return;
+        }
+
         final var fileObject = fileManager.getFileObject(
                 location,
                 moduleSymbol.getModuleInfo().getSimpleName());
 
         if (fileObject != null) {
-            moduleSymbol.moduleInfo.setClassFile(fileObject);
+            if (fileObject.getKind().isSource()) {
+                moduleSymbol.moduleInfo.setSourceFile(fileObject);
+            } else {
+                moduleSymbol.moduleInfo.setClassFile(fileObject);
+            }
         }
     }
 

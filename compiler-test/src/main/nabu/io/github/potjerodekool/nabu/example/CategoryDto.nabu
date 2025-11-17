@@ -1,0 +1,25 @@
+package io.github.potjerodekool.nabu.example;
+
+import java.util.UUID;
+
+public class CategoryDto {
+
+    private id : UUID;
+    private name : String;
+
+    public fun getId(): UUID {
+        return this.id;
+    }
+
+    public fun setId(id : UUID): void {
+        this.id = id;
+    }
+
+    public fun getName(): String {
+        return name;
+    }
+
+    public fun setName(name : String): void {
+        this.name = name;
+    }
+}

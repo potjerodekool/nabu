@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.type.ExecutableType;
-import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.*;
 
@@ -28,17 +27,5 @@ public interface MethodResolver {
     Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocation,
                                            final Element currentElement,
                                            final Scope scope);
-
-
-    /**
-     * @param methodType A method type.
-     * @param typeArguments Type arguments.
-     * @param argumentTypes Argument types.
-     * @return Return the transformed method type.
-     */
-    ExecutableType transform(final ExecutableType methodType,
-                             final List<?extends TypeMirror> typeArguments,
-                             final List<TypeMirror> argumentTypes);
-
 
 }

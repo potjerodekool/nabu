@@ -11,6 +11,9 @@ import java.io.StringWriter;
 import java.util.List;
 import java.util.StringJoiner;
 
+/**
+ * Test utility that creates a string representation of tree.
+ */
 public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     private final StringWriter writer = new StringWriter();

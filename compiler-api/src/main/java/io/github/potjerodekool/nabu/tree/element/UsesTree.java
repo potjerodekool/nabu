@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.tree.element.impl.CUsesTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 
 /**
- * Represents a uses in a module.
+ * Represents an 'uses' in a module.
  * For example:
  * <p> </p>
  * module MyModule {

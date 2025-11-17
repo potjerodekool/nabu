@@ -2,10 +2,7 @@ package io.github.potjerodekool.nabu.compiler.io.impl;
 
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
-import io.github.potjerodekool.nabu.tools.CompilerOptions;
-import io.github.potjerodekool.nabu.tools.FileManager;
-import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.tools.StandardLocation;
+import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.compiler.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
@@ -20,18 +17,42 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-public class NabuCFileManager implements CompilerFileManger {
+public class NabuCFileManager implements FileManager {
 
     private final Logger logger = LoggerFactory.getLogger(NabuCFileManager.class.getName());
 
     private final Map<String, FileObject.Kind> extensionToKind = new HashMap<>();
-
     private final Set<FileObject.Kind> kindSet = new HashSet<>();
-
-    private final Locations locations = new Locations();
+    private final Map<Location, BasicLocationHandler> handlersForLocation = new HashMap<>();
+    private final Map<CompilerOption, BasicLocationHandler> handlerForOption = new HashMap<>();
     private final Map<Path, FileSystem> openFileSystems = new HashMap<>();
 
-    @Override
+    public NabuCFileManager() {
+        initLocationHandlers();
+    }
+
+    private void initLocationHandlers() {
+        final List<BasicLocationHandler> locationHandlers = List.of(
+                new ClassPathLocationHandler(),
+                new SimpleLocationHandler(StandardLocation.SOURCE_PATH, CompilerOption.SOURCE_PATH),
+                new SystemModulesLocationHandler(),
+                new ModuleSourcePathLocationHandler()
+        );
+
+        for (final var locationHandler : locationHandlers) {
+            this.handlersForLocation.put(locationHandler.getLocation(), locationHandler);
+        }
+
+        for (final var locationHandler : locationHandlers) {
+            for (final var supportedOption : locationHandler.getSupportedOptions()) {
+                this.handlerForOption.put(
+                        supportedOption,
+                        locationHandler
+                );
+            }
+        }
+    }
+
     public void initialize(final PluginRegistry pluginRegistry) {
         this.kindSet.addAll(
                 pluginRegistry.getExtensionManager().getLanguageParsers().stream()
@@ -64,8 +85,9 @@ public class NabuCFileManager implements CompilerFileManger {
     }
 
     @Override
-    public void processOptions(final CompilerOptions allOptions) {
-        locations.processOptions(allOptions);
+    public void processOptions(final CompilerOptions options) {
+        options.forEach((option, value) ->
+                getHandlerForOption(option).ifPresent(handler -> handler.processOption(option, value)));
     }
 
     @Override
@@ -82,8 +104,27 @@ public class NabuCFileManager implements CompilerFileManger {
             locationToUse = StandardLocation.CLASS_OUTPUT;
         }
 
-        return locations.getLocationForModule(locationToUse, moduleName);
+        return doGetLocationForModule(locationToUse, moduleName);
     }
+
+    private FileManager.Location doGetLocationForModule(final FileManager.Location location,
+                                                        final String moduleName) {
+        final var handler = getLocationHandler(location);
+        return handler != null
+                ? handler.getLocationForModule(moduleName)
+                : null;
+    }
+
+    public LocationHandler getLocationHandler(final Location location) {
+        if (location == null) {
+            return null;
+        } else if (location instanceof LocationHandler locationHandler) {
+            return locationHandler;
+        } else {
+            return handlersForLocation.get(location);
+        }
+    }
+
 
     private Path getSourceOutDir() {
         return null;
@@ -132,7 +173,7 @@ public class NabuCFileManager implements CompilerFileManger {
     public List<FileObject> getFilesForLocation(final Location location,
                                                 final FileObject.Kind... kinds) {
         final var files = new ArrayList<FileObject>();
-        final var paths = locations.getLocation(location);
+        final var paths = getLocationPaths(location);
 
         for (final var path : paths) {
             collectFiles(
@@ -148,7 +189,17 @@ public class NabuCFileManager implements CompilerFileManger {
 
     @Override
     public boolean hasLocation(final Location location) {
-        return locations.hasLocation(location);
+        return handlersForLocation.containsKey(location);
+    }
+
+    public Collection<Path> getLocationPaths(final Location location) {
+        final var locationHandler = getLocationHandler(location);
+
+        if (locationHandler == null) {
+            return List.of();
+        } else {
+            return locationHandler.getPaths();
+        }
     }
 
     public void use(final FileSystem fileSystem,
@@ -167,7 +218,13 @@ public class NabuCFileManager implements CompilerFileManger {
     @Override
     public Iterable<Set<FileManager.Location>> listLocationsForModules(final StandardLocation location) {
         if (check(location)) {
-            return locations.listLocationsForModules(location);
+            final var locationHandler = getLocationHandler(location);
+
+            if (locationHandler == null) {
+                return null;
+            } else {
+                return locationHandler.listLocationsForModules();
+            }
         } else {
             return List.of();
         }
@@ -175,18 +232,34 @@ public class NabuCFileManager implements CompilerFileManger {
 
     @Override
     public String resolveModuleName(final Location location) {
-        return locations.resolveModuleName(location);
+        final var handler = getLocationHandler(location);
+        return handler != null
+                ? handler.resolveModuleName()
+                : null;
     }
 
+    /*
+     * TODO support other source extensions.
+     */
     @Override
     public FileObject getFileObject(final Location location, final String className) {
         final Iterable<? extends Path> paths = getLocationAsPaths(location);
 
         for (final var path : paths) {
-            final var subPath = path.resolve(className + ".class");
+            final Path subPath;
+            final FileObject.Kind kind;
+
+            if (location.isClassLocation()) {
+                subPath = path.resolve(className + ".class");
+                kind = FileObject.CLASS_KIND;
+            } else {
+                subPath = path.resolve(className + ".java");
+                kind = new FileObject.Kind(".java", true);
+            }
+
             if (Files.exists(subPath)) {
                 return new NabuFileObject(
-                        FileObject.CLASS_KIND,
+                        kind,
                         subPath
                 );
             }
@@ -199,7 +272,7 @@ public class NabuCFileManager implements CompilerFileManger {
     public Iterable<? extends FileObject> list(final Location location,
                                                final String packageName,
                                                final Set<FileObject.Kind> kinds) {
-        final var handler = locations.getLocationHandler(location);
+        final var handler = getLocationHandler(location);
 
         if (handler == null) {
             return List.of();
@@ -270,7 +343,7 @@ public class NabuCFileManager implements CompilerFileManger {
     @Override
     public String resolveBinaryName(final Location location, final FileObject file) {
         final var fileName = file.getFileName();
-        return StreamSupport.stream(locations.getLocationAsPaths(location).spliterator(), false)
+        return StreamSupport.stream(getLocationAsPaths(location).spliterator(), false)
                 .map(path -> {
                     try {
                         return path.relativize(path.resolve(fileName));
@@ -293,7 +366,13 @@ public class NabuCFileManager implements CompilerFileManger {
     }
 
     private Iterable<? extends Path> getLocationAsPaths(final Location location) {
-        return locations.getLocationAsPaths(location);
+        final var handler = getLocationHandler(location);
+
+        if (handler == null) {
+            return List.of();
+        } else {
+            return handler.getPaths();
+        }
     }
 
     private boolean check(final Location location) {
@@ -305,7 +384,7 @@ public class NabuCFileManager implements CompilerFileManger {
 
     @Override
     public void close() {
-        locations.close();
+        closeHandlers();
         openFileSystems.values().forEach(fs -> {
             try {
                 fs.close();
@@ -314,6 +393,24 @@ public class NabuCFileManager implements CompilerFileManger {
             }
         });
     }
+
+    private void closeHandlers() {
+        handlersForLocation.values().forEach(this::closeHandler);
+    }
+
+    private void closeHandler(final LocationHandler locationHandler) {
+        if (locationHandler instanceof AutoCloseable autoCloseable) {
+            try {
+                autoCloseable.close();
+            } catch (final Exception ignored) {
+            }
+        }
+    }
+
+    private Optional<BasicLocationHandler> getHandlerForOption(final CompilerOption compilerOption) {
+        return Optional.ofNullable(this.handlerForOption.get(compilerOption));
+    }
+
 }
 
 class DirectoryVisitor implements FileVisitor<Path> {
@@ -374,4 +471,6 @@ class DirectoryVisitor implements FileVisitor<Path> {
     public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) {
         return FileVisitResult.CONTINUE;
     }
+
+
 }

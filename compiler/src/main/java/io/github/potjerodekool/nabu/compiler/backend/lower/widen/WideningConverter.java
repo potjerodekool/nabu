@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.lower.ExpressionConverter;
-import io.github.potjerodekool.nabu.tree.TreeUtils;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
@@ -16,6 +16,7 @@ import java.util.Set;
 
 public class WideningConverter implements ExpressionConverter {
 
+    private final CompilerContext compilerContext;
     private final Types types;
     private final IntWidener intWidener;
     private final Map<TypeKind, Set<TypeKind>> allowedPrimitiveConversions =
@@ -28,8 +29,9 @@ public class WideningConverter implements ExpressionConverter {
                     createPrimitiveConversions(TypeKind.FLOAT, Set.of(TypeKind.DOUBLE))
             );
 
-    public WideningConverter(final Types types) {
-        this.types = types;
+    public WideningConverter(final CompilerContext compilerContext) {
+        this.compilerContext = compilerContext;
+        this.types = compilerContext.getClassElementLoader().getTypes();
         this.intWidener = new IntWidener(types);
     }
 
@@ -40,8 +42,8 @@ public class WideningConverter implements ExpressionConverter {
 
     @Override
     public ExpressionTree convert(final ExpressionTree left, final ExpressionTree right) {
-        final var leftType = TreeUtils.typeOf(left);
-        final var rightType = TreeUtils.typeOf(right);
+        final var leftType = compilerContext.getTreeUtils().typeOf(left);
+        final var rightType = compilerContext.getTreeUtils().typeOf(right);
 
         if (leftType instanceof DeclaredType leftClassType) {
             return visitDeclaredType(left, leftClassType, rightType);

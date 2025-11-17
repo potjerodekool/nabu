@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSy
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
 import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
@@ -37,7 +38,7 @@ public class SymbolCreator extends AbstractTreeVisitor<Object, Scope> {
         final var parameters = function.getParameters().stream()
                 .map(parameter -> {
                     parameter.accept(this, functionScope);
-                    return (VariableSymbol) parameter.getName().getSymbol();
+                    return (VariableElement) parameter.getName().getSymbol();
                 })
                 .toList();
 

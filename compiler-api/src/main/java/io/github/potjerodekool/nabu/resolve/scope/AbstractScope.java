@@ -23,6 +23,10 @@ public abstract class AbstractScope implements Scope {
 
     @Override
     public void define(final Element element) {
+        if (locals.containsKey(element.getSimpleName())) {
+            //throw new IllegalStateException("Duplicate element");
+        }
+
         locals.put(element.getSimpleName(), element);
     }
 

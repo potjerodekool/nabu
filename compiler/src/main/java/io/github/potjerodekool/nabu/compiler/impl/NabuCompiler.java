@@ -1,17 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
-import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
-import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.compiler.backend.ByteCodePhase;
 import io.github.potjerodekool.nabu.compiler.backend.IRPhase;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.tools.FileManager;
 import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
-import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuLanguageParser;
 import io.github.potjerodekool.nabu.tools.diagnostic.ConsoleDiagnosticListener;
 import io.github.potjerodekool.nabu.tools.diagnostic.DiagnosticListener;
@@ -27,7 +21,7 @@ import static io.github.potjerodekool.nabu.compiler.impl.ResolvePhase.resolvePha
 import static io.github.potjerodekool.nabu.compiler.impl.TransformPhase.transform;
 import static io.github.potjerodekool.nabu.compiler.backend.LowerPhase.lower;
 
-public class NabuCompiler {
+public class NabuCompiler implements Compiler {
 
     private Path targetDirectory = Paths.get("output");
 
@@ -41,18 +35,11 @@ public class NabuCompiler {
         errorCapture.setListener(listener);
     }
 
+    @Override
     public int compile(final CompilerOptions compilerOptions) {
-        final var pluginRegistry = new PluginRegistry();
-        try (final NabuCFileManager fileManager = new NabuCFileManager();
-             final var compilerContext = new CompilerContextImpl(
-                     fileManager,
-                     pluginRegistry,
-                     AsmClassElementLoader::new
-             )) {
-            setup(fileManager, compilerOptions);
-
+        try (final var compilerContext = configure(compilerOptions)) {
+            final var fileManager = compilerContext.getFileManager();
             final var sourceFileKinds = getSourceFileKinds(compilerOptions);
-
             final var nabuSourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
             final var compilationUnits = processFiles(nabuSourceFiles, null, compilerContext);
 
@@ -65,6 +52,13 @@ public class NabuCompiler {
         } catch (final Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public CompilerContextImpl configure(final CompilerOptions compilerOptions) {
+        final var compilerContext = new CompilerContextImpl(new NabuCFileManager());
+        final var fileManager = compilerContext.getFileManager();
+        setup(fileManager, compilerOptions);
+        return compilerContext;
     }
 
     private FileObject.Kind[] getSourceFileKinds(final CompilerOptions compilerOptions) {
@@ -110,7 +104,7 @@ public class NabuCompiler {
                 .map(it -> resolvePhase(it, compilerContext))
                 .map(it -> AnnotatePhase.annotate(it, compilerContext))
                 .map(it -> transform(it, compilerContext))
-                .map(it -> check(it.compilationUnit(), errorCapture))
+                .map(it -> check(it.compilationUnit(), compilerContext, errorCapture))
                 .toList();
 
         if (errorCapture.getErrorCount() > 0) {

@@ -5,27 +5,39 @@ import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.VariableType;
+import io.github.potjerodekool.nabu.util.Types;
 
 /**
  * Utility methods for working with trees.
  */
 public final class TreeUtils {
 
-    private TreeUtils() {
+    private final Types types;
+
+    public TreeUtils(final Types types) {
+        this.types = types;
     }
 
     /**
      * @param tree A tree.
      * @return Returns the type of the tree.
      */
-    public static TypeMirror typeOf(final Tree tree) {
+    public TypeMirror typeOf(final Tree tree) {
         return switch (tree) {
             case FieldAccessExpressionTree fieldAccessExpression -> typeOf(fieldAccessExpression.getField());
             case IdentifierTree identifier -> identifier.getType() != null
                     ? identifier.getType()
                     : typeOf(identifier.getSymbol());
             case CastExpressionTree asExpression -> typeOf(asExpression.getTargetType());
-            case MethodInvocationTree methodInvocation -> methodInvocation.getMethodType().getReturnType();
+            case MethodInvocationTree methodInvocation -> {
+                final var methodType = methodInvocation.getMethodType();
+
+                if (methodType != null) {
+                    yield methodType.getReturnType();
+                } else {
+                    yield types.getUnknownType();
+                }
+            }
             case VariableTypeTree variableType -> {
                 final var type = variableType.getType();
                 yield type instanceof VariableType varType && varType.getInterferedType() != null

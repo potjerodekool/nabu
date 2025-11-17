@@ -46,6 +46,7 @@ import static io.github.potjerodekool.nabu.compiler.frontend.parser.SourceVisito
 public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     private final FileObject fileObject;
+    private boolean isTopLevel = true;
 
     public NabuCompilerVisitor(final FileObject fileObject) {
         this.fileObject = fileObject;
@@ -392,14 +393,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             return identifier;
         } else {
             return createNewSelector(identifier, packageOrTypeName);
-            /*
-            return new FieldAccessExpressionBuilder()
-                    .selected(identifier)
-                    .field((IdentifierTree) packageOrTypeName)
-                    .lineNumber(ctx.getStart().getLine())
-                    .columnNumber(ctx.getStart().getCharPositionInLine())
-                    .build();
-            */
         }
     }
 
@@ -1216,14 +1209,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     packageName,
                     result
             );
-            /*
-            result = TreeMaker.fieldAccessExpressionTree(
-                    packageName,
-                    (IdentifierTree) result,
-                    ctx.getStart().getLine(),
-                    ctx.getStart().getCharPositionInLine()
-            );
-            */
         }
 
 
@@ -1762,6 +1747,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitNormalClassDeclaration(final NabuParser.NormalClassDeclarationContext ctx) {
+        final NestingKind nestingKind;
+
+        if (isTopLevel) {
+            nestingKind = NestingKind.TOP_LEVEL;
+            isTopLevel = false;
+        } else {
+            nestingKind = NestingKind.MEMBER;
+        }
+
         var classModifiers = parseModifiers(ctx.classModifier());
 
         if (!classModifiers.hasAccessModifier()) {
@@ -1778,7 +1772,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         return TreeMaker.classDeclaration(
                 Kind.CLASS,
-                NestingKind.TOP_LEVEL,
+                nestingKind,
                 classModifiers,
                 simpleName,
                 enclosedElements,
@@ -2123,10 +2117,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitFunctionInvocation(final NabuParser.FunctionInvocationContext ctx) {
-        return visitFunctionInvocationNew(ctx);
-    }
-
-    public Object visitFunctionInvocationNew(final NabuParser.FunctionInvocationContext ctx) {
         ExpressionTree expression = null;
         final var arguments = new ArrayList<ExpressionTree>();
         final var typeArguments = new ArrayList<IdentifierTree>();
@@ -2677,6 +2667,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitNormalInterfaceDeclaration(final NabuParser.NormalInterfaceDeclarationContext ctx) {
+        final NestingKind nestingKind;
+
+        if (isTopLevel) {
+            nestingKind = NestingKind.TOP_LEVEL;
+            isTopLevel = false;
+        } else {
+            nestingKind = NestingKind.MEMBER;
+        }
+
         var modifiers = parseModifiers(ctx.interfaceModifier());
         final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
         final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
@@ -2692,6 +2691,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .lineNumber(ctx.getStart().getLine())
                 .columnNumber(ctx.getStart().getCharPositionInLine())
                 .kind(Kind.INTERFACE)
+                .nestingKind(nestingKind)
                 .modifiers(modifiers)
                 .simpleName(identifier.getName())
                 .typeParameters(typeParameters)
@@ -3555,16 +3555,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitEnumConstantModifier(final NabuParser.EnumConstantModifierContext ctx) {
         return super.visitEnumConstantModifier(ctx);
-    }
-
-    @Override
-    public Object visitRecordComponentModifier(final NabuParser.RecordComponentModifierContext ctx) {
-        return super.visitRecordComponentModifier(ctx);
-    }
-
-    @Override
-    public Object visitRecordBodyDeclaration(final NabuParser.RecordBodyDeclarationContext ctx) {
-        return super.visitRecordBodyDeclaration(ctx);
     }
 
     @Override

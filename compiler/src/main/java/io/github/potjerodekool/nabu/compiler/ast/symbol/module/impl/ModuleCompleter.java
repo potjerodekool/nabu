@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl;
 
+import io.github.potjerodekool.nabu.compiler.resolve.internal.java.JavaModuleParser;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -58,23 +59,33 @@ class ModuleCompleter implements Completer {
     }
 
     private void completeModule(final ModuleSymbol module) {
-        final var classFile = module.moduleInfo.getClassFile();
+        if (module.moduleInfo.getSourceFile() != null
+            && ".java".equals(module.moduleInfo.getSourceFile().getKind().extension())) {
+            JavaModuleParser.parse(
+                    module.getModuleInfo().getSourceFile(),
+                    symbolTable,
+                    module
+            );
+        } else if (module.moduleInfo.getClassFile() != null) {
+            final var classFile = module.moduleInfo.getClassFile();
 
-        //May be null during testing.
-        if (classFile != null) {
-            try (final var inputStream = classFile.openInputStream()) {
-                final var bytecode = inputStream.readAllBytes();
-                ClazzReader.read(
-                        bytecode,
-                        symbolTable,
-                        loader,
-                        module.moduleInfo,
-                        module
-                );
-                initVisiblePackages(module);
-            } catch (final IOException ignored) {
+            //May be null during testing.
+            if (classFile != null) {
+                try (final var inputStream = classFile.openInputStream()) {
+                    final var bytecode = inputStream.readAllBytes();
+                    ClazzReader.read(
+                            bytecode,
+                            symbolTable,
+                            loader,
+                            module.moduleInfo,
+                            module
+                    );
+
+                } catch (final IOException ignored) {
+                }
             }
         }
+        initVisiblePackages(module);
     }
 
     private void initVisiblePackages(final ModuleSymbol module) {

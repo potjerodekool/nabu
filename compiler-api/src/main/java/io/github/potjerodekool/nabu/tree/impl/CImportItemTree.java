@@ -47,22 +47,9 @@ public final class CImportItemTree extends CTree implements ImportItem {
 
     @Override
     public boolean isStarImport() {
-        final var fieldName = getFieldName(qualified);
+        final var fieldName = qualified.getField().getName();
         return fieldName.equals("*");
     }
-
-    private String getFieldName(final FieldAccessExpressionTree fieldAccessExpressionTree) {
-        final var field = fieldAccessExpressionTree.getField();
-
-        if (field instanceof IdentifierTree identifierTree) {
-            return identifierTree.getName();
-        } else if (field instanceof FieldAccessExpressionTree sub) {
-            return getFieldName(sub);
-        } else {
-            return "";
-        }
-    }
-
 
     @Override
     public String getClassOrPackageName() {

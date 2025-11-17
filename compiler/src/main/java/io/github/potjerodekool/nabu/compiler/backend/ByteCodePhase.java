@@ -71,19 +71,26 @@ public final class ByteCodePhase {
                                final ClassDeclaration classDeclaration,
                                final Path targetDirectory) {
         final ByteCodeGenerator generator = new AsmByteCodeGenerator(compilerOptions);
-
         final var classSymbol = classDeclaration.getClassSymbol();
-        final var packageSymbol = findPackageSymbol(classSymbol.getEnclosingElement());
-        generator.generate(classDeclaration, null);
-        final var packageName = packageSymbol.getQualifiedName();
-        final var fileName = fileName(packageName, classSymbol);
 
-        doGenerate(packageName, fileName, generator, targetDirectory);
+        try {
+            final var packageSymbol = findPackageSymbol(classSymbol.getEnclosingElement());
+            generator.generate(classDeclaration, null);
+            final var packageName = packageSymbol.getQualifiedName();
+            final var fileName = fileName(packageName, classSymbol);
 
-        classDeclaration.getEnclosedElements().stream()
-                .flatMap(CollectionUtils.mapOnly(ClassDeclaration.class))
-                .forEach(enclosedElement ->
-                        generateClass(compilerOptions, enclosedElement, targetDirectory));
+            doGenerate(packageName, fileName, generator, targetDirectory);
+
+            classDeclaration.getEnclosedElements().stream()
+                    .flatMap(CollectionUtils.mapOnly(ClassDeclaration.class))
+                    .forEach(enclosedElement ->
+                            generateClass(compilerOptions, enclosedElement, targetDirectory));
+        } catch (final Exception e) {
+            LOGGER.log(LogLevel.ERROR, String.format(
+                    "Failed to generate class for %s", classSymbol.getQualifiedName()),
+                    e
+            );
+        }
     }
 
     private String fileName(final String packageName,

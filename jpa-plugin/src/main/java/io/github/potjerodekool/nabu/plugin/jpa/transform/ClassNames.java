@@ -1,5 +1,8 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
+/**
+ * Constants
+ */
 public final class ClassNames {
 
     public static final String STRING_CLASS_NAME = "java.lang.String";

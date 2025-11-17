@@ -26,7 +26,7 @@ jobs:
           cache: 'maven'
 
       - name: Build project with Maven
-        run: mvn clean install -DskipTests
+        run: mvn clean install -DskipTests -Dgpg.skip
 
       - name: Generate Javadoc with Maven (aggregate)
         run: mvn javadoc:aggregate

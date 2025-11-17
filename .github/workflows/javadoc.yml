@@ -31,6 +31,11 @@ jobs:
       - name: Generate Javadoc with Maven (aggregate)
         run: mvn javadoc:aggregate
 
+      - name: Copy docs
+        run: |
+          mlkdir -p docs
+          cp -r docs/* docs/        
+
       - name: Prepare docs structure
         run: |
           mkdir -p docs/api
@@ -82,10 +87,6 @@ jobs:
           </body>
           </html>
           EOF
-
-      - name: Copy docs
-        run: |
-          cp -r docs/* docs/
 
       - name: Add .nojekyll file
         run: touch docs/.nojekyll

@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.maven;
 
-import io.github.potjerodekool.nabu.compiler.impl.NabuCompiler;
-import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
+import io.github.potjerodekool.nabu.compiler.NabuCompiler;
+import io.github.potjerodekool.nabu.log.LoggerFactory;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
-import org.apache.maven.artifact.Artifact;
+import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
@@ -58,7 +58,7 @@ public class NabuMojo extends AbstractMojo {
         }
     }
 
-    private CompilerOptions configureOptions() {
+    private CompilerOptions configureOptions() throws MojoFailureException {
         final var compilerOptionsBuilder = new CompilerOptions.CompilerOptionsBuilder();
 
         configureClassPath(compilerOptionsBuilder);
@@ -87,14 +87,24 @@ public class NabuMojo extends AbstractMojo {
         compilerOptionsBuilder.option(CompilerOption.SOURCE_PATH, sourcePath);
     }
 
-    private void configureClassPath(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder) {
+    private void configureClassPath(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder) throws MojoFailureException {
         final var paths = new ArrayList<String>();
         paths.add(project.getBuild().getOutputDirectory());
 
+        try {
+            paths.addAll(project.getCompileClasspathElements().stream()
+                    .map(element -> new File(element).getAbsolutePath())
+                    .toList());
+        } catch (final DependencyResolutionRequiredException e) {
+            throw new MojoFailureException(e);
+        }
+
+        /*
         paths.addAll(project.getArtifacts().stream()
                 .map(Artifact::getFile)
                 .map(File::getAbsolutePath)
                 .toList());
+        */
 
         compilerOptionsBuilder.option(
                 CompilerOption.CLASS_PATH,

@@ -10,9 +10,9 @@ public final class CheckPhase {
     private CheckPhase() {
     }
 
-    static CompilationUnit check(final CompilationUnit compilationUnit,
-                                 final CompilerContext compilerContext,
-                                 final ErrorCapture errorCapture) {
+    public static CompilationUnit check(final CompilationUnit compilationUnit,
+                                        final CompilerContext compilerContext,
+                                        final ErrorCapture errorCapture) {
         final var checker = new Checker(compilerContext, errorCapture);
         compilationUnit.accept(checker, null);
         return compilationUnit;

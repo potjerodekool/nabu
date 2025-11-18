@@ -3,11 +3,10 @@ package io.github.potjerodekool.nabu.compiler.resolve.internal;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
-import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
@@ -20,7 +19,7 @@ import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 
 public class EnterClasses extends AbstractTreeVisitor<Object, Scope> {
 
-    private static final Logger logger = LoggerFactory.getLogger(EnterClasses.class.getName());
+    private static final Logger logger = Logger.getLogger(EnterClasses.class.getName());
 
     private final CompilerContextImpl compilerContext;
     private final ClassElementLoader classElementLoader;

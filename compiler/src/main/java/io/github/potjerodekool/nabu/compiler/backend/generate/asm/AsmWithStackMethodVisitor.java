@@ -272,7 +272,9 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
     public void visitJumpInsn(final int opcode, final Label label) {
         super.visitJumpInsn(opcode, label);
 
-        if (opcode == Opcodes.IFNULL || opcode == Opcodes.IFNONNULL) {
+        if (opcode == Opcodes.IFNULL
+                || opcode == Opcodes.IFNONNULL
+                || opcode == Opcodes.IFEQ) {
             pop();
         }
     }

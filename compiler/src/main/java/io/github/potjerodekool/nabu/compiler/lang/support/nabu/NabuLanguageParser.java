@@ -2,12 +2,12 @@ package io.github.potjerodekool.nabu.compiler.lang.support.nabu;
 
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 
 

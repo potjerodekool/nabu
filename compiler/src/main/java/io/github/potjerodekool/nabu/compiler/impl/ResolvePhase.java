@@ -8,8 +8,8 @@ public final class ResolvePhase {
     private ResolvePhase() {
     }
 
-    static FileObjectAndCompilationUnit resolvePhase(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
-                                                     final CompilerContextImpl compilerContext) {
+    public static FileObjectAndCompilationUnit resolvePhase(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
+                                                            final CompilerContextImpl compilerContext) {
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 
         final var phase2Resolver = new ResolverPhase(

@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.testing;
 
 import io.github.potjerodekool.nabu.NabuParser;
-import io.github.potjerodekool.nabu.compiler.impl.NabuCompiler;
+import io.github.potjerodekool.nabu.compiler.NabuCompiler;
 import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;

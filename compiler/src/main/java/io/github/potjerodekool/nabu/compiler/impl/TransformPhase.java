@@ -7,8 +7,8 @@ public final class TransformPhase {
     private TransformPhase() {
     }
 
-    static FileObjectAndCompilationUnit transform(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
-                                                  final CompilerContextImpl compilerContext) {
+    public static FileObjectAndCompilationUnit transform(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
+                                                         final CompilerContextImpl compilerContext) {
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 
         final var codeTransformers = compilerContext.getPluginRegistry()

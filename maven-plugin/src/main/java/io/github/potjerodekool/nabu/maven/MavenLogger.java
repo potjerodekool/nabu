@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.maven;
 
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import org.apache.maven.plugin.logging.Log;
 
 class MavenLogger implements Logger {

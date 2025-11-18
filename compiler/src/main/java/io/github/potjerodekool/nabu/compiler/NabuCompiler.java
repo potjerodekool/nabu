@@ -1,5 +1,9 @@
-package io.github.potjerodekool.nabu.compiler.impl;
+package io.github.potjerodekool.nabu.compiler;
 
+import io.github.potjerodekool.nabu.compiler.impl.AnnotatePhase;
+import io.github.potjerodekool.nabu.compiler.impl.ErrorCapture;
+import io.github.potjerodekool.nabu.compiler.impl.FileObjectAndCompilationUnit;
+import io.github.potjerodekool.nabu.compiler.impl.LambdaToMethodPhase;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.compiler.backend.ByteCodePhase;

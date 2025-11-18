@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.log;
+package io.github.potjerodekool.nabu.log;
 
 import java.util.function.Function;
 

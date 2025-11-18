@@ -2,10 +2,9 @@ package io.github.potjerodekool.nabu.compiler.io.impl;
 
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.*;
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
-import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
 import io.github.potjerodekool.nabu.util.Pair;
 
 import java.io.IOException;
@@ -19,7 +18,7 @@ import java.util.stream.StreamSupport;
 
 public class NabuCFileManager implements FileManager {
 
-    private final Logger logger = LoggerFactory.getLogger(NabuCFileManager.class.getName());
+    private final Logger logger = Logger.getLogger(NabuCFileManager.class.getName());
 
     private final Map<String, FileObject.Kind> extensionToKind = new HashMap<>();
     private final Set<FileObject.Kind> kindSet = new HashSet<>();

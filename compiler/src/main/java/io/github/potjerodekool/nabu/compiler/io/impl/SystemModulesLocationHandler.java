@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.io.impl;
 
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.tools.FileManager.Location;

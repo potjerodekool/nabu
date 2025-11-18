@@ -1,6 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.impl;
 
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.NabuParser;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
+import io.github.potjerodekool.nabu.test.*;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
@@ -15,10 +19,11 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPrimitiveType;
-import io.github.potjerodekool.nabu.test.TestUtils;
 import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.Tag;
 import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
+import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.PrimitiveTypeTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.BinaryExpressionBuilder;
@@ -29,11 +34,13 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CPrimitiveTypeTree;
 import io.github.potjerodekool.nabu.tree.impl.CConstantCaseLabel;
 import io.github.potjerodekool.nabu.tree.impl.CDefaultCaseLabel;
 import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.impl.CCaseStatement;
 import io.github.potjerodekool.nabu.tree.statement.impl.CSwitchStatement;
 import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -49,11 +56,11 @@ class TranslateTest extends AbstractCompilerTest {
 
     @BeforeEach
     void setup() {
-        TestUtils.resetLabels();    }
+        TestUtils.resetLabels();
+    }
 
     @Test
     void visitBinaryExpression() {
-        //createFakeClass("SomeClass");
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
                 .build();
@@ -131,7 +138,7 @@ class TranslateTest extends AbstractCompilerTest {
 
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
-                        .build();
+                .build();
 
         final var context = new TranslateContext();
         final var frame = new Frame();
@@ -184,7 +191,7 @@ class TranslateTest extends AbstractCompilerTest {
 
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
-                        .build();
+                .build();
 
         final var context = new TranslateContext();
         final var frame = new Frame();
@@ -231,7 +238,7 @@ class TranslateTest extends AbstractCompilerTest {
 
         final var integerClass = getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.lang.Integer");
 
-        final var classField = (VariableSymbol) new VariableSymbolBuilderImpl()
+        final var classField = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.FIELD)
                 .simpleName("b")
                 .type(integerClass.asType())
@@ -490,6 +497,113 @@ class TranslateTest extends AbstractCompilerTest {
 
         assertEquals(expected, actual);
     }
+
+    @Test
+    void testBlockWithIf() {
+        final var functionScope = new FunctionScope(
+                null,
+                null
+        );
+
+        final var function = (CFunction) NabuTreeParser.parse(
+                """
+                        static fun isTrue(b: boolean): boolean {
+                            if (b) {
+                                final var result = true;
+                                return result;
+                            }
+                            final var result = false;
+                            return result;
+                        }
+                        """,
+                NabuParser::functionDeclaration,
+                getCompilerContext(),
+                functionScope
+        );
+
+        final var types = getCompilerContext().getClassElementLoader().getTypes();
+        final var booleanType = types.getPrimitiveType(TypeKind.BOOLEAN);
+
+        TreeWalker.walk(function, (tree) -> {
+            if (tree instanceof VariableDeclaratorTree variableDeclaratorTree) {
+                final var name = variableDeclaratorTree.getName().getName();
+                final var symbol = createVariable(name, booleanType, ElementKind.LOCAL_VARIABLE);
+                variableDeclaratorTree.getName().setSymbol(symbol);
+                variableDeclaratorTree.getVariableType().setType(booleanType);
+            } else if (tree instanceof IdentifierTree identifierTree) {
+                final var name = identifierTree.getName();
+                final var symbol = createVariable(name, booleanType, ElementKind.LOCAL_VARIABLE);
+                identifierTree.setSymbol(symbol);
+            }
+        });
+
+        final var parameterSymbol = createVariable("b", booleanType, ElementKind.PARAMETER);
+
+        function.getParameters().getFirst()
+                .getName()
+                .setSymbol(parameterSymbol);
+
+        final var context = new TranslateContext();
+        final var frame = new Frame();
+
+        frame.allocateLocal("b", ToIType.toIType(booleanType), true);
+
+        final var classDeclaration = new ClassDeclarationBuilder()
+                .build();
+        final var clazz = new ClassSymbolBuilder()
+                .build();
+        final var method = new MethodSymbolBuilderImpl()
+                .flags(Flags.STATIC)
+                .build();
+
+        classDeclaration.setClassSymbol(clazz);
+
+        context.frame = frame;
+        context.classDeclaration = classDeclaration;
+
+        function.setMethodSymbol(method);
+
+        function.accept(translate, context);
+
+        final var frag = method.getFrag();
+        final var printer = new CodePrinter();
+
+        frag.getBody().forEach(statement -> {
+            statement.accept(printer, frame);
+        });
+
+        final var actual = printer.getText();
+        final var expected = """
+                LOAD 0
+                 == 1
+                 else L2
+                L0
+                true
+                LOAD -2147483648
+                 = LOAD 1
+                
+                 JUMP L2
+                
+                L2
+                false
+                LOAD -2147483648
+                 = LOAD 1
+
+                """;
+
+        assertEquals(expected, actual);
+    }
+
+    private VariableSymbol createVariable(final String name,
+                                          final TypeMirror typeMirror,
+                                          final ElementKind kind) {
+        return new VariableSymbolBuilderImpl()
+                .simpleName(name)
+                .type(typeMirror)
+                .kind(kind)
+                .build();
+    }
+
 }
 
 class CodePrinter implements CodeVisitor<Frame> {
@@ -525,6 +639,10 @@ class CodePrinter implements CodeVisitor<Frame> {
     public Temp visitName(final Name name, final Frame param) {
         writeLn(name.getLabel().getName());
         return null;
+    }
+
+    private void write(final String text) {
+        builder.append(text);
     }
 
     private void writeLn(final String text) {
@@ -612,6 +730,30 @@ class CodePrinter implements CodeVisitor<Frame> {
     @Override
     public void visitExpressionStatement(final IExpressionStatement expressionStatement, final Frame frame) {
         expressionStatement.getExp().accept(this, frame);
+    }
+
+    @Override
+    public void visitMove(final Move move, final Frame param) {
+        move.getDst().accept(this, param);
+        write(" = ");
+        move.getSrc().accept(this, param);
+        writeLn();
+    }
+
+    @Override
+    public void visitCJump(final CJump cJump, final Frame param) {
+        cJump.getLeft().accept(this, param);
+        write(" " + cJump.getTag().getText() + " ");
+        cJump.getRight().accept(this, param);
+        write(" else ");
+        writeLn(cJump.getFalseLabel().getName());
+    }
+
+    @Override
+    public void visitJump(final Jump jump, final Frame param) {
+        write(" JUMP ");
+        jump.getExp().accept(this, param);
+        writeLn();
     }
 
     public String getText() {

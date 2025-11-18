@@ -16,6 +16,10 @@ public class ArrayAccessExpressionBuilder extends ExpressionBuilder<ArrayAccessE
         super();
     }
 
+    /**
+     * Create an array access expression based on existing one.
+     * @param original An array access expression.
+     */
     public ArrayAccessExpressionBuilder(final ArrayAccessExpressionTree original) {
         super(original);
         this.expression = original.getExpression();

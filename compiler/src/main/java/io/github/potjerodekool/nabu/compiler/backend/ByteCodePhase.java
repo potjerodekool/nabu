@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend;
 
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.impl.ErrorCapture;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator;
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;

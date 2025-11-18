@@ -8,7 +8,7 @@ public final class LambdaToMethodPhase {
     private LambdaToMethodPhase() {
     }
 
-    static CompilationUnit lambdaToMethod(final CompilationUnit compilationUnit) {
+    public static CompilationUnit lambdaToMethod(final CompilationUnit compilationUnit) {
         final var lamdaToMethod = new LambdaToMethod();
         compilationUnit.accept(lamdaToMethod, null);
         return compilationUnit;

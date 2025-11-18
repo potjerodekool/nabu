@@ -24,4 +24,5 @@ module io.github.potjerodekool.compiler.api {
     exports io.github.potjerodekool.nabu.tools.diagnostic;
     exports io.github.potjerodekool.nabu.tools.transform.spi;
     exports io.github.potjerodekool.nabu.lang.spi;
+    exports io.github.potjerodekool.nabu.log;
 }

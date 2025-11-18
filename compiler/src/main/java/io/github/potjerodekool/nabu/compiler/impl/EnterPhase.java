@@ -11,8 +11,8 @@ public final class EnterPhase {
     private EnterPhase() {
     }
 
-    static FileObjectAndCompilationUnit enterPhase(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
-                                                   final CompilerContextImpl compilerContext) {
+    public static FileObjectAndCompilationUnit enterPhase(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
+                                                          final CompilerContextImpl compilerContext) {
         final var fileObject = fileObjectAndCompilationUnit.fileObject();
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 

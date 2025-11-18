@@ -222,9 +222,9 @@ public abstract class AbstractResolver extends AbstractTreeVisitor<Object, Scope
             final var symbol = expression.getSymbol();
 
             if (symbol != null) {
-                expressionType = (DeclaredType) symbol.asType();
+                expressionType = asDeclaredType(symbol.asType());
             } else {
-                expressionType = (DeclaredType) expression.getType();
+                expressionType = asDeclaredType(expression.getType());
             }
 
             final var type = expressionType.getTypeArguments().getFirst();

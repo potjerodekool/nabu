@@ -1,8 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
-import io.github.potjerodekool.nabu.compiler.log.LoggerFactory;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
@@ -18,7 +17,7 @@ import java.util.List;
 
 public class PluginRegistry {
 
-    private final Logger logger = LoggerFactory.getLogger(PluginRegistry.class.getName());
+    private final Logger logger = Logger.getLogger(PluginRegistry.class.getName());
     private final ExtensionManager extensionManager = new ExtensionManager(this);
 
     public void registerPlugins(final CompilerContext compilerContext) {

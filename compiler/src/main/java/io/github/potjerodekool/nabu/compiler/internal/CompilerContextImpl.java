@@ -3,11 +3,11 @@ package io.github.potjerodekool.nabu.compiler.internal;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ElementBuildersImpl;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
-import io.github.potjerodekool.nabu.compiler.log.LogLevel;
-import io.github.potjerodekool.nabu.compiler.log.Logger;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilders;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.ArgumentBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
@@ -32,7 +32,6 @@ import java.util.Optional;
 public class CompilerContextImpl implements CompilerContext {
 
     public static class Key<T> {}
-
 
     private final Logger logger = Logger.getLogger(CompilerContextImpl.class.getName());
     private final NabuCFileManager fileManager;

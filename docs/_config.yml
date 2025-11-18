@@ -1,9 +1,7 @@
 title: Nabu Documentation
 description: Nabu documentation with JavaDoc API reference
 baseurl: "/nabu"
-url: "https://potjerodekool.github.io/nabu"
-
-theme: minima
+url: "https://potjerodekool.github.io"
 
 # Exclude JavaDoc from Jekyll processing
 exclude:

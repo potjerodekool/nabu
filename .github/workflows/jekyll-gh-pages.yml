@@ -40,7 +40,8 @@ jobs:
         run: mvn clean install -DskipTests -Dgpg.skip
 
       - name: Generate Javadoc with Maven (aggregate)
-        run: mvn javadoc:aggregate
+        # A project list is specified since not all needs javadoc documentation or javadoc fails.
+        run: mvn javadoc:aggregate -pl compiler-api,compiler,jpa-support,jpa-plugin,nabu-daemon,testing
 
       - name: Prepare docs structure
         run: |

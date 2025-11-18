@@ -39,7 +39,7 @@ jobs:
 
       - name: Generate JavaDoc
         run: |
-          mvnd compile javadoc:javadoc -pl compiler-api,compiler
+          mvn compile javadoc:javadoc -pl compiler-api,compiler
           # Or for multi-module projects:
           # mvn javadoc:aggregate
 

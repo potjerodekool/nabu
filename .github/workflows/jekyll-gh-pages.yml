@@ -51,8 +51,6 @@ jobs:
           mv jpa-plugin/target/apidocs/* docs/api/jpa-plugin
           mkdir -p docs/api/nabu-daemon
           mv nabu-daemon/target/apidocs/* docs/api/nabu-daemon
-          mkdir -p docs/api/testing
-          mv testing/target/apidocs/* docs/api/testing
 
       - name: Create index page
         run: |
@@ -91,11 +89,6 @@ jobs:
                   <h2>compiler</h2>
                   <p>Compiler implementation</p>
                   <a href="https://potjerodekool.github.io/nabu/docs/api/compiler/index.html">View Documentation →</a>
-              </div>
-              <div class="module">
-                  <h2>testing</h2>
-                  <p>Compiler testing framework</p>
-                  <a href="https://potjerodekool.github.io/nabu/docs/api/testing/index.html">View Documentation →</a>
               </div>
           </body>
           </html>

@@ -1,0 +1,22 @@
+title: Nabu Documentation
+description: Nabu documentation with JavaDoc API reference
+baseurl: "/nabu"
+url: "https://potjerodekool.github.io/nabu"
+
+theme: minima
+
+# Exclude JavaDoc from Jekyll processing
+exclude:
+  - api/
+  - Gemfile
+  - Gemfile.lock
+
+# Keep api directory in output
+keep_files:
+  - api
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+markdown: kramdown

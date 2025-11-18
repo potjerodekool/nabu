@@ -39,14 +39,20 @@ jobs:
       - name: Build project with Maven
         run: mvn clean install -DskipTests -Dgpg.skip
 
-      - name: Generate Javadoc with Maven (aggregate)
-        # A project list is specified since not all needs javadoc documentation or javadoc fails.
-        run: mvn javadoc:aggregate -pl compiler-api,compiler,jpa-support,jpa-plugin,nabu-daemon,testing
-
       - name: Prepare docs structure
         run: |
-          mkdir -p docs/api
-          mv target/site/apidocs/* docs/api/
+          mkdir -p docs/api/compiler-api
+          mv compiler-api/target/apidocs/* docs/api/compiler-api
+          mkdir -p docs/api/compiler
+          mv compiler/target/apidocs/* docs/api/compiler
+          mkdir -p docs/api/jpa-support
+          mv jpa-support/target/apidocs/* docs/api/jpa-support
+          mkdir -p docs/api/jpa-plugin
+          mv jpa-plugin/target/apidocs/* docs/api/jpa-plugin
+          mkdir -p docs/api/nabu-daemon
+          mv nabu-daemon/target/apidocs/* docs/api/nabu-daemon
+          mkdir -p docs/api/testing
+          mv testing/target/apidocs/* docs/api/testing
 
       - name: Create index page
         run: |
@@ -79,17 +85,17 @@ jobs:
               <div class="module">
                   <h2>compiler-api</h2>
                   <p>Core API interfaces and definitions</p>
-                  <a href="compiler-api/index.html">View Documentation →</a>
+                  <a href="https://potjerodekool.github.io/nabu/docs/api/compiler-api/index.html">View Documentation →</a>
               </div>
               <div class="module">
                   <h2>compiler</h2>
                   <p>Compiler implementation</p>
-                  <a href="compiler/index.html">View Documentation →</a>
+                  <a href="https://potjerodekool.github.io/nabu/docs/api/compiler/index.html">View Documentation →</a>
               </div>
               <div class="module">
                   <h2>testing</h2>
                   <p>Compiler testing framework</p>
-                  <a href="testing/index.html">View Documentation →</a>
+                  <a href="https://potjerodekool.github.io/nabu/docs/api/testing/index.html">View Documentation →</a>
               </div>
           </body>
           </html>

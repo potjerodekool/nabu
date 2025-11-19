@@ -37,19 +37,6 @@ jobs:
           bundler-cache: true
           working-directory: './docs'
 
-      - name: Generate JavaDoc
-        run: |
-          mvn compile javadoc:javadoc -pl compiler-api,compiler
-          # Or for multi-module projects:
-          # mvn javadoc:aggregate
-
-      - name: Create Jekyll docs directory structure
-        run: |
-          mkdir -p docs/api/compiler-api
-          cp -r compiler-api/target/site/apidocs/* docs/api/compiler-api/
-          mkdir -p docs/api/compiler
-          cp -r compiler/target/site/apidocs/* docs/api/compiler/
-
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
@@ -59,6 +46,19 @@ jobs:
           bundle exec jekyll build
         env:
           JEKYLL_ENV: production
+
+      - name: Generate JavaDoc
+        run: |
+          mvn compile javadoc:javadoc -pl compiler-api,compiler
+          # Or for multi-module projects:
+          # mvn javadoc:aggregate
+
+      - name: Create Jekyll docs directory structure
+        run: |
+          mkdir -p docs/_site/api/compiler-api
+          cp -r compiler-api/target/site/apidocs/* docs/_site/api/compiler-api/
+          mkdir -p docs/_site/api/compiler
+          cp -r compiler/target/site/apidocs/* docs/_site/api/compiler/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.tools;
 
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 
 /**
  * Representation of a file.
@@ -20,6 +19,10 @@ public interface FileObject {
      */
     InputStream openInputStream() throws IOException;
 
+    OutputStream openOutputStream() throws IOException;
+
+    Reader openReader(boolean ignoreEncodingErrors) throws IOException;
+
     /**
      * @return Returns the fileName.
      */
@@ -29,6 +32,12 @@ public interface FileObject {
      * @return Returns the file kind of this file.
      */
     Kind getKind();
+
+    Writer openWriter() throws IOException;
+
+    long getLastModified();
+
+    boolean delete();
 
     /**
      * FileObject kind.

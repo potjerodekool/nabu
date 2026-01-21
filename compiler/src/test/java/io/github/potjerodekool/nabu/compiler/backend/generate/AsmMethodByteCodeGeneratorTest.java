@@ -1,11 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
+import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteCodeGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteCodeGenerator;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.InvocationType;
@@ -46,18 +48,44 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
     }
 
     private MethodSymbol createMethod(final List<IStatement> statements) {
+        return createMethod(statements, List.of());
+    }
+
+    private MethodSymbol createMethod(final List<IStatement> statements,
+                                      final List<VariableElement> parameters) {
+        final var frame = new Frame();
         final var frag = new ProcFrag(
-                Seq.seq(statements)
+                Seq.seq(statements),
+                frame
         );
+
+        frame.allocateLocal(Constants.THIS, IReferenceType.createClassType(null, "SomeClass", List.of()), false);
+
+        allocateVariables(parameters, frame);
 
         final var method = new MethodSymbolBuilderImpl()
                 .simpleName("someMethod")
+                .parameters(parameters)
                 .returnType(new CVoidType())
                 .build();
 
         method.setFrag(frag);
         return method;
     }
+
+    private void allocateVariables(final List<VariableElement> variables,
+                                   final Frame frame) {
+        variables.forEach(variable -> {
+            final var type = ToIType.toIType(variable.asType());
+
+            frame.allocateLocal(
+                    variable.getSimpleName(),
+                    type,
+                    variable.getKind() == ElementKind.PARAMETER
+            );
+        });
+    }
+
 
     private AsmMethodByteCodeGenerator createMethodWriter() {
         final var classWriter = createClassWriter();
@@ -396,15 +424,15 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
         final var javaBase = getCompilerContext().getSymbolTable()
                 .getJavaBase();
 
-        final var symbol = new VariableSymbolBuilderImpl()
+        final var localVariable = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
                 .simpleName("result")
                 .type(new CPrimitiveType(TypeKind.BOOLEAN))
                 .build();
 
-        final var l = List.of(
+        final var statements = List.of(
                 new IVariableDeclaratorStatement(
-                        symbol,
+                        localVariable,
                         IPrimitiveType.BOOLEAN,
                         new Const(false),
                         new TempExpr(2, IPrimitiveType.BOOLEAN)
@@ -459,7 +487,6 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
                 )
         );
 
-        final var method = createMethod(l);
 
         final var javaLangPackage = getCompilerContext().getClassElementLoader().findOrCreatePackage(
                 javaBase,
@@ -483,7 +510,8 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
                 .type(paramType)
                 .build();
 
-        method.addParameter(parameter);
+        final var method = createMethod(statements, List.of(parameter));
+        allocateVariables(List.of(localVariable), method.getFrag().getFrame());
 
         try (final var ignored = Mockito.mockStatic(IrCleaner.class)) {
             final var frag = method.getFrag();

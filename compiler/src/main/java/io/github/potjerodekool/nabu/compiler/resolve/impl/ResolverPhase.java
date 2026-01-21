@@ -1,0 +1,340 @@
+package io.github.potjerodekool.nabu.compiler.resolve.impl;
+
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.resolve.scope.SwitchScope;
+import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
+import io.github.potjerodekool.nabu.tools.TodoException;
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.tree.ConstantCaseLabel;
+import io.github.potjerodekool.nabu.tree.PackageDeclaration;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Function;
+import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.statement.ReturnStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.type.*;
+import io.github.potjerodekool.nabu.util.Pair;
+
+import java.util.Objects;
+
+public class ResolverPhase extends AbstractResolver {
+
+    private final MethodResolver methodResolver;
+    private final PhaseUtils phaseUtils;
+
+    public ResolverPhase(final CompilerContextImpl compilerContext) {
+        super(compilerContext);
+        this.methodResolver = compilerContext.getMethodResolver();
+        this.phaseUtils = new PhaseUtils(compilerContext);
+    }
+
+    @Override
+    public Object visitPackageDeclaration(final PackageDeclaration packageDeclaration, final Scope scope) {
+        scope.setPackageElement(packageDeclaration.getPackageElement());
+        return null;
+    }
+
+    @Override
+    public Object visitClass(final ClassDeclaration classDeclaration,
+                             final Scope scope) {
+
+        classDeclaration.getModifiers().getAnnotations().forEach(annotation ->
+                acceptTree(annotation, scope));
+
+        final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
+
+        if (clazz == null) {
+            //In case of new class expression
+            return null;
+        }
+
+        clazz.complete();
+
+        ((CompilerContextImpl) getCompilerContext()).getEnumUsageMap().registerClass(classDeclaration);
+
+        final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
+
+        final var interfaces = classDeclaration.getImplementing().stream()
+                .map(it -> {
+                    acceptTree(it, classScope);
+                    return it.getType();
+                }).toList();
+
+        clazz.setInterfaces(interfaces);
+
+        final var permits = classDeclaration.getPermits().stream()
+                .map(permit -> {
+                            acceptTree(permit, classScope);
+                            return (Symbol) permit.getType()
+                                    .asTypeElement();
+                        }
+                ).toList();
+
+        clazz.setPermitted(permits);
+
+        classDeclaration.getEnclosedElements()
+                .forEach(enclosingElement ->
+                        acceptTree(enclosingElement, classScope));
+
+        final var typeParameters = classDeclaration.getTypeParameters().stream()
+                .map(typeParameter -> (Element)
+                        acceptTree(typeParameter, classScope))
+                .map(Element::asType)
+                .toList();
+
+        final var declaredType = (CClassType) clazz.asType();
+        declaredType.setTypeArguments(typeParameters);
+
+        return null;
+    }
+
+    @Override
+    public Object visitFunction(final Function function,
+                                final Scope scope) {
+        final var method = function.getMethodSymbol();
+        final var functionScope = new FunctionScope(scope, method);
+
+        if (!method.isStatic()) {
+            final var type = method.getEnclosingElement().asType();
+
+            final var thisVariable = new VariableSymbolBuilderImpl()
+                    .kind(ElementKind.LOCAL_VARIABLE)
+                    .simpleName(Constants.THIS)
+                    .type(type)
+                    .build();
+
+            functionScope.define(thisVariable);
+        }
+
+        return super.visitFunction(function, functionScope);
+    }
+
+    @Override
+    public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
+                                                   final Scope scope) {
+        super.visitVariableDeclaratorStatement(variableDeclaratorStatement, scope);
+
+        if (!(variableDeclaratorStatement.getKind() == Kind.FIELD
+                || variableDeclaratorStatement.getKind() == Kind.ENUM_CONSTANT)) {
+
+            if (variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE) {
+                final var symbol = phaseUtils.createVariable(variableDeclaratorStatement);
+                variableDeclaratorStatement.getName().setSymbol(symbol);
+                scope.define(symbol);
+            } else if (variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
+                var symbol = variableDeclaratorStatement.getName().getSymbol();
+
+                if (symbol == null) {
+                    //Should only occur with lambda parameters.
+                    symbol = phaseUtils.createVariable(variableDeclaratorStatement);
+                    variableDeclaratorStatement.getName().setSymbol(symbol);
+                    scope.define(symbol);
+                }
+            }
+        }
+
+        final var symbol = (VariableSymbol) variableDeclaratorStatement.getName().getSymbol();
+
+        if (symbol != null) {
+            //TODO remove non null check. When annotation can't be resolved, it should be an error type.
+            final var annotations = variableDeclaratorStatement.getAnnotations().stream()
+                    .map(annotation -> (CompoundAttribute)
+                            acceptTree(annotation, scope))
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            symbol.setAnnotations(annotations);
+        }
+
+        return null;
+    }
+
+    @Override
+    public Object visitReturnStatement(final ReturnStatementTree returnStatement,
+                                       final Scope scope) {
+        final var expression = returnStatement.getExpression();
+
+        if (expression instanceof LambdaExpressionTree lambdaExpression) {
+            final var method = scope.getCurrentMethod();
+            final var type = method.getReturnType();
+            lambdaExpression.setType(type);
+        }
+
+        return super.visitReturnStatement(returnStatement, scope);
+    }
+
+    @Override
+    public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
+                                        final Scope scope) {
+        final var methodSelector = methodInvocation.getMethodSelector();
+        acceptTree(methodSelector, scope);
+
+        methodInvocation.getArguments().forEach(arg ->
+                acceptTree(arg, scope));
+        methodInvocation.getTypeArguments().forEach(typeArgument ->
+                acceptTree(typeArgument, scope));
+
+        final var resolvedMetho0dTypeOptional = methodResolver.resolveMethod(methodInvocation, scope.getCurrentElement(), scope);
+
+        if (resolvedMetho0dTypeOptional.isEmpty()) {
+            methodResolver.resolveMethod(methodInvocation, scope.getCurrentElement(), scope);
+        }
+
+        resolvedMetho0dTypeOptional.ifPresent(resolvedMethodType -> {
+            methodSelector.setType(resolvedMethodType.getOwner().asType());
+            methodInvocation.setMethodType(resolvedMethodType);
+            final var boxer = getCompilerContext().getArgumentBoxer();
+            boxer.boxArguments(methodInvocation);
+        });
+
+        return null;
+    }
+
+    @Override
+    public Object visitLiteralExpression(final LiteralExpressionTree literalExpression,
+                                         final Scope scope) {
+        final var loader = getCompilerContext().getClassElementLoader();
+        final var types =  getCompilerContext().getTypes();
+
+        final TypeMirror type = switch (literalExpression.getLiteralKind()) {
+            case INTEGER -> types.getPrimitiveType(TypeKind.INT);
+            case LONG -> types.getPrimitiveType(TypeKind.LONG);
+            case BOOLEAN -> types.getPrimitiveType(TypeKind.BOOLEAN);
+            case STRING -> loader.loadClass(scope.findModuleElement(), Constants.STRING).asType();
+            case NULL -> types.getNullType();
+            case CLASS -> loader.loadClass(scope.findModuleElement(), Constants.CLAZZ).asType();
+            case BYTE -> types.getPrimitiveType(TypeKind.BYTE);
+            case SHORT -> types.getPrimitiveType(TypeKind.SHORT);
+            case FLOAT -> types.getPrimitiveType(TypeKind.FLOAT);
+            case DOUBLE -> types.getPrimitiveType(TypeKind.DOUBLE);
+            case CHAR -> types.getPrimitiveType(TypeKind.CHAR);
+        };
+
+        literalExpression.setType(type);
+
+        return null;
+    }
+
+    @Override
+    public Object visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final Scope scope) {
+        acceptTree(instanceOfExpression.getExpression(), scope);
+        acceptTree(instanceOfExpression.getTypeExpression(), scope);
+        return null;
+    }
+
+    @Override
+    public Object visitArrayType(final ArrayTypeTree arrayTypeTree, final Scope scope) {
+        acceptTree(arrayTypeTree.getComponentType(), scope);
+        final var componentType = arrayTypeTree.getComponentType().getType();
+        final var types = getCompilerContext().getTypes();
+        final var arrayType = types.getArrayType(componentType);
+        arrayTypeTree.setType(arrayType);
+        return null;
+    }
+
+    @Override
+    public Object visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final Scope scope) {
+        final var switchScope = (SwitchScope) scope;
+        final var selectorElement = switchScope.getSelectorElement();
+
+        if (selectorElement instanceof VariableElement variableElement
+                && variableElement.asType().asElement() instanceof TypeElement typeElement
+                && typeElement.getKind() == ElementKind.ENUM
+                && constantCaseLabel.getExpression() instanceof IdentifierTree identifierTree) {
+
+            final var name = identifierTree.getName();
+
+            ElementFilter.enumConstantByName(typeElement, name)
+                    .ifPresent(enumConstant -> {
+                        identifierTree.setSymbol(enumConstant);
+
+                        final var currentClass = scope.getCurrentClass();
+                        ((CompilerContextImpl) getCompilerContext()).getEnumUsageMap().registerEnumUsage(currentClass, enumConstant);
+                    });
+
+            return defaultAnswer(constantCaseLabel, scope);
+        }
+
+        return super.visitConstantCaseLabel(constantCaseLabel, scope);
+    }
+
+    @Override
+    public Object visitAssignment(final AssignmentExpressionTree assignmentExpressionTree, final Scope scope) {
+        final var left = (IdentifierTree) assignmentExpressionTree.getLeft();
+        final var methodName = left.getName();
+
+        final var currentClass = scope.getCurrentClass();
+
+        final var resolvedMethod = ElementFilter.methodsIn(currentClass.getEnclosedElements()).stream()
+                .filter(method -> method.getSimpleName().equals(methodName))
+                .filter(method -> method.getParameters().isEmpty())
+                .findFirst()
+                .orElse(null);
+
+        acceptTree(assignmentExpressionTree.getRight(), scope);
+
+        final var right = assignmentExpressionTree.getRight();
+        final Attribute attributeValue;
+
+        if (right instanceof LiteralExpressionTree literalExpressionTree) {
+            attributeValue = AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
+        } else if (right instanceof NewArrayExpression newArrayExpression) {
+            var type = (ArrayType) newArrayExpression.getType();
+            final TypeMirror componentType;
+
+            if (type != null) {
+                componentType = type.getComponentType();
+            } else if (!newArrayExpression.getElements().isEmpty()) {
+                componentType = newArrayExpression.getElements().getFirst().getType();
+            } else {
+                componentType = null;
+            }
+
+            final var values = newArrayExpression.getElements().stream()
+                    .map(this::createAnnotationValue)
+                    .toList();
+            attributeValue = AnnotationBuilder.createArrayValue(
+                    componentType,
+                    values
+            );
+        } else {
+            acceptTree(right, scope);
+            attributeValue = createAttribute(right.getType());
+        }
+
+        left.setSymbol(resolvedMethod);
+
+        return new Pair<>(
+                resolvedMethod,
+                attributeValue
+        );
+    }
+
+    private Attribute createAttribute(final TypeMirror type) {
+        if (type instanceof DeclaredType declaredType) {
+            if (Constants.CLAZZ.equals(declaredType.asTypeElement().getQualifiedName())) {
+                return new CClassAttribute(type);
+            }
+        }
+
+        throw new TodoException();
+    }
+
+    private AnnotationValue createAnnotationValue(final ExpressionTree expressionTree) {
+        if (expressionTree instanceof LiteralExpressionTree literalExpressionTree) {
+            return AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
+        }
+        throw new TodoException();
+    }
+}

@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
@@ -17,7 +17,7 @@ import java.util.List;
 class CasterTest extends AbstractCompilerTest {
 
     private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = loader.getTypes();
+    private final Types types = getCompilerContext().getTypes();
     private final Caster caster = new Caster();
 
     @Test
@@ -31,7 +31,7 @@ class CasterTest extends AbstractCompilerTest {
                 -1
         );
 
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
 
         final var objectType = loader.loadClass(module, Constants.OBJECT).asType();
 
@@ -53,7 +53,7 @@ class CasterTest extends AbstractCompilerTest {
 
         final var result = intType.accept(caster, methodInvocationTree);
         final var printer = new TreePrinter();
-        result.accept(printer, null);
+        printer.acceptTree(result, null);
         final var actual = printer.getText();
 
         Assertions.assertEquals(

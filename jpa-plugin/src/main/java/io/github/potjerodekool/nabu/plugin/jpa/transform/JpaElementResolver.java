@@ -68,7 +68,7 @@ public class JpaElementResolver implements ElementResolver {
         }
 
         final var pathType = getPathType(compilerContext, scope);
-        final var types = compilerContext.getClassElementLoader().getTypes();
+        final var types = compilerContext.getTypes();
         return types.isSubType(searchType, pathType);
     }
 }

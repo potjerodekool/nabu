@@ -1,0 +1,29 @@
+class Person {
+    id : java.lang.String;
+    firstName : java.lang.String;
+    lastName : java.lang.String;
+    public fun getId(): java.lang.String {
+
+    }
+
+    public fun getFirstName(): java.lang.String {
+
+    }
+
+    public fun getLastName(): java.lang.String {
+
+    }
+
+    fun setId(id : java.lang.String): void {
+
+    }
+
+    fun setFirstName(firstName : java.lang.String): void {
+
+    }
+
+    fun setLastName(lastName : java.lang.String): void {
+
+    }
+
+}

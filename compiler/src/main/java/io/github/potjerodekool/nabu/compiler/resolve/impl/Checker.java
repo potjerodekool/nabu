@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
@@ -15,7 +14,6 @@ import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CVariableTypeTree;
-import io.github.potjerodekool.nabu.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.tree.statement.ThrowStatement;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
@@ -44,12 +42,6 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitUnknown(final Tree tree, final Scope scope) {
         return null;
-    }
-
-    @Override
-    public Object visitCompilationUnit(final CompilationUnit compilationUnit,
-                                       final Scope scope) {
-        return super.visitCompilationUnit(compilationUnit, new GlobalScope(compilationUnit, null));
     }
 
     @Override
@@ -113,20 +105,40 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         if (methodInvocation.getMethodType() == null) {
             final var methodSelector = methodInvocation.getMethodSelector();
 
-            final var methodName = methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree
-                    ? fieldAccessExpressionTree.getField().getName()
-                    : ((IdentifierTree) methodSelector).getName();
+            final String methodName;
+            final String targetType;
+
+            if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+                methodName = fieldAccessExpressionTree.getField().getName();
+                final var selectedType = fieldAccessExpressionTree.getSelected().getType();
+
+                if (selectedType != null) {
+                    targetType = selectedType.asTypeElement()
+                            .getQualifiedName();
+                } else {
+                    targetType = "??UNKNOWN??";
+                }
+            } else {
+                methodName = ((IdentifierTree) methodSelector).getName();
+                targetType = scope.getCurrentClass().getQualifiedName();
+            }
+
 
             final var compilationUnit = getCompilationUnit(scope);
             final var lineInfo = formatLineInfo(methodInvocation);
 
             reportError(
-                    "Failed to resolve method " + methodName + createMethodSignature(methodInvocation) +  " " + lineInfo,
+                    "Failed to resolve method "
+                            + methodName + createMethodSignature(methodInvocation)
+                            + " on " + targetType
+                            +  " "
+                            + lineInfo,
                     compilationUnit
             );
         }
 
-        methodInvocation.getArguments().forEach(arg -> arg.accept(this, scope));
+        methodInvocation.getArguments().forEach(arg ->
+                acceptTree(arg, scope));
 
         return null;
     }
@@ -255,7 +267,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         }
 
         if (variableDeclaratorStatement.getValue() != null) {
-            variableDeclaratorStatement.getValue().accept(this, scope);
+            acceptTree(variableDeclaratorStatement.getValue(), scope);
         }
 
         return null;
@@ -278,19 +290,14 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     }
 
     @Override
-    public Object visitSwitchStatement(final SwitchStatement switchStatement, final Scope scope) {
-        return super.visitSwitchStatement(switchStatement, scope);
-    }
-
-    @Override
     public Object visitThrowStatement(final ThrowStatement throwStatement, final Scope scope) {
-        throwStatement.getExpression().accept(this, scope);
+        acceptTree(throwStatement.getExpression(), scope);
         return null;
     }
 
     @Override
     public Object visitNewClass(final NewClassExpression newClassExpression, final Scope scope) {
-        newClassExpression.getName().accept(this, scope);
+        acceptTree(newClassExpression.getName(), scope);
         return null;
     }
 
@@ -307,8 +314,16 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                     ), scope);
         }
 
-        annotationTree.getArguments().forEach(argument -> argument.accept(this, scope));
+        annotationTree.getArguments().forEach(argument ->
+                acceptTree(argument, scope));
 
+        return null;
+    }
+
+    @Override
+    public Object visitArrayType(final ArrayTypeTree arrayTypeTree,
+                                 final Scope scope) {
+        acceptTree(arrayTypeTree.getComponentType(), scope);
         return null;
     }
 }

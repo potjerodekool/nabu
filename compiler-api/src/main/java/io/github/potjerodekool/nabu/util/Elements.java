@@ -15,7 +15,7 @@ public interface Elements {
      * @param name A package name.
      * @return Return the package with the given name if it exists or else null.
      */
-    PackageElement getPackageElement(String name);
+    PackageElement getPackageElement(CharSequence name);
 
     /**
      * @param module A module
@@ -23,7 +23,7 @@ public interface Elements {
      * @return Return the package with the given name if it exists in the module or else null.
      */
     PackageElement getPackageElement(ModuleElement module,
-                                     String name);
+                                     CharSequence name);
 
     /**
      * @param name A package name.
@@ -35,13 +35,13 @@ public interface Elements {
      * @param name A type name.
      * @return Returns the class with the given name if it exists or else null.
      */
-    TypeElement getTypeElement(String name);
+    TypeElement getTypeElement(CharSequence name);
 
     /**
      * @param name A type name.
      * @return Returns the class with the given name if it exists in the module or else null.
      */
-    TypeElement getTypeElement(ModuleElement module, String name);
+    TypeElement getTypeElement(ModuleElement module, CharSequence name);
 
     /**
      * @param name A type name.

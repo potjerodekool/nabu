@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Completer;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tools.FileManager;
 
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
@@ -19,6 +19,8 @@ public class Modules {
     private final Set<ModuleSymbol> allModules = new HashSet<>();
 
     public Modules(final CompilerContextImpl compilerContext) {
+        compilerContext.put(KEY, this);
+
         this.symbolTable = SymbolTable.getInstance(compilerContext);
         final var fileManager = compilerContext.get(FileManager.class);
         final var classElementLoader = compilerContext.getClassElementLoader();
@@ -29,7 +31,8 @@ public class Modules {
                         fileManager
                 ),
                 symbolTable,
-                classElementLoader
+                classElementLoader,
+                compilerContext
         );
         this.unnamedModuleCompleter = new UnnamedModuleCompleter(
                 this,

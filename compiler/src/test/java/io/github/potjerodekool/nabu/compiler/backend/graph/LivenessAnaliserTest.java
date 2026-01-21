@@ -44,7 +44,7 @@ class LivenessAnaliserTest {
                 )
         ));
 
-        final var body = IrCleaner.cleanUp(new ProcFrag(statements))
+        final var body = IrCleaner.cleanUp(new ProcFrag(statements, frame))
                 .getBody();
 
         final var flowGraph = IRFlowGraphBuilder.build(

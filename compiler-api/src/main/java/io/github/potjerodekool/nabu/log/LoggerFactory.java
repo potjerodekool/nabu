@@ -10,7 +10,7 @@ public class LoggerFactory {
         LoggerFactory.provider = provider;
     }
 
-    public static Logger getLogger(final String name) {
+    static Logger getLogger(final String name) {
         return provider.apply(name);
     }
 }

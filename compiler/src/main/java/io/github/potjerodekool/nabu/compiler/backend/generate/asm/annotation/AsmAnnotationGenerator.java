@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation;
 
 import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;

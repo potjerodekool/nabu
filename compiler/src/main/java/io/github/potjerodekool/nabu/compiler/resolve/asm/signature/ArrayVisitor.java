@@ -3,9 +3,11 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.*;
+import io.github.potjerodekool.nabu.type.DeclaredType;
 import org.objectweb.asm.signature.SignatureVisitor;
 
 public class ArrayVisitor extends AbstractVisitor {
@@ -14,10 +16,10 @@ public class ArrayVisitor extends AbstractVisitor {
     private MutableType type;
 
     protected ArrayVisitor(final int api,
-                           final ClassElementLoader loader,
+                           final CompilerContext compilerContext,
                            final AbstractVisitor parent,
                            final ModuleSymbol moduleSymbol) {
-        super(api, loader, parent, moduleSymbol);
+        super(api, compilerContext, parent, moduleSymbol);
         arrayType = new MutableArrayType(null);
         parent.setType(arrayType);
     }
@@ -70,5 +72,13 @@ public class ArrayVisitor extends AbstractVisitor {
         final var objectType = new MutableClassType(loadClass(Constants.OBJECT));
         type = new MutableTypeVariable(name, objectType, null);
         arrayType.setComponentType(type);
+    }
+
+    @Override
+    public void visitInnerClassType(final String name) {
+        final var declaredType = (MutableClassType) type;
+        final var flatName = declaredType.getElement().getFlatName();
+        final var fullName = flatName + "$" + name;
+        this.type = new MutableClassType(loadClass(fullName));
     }
 }

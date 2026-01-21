@@ -1,13 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassFinder;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CNoType;
 import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
@@ -74,6 +73,8 @@ public class SymbolTable {
         this.unnamedModule = createUnnamedModule();
         unnamedModule.setCompleter(modules.getUnnamedModuleCompleter());
 
+        addRootPackageFor(NO_MODULE);
+
         this.noSymbol = createNoSymbol();
         this.boundClass = new ClassSymbol(Flags.PUBLIC, "Bound", noSymbol);
         this.boundClass.setMembers(new WritableScope());
@@ -81,13 +82,13 @@ public class SymbolTable {
         getUnnamedModule().setSourceLocation(StandardLocation.SOURCE_PATH);
         getUnnamedModule().setClassLocation(StandardLocation.CLASS_PATH);
         this.javaBase = enterModule(JAVA_BASE_NAME);
-        modules.initAllModules();
+        //modules.initAllModules();
         loadPredefinedClasses();
         loadBoxes();
     }
 
     private ModuleSymbol createUnnamedModule() {
-        return new ModuleSymbol(0, "<unnamed>") {
+        final var module = new ModuleSymbol(0, "<unnamed>") {
             {
                 final var baseModule = enterModule(JAVA_BASE_NAME);
                 final var required = new io.github.potjerodekool.nabu.lang.model.element.Directive.RequiresDirective(
@@ -102,6 +103,9 @@ public class SymbolTable {
                 return true;
             }
         };
+
+        addRootPackageFor(module);
+        return module;
     }
 
     public static SymbolTable getInstance(final CompilerContextImpl compilerContext) {

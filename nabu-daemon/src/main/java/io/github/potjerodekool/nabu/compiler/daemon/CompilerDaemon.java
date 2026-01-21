@@ -62,7 +62,7 @@ public class CompilerDaemon {
         configureSourceRoots(compilerOptionsBuilder, request);
 
         compilerOptionsBuilder.option(
-                CompilerOption.TARGET_DIRECTORY,
+                CompilerOption.CLASS_OUTPUT,
                 request.outputDirectory()
         );
 

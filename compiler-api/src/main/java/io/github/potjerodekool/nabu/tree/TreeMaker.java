@@ -282,6 +282,39 @@ public final class TreeMaker {
         );
     }
 
+    /**
+     * @MyAnnotation
+     *
+     * TreeMaker.annotationTree(
+     *  IdentifierTree.create("MyAnnotation"),
+     *  Collections.emptyList(),
+     *  5,
+     *  0);
+     *
+     * @Deprecated(since = "4.8")
+     *
+     * TreeMaker.annotationTree(
+     *  IdentifierTree.create("Deprecated"),
+     *  List.of(
+     *      TreeMaker.assignmentExpression(
+     *          IdentifierTree.create("since"),
+     *          TreeMaker.literalExpressionTree("4.0", 5, 0),
+     *          5,
+     *          0
+     *      )
+     *  ),
+     *  5,
+     *  0);
+
+     *
+     *
+     * @param name annotation name
+     * @param arguments annotation arguments.
+     * @param lineNumber lineNumber
+     * @param columnNumber columnNumber
+     * @return Returns an annotation tree.
+     */
+
     public static AnnotationTree annotationTree(final IdentifierTree name,
                                                 final List<ExpressionTree> arguments,
                                                 final int lineNumber,

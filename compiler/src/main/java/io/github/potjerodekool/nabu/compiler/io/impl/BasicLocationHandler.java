@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.tools.FileManager;
 import io.github.potjerodekool.nabu.tools.FileManager.Location;
 
 import java.util.Arrays;
-import java.util.EnumSet;
+import java.util.Collections;
 import java.util.Set;
 
 public abstract class BasicLocationHandler extends LocationHandler {
@@ -17,8 +17,8 @@ public abstract class BasicLocationHandler extends LocationHandler {
                                 final CompilerOption... supportedCompilerOptions) {
         this.location = location;
         this.supportedCompilerOptions = supportedCompilerOptions.length == 0
-                ? EnumSet.noneOf(CompilerOption.class)
-                : EnumSet.copyOf(Arrays.asList(supportedCompilerOptions));
+                ? Collections.emptySet()
+                : Set.copyOf(Arrays.asList(supportedCompilerOptions));
     }
 
     public Location getLocation() {

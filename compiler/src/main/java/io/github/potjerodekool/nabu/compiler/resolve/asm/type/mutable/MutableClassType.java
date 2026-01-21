@@ -5,9 +5,9 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
-import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,13 +39,14 @@ public class MutableClassType extends MutableType {
     }
 
     @Override
-    public TypeMirror toType(final ClassElementLoader loader, final Map<String, TypeVariable> typeVariablesMap) {
+    public TypeMirror toType(final Types types,
+                             final Map<String, TypeVariable> typeVariablesMap) {
         final var typeArgs = typeArguments.stream()
-                .map(it -> (AbstractType) it.toType(loader, typeVariablesMap))
+                .map(it -> (AbstractType) it.toType(types, typeVariablesMap))
                 .toList();
 
         final var outerType = this.outerType != null
-                ? this.outerType.toType(loader, typeVariablesMap)
+                ? this.outerType.toType(types, typeVariablesMap)
                 : null;
 
         return new CClassType(

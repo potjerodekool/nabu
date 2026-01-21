@@ -50,10 +50,12 @@ public class CArrayType extends AbstractType implements ArrayType {
         return "[" + componentType.getClassName();
     }
 
+    @Override
     public boolean isVarArgs() {
         return false;
     }
 
+    @Override
     public CArrayType makeVarArg() {
         return new CArrayType(
                 componentType

@@ -1,24 +1,20 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
+import io.github.potjerodekool.nabu.tools.CompilerConfigurationException;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class ExtensionManager {
 
     private final PluginRegistry pluginRegistry;
     private final Map<String, List<PluginExtension>> extensions = new HashMap<>();
-
-    private final Map<FileObject.Kind, LanguageParser> languageParsers = new HashMap<>();
     private final List<ElementResolver> symbolResolvers = new ArrayList<>();
-    //private final ElementResolver standardResolver = new StandardElementResolver();
 
     private CompilerContext compilerContext;
 
@@ -38,32 +34,18 @@ public class ExtensionManager {
         return this.extensions.getOrDefault(name, List.of());
     }
 
-    private void initLanguageParsers() {
-        if (this.languageParsers.isEmpty()) {
-            final List<LanguageParser> languageParsers = this.pluginRegistry.createExtensions(
-                    true,
-                    "language-parser",
-                    LanguageParser.class,
-                    compilerContext
-            );
-
-            this.languageParsers.putAll(
-                    languageParsers.stream()
-                            .collect(Collectors.toMap(
-                                    LanguageParser::getSourceKind,
-                                    it -> it
-                            )));
-        }
+    private int getRuntimeFeatureVersion() {
+        return Runtime.version().feature();
     }
 
-    public Collection<LanguageParser> getLanguageParsers() {
-        this.initLanguageParsers();
-        return this.languageParsers.values();
-    }
-
-    public Optional<LanguageParser> getLanguageParser(final FileObject.Kind kind) {
-        this.initLanguageParsers();
-        return Optional.ofNullable(this.languageParsers.get(kind));
+    public ByteCodeGenerator createByteCodeGenerator() {
+        final var runtimeFeatureVersion = getRuntimeFeatureVersion();
+        final var extensionOptional = getExtensions("bytecode-generator").stream()
+                .filter(extension -> extension.supportsJdkFeatureVersion(runtimeFeatureVersion))
+                .findFirst();
+        return extensionOptional
+                .map(extension -> extension.createExtension(ByteCodeGenerator.class, false, compilerContext))
+                .orElseThrow(() -> new CompilerConfigurationException("No bytecode generator available"));
     }
 
     private void initSymbolResolvers() {

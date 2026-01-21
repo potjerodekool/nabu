@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl;
 
-import io.github.potjerodekool.nabu.compiler.resolve.internal.java.JavaModuleParser;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaModuleParser;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -18,13 +19,16 @@ class ModuleCompleter implements Completer {
     private final ModuleFinder moduleFinder;
     private final SymbolTable symbolTable;
     private final ClassElementLoader loader;
+    private final CompilerContextImpl compilerContext;
 
     public ModuleCompleter(final ModuleFinder moduleFinder,
                            final SymbolTable symbolTable,
-                           final ClassElementLoader loader) {
+                           final ClassElementLoader loader,
+                           final CompilerContextImpl compilerContext) {
         this.moduleFinder = moduleFinder;
         this.symbolTable = symbolTable;
         this.loader = loader;
+        this.compilerContext = compilerContext;
     }
 
     public ModuleFinder getModuleFinder() {
@@ -76,7 +80,7 @@ class ModuleCompleter implements Completer {
                     ClazzReader.read(
                             bytecode,
                             symbolTable,
-                            loader,
+                            compilerContext,
                             module.moduleInfo,
                             module
                     );

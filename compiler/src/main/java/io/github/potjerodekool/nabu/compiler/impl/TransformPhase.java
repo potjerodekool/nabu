@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-
 public final class TransformPhase {
 
     private TransformPhase() {

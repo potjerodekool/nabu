@@ -48,7 +48,7 @@ public interface Element extends AnnotatedConstruct {
     default TypeElement getClosestEnclosingClass() {
         Element element = this;
 
-        while (element != null && element.getKind() != ElementKind.CLASS) {
+        while (!(element instanceof TypeElement)) {
             element = element.getEnclosingElement();
         }
 

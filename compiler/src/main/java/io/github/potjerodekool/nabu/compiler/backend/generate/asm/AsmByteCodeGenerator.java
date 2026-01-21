@@ -1,12 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
@@ -21,10 +22,10 @@ import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmI
 
 import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmUtils.isVisible;
 import static io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator.toAsmType;
-import static io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils.getInternalName;
+import static io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils.getInternalName;
 
 public class AsmByteCodeGenerator implements ByteCodeGenerator,
-        SymbolVisitor<Void, Object> {
+        SymbolVisitor<Void, CompilerOptions> {
 
     protected final ClassWriter classWriter = new ClassWriter(
             ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
@@ -32,22 +33,22 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator,
 
     private String internalName;
 
-    private final CompilerOptions options;
+    private final CompilerOptions compilerOptions;
 
-    public AsmByteCodeGenerator(final CompilerOptions options) {
-        this.options = options;
+    public AsmByteCodeGenerator(final CompilerContext compilerContext) {
+        this.compilerOptions = compilerContext.getCompilerOptions();
     }
 
     @Override
     public void generate(final ClassDeclaration clazz,
-                         final Object options) {
+                         final CompilerOptions options) {
         final var symbol = (ClassSymbol) clazz.getClassSymbol();
         visitClass(symbol);
     }
 
     @Override
     public void generate(final ModuleDeclaration moduleDeclaration,
-                         final Object options) {
+                         final CompilerOptions options) {
         final var symbol = (Symbol) moduleDeclaration.getModuleSymbol();
         symbol.accept(this, options);
     }
@@ -99,7 +100,7 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator,
     }
 
     @Override
-    public Void visitModule(final ModuleSymbol moduleSymbol, final Object param) {
+    public Void visitModule(final ModuleSymbol moduleSymbol, final CompilerOptions param) {
         var access = moduleSymbol.isSynthetic()
                 ? Opcodes.ACC_SYNTHETIC
                 : Opcodes.ACC_MANDATED;
@@ -126,7 +127,7 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator,
     }
 
     @Override
-    public Void visitClass(final ClassSymbol classSymbol, final Object param) {
+    public Void visitClass(final ClassSymbol classSymbol, final CompilerOptions param) {
         if (classSymbol.getNestingKind() == NestingKind.MEMBER) {
             visitMemberClass(classSymbol);
         }
@@ -151,7 +152,7 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator,
                 .map(Type::getInternalName)
                 .toArray(String[]::new);
 
-        final var javaVersion = options.getTargetVersion();
+        final var javaVersion = compilerOptions.getTargetVersion();
         final var classVersion = javaVersion.getValue();
 
         classWriter.visit(classVersion, access, internalName, signature, superName, interfaces);
@@ -185,19 +186,19 @@ public class AsmByteCodeGenerator implements ByteCodeGenerator,
     }
 
     @Override
-    public Void visitUnknown(final Symbol symbol, final Object param) {
+    public Void visitUnknown(final Symbol symbol, final CompilerOptions param) {
         return null;
     }
 
     @Override
-    public Void visitMethod(final MethodSymbol methodSymbol, final Object param) {
+    public Void visitMethod(final MethodSymbol methodSymbol, final CompilerOptions param) {
         final var generator = new AsmMethodByteCodeGenerator(classWriter, internalName);
         generator.generate(methodSymbol);
         return null;
     }
 
     @Override
-    public Void visitVariable(final VariableSymbol variableSymbol, final Object param) {
+    public Void visitVariable(final VariableSymbol variableSymbol, final CompilerOptions param) {
         new AsmFieldByteCodeGenerator(classWriter).generate(variableSymbol);
         return null;
     }

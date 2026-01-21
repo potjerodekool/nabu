@@ -104,6 +104,8 @@ abstract class AbstractAsmAnnotationBuilder extends AnnotationVisitor {
             clazz = loader.loadClass(moduleSymbol, asmType.getClassName());
         }
 
+        clazz = AsmErrorUtils.typeOrError(clazz);
+
         return (DeclaredType) clazz.asType();
     }
 

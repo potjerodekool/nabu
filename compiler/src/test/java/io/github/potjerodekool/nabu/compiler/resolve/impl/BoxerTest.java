@@ -1,11 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
-import io.github.potjerodekool.nabu.compiler.resolve.method.impl.MethodResolverImpl;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.util.Types;
@@ -16,9 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class BoxerTest extends AbstractCompilerTest {
 
     private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = loader.getTypes();
-    private final MethodResolver methodResolver = new MethodResolverImpl(types);
-    private final Boxer boxer = new Boxer(loader, methodResolver);
+    private final Types types = getCompilerContext().getTypes();
+        private final Boxer boxer = new Boxer(getCompilerContext());
 
     @Test
     void visitDeclaredType() {

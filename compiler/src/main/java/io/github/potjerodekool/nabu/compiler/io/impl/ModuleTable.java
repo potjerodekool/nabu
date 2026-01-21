@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.io.impl;
 
 import io.github.potjerodekool.nabu.tools.FileManager;
 
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;

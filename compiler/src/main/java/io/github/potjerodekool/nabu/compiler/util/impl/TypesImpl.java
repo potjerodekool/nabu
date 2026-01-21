@@ -7,7 +7,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.MemberOfVisitor;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.MemberOfVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.types.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.*;
 import io.github.potjerodekool.nabu.lang.model.element.*;
@@ -65,6 +65,10 @@ public class TypesImpl implements Types {
     private final MemberType memberType = new MemberType();
 
     private final Substitute substitute = new Substitute();
+
+    private final SuperTypeVisitor superTypeVisitor = new SuperTypeVisitor();
+
+    private final InterfaceTypeVisitor interfaceTypeVisitor = new InterfaceTypeVisitor(this);
 
     public TypesImpl(final SymbolTable symbolTable) {
         this.symbolTable = symbolTable;
@@ -310,7 +314,7 @@ public class TypesImpl implements Types {
         }
 
         switch (bound.getKind()) {
-            case DECLARED, ARRAY, ERROR, TYPE_VAR -> {
+            case DECLARED, ARRAY, ERROR, TYPEVAR -> {
                 return new CWildcardType(bound, kind, symbolTable.getBoundClass());
             }
             default -> throw new IllegalArgumentException(bound.toString());
@@ -350,7 +354,7 @@ public class TypesImpl implements Types {
                  PACKAGE,
                  DECLARED,
                  INTERSECTION,
-                 TYPE_VAR,
+                 TYPEVAR,
                  ERROR -> {
                 final var type = (AbstractType) t;
                 yield type.asElement();
@@ -399,8 +403,10 @@ public class TypesImpl implements Types {
             final var element = (TypeElement) declaredType.asElement();
 
             if (!Constants.OBJECT.equals(element.getQualifiedName())) {
-                final var interfaces = element.getInterfaces();
-                final var superclass = element.getSuperclass();
+                final var interfaces = element.getInterfaces().stream()
+                        .map(interfaceType -> interfaceType.accept(interfaceTypeVisitor, t))
+                        .toList();
+                final var superclass = element.getSuperclass().accept(superTypeVisitor, t);
                 final var superTypes = new ArrayList<TypeMirror>(1 + interfaces.size());
                 superTypes.add(superclass);
                 superTypes.addAll(interfaces);

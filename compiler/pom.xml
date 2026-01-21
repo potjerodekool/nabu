@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.potjerodekool</groupId>
         <artifactId>nabu-parent</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>0.1.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>nabu-compiler</artifactId>
@@ -15,32 +15,22 @@
     <description>Nabu compiler</description>
     <url>https://github.com/potjerodekool/nabu</url>
 
-    <licenses>
-        <license>
-            <name>The Apache License, Version 2.0</name>
-            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
-        </license>
-    </licenses>
-
-    <developers>
-        <developer>
-            <name>Evert Tigchelaar</name>
-            <email>everttigchelaar@gmail.com</email>
-            <organizationUrl>https://github.com/potjerodekool</organizationUrl>
-        </developer>
-    </developers>
-
-    <scm>
-        <connection>https://github.com/potjerodekool/nabu.git</connection>
-        <developerConnection>https://github.com/potjerodekool/nabu.git</developerConnection>
-        <url>http://github.com/potjerodekool/nabu/tree/main</url>
-    </scm>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <org.mapstruct.version>1.6.3</org.mapstruct.version>
+    </properties>
 
     <dependencies>
         <dependency>
             <groupId>io.github.potjerodekool</groupId>
             <artifactId>compiler-api</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>testing</artifactId>
+            <version>0.1.0-SNAPSHOT</version>
         </dependency>
 
         <dependency>
@@ -80,6 +70,36 @@
             <version>6.1.11</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Annotation processors for testing -->
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-processor</artifactId>
+            <version>7.2.0.Final</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>${org.mapstruct.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct-processor</artifactId>
+            <version>${org.mapstruct.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.42</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -91,19 +111,42 @@
                 <version>4.13.2</version>
                 <executions>
                     <execution>
-                        <id>antlr</id>
+                        <id>java-parser</id>
+                        <phase>generate-sources</phase>
                         <goals>
                             <goal>antlr4</goal>
                         </goals>
+                        <configuration>
+                            <sourceDirectory>${basedir}/src/main/antlr4/java</sourceDirectory>
+                            <outputDirectory>${basedir}/target/generated-sources/antlr4/io/github/potjerodekool/nabu/compiler/lang/support/java</outputDirectory>
+                            <visitor>true</visitor>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>kotlin-parser</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                        <configuration>
+                            <sourceDirectory>${basedir}/src/main/antlr4/kotlin</sourceDirectory>
+                            <outputDirectory>${basedir}/target/generated-sources/antlr4/io/github/potjerodekool/nabu/compiler/lang/support/kotlin</outputDirectory>
+                            <visitor>true</visitor>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>nabu-parser</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                        <configuration>
+                            <sourceDirectory>${basedir}/src/main/antlr4/nabu</sourceDirectory>
+                            <outputDirectory>${basedir}/target/generated-sources/antlr4/io/github/potjerodekool/nabu/compiler/lang/support/nabu</outputDirectory>
+                            <visitor>true</visitor>
+                        </configuration>
                     </execution>
                 </executions>
-                <configuration>
-                    <arguments>
-                        <argument>-o</argument>
-                        <argument>${project.build.directory}/generated-sources/antlr4/io/github/potjerodekool/nabu</argument>
-                        <argument>-visitor</argument>
-                    </arguments>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
@@ -143,54 +186,6 @@
                 <version>3.2.5</version>
                 <configuration>
                     <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>attach-sources</id>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>${maven.gpg.plugin.version}</version>
-                <configuration>
-                    <useAgent>true</useAgent>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.sonatype.central</groupId>
-                <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.9.0</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <publishingServerId>ossrh</publishingServerId>
-                    <autoPublish>true</autoPublish>
-                    <waitUntil>published</waitUntil>
                 </configuration>
             </plugin>
         </plugins>

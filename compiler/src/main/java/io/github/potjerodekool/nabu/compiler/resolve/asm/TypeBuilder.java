@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignatu
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.signature.SignatureReader;
@@ -13,33 +14,30 @@ import org.objectweb.asm.signature.SignatureReader;
 public class TypeBuilder {
 
     public TypeMirror parseFieldSignature(final String signature,
-                                          final AsmTypeResolver asmTypeResolver,
+                                          final CompilerContext compilerContext,
                                           final ModuleSymbol moduleSymbol) {
         final var reader = new SignatureReader(signature);
 
         final var signatureBuilder =
-                new SignatureParser(Opcodes.ASM9, asmTypeResolver.getClassElementLoader(), moduleSymbol);
+                new SignatureParser(Opcodes.ASM9, compilerContext, moduleSymbol);
 
         reader.accept(signatureBuilder);
         return signatureBuilder.createFieldType();
     }
 
     public MethodSignature parseMethodSignature(final String signature,
-                                                final AsmTypeResolver asmTypeResolver,
+                                                final CompilerContext compilerContext,
                                                 final ModuleSymbol moduleSymbol) {
         final var reader = new SignatureReader(signature);
-
         final var signatureBuilder =
-                new SignatureParser(Opcodes.ASM9, asmTypeResolver.getClassElementLoader(), moduleSymbol);
-
+                new SignatureParser(Opcodes.ASM9, compilerContext, moduleSymbol);
         reader.accept(signatureBuilder);
-
         return signatureBuilder.createMethodSignature();
     }
 
     public void parseClassSignature(final String signature,
                                     final ClassSymbol classSymbol,
-                                    final AsmTypeResolver asmTypeResolver,
+                                    final CompilerContext compilerContext,
                                     final ModuleSymbol moduleSymbol) {
         final var enclosingElement = classSymbol.getEnclosingElement();
         final var outerType = enclosingElement instanceof TypeElement enclosingTypeElement
@@ -48,7 +46,7 @@ public class TypeBuilder {
 
         final var reader = new SignatureReader(signature);
         final var signatureBuilder =
-                new SignatureParser(Opcodes.ASM9, asmTypeResolver.getClassElementLoader(), moduleSymbol);
+                new SignatureParser(Opcodes.ASM9, compilerContext, moduleSymbol);
 
         reader.accept(signatureBuilder);
         final var formalTypeParameters = signatureBuilder.createFormalTypeParameters();
@@ -64,10 +62,10 @@ public class TypeBuilder {
     }
 
     public TypeMirror build(final String signature,
-                            final AsmTypeResolver asmTypeResolver) {
+                            final CompilerContext compilerContext) {
         final var reader = new SignatureReader(signature);
         final var signatureBuilder =
-                new SignatureParser(Opcodes.ASM9, asmTypeResolver.getClassElementLoader(), null);
+                new SignatureParser(Opcodes.ASM9, compilerContext, null);
 
         reader.accept(signatureBuilder);
         return signatureBuilder.createFieldType();

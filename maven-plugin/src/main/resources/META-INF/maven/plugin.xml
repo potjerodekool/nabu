@@ -23,7 +23,7 @@
             <requiresOnline>false</requiresOnline>
             <inheritedByDefault>true</inheritedByDefault>
             <phase>compile</phase>
-            <implementation>io.github.potjerodekool.nabu.maven.NabuMojo</implementation>
+            <implementation>io.github.potjerodekool.nabu.maven.CompileMojo</implementation>
             <language>java</language>
             <instantiationStrategy>per-lookup</instantiationStrategy>
             <executionStrategy>once-per-session</executionStrategy>

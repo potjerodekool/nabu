@@ -210,7 +210,8 @@ public class MethodResolverImpl implements MethodResolver {
                         typeArguments,
                         argumentTypes
                 ))
-                .filter(method -> match(method, argumentTypes))
+                .filter(methodAndArgTypes -> match(methodAndArgTypes.first(), methodAndArgTypes.second()))
+                .map(Pair::first)
                 .toList());
 
         if (scope != null) {
@@ -292,43 +293,85 @@ public class MethodResolverImpl implements MethodResolver {
         return Optional.of(bestMatch);
     }
 
-    private ExecutableType transform(final DeclaredType targetType,
-                                     final ExecutableElement method,
-                                     final List<? extends TypeMirror> typeArguments,
-                                     final List<TypeMirror> argumentTypes) {
+    Pair<ExecutableType, List<TypeMirror>> transform(final DeclaredType targetType,
+                                                     final ExecutableElement method,
+                                                     final List<? extends TypeMirror> typeArguments,
+                                                     final List<TypeMirror> argumentTypes) {
         final var methodType = (ExecutableType) method.asType();
-
-        final var typeMapFiller = new TypeMapFiller();
+        final var typeMapFiller = new TypeMapFiller(types);
         final var typeMap = typeMapFiller.getTypeMap();
-        final var typeMapApplier = new TypeMapApplier(typeMap, types);
-        final var typeApplier2 = new TypeMapApplier2(typeMap, types);
+        final var typeMapApplier = new TypeApplier(typeMap, types);
 
         if (!method.isStatic()) {
             targetType.accept(typeMapFiller, null);
         }
 
-        if (!typeArguments.isEmpty()) {
-            applyTypes(typeArguments, methodType.getTypeVariables(), typeApplier2);
+        if (typeArguments.isEmpty()) {
+            final var targetTypeArguments = targetType.getTypeArguments();
+
+            if (!targetTypeArguments.isEmpty()) {
+                final var declaredType = (DeclaredType) targetType.asTypeElement().asType();
+                final var typeArgs = declaredType.getTypeArguments();
+
+                for (var i = 0; i < targetTypeArguments.size(); i++) {
+                    typeArgs.get(i).accept(typeMapFiller, targetTypeArguments.get(i));
+                }
+            }
+        } else {
+            final var typeVariables = methodType.getTypeVariables();
+
+            for (var typeVariableIndex = 0; typeVariableIndex < typeVariables.size(); typeVariableIndex++) {
+                if (typeVariableIndex < typeArguments.size()) {
+                    final var typeArgument = typeArguments.get(typeVariableIndex);
+                    typeVariables.get(typeVariableIndex).accept(typeMapFiller, typeArgument);
+                }
+            }
+            applyTypes(typeArguments, methodType.getTypeVariables(), typeMapApplier);
         }
 
-        var parameterTypes = applyTypes(methodType.getParameterTypes(), typeMapApplier);
-        var argTypes = applyTypes(argumentTypes, typeMapApplier);
+        //argumentTypes.forEach(argType -> argType.accept(typeMapFiller, null));
+        final var argTypes = applyTypes(argumentTypes, typeMapApplier);
 
-        argTypes = applyTypes(argTypes, parameterTypes, typeApplier2);
-        parameterTypes = applyTypes(parameterTypes, argTypes, typeApplier2);
+        fillTypeMap(
+                methodType.getParameterTypes(),
+                argTypes,
+                typeMapFiller
+        );
+
+        method.getParameters();
+
+        final var parameterTypes = applyTypes(methodType.getParameterTypes(), typeMapApplier);
 
         final var returnType = methodType.getReturnType().accept(typeMapApplier, null);
         final var thrownTypes = methodType.getThrownTypes().stream()
                 .map(thrownType -> thrownType.accept(typeMapApplier, null))
                 .toList();
 
-        return types.getExecutableType(
+        final var transformedMethodType = types.getExecutableType(
                 method,
                 methodType.getTypeVariables(),
                 returnType,
                 parameterTypes,
                 thrownTypes
         );
+
+        return new Pair<>(
+                transformedMethodType,
+                argTypes
+        );
+    }
+
+    private void fillTypeMap(final List<? extends TypeMirror> parameterTypes,
+                             final List<TypeMirror> argTypes,
+                             final TypeMapFiller typeMapFiller) {
+        for (var i = 0; i < parameterTypes.size(); i++) {
+            if (i < argTypes.size()) {
+                final var paramType = parameterTypes.get(i);
+                final var argType = argTypes.get(i);
+                paramType.accept(typeMapFiller, argType);
+            }
+        }
+
     }
 
     private List<TypeMirror> applyTypes(final List<? extends TypeMirror> types,
@@ -341,30 +384,24 @@ public class MethodResolverImpl implements MethodResolver {
                 .collect(Collectors.toList());
     }
 
-    private List<TypeMirror> applyTypes(final List<? extends TypeMirror> firstTypes,
-                                        final List<? extends TypeMirror> secondTypes,
-                                        final TypeVisitor<TypeMirror, TypeMirror> typeVisitor) {
-        final var types = new ArrayList<TypeMirror>();
-
+    private void applyTypes(final List<? extends TypeMirror> firstTypes,
+                            final List<? extends TypeMirror> secondTypes,
+                            final TypeVisitor<TypeMirror, TypeMirror> typeVisitor) {
         for (var i = 0; i < firstTypes.size(); i++) {
             final var firstType = getOrNull(firstTypes, i);
             final var secondType = getOrNull(secondTypes, i);
 
             if (firstType != null && secondType != null) {
-                types.add(firstType.accept(typeVisitor, secondType));
-            } else if (firstType != null) {
-                types.add(firstType);
+                firstType.accept(typeVisitor, secondType);
             }
         }
-
-        return types;
     }
 
-    private TypeMirror getOrNull(final List<? extends TypeMirror> types, final int index) {
+    private TypeMirror getOrNull(final List<? extends TypeMirror> types,
+                                 final int index) {
         if (index < types.size()) {
             return types.get(index);
         }
-
         return null;
     }
 
@@ -481,7 +518,7 @@ public class MethodResolverImpl implements MethodResolver {
 
     private TypeMirror mapToType(final TypeMirror sourceType,
                                  final TypeMirror targetType) {
-        final var typeMapFiller = new TypeMapFiller();
+        final var typeMapFiller = new TypeMapFiller(types);
         sourceType.accept(typeMapFiller, null);
         final var typeMap = typeMapFiller.getTypeMap();
 
@@ -490,34 +527,75 @@ public class MethodResolverImpl implements MethodResolver {
     }
 }
 
-class TypeMapFiller implements TypeVisitor<Object, Object> {
+class TypeMapFiller implements TypeVisitor<TypeMirror, TypeMirror> {
 
     private final TypeMap typeMap = new TypeMap();
+    private final Types types;
+
+    TypeMapFiller(final Types types) {
+        this.types = types;
+    }
 
     public TypeMap getTypeMap() {
         return typeMap;
     }
 
     @Override
-    public Object visitUnknownType(final TypeMirror typeMirror, final Object param) {
+    public TypeMirror visitUnknownType(final TypeMirror typeMirror,
+                                       final TypeMirror param) {
         return typeMirror;
     }
 
     @Override
-    public Object visitDeclaredType(final DeclaredType declaredType, final Object param) {
+    public TypeMirror visitDeclaredType(final DeclaredType declaredType,
+                                        final TypeMirror otherType) {
         final var typeArguments = declaredType.getTypeArguments();
         final var typeParameters = declaredType.asTypeElement()
                 .getTypeParameters();
         final var typeParameterCount = typeParameters.size();
 
-        for (int index = 0; index < typeParameterCount; index++) {
-            final var typeParameter = typeParameters.get(index);
-            final var name = typeParameter.getSimpleName();
-            final var typeArg = typeArguments.get(index);
-            this.typeMap.put(name, typeArg);
+        if (otherType instanceof DeclaredType otherDeclaredType) {
+            final var otherTypeArguments = otherDeclaredType.getTypeArguments();
+            final var typeArgumentCount = typeArguments.size();
+
+            if (typeArguments.size() == otherTypeArguments.size()) {
+                for (int index = 0; index < typeArgumentCount; index++) {
+                    final var typeArg = typeArguments.get(index);
+                    final var otherTypeArg = otherTypeArguments.get(index).accept(this, null);
+                    typeArg.accept(this, otherTypeArg);
+                }
+            }
+        } else {
+            for (int index = 0; index < typeParameterCount; index++) {
+                final var typeParameter = typeParameters.get(index);
+                final var name = typeParameter.getSimpleName();
+                final var typeArg = typeArguments.get(index);
+                this.typeMap.put(name, typeArg);
+            }
         }
 
-        return null;
+        return declaredType;
+    }
+
+    @Override
+    public TypeMirror visitWildcardType(final WildcardType wildcardType,
+                                        final TypeMirror param) {
+        return switch (wildcardType.getBoundKind()) {
+            case EXTENDS -> wildcardType.getExtendsBound();
+            case SUPER -> wildcardType.getSuperBound();
+            case UNBOUND -> types.getObjectType();
+        };
+    }
+
+    @Override
+    public TypeMirror visitTypeVariable(final TypeVariable typeVariable,
+                                        final TypeMirror param) {
+        if (param != null) {
+            final var name = typeVariable.asElement().getSimpleName();
+            this.typeMap.put(name, param);
+            return param;
+        }
+        return typeVariable;
     }
 }
 
@@ -533,17 +611,20 @@ class TypeMapApplier implements TypeVisitor<TypeMirror, TypeMirror> {
     }
 
     @Override
-    public TypeMirror visitPrimitiveType(final PrimitiveType primitiveType, final TypeMirror param) {
+    public TypeMirror visitPrimitiveType(final PrimitiveType primitiveType,
+                                         final TypeMirror param) {
         return primitiveType;
     }
 
     @Override
-    public TypeMirror visitArrayType(final ArrayType arrayType, final TypeMirror param) {
+    public TypeMirror visitArrayType(final ArrayType arrayType,
+                                     final TypeMirror param) {
         return arrayType;
     }
 
     @Override
-    public TypeMirror visitVariableType(final VariableType variableType, final TypeMirror param) {
+    public TypeMirror visitVariableType(final VariableType variableType,
+                                        final TypeMirror param) {
         return variableType.getInterferedType().accept(this, param);
     }
 
@@ -554,7 +635,8 @@ class TypeMapApplier implements TypeVisitor<TypeMirror, TypeMirror> {
     }
 
     @Override
-    public TypeMirror visitNoType(final NoType noType, final TypeMirror param) {
+    public TypeMirror visitNoType(final NoType noType,
+                                  final TypeMirror param) {
         return noType;
     }
 
@@ -596,84 +678,6 @@ class TypeMapApplier implements TypeVisitor<TypeMirror, TypeMirror> {
     }
 }
 
-class TypeMapApplier2 implements TypeVisitor<TypeMirror, TypeMirror> {
-
-    private final TypeMap typeMap;
-    private final Types types;
-
-    public TypeMapApplier2(final TypeMap typeMap,
-                           final Types types) {
-        this.typeMap = typeMap;
-        this.types = types;
-    }
-
-    @Override
-    public TypeMirror visitPrimitiveType(final PrimitiveType primitiveType, final TypeMirror param) {
-        return primitiveType;
-    }
-
-    @Override
-    public TypeMirror visitArrayType(final ArrayType arrayType, final TypeMirror param) {
-        return arrayType;
-    }
-
-    @Override
-    public TypeMirror visitVariableType(final VariableType variableType, final TypeMirror param) {
-        return variableType.getInterferedType().accept(this, param);
-    }
-
-    @Override
-    public TypeMirror visitUnknownType(final TypeMirror typeMirror, final TypeMirror param) {
-        return typeMirror;
-    }
-
-    @Override
-    public TypeMirror visitDeclaredType(final DeclaredType argumentType,
-                                        final TypeMirror parameterType) {
-        if (parameterType instanceof DeclaredType) {
-            final var argumentTypeArgs = argumentType.getTypeArguments();
-            final var parameterTypeArgs = parameterType.getTypeArguments();
-
-            if (argumentTypeArgs.size() != parameterTypeArgs.size()) {
-                return argumentType;
-            }
-
-            final var newTypeArgs = new TypeMirror[argumentTypeArgs.size()];
-
-            for (var i = 0; i < argumentTypeArgs.size(); i++) {
-                newTypeArgs[i] = argumentTypeArgs.get(i).accept(this, parameterTypeArgs.get(i));
-            }
-
-            return types.getDeclaredType(
-                    argumentType.asTypeElement(),
-                    newTypeArgs
-            );
-        } else {
-            if (parameterType instanceof TypeVariable typeVariable) {
-                typeMap.put(typeVariable.asElement().getSimpleName(), argumentType);
-            }
-            return parameterType;
-        }
-    }
-
-    @Override
-    public TypeMirror visitTypeVariable(final TypeVariable argumentType,
-                                        final TypeMirror parameterType) {
-        return this.typeMap.getOrDefault(argumentType.asElement().getSimpleName(), argumentType);
-    }
-
-    @Override
-    public TypeMirror visitWildcardType(final WildcardType argumentType,
-                                        final TypeMirror parameterType) {
-        if (parameterType instanceof TypeVariable typeVariable) {
-            this.typeMap.put(typeVariable.asElement().getSimpleName(), argumentType);
-            return argumentType;
-        } else {
-            return parameterType;
-        }
-    }
-}
-
 class TypeMap {
 
     private final Map<String, TypeMirror> map = new HashMap<>();
@@ -684,11 +688,143 @@ class TypeMap {
 
     public void put(final String name,
                     final TypeMirror typeArg) {
+        Objects.requireNonNull(typeArg);
         this.map.putIfAbsent(name, typeArg);
+    }
+
+    public TypeMirror get(final String name) {
+        return this.map.get(name);
     }
 
     public TypeMirror getOrDefault(final String name,
                                    final TypeMirror defaultType) {
         return this.map.getOrDefault(name, defaultType);
+    }
+}
+
+class TypeApplier implements TypeVisitor<TypeMirror, TypeMirror> {
+
+    private final TypeMap typeMap;
+    private final Types types;
+
+    TypeApplier(final TypeMap typeMap,
+                final Types types) {
+        this.typeMap = typeMap;
+        this.types = types;
+    }
+
+    @Override
+    public TypeMirror visitUnknownType(final TypeMirror typeMirror,
+                                       final TypeMirror param) {
+        return typeMirror;
+    }
+
+    @Override
+    public TypeMirror visitVariableType(final VariableType variableType,
+                                        final TypeMirror param) {
+        if (variableType.getInterferedType() != null) {
+            return variableType.getInterferedType();
+        } else {
+            return variableType;
+        }
+    }
+
+    @Override
+    public TypeMirror visitPrimitiveType(final PrimitiveType primitiveType,
+                                         final TypeMirror param) {
+        return primitiveType;
+    }
+
+    @Override
+    public TypeMirror visitNoType(final NoType noType,
+                                  final TypeMirror param) {
+        return noType;
+    }
+
+    @Override
+    public TypeMirror visitArrayType(final ArrayType arrayType,
+                                     final TypeMirror param) {
+        final var componentType = arrayType.getComponentType().accept(this, null);
+        var newArrayType = types.getArrayType(componentType);
+
+        if (arrayType.isVarArgs()) {
+            newArrayType = newArrayType.makeVarArg();
+        }
+
+        return newArrayType;
+    }
+
+    @Override
+    public TypeMirror visitDeclaredType(final DeclaredType declaredType,
+                                        final TypeMirror otherType) {
+        if (declaredType.getTypeArguments().isEmpty()) {
+            return declaredType;
+        }
+
+        final TypeMirror[] typeArguments;
+
+        if (otherType instanceof DeclaredType otherDeclaredType) {
+            final var typeArgs = declaredType.getTypeArguments();
+            final var otherTypeArgs = otherDeclaredType.getTypeArguments();
+            typeArguments = new TypeMirror[typeArgs.size()];
+
+            for (var i = 0; i < typeArgs.size(); i++) {
+                final var typeArg = typeArgs.get(i);
+                final var otherTypeArg = otherTypeArgs.get(i);
+                typeArguments[i] = typeArg.accept(this, otherTypeArg);
+            }
+        } else {
+            typeArguments = declaredType.getTypeArguments().stream()
+                    .map(typeArgument -> typeArgument.accept(this, null))
+                    .toArray(TypeMirror[]::new);
+        }
+
+        return types.getDeclaredType(
+                declaredType.asTypeElement(),
+                typeArguments
+        );
+    }
+
+    @Override
+    public TypeMirror visitTypeVariable(final TypeVariable typeVariable,
+                                        final TypeMirror other) {
+        if (other != null) {
+            return other;
+        } else {
+            final var name = typeVariable.asElement().getSimpleName();
+            var resolvedType = typeMap.get(name);
+
+            if (resolvedType instanceof DeclaredType) {
+                resolvedType = resolvedType.accept(this, null);
+            } else if (resolvedType == null) {
+                resolvedType = typeVariable;
+            }
+
+            return resolvedType;
+        }
+    }
+
+    @Override
+    public TypeMirror visitWildcardType(final WildcardType wildcardType,
+                                        final TypeMirror param) {
+        return switch (wildcardType.getBoundKind()) {
+            case UNBOUND -> types.getWildcardType(null, null);
+            case EXTENDS -> {
+                var extendsBound = wildcardType.getExtendsBound().accept(this, null);
+
+                if (extendsBound.isPrimitiveType()) {
+                    extendsBound = types.boxedClass((PrimitiveType) extendsBound).asType();
+                }
+
+                yield types.getWildcardType(extendsBound, null);
+            }
+            case SUPER -> {
+                var superBound = wildcardType.getSuperBound().accept(this, null);
+                if (superBound.isPrimitiveType()) {
+                    superBound = types.boxedClass((PrimitiveType) superBound).asType();
+                }
+                yield types.getWildcardType(null, superBound);
+            }
+        };
     }
 }

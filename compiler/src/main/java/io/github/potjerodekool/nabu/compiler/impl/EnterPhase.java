@@ -1,8 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.EnterClasses;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.EnterClasses;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 
 
@@ -16,8 +15,10 @@ public final class EnterPhase {
         final var fileObject = fileObjectAndCompilationUnit.fileObject();
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 
-        final var enterClasses = new EnterClasses(compilerContext);
-        compilationUnit.accept(enterClasses, null);
+        new EnterClasses(compilerContext).acceptTree(
+                compilationUnit,
+                null
+        );
 
         compilationUnit.getClasses().stream()
                 .map(ClassDeclaration::getClassSymbol)

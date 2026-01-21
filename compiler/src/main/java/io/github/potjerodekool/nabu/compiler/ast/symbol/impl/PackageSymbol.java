@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.PackageSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPackageType;
 import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
 import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
@@ -21,7 +22,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     private WritableScope members = null;
 
-    private ClassSymbol classSymbol;
+    private ClassSymbol packageInfo;
 
     private ModuleSymbol moduleSymbol;
 
@@ -73,7 +74,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
         final var parentPackage = (PackageElement) getEnclosingElement();
 
-        if (parentPackage == null) {
+        if (parentPackage == null || parentPackage.getQualifiedName().isEmpty()) {
             qualifiedName = getSimpleName();
         } else {
             final var parentName = parentPackage.getQualifiedName();
@@ -90,6 +91,14 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
             members = new WritableScope();
         }
         return members;
+    }
+
+    public void define(final Element element) {
+        if (members == null) {
+            members = new WritableScope();
+        }
+
+        members.define(element);
     }
 
     public void addEnclosedElement(final Symbol enclosedElement) {
@@ -118,12 +127,12 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
         return this == UNNAMED_PACKAGE;
     }
 
-    public ClassSymbol getClassSymbol() {
-        return classSymbol;
+    public ClassSymbol getPackageInfo() {
+        return packageInfo;
     }
 
-    public void setClassSymbol(final ClassSymbol classSymbol) {
-        this.classSymbol = classSymbol;
+    public void setPackageInfo(final ClassSymbol packageInfo) {
+        this.packageInfo = packageInfo;
     }
 
     @Override
@@ -133,6 +142,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     @Override
     public boolean exists() {
+        complete();
         return hasFlag(Flags.EXISTS);
     }
 
@@ -140,5 +150,10 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
         if (!hasFlag(Flags.EXISTS)) {
             setFlags(getFlags() | Flags.EXISTS);
         }
+    }
+
+    @Override
+    public String toString() {
+        return getQualifiedName();
     }
 }

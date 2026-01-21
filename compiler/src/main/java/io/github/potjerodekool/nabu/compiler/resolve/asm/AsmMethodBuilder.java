@@ -4,17 +4,19 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymb
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignature;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.Types;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
@@ -28,7 +30,9 @@ public class AsmMethodBuilder extends MethodVisitor {
     private final MethodSymbol method;
     private int parameterIndex = 0;
 
+    private final CompilerContext compilerContext;
     private final ClassElementLoader loader;
+    private final Types types;
     private final ModuleSymbol moduleSymbol;
 
     protected AsmMethodBuilder(final int api,
@@ -39,10 +43,13 @@ public class AsmMethodBuilder extends MethodVisitor {
                                final String[] exceptions,
                                final ClassSymbol clazz,
                                final AsmTypeResolver asmTypeResolver,
+                               final CompilerContext compilerContext,
                                final TypeBuilder typeBuilder,
                                final ModuleSymbol moduleSymbol) {
         super(api);
-        this.loader = asmTypeResolver.getClassElementLoader();
+        this.compilerContext = compilerContext;
+        this.loader = compilerContext.getClassElementLoader();
+        this.types = compilerContext.getTypes();
         this.moduleSymbol = moduleSymbol;
         final var module = clazz.resolveModuleSymbol();
 
@@ -56,7 +63,7 @@ public class AsmMethodBuilder extends MethodVisitor {
         if (signature != null) {
             methodSignature = typeBuilder.parseMethodSignature(
                     signature,
-                    asmTypeResolver,
+                    compilerContext,
                     moduleSymbol
             );
         } else {
@@ -143,12 +150,12 @@ public class AsmMethodBuilder extends MethodVisitor {
         if (typeElement != null) {
             return typeElement.asType();
         } else {
-            return loader.getTypes().getErrorType(ClassUtils.getClassName(innerName));
+            return compilerContext.getTypes().getErrorType(ClassUtils.getClassName(innerName));
         }
     }
 
     @Override
     public AnnotationVisitor visitAnnotationDefault() {
-        return new AsmAnnotationDefaultValueBuilder(api, loader, method, moduleSymbol);
+        return new AsmAnnotationDefaultValueBuilder(api, loader, types, method, moduleSymbol);
     }
 }

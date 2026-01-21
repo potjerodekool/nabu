@@ -56,7 +56,8 @@ class IrCleanerTest {
         ));
 
         final var frag = new ProcFrag(
-                body
+                body,
+                new Frame()
         );
         IrCleaner.cleanUp(frag);
 
@@ -96,7 +97,8 @@ class IrCleanerTest {
         body.add(new ILabelStatement());
 
         var frag = new ProcFrag(
-                body
+                body,
+                new Frame()
         );
 
         frag = IrCleaner.basicBlocks(frag);
@@ -118,7 +120,8 @@ class IrCleanerTest {
         ));
 
         var frag = new ProcFrag(
-                body
+                body,
+                new Frame()
         );
 
         frag = IrCleaner.basicBlocks(frag);

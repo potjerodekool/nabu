@@ -1,11 +1,13 @@
 package io.github.potjerodekool.nabu.resolve.scope;
 
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.Types;
 
 /**
  * A class scope to resolve static fields and enum constants.
@@ -16,15 +18,17 @@ public class ClassScope implements Scope {
     private final Scope parentScope;
     private final CompilationUnit compilationUnit;
     private final ClassElementLoader loader;
+    private final Types types;
 
     public ClassScope(final TypeMirror classType,
                       final Scope parentScope,
                       final CompilationUnit compilationUnit,
-                      final ClassElementLoader loader) {
+                      final CompilerContext compilerContext) {
         this.declaredType = (DeclaredType) classType;
         this.parentScope = parentScope;
         this.compilationUnit = compilationUnit;
-        this.loader = loader;
+        this.loader = compilerContext.getClassElementLoader();
+        this.types = compilerContext.getTypes();
     }
 
     @Override
@@ -60,15 +64,8 @@ public class ClassScope implements Scope {
         if ("class".equals(name)) {
             final var module = findModuleElement();
 
-            final var clazz = loader.loadClass(
-                    module,
-                    Constants.CLAZZ
-            );
-            return loader.getTypes()
-                    .getDeclaredType(
-                            clazz,
-                            declaredType
-                    );
+            final var clazz = loader.loadClass(module, Constants.CLAZZ);
+            return types.getDeclaredType(clazz, declaredType);
         } else {
             return parentScope != null
                     ? parentScope.resolveType(name)

@@ -1,12 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmTypeResolver;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.TypeBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
@@ -22,14 +21,14 @@ import io.github.potjerodekool.nabu.util.TypePrinter;
 import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class TypesImplTest extends AbstractCompilerTest {
 
-    private final Types types = getCompilerContext().getClassElementLoader().getTypes();
-    private final AsmTypeResolver typeResolver = new AsmTypeResolver(getCompilerContext().getClassElementLoader(), null);
+    private final Types types = getCompilerContext().getTypes();
     private final TypeBuilder typeBuilder = new TypeBuilder();
     private final SymbolTable symbolTable = getCompilerContext().getSymbolTable();
 
@@ -193,7 +192,7 @@ class TypesImplTest extends AbstractCompilerTest {
     @Test
     void isSameType1() {
         final var module = getCompilerContext().getSymbolTable().getJavaBase();
-        final var actual = typeBuilder.parseFieldSignature("Ljava/util/Optional<*>;", typeResolver, module);
+        final var actual = typeBuilder.parseFieldSignature("Ljava/util/Optional<*>;", getCompilerContext(), module);
 
         final var optionalClazz = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.Optional");
 
@@ -208,7 +207,7 @@ class TypesImplTest extends AbstractCompilerTest {
     @Test
     void isSameType2() {
         final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
-        final var actual = typeBuilder.parseFieldSignature("TT;", typeResolver, module);
+        final var actual = typeBuilder.parseFieldSignature("TT;", getCompilerContext(), module);
         final var objectType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.OBJECT).asType();
 
         final var expected = types.getTypeVariable("T", objectType, null);
@@ -219,7 +218,7 @@ class TypesImplTest extends AbstractCompilerTest {
     void isSameType3() {
         final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
 
-        final var actual = typeBuilder.parseFieldSignature("Ljava/lang/invoke/ClassSpecializer<TT;TK;TS;>.Factory;", typeResolver, module);
+        final var actual = typeBuilder.parseFieldSignature("Ljava/lang/invoke/ClassSpecializer<TT;TK;TS;>.Factory;", getCompilerContext(), module);
 
         var classSpecializerType = types.getDeclaredType(new ClassSymbolBuilder()
                 .kind(ElementKind.CLASS)
@@ -260,7 +259,7 @@ class TypesImplTest extends AbstractCompilerTest {
     void isSameType4() {
         final var module = getCompilerContext().getSymbolTable().getJavaBase();
 
-        final var actual = typeBuilder.parseFieldSignature("Ljava/util/List<Ljava/lang/module/Configuration;>;", typeResolver, module);
+        final var actual = typeBuilder.parseFieldSignature("Ljava/util/List<Ljava/lang/module/Configuration;>;", getCompilerContext(), module);
         final var listClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.List");
 
         final var configurationClass = new ClassSymbolBuilder()
@@ -282,7 +281,7 @@ class TypesImplTest extends AbstractCompilerTest {
     @Test
     void isSameType5() {
         final var module = getCompilerContext().getSymbolTable().getJavaBase();
-        final var actual = typeBuilder.parseFieldSignature("[Ljava/lang/reflect/TypeVariable<*>;", typeResolver, module);
+        final var actual = typeBuilder.parseFieldSignature("[Ljava/lang/reflect/TypeVariable<*>;", getCompilerContext(), module);
 
         final var typeVariableClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.reflect.TypeVariable");
 
@@ -304,7 +303,7 @@ class TypesImplTest extends AbstractCompilerTest {
         final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
         final var objectType = getCompilerContext().getClassElementLoader().loadClass(module, Constants.OBJECT).asType();
 
-        final var actual = typeBuilder.parseFieldSignature("[TT;", typeResolver, module);
+        final var actual = typeBuilder.parseFieldSignature("[TT;", getCompilerContext(), module);
         final var expected = types.getArrayType(
                 types.getTypeVariable("T", objectType, null)
         );
@@ -349,6 +348,26 @@ class TypesImplTest extends AbstractCompilerTest {
         );
 
         types.capture(type);
+    }
+
+    @Test
+    void directSupertypes() {
+        final var setClass = loadClass("java.util.Set");
+        final var stringClass = loadClass("java.lang.String");
+        final var setOfStringType = types.getDeclaredType(setClass, stringClass.asType());
+        final var objectType = loadType("java.lang.Object");
+        final var collectionClass = loadClass("java.util.Collection");
+        final var collectionOfStringType = types.getDeclaredType(
+                collectionClass,
+                stringClass.asType()
+        );
+
+        final var directSuperTypes = new ArrayList<>(types.directSupertypes(setOfStringType));
+        final var expected = new ArrayList<>(List.of(
+                objectType,
+                collectionOfStringType
+        ));
+        assertEquals(expected, directSuperTypes);
     }
 
 }

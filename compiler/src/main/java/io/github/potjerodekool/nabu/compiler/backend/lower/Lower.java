@@ -8,7 +8,7 @@ import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.*;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.Boxer;
 
 import io.github.potjerodekool.nabu.lang.model.element.*;
@@ -55,11 +55,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     public Lower(final CompilerContextImpl compilerContext) {
         this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
-        this.types = compilerContext.getClassElementLoader().getTypes();
-        this.boxer = new Boxer(
-                loader,
-                compilerContext.getMethodResolver()
-        );
+        this.types = compilerContext.getTypes();
+        this.boxer = new Boxer(compilerContext);
         this.caster = new Caster();
         this.wideningConverter = new WideningConverter(compilerContext);
         this.methodResolver = compilerContext.getMethodResolver();
@@ -76,7 +73,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
     public void process(final CompilationUnit compilationUnit) {
         final var context = new LowerContext(compilationUnit);
-        compilationUnit.accept(this, context);
+        acceptTree(compilationUnit, context);
     }
 
     private AbstractCodeGenerator getGenerator(final ClassDeclaration classDeclaration) {
@@ -86,6 +83,11 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     @Override
     public Tree visitUnknown(final Tree tree,
                              final LowerContext context) {
+        return tree;
+    }
+
+    public Tree defaultAnswer(final Tree tree,
+                              final Lower.LowerContext param) {
         return tree;
     }
 
@@ -131,6 +133,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
             return binaryExpression.builder()
                     .left(left)
                     .right(right)
+                    .type(left.getType())
                     .build();
         }
 
@@ -140,9 +143,9 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     @Override
     public Tree visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement,
                                           final LowerContext context) {
-        final var expression = (ExpressionTree) enhancedForStatement.getExpression().accept(this, context);
-        final var localVariable = (VariableDeclaratorTree) enhancedForStatement.getLocalVariable().accept(this, context);
-        final var statement = (StatementTree) enhancedForStatement.getStatement().accept(this, context);
+        final var expression = (ExpressionTree) acceptTree(enhancedForStatement.getExpression(), context);
+        final var localVariable = (VariableDeclaratorTree) acceptTree(enhancedForStatement.getLocalVariable(), context);
+        final var statement = (StatementTree) acceptTree(enhancedForStatement.getStatement(), context);
 
         var methodInvocation = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
@@ -223,7 +226,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
         );
 
         final var resolvedNextMethod = methodResolver.resolveMethod(nextInvocation)
-                        .orElseThrow(() -> new IllegalStateException("Failed to resolve next method"));
+                .orElseThrow(() -> new IllegalStateException("Failed to resolve next method"));
 
         nextInvocation.getMethodSelector().setType(resolvedNextMethod.getOwner().asType());
         nextInvocation.setMethodType(resolvedNextMethod);
@@ -317,8 +320,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
         final var symbol = identifier.getSymbol();
 
         if (symbol instanceof VariableSymbol variableSymbol
-            && variableSymbol.getKind() == ElementKind.FIELD
-            && !variableSymbol.isStatic()) {
+                && variableSymbol.getKind() == ElementKind.FIELD
+                && !variableSymbol.isStatic()) {
 
             final var clazz = symbol.getEnclosingElement();
             final var thisIdentifier = TreeMaker.identifier(Constants.THIS, -1, -1);
@@ -338,6 +341,10 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     private ExpressionTree access(final ExpressionTree field,
                                   final ExpressionTree selected) {
         final var symbol = field.getSymbol();
+
+        if (selected instanceof MethodInvocationTree) {
+            return field;
+        }
 
         if (!isThisExpression(selected)
                 && symbol instanceof VariableSymbol variableSymbol
@@ -371,7 +378,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     @Override
     public Tree visitSwitchStatement(final SwitchStatement switchStatement,
                                      final LowerContext context) {
-        var selector = (ExpressionTree) switchStatement.getSelector().accept(this, context);
+        var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), context);
 
         final var selectorType = selector.getSymbol().asType();
 
@@ -389,7 +396,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
         }
 
         final var cases = switchStatement.getCases().stream()
-                .map(caseStatement -> caseStatement.accept(this, context))
+                .map(caseStatement -> acceptTree(caseStatement, context))
                 .map(it -> (CaseStatement) it)
                 .toList();
 
@@ -402,7 +409,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     private SwitchStatement visitEnumSwitchStatement(final SwitchStatement switchStatement,
                                                      final LowerContext context,
                                                      final TypeElement enumElement) {
-        var selector = (ExpressionTree) switchStatement.getSelector().accept(this, context);
+        var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), context);
 
         final var currentClass = context.currentClass;
 
@@ -446,7 +453,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
         final var newSelector = new CArrayAccessExpressionTree(fieldAccess, methodInvoke);
 
         final var cases = switchStatement.getCases().stream()
-                .map(caseStatement -> caseStatement.accept(this, context))
+                .map(caseStatement ->
+                        acceptTree(caseStatement, context))
                 .map(it -> (CaseStatement) it)
                 .toList();
 

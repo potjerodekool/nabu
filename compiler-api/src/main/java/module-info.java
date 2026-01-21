@@ -1,3 +1,5 @@
+import io.github.potjerodekool.nabu.tools.Compiler;
+
 module io.github.potjerodekool.compiler.api {
     exports io.github.potjerodekool.nabu.lang.model.element;
     exports io.github.potjerodekool.nabu.type;

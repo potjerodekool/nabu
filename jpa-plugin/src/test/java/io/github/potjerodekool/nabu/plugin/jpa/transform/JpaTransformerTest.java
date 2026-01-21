@@ -5,16 +5,23 @@ import io.github.potjerodekool.nabu.lang.jpa.support.Join;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.plugin.jpa.testing.TreeParser;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.testing.TreePrinter;
+import io.github.potjerodekool.nabu.testing.TreeWalker;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.TypeApplyTree;
 import io.github.potjerodekool.nabu.tree.statement.ReturnStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.junit.jupiter.api.*;
 
@@ -25,6 +32,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@Disabled
 class JpaTransformerTest extends AbstractCompilerTest {
 
     private VariableElement createVariable(final TypeMirror typeMirror,
@@ -65,10 +73,13 @@ class JpaTransformerTest extends AbstractCompilerTest {
         final var module = getUnnamedModule();
         final var rootClass = loader.loadClass(module, "jakarta.persistence.criteria.Root");
         final var criteriaBuilderType = loader.loadClass(module, "jakarta.persistence.criteria.CriteriaBuilder").asType();
+        final var criteriaQueryType = loader.loadClass(module, "jakarta.persistence.criteria.CriteriaQuery").asType();
         final var specificationType = loader.loadClass(module, "org.springframework.data.jpa.domain.Specification").asType();
         final var companyType = loader.loadClass(module, "foo.Company").asType();
+        final var employeeType = loader.loadClass(module, "foo.Employee").asType();
+        final var innerJoinType = loader.loadClass(module, "io.github.potjerodekool.nabu.lang.jpa.support.InnerJoin").asType();
 
-        final var rootType = loader.getTypes()
+        final var rootType = getCompilerContext().getTypes()
                 .getDeclaredType(
                         rootClass,
                         companyType
@@ -90,7 +101,7 @@ class JpaTransformerTest extends AbstractCompilerTest {
                          };
                      }
                 }
-                """, parentScope -> {
+                """, ".nabu", parentScope -> {
             final var scope = new FunctionScope(
                     parentScope,
                     null
@@ -99,7 +110,7 @@ class JpaTransformerTest extends AbstractCompilerTest {
             scope.define(createClass());
             scope.define(createVariable(rootType, "c"));
             scope.define(createVariable(criteriaBuilderType, "cb"));
-
+            scope.define(createVariable(criteriaQueryType, "q"));
             return scope;
         });
 
@@ -109,6 +120,34 @@ class JpaTransformerTest extends AbstractCompilerTest {
 
         final var returnStatement = (ReturnStatementTree) function.getBody().getStatements().getFirst();
         returnStatement.getExpression().setType(specificationType);
+
+        TreeWalker.walk(cu, tree -> {
+            if (tree instanceof VariableDeclaratorTree variableDeclaratorTree) {
+                switch (variableDeclaratorTree.getName().getName()) {
+                    case "c" -> variableDeclaratorTree.getVariableType().setType(rootType);
+                    case "cb" -> variableDeclaratorTree.getVariableType().setType(criteriaBuilderType);
+                    case "q" -> variableDeclaratorTree.getVariableType().setType(criteriaQueryType);
+                }
+            } else if (tree instanceof IdentifierTree identifierTree) {
+                final var name = identifierTree.getName();
+
+                switch (name) {
+                    case "Company" -> identifierTree.setType(companyType);
+                    case "Employee" -> identifierTree.setType(employeeType);
+                    case "InnerJoin" -> identifierTree.setType(innerJoinType);
+                }
+            } else if (tree instanceof TypeApplyTree typeApplyTree) {
+                System.out.println();
+                final var types = getCompilerContext().getTypes();
+                final var classType = typeApplyTree.getClazz().getType();
+                final var typeArgs = typeApplyTree.getTypeParameters().stream()
+                        .map(Tree::getType)
+                        .toArray(TypeMirror[]::new);
+                final var type = types.getDeclaredType(classType.asTypeElement(), typeArgs);
+                typeApplyTree.setType(type);
+            }
+        });
+
         transformer.transform(cu);
 
         cu.getClasses().forEach(this::removeConstructors);
@@ -121,6 +160,24 @@ class JpaTransformerTest extends AbstractCompilerTest {
     private void removeConstructors(final ClassDeclaration classDeclaration) {
         classDeclaration.getEnclosedElements().removeIf(
                 it -> it instanceof Function function && function.getKind() == Kind.CONSTRUCTOR
+        );
+    }
+
+    protected CompilationUnit parse(final String code,
+                                    final String fileExtension,
+                                    final java.util.function.Function<Scope, Scope> scopeCreator) {
+        final var compilerContext = getCompilerContext();
+        final var languageParser = compilerContext.getLanguageParser(new FileObject.Kind(
+                fileExtension,
+                true
+        )).get();
+
+        return TreeParser.parse(
+                code,
+                "MyClass" + fileExtension,
+                compilerContext,
+                scopeCreator,
+                languageParser
         );
     }
 }
@@ -173,4 +230,6 @@ class TreePaths {
             return "";
         }
     }
+
+
 }

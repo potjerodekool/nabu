@@ -20,11 +20,6 @@ public interface ClassElementLoader extends AutoCloseable {
                           String name);
 
     /**
-     * @return Returns a utility for working with types.
-     */
-    Types getTypes();
-
-    /**
      * @param moduleElement A module.
      * @param packageName A package name.
      * @return Returns the package from the given module.

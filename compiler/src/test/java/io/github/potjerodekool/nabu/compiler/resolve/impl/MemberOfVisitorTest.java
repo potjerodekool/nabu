@@ -7,7 +7,6 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymb
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.MemberOfVisitor;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
@@ -19,7 +18,7 @@ import org.junit.jupiter.api.Test;
 class MemberOfVisitorTest extends AbstractCompilerTest {
 
     private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = loader.getTypes();
+    private final Types types = getCompilerContext().getTypes();
 
     @Test
     void visitDeclaredType() {

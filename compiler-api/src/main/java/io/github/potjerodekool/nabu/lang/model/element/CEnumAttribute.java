@@ -2,6 +2,8 @@ package io.github.potjerodekool.nabu.lang.model.element;
 
 import io.github.potjerodekool.nabu.type.DeclaredType;
 
+import java.util.Objects;
+
 /**
  * Implementation of {{@link EnumAttribute}
  */
@@ -12,6 +14,7 @@ public final class CEnumAttribute extends AbstractAttribute implements EnumAttri
 
     public CEnumAttribute(final DeclaredType type,
                           final VariableElement value) {
+        Objects.requireNonNull(value);
         this.type = type;
         this.value = value;
     }

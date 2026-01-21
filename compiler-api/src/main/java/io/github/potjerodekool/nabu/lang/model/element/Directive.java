@@ -83,6 +83,11 @@ public abstract class Directive implements ModuleElement.Directive {
         public Set<RequiresFlag> getFlags() {
             return flags;
         }
+
+        @Override
+        public String toString() {
+            return "requires " + module.getQualifiedName();
+        }
     }
 
     public static class ExportsDirective extends Directive implements ModuleElement.ExportsDirective {

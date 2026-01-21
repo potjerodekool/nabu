@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
@@ -19,6 +20,8 @@ import org.objectweb.asm.*;
 import java.util.Arrays;
 
 class AsmClassBuilder extends ClassVisitor {
+
+    private final CompilerContext compilerContext;
 
     private final SymbolTable symbolTable;
 
@@ -39,15 +42,16 @@ class AsmClassBuilder extends ClassVisitor {
     }
 
     protected AsmClassBuilder(final SymbolTable symbolTable,
-                              final ClassElementLoader classElementLoader,
+                              final CompilerContext compilerContext,
                               final ClassSymbol classSymbol,
                               final ModuleSymbol moduleSymbol) {
         super(Opcodes.ASM9);
+        this.compilerContext = compilerContext;
         this.symbolTable = symbolTable;
-        this.classElementLoader = classElementLoader;
-        this.asmTypeResolver = new AsmTypeResolver(classElementLoader, moduleSymbol);
+        this.classElementLoader = compilerContext.getClassElementLoader();
+        this.asmTypeResolver = new AsmTypeResolver(compilerContext, moduleSymbol);
         this.typeBuilder = new TypeBuilder();
-        this.types = classElementLoader.getTypes();
+        this.types = compilerContext.getTypes();
         this.clazz = classSymbol;
         this.moduleSymbol = moduleSymbol;
     }
@@ -108,7 +112,7 @@ class AsmClassBuilder extends ClassVisitor {
         }
 
         if (signature != null) {
-            typeBuilder.parseClassSignature(signature, clazz, asmTypeResolver, clazz.resolveModuleSymbol());
+            typeBuilder.parseClassSignature(signature, clazz, compilerContext, clazz.resolveModuleSymbol());
         } else {
             final TypeMirror outerType;
 
@@ -191,6 +195,7 @@ class AsmClassBuilder extends ClassVisitor {
                 exceptions,
                 clazz,
                 asmTypeResolver,
+                compilerContext,
                 typeBuilder,
                 moduleSymbol
         );
@@ -206,6 +211,7 @@ class AsmClassBuilder extends ClassVisitor {
                 signature,
                 value,
                 clazz,
+                compilerContext,
                 asmTypeResolver,
                 typeBuilder
         );

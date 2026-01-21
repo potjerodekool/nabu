@@ -7,16 +7,24 @@ import java.util.List;
 public class ProcFrag {
 
     private final List<IStatement> body;
+    private final Frame frame;
 
-    public ProcFrag(final IStatement body) {
-        this(List.of(body));
+    public ProcFrag(final IStatement body,
+                    final Frame frame) {
+        this(List.of(body), frame);
     }
 
-    public ProcFrag(final List<IStatement> body) {
+    public ProcFrag(final List<IStatement> body,
+                    final Frame frame) {
         this.body = body;
+        this.frame = frame;
     }
 
     public List<IStatement> getBody() {
         return body;
+    }
+
+    public Frame getFrame() {
+        return frame;
     }
 }

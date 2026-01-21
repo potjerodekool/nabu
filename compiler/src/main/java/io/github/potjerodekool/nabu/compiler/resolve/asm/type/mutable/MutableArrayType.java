@@ -1,8 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable;
 
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.Map;
 
@@ -22,8 +24,9 @@ public class MutableArrayType extends MutableType {
     }
 
     @Override
-    public TypeMirror toType(final ClassElementLoader loader, final Map<String, TypeVariable> typeVariablesMap) {
-        return loader.getTypes().getArrayType(componentType.toType(loader, typeVariablesMap));
+    public TypeMirror toType(final Types types,
+    final Map<String, TypeVariable> typeVariablesMap) {
+        return types.getArrayType(componentType.toType(types, typeVariablesMap));
     }
 
     public MutableType getComponentType() {

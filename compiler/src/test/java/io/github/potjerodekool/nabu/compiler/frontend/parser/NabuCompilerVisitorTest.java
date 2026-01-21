@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
 import io.github.potjerodekool.nabu.NabuParser;
-import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerParser;
+import io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuCompilerParser;
 import io.github.potjerodekool.nabu.test.NabuLangTreeAssert;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.junit.jupiter.api.Test;
@@ -323,7 +323,7 @@ class NabuCompilerVisitorTest {
     @Test
     void interfaceDeclaration() {
         parseAndAssert("""
-                public interface Action {
+                public abstract interface Action {
                 }
                 """, NabuParser::interfaceDeclaration);
     }

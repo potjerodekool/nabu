@@ -18,7 +18,7 @@ class CandidateMatcherTest extends AbstractCompilerTest {
         final var stringClass = (ClassSymbol) getCompilerContext().getClassElementLoader().loadClass(null, Constants.STRING);
         stringClass.setSuperClass(objectClass.asType());
 
-        final var matcher = new CandidateMatcher(getCompilerContext().getClassElementLoader().getTypes());
+        final var matcher = new CandidateMatcher(getCompilerContext().getTypes());
         matcher.setArgumentType(stringClass.asType());
 
         assertTrue(objectClass.asType().accept(matcher, stringClass.asType()));
@@ -32,7 +32,7 @@ class CandidateMatcherTest extends AbstractCompilerTest {
         final var integerClass = (ClassSymbol) getCompilerContext().getClassElementLoader().loadClass(null, Constants.INTEGER);
         integerClass.setSuperClass(numberClass.asType());
 
-        final var matcher = new CandidateMatcher(getCompilerContext().getClassElementLoader().getTypes());
+        final var matcher = new CandidateMatcher(getCompilerContext().getTypes());
         matcher.setArgumentType(integerClass.asType());
 
         assertTrue(numberClass.asType().accept(matcher, objectClass.asType()));

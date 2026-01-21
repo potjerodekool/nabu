@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.type.ArrayType;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -342,6 +343,14 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
             return resolveModuleSymbol(symbol.getEnclosingElement());
         }
     }
+
+    @Override
+    public void setClassFile(final FileObject classFile) {
+        super.setClassFile(classFile);
+        if (classFile == null) {
+            members = null;
+        }
+    }
 }
 
 class ValueCollector extends AbstractAnnotationValueVisitor<Object, ExecutableElement> {
@@ -425,8 +434,6 @@ class ValueCollector extends AbstractAnnotationValueVisitor<Object, ExecutableEl
         System.err.println("ClassSymbol.ValueCollector#visitUnknown " + av);
         return null;
     }
-
-
 
 }
 

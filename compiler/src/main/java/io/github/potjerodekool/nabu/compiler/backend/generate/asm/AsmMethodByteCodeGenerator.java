@@ -1,26 +1,25 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
-import io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror;
-import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.annotation.AsmAnnotationGenerator;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
+import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
+import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.expression.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.statement.*;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.ILabel;
 import io.github.potjerodekool.nabu.compiler.backend.ir.temp.Temp;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.ExpCall;
-import io.github.potjerodekool.nabu.compiler.backend.postir.canon.IrCleaner;
 import io.github.potjerodekool.nabu.compiler.backend.postir.canon.MoveCall;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import io.github.potjerodekool.nabu.tree.Tag;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.objectweb.asm.*;
@@ -43,8 +42,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     private final String owner;
     private final Textifier textifier = new Textifier();
     private final Map<String, Label> labelMap = new HashMap<>();
-
     private AsmWithStackMethodVisitor methodWriter;
+    private IType methodReturnType;
 
     public AsmMethodByteCodeGenerator(final ClassWriter classWriter,
                                       final String owner) {
@@ -57,6 +56,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     }
 
     public void generate(final MethodSymbol methodSymbol) {
+        methodReturnType = ToIType.toIType(methodSymbol.getReturnType());
+
         final var access = AccessUtils.flagsToAccess(methodSymbol.getFlags());
         final var methodHeader = createMethodHeader(methodSymbol);
         final var methodDescriptor = createMethodDescriptor(methodHeader);
@@ -73,15 +74,14 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         mv = new TraceMethodVisitor(mv, this.textifier);
         this.methodWriter = new AsmWithStackMethodVisitor(Opcodes.ASM9, mv);
 
-        final var frame = new Frame();
+        final var procFrag = methodSymbol.getFrag();
+        final var frame = procFrag.getFrame();
 
         if (!methodSymbol.isStatic() && !methodSymbol.isAbstract()) {
             if (frame.indexOf(Constants.THIS) == -1) {
                 frame.allocateLocal(Constants.THIS, IReferenceType.createClassType(null, owner, List.of()), false);
             }
         }
-
-        final var procFrag = methodSymbol.getFrag();
 
         visitAnnotations(methodSymbol);
         visitParameters(methodHeader, frame);
@@ -162,10 +162,6 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
     private void visitParameters(final MethodHeader methodHeader,
                                  final Frame frame) {
         final var parameters = methodHeader.parameters();
-
-        parameters.forEach(parameter ->
-                frame.allocateLocal(parameter.name(), parameter.type(), true)
-        );
 
         methodWriter.visitAnnotableParameterCount(methodHeader.parameters().size(), true);
 
@@ -604,12 +600,20 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         if (src != null && dst != null) {
             src.accept(this, frame);
 
+            if (src instanceof Const && isNullLiteral(src)) {
+                methodWriter.visitInsn(Opcodes.ACONST_NULL);
+            }
+
             if (dst instanceof TempExpr tempExpr) {
                 final var index = tempExpr.getTemp().getIndex();
                 if (index == -1) {
                     methodWriter.visitInsn(Opcodes.POP);
                 } else if (index == Frame.V0.getIndex()) {
-                    final var top = methodWriter.peek();
+                    var top = methodWriter.peek();
+                    if (top == null) {
+                        top = toAsmType(methodReturnType);
+                    }
+
                     final int opcode = resolveReturnOpcode(top);
                     methodWriter.visitInsn(opcode);
                 } else {
@@ -619,7 +623,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 dst.accept(this, frame);
             }
         } else {
-            methodWriter.visitInsn(Opcodes.RETURN);
+            final var opcode = resolveReturnOpcode(toAsmType(methodReturnType));
+            methodWriter.visitInsn(opcode);
         }
     }
 
@@ -628,7 +633,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         final var top = methodWriter.peek();
 
         final int opcode = switch (top.getSort()) {
-            case Type.OBJECT -> Opcodes.ASTORE;
+            case Type.OBJECT, Type.ARRAY -> Opcodes.ASTORE;
             case Type.SHORT,
                  Type.INT,
                  Type.BYTE,
@@ -651,11 +656,8 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         variableDeclaratorStatement.getInitExpression().accept(this, frame);
 
-        final var index = frame.allocateLocal(
-                variableDeclaratorStatement.getSymbol().getSimpleName(),
-                variableDeclaratorStatement.getType(),
-                false
-        );
+        final var index = variableDeclaratorStatement.getDst().getTemp().getIndex();
+
         store(index, frame);
     }
 
@@ -712,6 +714,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                 case Type.LONG -> Opcodes.LRETURN;
                 case Type.FLOAT -> Opcodes.FRETURN;
                 case Type.DOUBLE -> Opcodes.DRETURN;
+                case Type.VOID -> Opcodes.RETURN;
                 default -> throw new UnsupportedOperationException();
             };
         }
@@ -745,15 +748,13 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         if (index > -1) {
             final var type = tempExpr.getType();
-            Objects.requireNonNull(type);
 
             final var opcode = switch (type.getKind()) {
-                case CLASS, INTERFACE -> Opcodes.ALOAD;
+                case CLASS, INTERFACE, ARRAY -> Opcodes.ALOAD;
                 case INT, BYTE, CHAR, BOOLEAN, SHORT -> Opcodes.ILOAD;
                 case LONG -> Opcodes.LLOAD;
                 case FLOAT -> Opcodes.FLOAD;
                 case DOUBLE -> Opcodes.DLOAD;
-                case ARRAY -> Opcodes.AALOAD;
                 default -> throw new UnsupportedOperationException();
             };
 
@@ -968,7 +969,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
                         throw new TodoException();
                     }
                 }
-                case TempExpr tempExpr ->  {
+                case TempExpr tempExpr -> {
                     right.accept(this, frame);
                     store(tempExpr.getTemp().getIndex(), frame);
                 }
@@ -977,9 +978,39 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         } else {
             binOp.getLeft().accept(this, frame);
             binOp.getRight().accept(this, frame);
+
+            if (binOp.getTag() == Tag.ADD) {
+              methodWriter.visitInsn(resolveAddOpcode());
+            } else if (binOp.getTag() == Tag.SUB) {
+                methodWriter.visitInsn(resolveSubOpcode());
+            }
         }
 
         return new Temp(-1);
+    }
+
+    private int resolveAddOpcode() {
+        final var top = peek();
+
+        return switch (top.getSort()) {
+            case Type.INT ->  Opcodes.IADD;
+            case Type.LONG -> Opcodes.LADD;
+            case Type.FLOAT -> Opcodes.FADD;
+            case Type.DOUBLE -> Opcodes.DADD;
+            default -> throw new UnsupportedOperationException();
+        };
+    }
+
+    private int resolveSubOpcode() {
+        final var top = peek();
+
+        return switch (top.getSort()) {
+            case Type.INT ->  Opcodes.ISUB;
+            case Type.LONG -> Opcodes.LSUB;
+            case Type.FLOAT -> Opcodes.FSUB;
+            case Type.DOUBLE -> Opcodes.DSUB;
+            default -> throw new UnsupportedOperationException();
+        };
     }
 
     private String getNameString(final IExpression expression) {
@@ -1017,7 +1048,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
         final var asmLabel = getOrCreateLabel(label);
         methodWriter.visitLabel(asmLabel);
 
-        frame.getLocals().forEach(local -> {
+        frame.getAllLocals().forEach(local -> {
             if (local.getStart() == null) {
                 local.setStart(label);
             }
@@ -1037,7 +1068,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
     @Override
     public void visitThrowStatement(final IThrowStatement throwStatement, final Frame frame) {
-        throwStatement.getExp().accept(this,  frame);
+        throwStatement.getExp().accept(this, frame);
         methodWriter.visitInsn(Opcodes.ATHROW);
     }
 
@@ -1237,7 +1268,7 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         switch (top.getSort()) {
             case Type.BOOLEAN, Type.BYTE -> methodWriter.visitInsn(Opcodes.BALOAD);
-            case Type.CHAR ->  methodWriter.visitInsn(Opcodes.CALOAD);
+            case Type.CHAR -> methodWriter.visitInsn(Opcodes.CALOAD);
             case Type.SHORT -> methodWriter.visitInsn(Opcodes.SALOAD);
             case Type.INT -> methodWriter.visitInsn(Opcodes.IALOAD);
             case Type.FLOAT -> methodWriter.visitInsn(Opcodes.FLOAD);
@@ -1248,50 +1279,4 @@ public class AsmMethodByteCodeGenerator implements CodeVisitor<Frame> {
 
         return null;
     }
-}
-
-record MethodHeader(List<Parameter> parameters,
-                    IType returnType) {
-}
-
-record Parameter(String name, IType type,
-                 List<? extends AnnotationMirror> annotationMirrors) {
-}
-
-record Annotation(String descriptor, boolean isVisible) {
-}
-
-class StringConcatCodeVisitor implements CodeVisitor<Frame> {
-
-    private final AsmMethodByteCodeGenerator visitor;
-
-    StringConcatCodeVisitor(final AsmMethodByteCodeGenerator visitor) {
-        this.visitor = visitor;
-    }
-
-    @Override
-    public Temp visitUnknown(final INode node, final Frame frame) {
-        throw new TodoException(node.getClass().getName());
-    }
-
-    @Override
-    public Temp visitBinop(final BinOp binOp, final Frame frame) {
-        binOp.getLeft().accept(this, frame);
-        binOp.getRight().accept(this, frame);
-        return null;
-    }
-
-    @Override
-    public Temp visitConst(final Const cnst, final Frame frame) {
-        if (!AsmMethodByteCodeGenerator.STRING_TYPE.equals(cnst.getType())) {
-            return cnst.accept(visitor, frame);
-        }
-        return null;
-    }
-
-    @Override
-    public Temp visitCall(final Call call, final Frame frame) {
-        return call.accept(visitor, frame);
-    }
-
 }

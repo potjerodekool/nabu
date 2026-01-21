@@ -157,6 +157,35 @@ abstract class AbstractTypePrinter implements TypeVisitor<Object, Object> {
         return null;
     }
 
+    @Override
+    public Object visitVariableType(final VariableType variableType, final Object param) {
+        final var interferedType = variableType.getInterferedType();
+
+        if (interferedType != null) {
+            interferedType.accept(this, param);
+        } else {
+            print("var");
+        }
+        return null;
+    }
+
+    @Override
+    public Object visitArrayType(final ArrayType arrayType, final Object param) {
+        int dimensions = 1;
+        var componentType = arrayType.getComponentType();
+
+        while (componentType instanceof ArrayType subArrayType) {
+            componentType = subArrayType.getComponentType();
+            dimensions++;
+        }
+        componentType.accept(this, param);
+
+        for (int dimension = 0; dimension < dimensions; dimension++) {
+            print("[]");
+        }
+        return null;
+    }
+
     void print(final String text) {
         builder.append(text);
     }

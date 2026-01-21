@@ -2,9 +2,9 @@ package io.github.potjerodekool.nabu.compiler.frontend.parser.java;
 
 import io.github.potjerodekool.nabu.Java20Lexer;
 import io.github.potjerodekool.nabu.Java20Parser;
-import io.github.potjerodekool.nabu.test.TreePrinter;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.compiler.io.impl.NabuFileObject;
+import io.github.potjerodekool.nabu.tools.PathFileObject;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -47,13 +47,12 @@ class JavaCompilerVisitorTest {
     private void parse(final String code,
                        final Function<Java20Parser, ParseTree> function1) {
         final var parser = createParser(code);
-        final var fileObject = new NabuFileObject(
+        final var fileObject = new PathFileObject(
                 new FileObject.Kind(".nabu", true),
                 Paths.get("SomeClass.class")
         );
 
         final var visitor = new JavaCompilerVisitor(fileObject);
-        final var printer = new TreePrinter();
         final ParseTree functionResult = function1.apply(parser);
         final var visitorResult = functionResult.accept(visitor);
         System.out.println(visitorResult);

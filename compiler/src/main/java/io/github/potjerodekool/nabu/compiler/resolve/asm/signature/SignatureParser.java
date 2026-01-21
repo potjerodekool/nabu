@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
@@ -24,9 +24,9 @@ public class SignatureParser extends AbstractVisitor {
     private MutableType returnType;
 
     public SignatureParser(final int api,
-                           final ClassElementLoader loader,
+                           final CompilerContext compilerContext,
                            final ModuleSymbol moduleSymbol) {
-        super(api, loader, null, moduleSymbol);
+        super(api, compilerContext, null, moduleSymbol);
     }
 
     @Override
@@ -53,17 +53,17 @@ public class SignatureParser extends AbstractVisitor {
 
     public List<TypeMirror> createFormalTypeParameters() {
         return formalTypeParameters.stream()
-                .map(it -> it.toType(loader, new HashMap<>()))
+                .map(it -> it.toType(types, new HashMap<>()))
                 .toList();
     }
 
     public TypeMirror createSuperType() {
-        return superType.toType(loader, new HashMap<>());
+        return superType.toType(types, new HashMap<>());
     }
 
     public List<TypeMirror> createInterfaceTypes() {
         return interfaceTypes.stream()
-                .map(it -> it.toType(loader, new HashMap<>()))
+                .map(it -> it.toType(types, new HashMap<>()))
                 .toList();
     }
 
@@ -113,27 +113,27 @@ public class SignatureParser extends AbstractVisitor {
     }
 
     public TypeMirror createFieldType() {
-        return superType.toType(loader, new HashMap<>());
+        return superType.toType(types, new HashMap<>());
     }
 
     public MethodSignature createMethodSignature() {
         final var typeVariablesMap = new HashMap<String, TypeVariable>();
 
         final var typeParameters  = formalTypeParameters.stream()
-                .map(fp -> (TypeVariable) fp.toType(loader, typeVariablesMap))
+                .map(fp -> (TypeVariable) fp.toType( types, typeVariablesMap))
                 .toList();
 
         final var paramTypes = parameterTypes.stream()
-                .map(it -> it.toType(loader, typeVariablesMap))
+                .map(it -> it.toType(types, typeVariablesMap))
                 .toList();
 
         final var exceptionTypes = this.exceptionTypes.stream()
-                .map(it -> it.toType(loader, typeVariablesMap))
+                .map(it -> it.toType(types, typeVariablesMap))
                 .toList();
 
         return new MethodSignature(
                 typeParameters,
-                returnType.toType(loader, typeVariablesMap),
+                returnType.toType(types, typeVariablesMap),
                 paramTypes,
                 exceptionTypes
         );

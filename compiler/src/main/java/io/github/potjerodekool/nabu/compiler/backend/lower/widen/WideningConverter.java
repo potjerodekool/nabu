@@ -31,7 +31,7 @@ public class WideningConverter implements ExpressionConverter {
 
     public WideningConverter(final CompilerContext compilerContext) {
         this.compilerContext = compilerContext;
-        this.types = compilerContext.getClassElementLoader().getTypes();
+        this.types = compilerContext.getTypes();
         this.intWidener = new IntWidener(types);
     }
 

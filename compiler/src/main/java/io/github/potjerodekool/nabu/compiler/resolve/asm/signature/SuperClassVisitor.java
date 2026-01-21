@@ -3,16 +3,17 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.*;
 
 public class SuperClassVisitor extends AbstractVisitor {
 
     protected SuperClassVisitor(final int api,
-                                final ClassElementLoader loader,
+                                final CompilerContext compilerContext,
                                 final AbstractVisitor parent,
                                 final ModuleSymbol moduleSymbol) {
-        super(api, loader, parent, moduleSymbol);
+        super(api, compilerContext, parent, moduleSymbol);
     }
 
     @Override

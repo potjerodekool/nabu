@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.ResolverPhase;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ResolverPhase;
 
 public final class ResolvePhase {
 
@@ -12,11 +11,11 @@ public final class ResolvePhase {
                                                             final CompilerContextImpl compilerContext) {
         final var compilationUnit = fileObjectAndCompilationUnit.compilationUnit();
 
-        final var phase2Resolver = new ResolverPhase(
+        final var resolverPhase = new ResolverPhase(
                 compilerContext
         );
 
-        compilationUnit.accept(phase2Resolver, null);
+        resolverPhase.acceptTree(compilationUnit, null);
         return fileObjectAndCompilationUnit;
     }
 }

@@ -17,6 +17,7 @@ public enum StandardLocation implements FileManager.Location {
     SYSTEM_MODULES,
     MODULE_PATH,
     NATIVE_HEADER_OUTPUT,
+    ANNOTATION_PROCESSOR_PATH,
     ANNOTATION_PROCESSOR_MODULE_PATH,
     PATCH_MODULE_PATH;
 

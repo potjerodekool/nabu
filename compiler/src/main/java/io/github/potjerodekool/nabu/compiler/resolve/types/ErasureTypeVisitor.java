@@ -109,4 +109,11 @@ public class ErasureTypeVisitor implements TypeVisitor<TypeMirror, Boolean> {
         }
     }
 
+    @Override
+    public TypeMirror visitDeclaredType(final DeclaredType declaredType,
+                                        final Boolean param) {
+        return types.getDeclaredType(
+                declaredType.asTypeElement()
+        );
+    }
 }

@@ -9,7 +9,12 @@ import io.github.potjerodekool.nabu.lang.model.element.Attribute;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.tree.expression.ArrayAccessExpressionTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.util.Types;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.Type;
 
@@ -22,9 +27,10 @@ public class AsmAnnotationDefaultValueBuilder extends AbstractAsmAnnotationDefau
 
     public AsmAnnotationDefaultValueBuilder(final int api,
                                             final ClassElementLoader loader,
+                                            final Types types,
                                             final MethodSymbol method,
                                             final ModuleSymbol moduleSymbol) {
-        super(api, loader, moduleSymbol);
+        super(api, loader, types, moduleSymbol);
         this.methodSymbol = method;
     }
 
@@ -38,13 +44,16 @@ public class AsmAnnotationDefaultValueBuilder extends AbstractAsmAnnotationDefau
 abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisitor {
 
     protected final ClassElementLoader loader;
+    protected final Types types;
     private final ModuleSymbol moduleSymbol;
 
     protected AbstractAsmAnnotationDefaultValueBuilder(final int api,
                                                        final ClassElementLoader loader,
+                                                       final Types types,
                                                        final ModuleSymbol moduleSymbol) {
         super(api);
         this.loader = loader;
+        this.types = types;
         this.moduleSymbol = moduleSymbol;
     }
 
@@ -59,7 +68,29 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
     @Override
     public void visit(final String name,
                       final Object value) {
-        addAttribute(name, AnnotationBuilder.createConstantValue(value));
+        if (value instanceof Type type) {
+            final var typeMirror = getTypeMirror(type);
+            addAttribute(name, AnnotationBuilder.createConstantValue(typeMirror));
+        } else {
+            addAttribute(name, AnnotationBuilder.createConstantValue(value));
+        }
+    }
+
+    private TypeMirror getTypeMirror(final Type type) {
+        return switch (type.getSort()) {
+            case Type.VOID -> types.getNoType(TypeKind.VOID);
+            case Type.BOOLEAN -> types.getPrimitiveType(TypeKind.BOOLEAN);
+            case Type.CHAR -> types.getPrimitiveType(TypeKind.CHAR);
+            case Type.BYTE -> types.getPrimitiveType(TypeKind.BYTE);
+            case Type.SHORT -> types.getPrimitiveType(TypeKind.SHORT);
+            case Type.INT -> types.getPrimitiveType(TypeKind.INT);
+            case Type.FLOAT -> types.getPrimitiveType(TypeKind.FLOAT);
+            case Type.LONG -> types.getPrimitiveType(TypeKind.LONG);
+            case Type.DOUBLE -> types.getPrimitiveType(TypeKind.DOUBLE);
+            case Type.ARRAY -> types.getArrayType(getTypeMirror(type.getElementType()));
+            case Type.OBJECT -> loader.loadClass(moduleSymbol, type.getInternalName()).asType();
+            default -> throw new UnsupportedOperationException("Unsupported type" + type.getSort());
+        };
     }
 
     @Override
@@ -87,6 +118,7 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
         return new AsmAnnotationDefaultValueAnnotationBuilder(
                 api,
                 loader,
+                types,
                 annotation,
                 moduleSymbol
         );
@@ -100,6 +132,7 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
         return new AsmAnnotationDefaultValueArrayBuilder(
                 api,
                 loader,
+                types,
                 attribute,
                 moduleSymbol
         );
@@ -113,9 +146,10 @@ class AsmAnnotationDefaultValueArrayBuilder extends AbstractAsmAnnotationDefault
 
     protected AsmAnnotationDefaultValueArrayBuilder(final int api,
                                                     final ClassElementLoader loader,
+                                                    final Types types,
                                                     final CArrayAttributeProxy attribute,
                                                     final ModuleSymbol moduleSymbol) {
-        super(api, loader, moduleSymbol);
+        super(api, loader, types, moduleSymbol);
         this.arrayAttribute = attribute;
     }
 
@@ -132,9 +166,10 @@ class AsmAnnotationDefaultValueAnnotationBuilder extends AbstractAsmAnnotationDe
 
     protected AsmAnnotationDefaultValueAnnotationBuilder(final int api,
                                                          final ClassElementLoader loader,
+                                                         final Types types,
                                                          final CCompoundAttribute annotation,
                                                          final ModuleSymbol moduleSymbol) {
-        super(api, loader, moduleSymbol);
+        super(api, loader, types, moduleSymbol);
         this.annotation = annotation;
     }
 

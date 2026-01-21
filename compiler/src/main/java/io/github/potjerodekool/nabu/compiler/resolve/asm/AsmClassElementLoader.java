@@ -1,25 +1,24 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 
-public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
+public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable {
 
     private final SymbolTable symbolTable;
 
-    private final TypesImpl types;
-
     public AsmClassElementLoader(final CompilerContextImpl compilerContext) {
+        compilerContext.put(new CompilerContextImpl.Key<>(), this);
         this.symbolTable = SymbolTable.getInstance(compilerContext);
-        this.types = new TypesImpl(symbolTable);
     }
 
     @Override
@@ -33,7 +32,7 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
         final var packageName = resolvePackagePart(flatName);
 
         if (packageName == null) {
-            return null;
+            return createError(name);
         }
 
         final var packageSymbol = symbolTable.lookupPackage(
@@ -44,7 +43,7 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
         packageSymbol.complete();
 
         if (!packageSymbol.exists()) {
-            return null;
+            return createError(name);
         }
 
         final var packageModule = packageSymbol.getModuleSymbol();
@@ -76,6 +75,15 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
         }
     }
 
+    private ErrorSymbol createError(final String name) {
+        /*
+        final var simpleNameStart = name.lastIndexOf('.') + 1;
+        final var simpleName = name.substring(simpleNameStart);
+        return new ErrorSymbol(simpleName);
+        */
+        return null;
+    }
+
     private String resolvePackagePart(final String name) {
         final var sep = name.lastIndexOf('.');
 
@@ -97,11 +105,6 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
     }
 
     @Override
-    public TypesImpl getTypes() {
-        return types;
-    }
-
-    @Override
     public PackageElement findOrCreatePackage(final ModuleElement moduleElement,
                                               final String packageName) {
         return symbolTable.lookupPackage((ModuleSymbol) moduleElement, packageName);
@@ -111,11 +114,6 @@ public class AsmClassElementLoader implements ClassSymbolLoader, AutoCloseable {
     public void importJavaLang(final ImportScope importScope) {
         final var javaLangPackage = symbolTable.lookupPackage(symbolTable.getUnnamedModule(), "java.lang");
         javaLangPackage.getMembers().elements().forEach(importScope::define);
-    }
-
-    @Override
-    public SymbolTable getSymbolTable() {
-        return symbolTable;
     }
 
     @Override

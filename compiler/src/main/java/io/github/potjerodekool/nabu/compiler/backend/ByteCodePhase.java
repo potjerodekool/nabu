@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend;
 
+import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
-import io.github.potjerodekool.nabu.compiler.impl.ErrorCapture;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
-import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
@@ -25,13 +25,19 @@ public final class ByteCodePhase {
 
     private static final Logger LOGGER = Logger.getLogger(ByteCodePhase.class.getName());
 
+    private final CompilerContextImpl compilerContext;
+
+    public ByteCodePhase(final CompilerContextImpl compilerContext) {
+        this.compilerContext = compilerContext;
+    }
+
     public int generate(final List<CompilationUnit> compilationUnits,
                         final CompilerOptions compilerOptions,
-                        final ErrorCapture errorCapture,
+                        final CompilerDiagnosticListener compilerDiagnosticListener,
                         final Path targetDirectory) {
-        if (errorCapture.getErrorCount() > 0) {
+        if (compilerDiagnosticListener.getErrorCount() > 0) {
             LOGGER.log(LogLevel.ERROR,
-                    "Compilation failed with " + errorCapture.getErrorCount() + " errors"
+                    "Compilation failed with " + compilerDiagnosticListener.getErrorCount() + " errors"
             );
             return 1;
         }
@@ -58,11 +64,16 @@ public final class ByteCodePhase {
         }
     }
 
+    private ByteCodeGenerator createByteCodeGenerator() {
+        return compilerContext.getPluginRegistry().getExtensionManager()
+                .createByteCodeGenerator();
+    }
+
     private void generateModule(final CompilerOptions compilerOptions,
                                 final ModuleDeclaration moduleDeclaration,
                                 final Path targetDirectory) {
-        final ByteCodeGenerator generator = new AsmByteCodeGenerator(compilerOptions);
-        generator.generate(moduleDeclaration, null);
+        final ByteCodeGenerator generator = createByteCodeGenerator();
+        generator.generate(moduleDeclaration, compilerOptions);
         final var name = "module-info";
         doGenerate(null, name, generator, targetDirectory);
     }
@@ -70,12 +81,12 @@ public final class ByteCodePhase {
     private void generateClass(final CompilerOptions compilerOptions,
                                final ClassDeclaration classDeclaration,
                                final Path targetDirectory) {
-        final ByteCodeGenerator generator = new AsmByteCodeGenerator(compilerOptions);
+        final ByteCodeGenerator generator = createByteCodeGenerator();
         final var classSymbol = classDeclaration.getClassSymbol();
 
         try {
             final var packageSymbol = findPackageSymbol(classSymbol.getEnclosingElement());
-            generator.generate(classDeclaration, null);
+            generator.generate(classDeclaration, compilerOptions);
             final var packageName = packageSymbol.getQualifiedName();
             final var fileName = fileName(packageName, classSymbol);
 

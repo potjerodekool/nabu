@@ -7,6 +7,7 @@ import io.github.potjerodekool.nabu.type.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class CClassType extends AbstractType implements DeclaredType {
 
@@ -99,7 +100,17 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     @Override
     public String toString() {
-        return element.getQualifiedName();
+        final var name = element.getQualifiedName();
+
+        if (!element.getTypeParameters().isEmpty()) {
+            final var typeArgs = getTypeArguments().stream()
+                    .map(Object::toString)
+                    .collect(Collectors.joining(",", "(", ")"));
+
+            return name + typeArgs;
+        }
+
+        return name;
     }
 
     @Override
@@ -144,11 +155,11 @@ public class CClassType extends AbstractType implements DeclaredType {
     @Override
     public boolean equals(final Object obj) {
         if (obj instanceof CClassType other) {
-            return Objects.equals(outerType, other.outerType)
-                    && Objects.equals(typeArguments, other.typeArguments)
-                    && Objects.equals(allParameters, other.allParameters)
-                    && Objects.equals(supertypeField, other.supertypeField)
-                    && Objects.equals(interfacesField, other.interfacesField);
+            return Objects.equals(getEnclosingType(), other.getEnclosingType())
+                    && Objects.equals(getTypeArguments(), other.getTypeArguments())
+                    && Objects.equals(getAllParameters(), other.getAllParameters())
+                    && Objects.equals(getSupertypeField(), other.getSupertypeField())
+                    &&  Objects.equals(getInterfacesField(), other.getInterfacesField());
         } else {
             return false;
         }

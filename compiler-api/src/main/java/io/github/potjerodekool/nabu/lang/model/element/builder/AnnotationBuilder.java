@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.lang.model.element.builder;
 
 import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
@@ -36,5 +37,9 @@ public final class AnnotationBuilder {
                 enumType,
                 enumValue
         );
+    }
+
+    public static ClassAttribute createClassAttribute(final TypeMirror type) {
+        return new CClassAttribute(type);
     }
 }

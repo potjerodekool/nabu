@@ -39,6 +39,8 @@ public class CCompilationTreeUnit extends CTree implements CompilationUnit {
 
     private ModuleElement moduleElement;
 
+    private String parsedBy;
+
     public CCompilationTreeUnit(final FileObject fileObject,
                                 final List<ImportItem> importItems,
                                 final List<Tree> declarations,
@@ -172,4 +174,7 @@ public class CCompilationTreeUnit extends CTree implements CompilationUnit {
         this.isTransformed = true;
     }
 
+    public void setParsedBy(final String parsedBy) {
+        this.parsedBy = parsedBy;
+    }
 }

@@ -7,6 +7,7 @@ import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -30,6 +31,7 @@ public abstract class AbstractSymbolBuilder<EB extends ElementBuilder<EB>> imple
         this.annotations.addAll(original.getAnnotationMirrors());
     }
 
+    @Override
     public long getFlags() {
         return flags;
     }
@@ -39,6 +41,7 @@ public abstract class AbstractSymbolBuilder<EB extends ElementBuilder<EB>> imple
         return self();
     }
 
+    @Override
     public ElementKind getKind() {
         return kind;
     }
@@ -61,6 +64,12 @@ public abstract class AbstractSymbolBuilder<EB extends ElementBuilder<EB>> imple
         return annotations;
     }
 
+    @Override
+    public EB annotations(final AnnotationMirror... annotations) {
+        return this.annotations(Arrays.asList(annotations));
+    }
+
+    @Override
     public EB annotations(final List<AnnotationMirror> annotations) {
         this.annotations.clear();
         this.annotations.addAll(annotations);

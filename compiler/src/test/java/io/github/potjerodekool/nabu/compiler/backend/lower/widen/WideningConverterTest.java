@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 class WideningConverterTest extends AbstractCompilerTest {
 
     private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = loader.getTypes();
+    private final Types types = getCompilerContext().getTypes();
     private final WideningConverter wideningConverter = new WideningConverter(getCompilerContext());
 
     @AfterEach

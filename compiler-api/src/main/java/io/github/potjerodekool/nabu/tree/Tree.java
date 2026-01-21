@@ -12,6 +12,4 @@ public interface Tree {
 
     void setType(TypeMirror type);
 
-    <R, P> R accept(TreeVisitor<R, P> visitor, P param);
-
 }

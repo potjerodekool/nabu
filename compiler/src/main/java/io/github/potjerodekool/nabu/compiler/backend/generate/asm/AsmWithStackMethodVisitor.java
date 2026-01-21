@@ -40,12 +40,20 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
             case Opcodes.LLOAD -> push(Type.LONG_TYPE);
             case Opcodes.FLOAD -> push(Type.FLOAT_TYPE);
             case Opcodes.DLOAD -> push(Type.DOUBLE_TYPE);
-            case Opcodes.ALOAD -> push(OBJECT_TYPE);
+            case Opcodes.ALOAD, Opcodes.AALOAD -> push(OBJECT_TYPE);
             case Opcodes.ISTORE,
                  Opcodes.LSTORE,
                  Opcodes.FSTORE,
                  Opcodes.DSTORE,
-                 Opcodes.ASTORE -> pop();
+                 Opcodes.ASTORE,
+                 Opcodes.AASTORE,
+                 Opcodes.BASTORE,
+                 Opcodes.CASTORE,
+                 Opcodes.DASTORE,
+                 Opcodes.FASTORE,
+                 Opcodes.IASTORE,
+                 Opcodes.LASTORE,
+                 Opcodes.SASTORE -> pop();
         }
     }
 
@@ -167,7 +175,11 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
         super.visitInsn(opcode);
 
         switch (opcode) {
-            case Opcodes.ICONST_M1,
+            case Opcodes.ACONST_NULL -> {
+                push(null);
+            }
+            case
+                 Opcodes.ICONST_M1,
                  Opcodes.ICONST_0,
                  Opcodes.ICONST_1,
                  Opcodes.ICONST_2,

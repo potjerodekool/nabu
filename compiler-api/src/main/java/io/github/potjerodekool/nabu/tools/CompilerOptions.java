@@ -5,7 +5,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Compiler options.
@@ -14,20 +14,23 @@ public interface CompilerOptions {
 
     Optional<String> getOption(CompilerOption compilerOption);
 
+    <T> Optional<T> getOption(CompilerOption compilerOption, Class<T> type);
+
+    <T> T getOption(CompilerOption compilerOption, T defaultValue, Class<T> type);
+
     Optional<Path> getPathOption(CompilerOption compilerOptions);
 
-    default Optional<Path> getTargetDirectory() {
-        return getPathOption(CompilerOption.TARGET_DIRECTORY);
+    boolean hasOption(CompilerOption compilerOption);
+
+    default Optional<Path> getClassOutput() {
+        return getPathOption(CompilerOption.CLASS_OUTPUT);
     }
 
     JavaVersion getTargetVersion();
 
-    /**
-     * @return Returns a set of source file extensions that should include to compile.
-     */
-    Set<String> getSourceFileExtensions();
-
     void forEach(final BiConsumer<CompilerOption, String> consumer);
+
+    Stream<Map.Entry<CompilerOption, String>> stream();
 
     class CompilerOptionsBuilder {
         private final Map<CompilerOption, String> options = new HashMap<>();
@@ -55,9 +58,44 @@ public interface CompilerOptions {
         }
 
         @Override
+        public <T> T getOption(final CompilerOption compilerOption, final T defaultValue, final Class<T> type) {
+            return getOption(compilerOption, type)
+                    .orElse(defaultValue);
+        }
+
+        @Override
+        public <T> Optional<T> getOption(final CompilerOption compilerOption,
+                                         final Class<T> type) {
+            return getOption(compilerOption)
+                    .map(value -> convertValue(value, type));
+        }
+
+        private <T> T convertValue(final String value,
+                                   final Class<T> targetType) {
+            if (targetType == String.class) {
+                return (T) value;
+            } else if (targetType == Boolean.class) {
+                return value.isEmpty()
+                        ? (T) Boolean.FALSE
+                        : (T) Boolean.valueOf(value);
+            } else if (targetType == Path.class) {
+                if (!value.isEmpty()) {
+                    return (T) Paths.get(value);
+                }
+            }
+            return null;
+        }
+
+
+        @Override
         public Optional<Path> getPathOption(final CompilerOption compilerOptions) {
             return getOption(compilerOptions)
                     .map(this::valueAsPath);
+        }
+
+        @Override
+        public boolean hasOption(final CompilerOption compilerOption) {
+            return this.options.containsKey(compilerOption);
         }
 
         private Path valueAsPath(final String value) {
@@ -84,21 +122,14 @@ public interface CompilerOptions {
         }
 
         @Override
-        public Set<String> getSourceFileExtensions() {
-            final var extensionsOptional = getOption(CompilerOption.SOURCE_FILE_EXTENSIONS);
-
-            return extensionsOptional
-                    .map(string -> Arrays.stream(string.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toSet())).orElseGet(Set::of);
-        }
-
-        @Override
         public void forEach(final BiConsumer<CompilerOption, String> consumer) {
             this.options.forEach(consumer);
         }
 
+        @Override
+        public Stream<Map.Entry<CompilerOption, String>> stream() {
+            return this.options.entrySet().stream();
+        }
     }
 
 }

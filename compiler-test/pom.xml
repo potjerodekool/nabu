@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.potjerodekool</groupId>
         <artifactId>nabu-parent</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>0.1.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>compiler-test</artifactId>
@@ -15,28 +15,8 @@
     <description>Nabu compiler tests</description>
     <url>https://github.com/potjerodekool/nabu</url>
 
-    <licenses>
-        <license>
-            <name>The Apache License, Version 2.0</name>
-            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
-        </license>
-    </licenses>
-
-    <developers>
-        <developer>
-            <name>Evert Tigchelaar</name>
-            <email>everttigchelaar@gmail.com</email>
-            <organizationUrl>https://github.com/potjerodekool</organizationUrl>
-        </developer>
-    </developers>
-
-    <scm>
-        <connection>https://github.com/potjerodekool/nabu.git</connection>
-        <developerConnection>https://github.com/potjerodekool/nabu.git</developerConnection>
-        <url>http://github.com/potjerodekool/nabu/tree/main</url>
-    </scm>
-
     <properties>
+        <org.mapstruct.version>1.6.3</org.mapstruct.version>
     </properties>
 
     <dependencies>
@@ -44,6 +24,19 @@
             <groupId>io.github.potjerodekool</groupId>
             <artifactId>nabu-jpa-support</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>${org.mapstruct.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.42</version>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -106,6 +99,12 @@
             <version>${asm.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-compiler</artifactId>
+            <version>0.1.0-SNAPSHOT</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -136,6 +135,7 @@
                         <configuration>
                             <sources>
                                 <source>src/main/nabu</source>
+                                <source>target/generated-src/annotations</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -145,6 +145,29 @@
                 <groupId>io.github.potjerodekool</groupId>
                 <artifactId>nabu-maven-plugin</artifactId>
                 <version>${project.version}</version>
+                <configuration>
+                    <generatedSourcesDirectory>${project.build.directory}/generated-src/annotations</generatedSourcesDirectory>
+                    <properties>
+                        <compile-generated-source>true</compile-generated-source>
+                    </properties>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.hibernate</groupId>
+                            <artifactId>hibernate-jpamodelgen</artifactId>
+                            <version>7.2.0.Final</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${org.mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                    <compilerArgs>
+                        <arg>
+                            -Amapstruct.verbose=true
+                        </arg>
+                    </compilerArgs>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
@@ -161,40 +184,27 @@
                 </dependencies>
             </plugin>
             <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>${maven.gpg.plugin.version}</version>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
                 <configuration>
                     <!--
-                    <keyname>${gpg.keyname}</keyname>
-                    <passphraseServerId>${gpg.keyname}</passphraseServerId>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${org.mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                     -->
-                    <useAgent>true</useAgent>
                 </configuration>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.sonatype.central</groupId>
-                <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.9.0</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <publishingServerId>ossrh</publishingServerId>
-                    <autoPublish>true</autoPublish>
-                    <waitUntil>published</waitUntil>
-                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.hibernate</groupId>
+                        <artifactId>hibernate-jpamodelgen</artifactId>
+                        <version>7.2.0.Final</version>
+                    </dependency>
+                </dependencies>
             </plugin>
         </plugins>
     </build>

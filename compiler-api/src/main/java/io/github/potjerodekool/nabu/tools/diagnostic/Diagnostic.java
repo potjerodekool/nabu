@@ -19,7 +19,7 @@ public interface Diagnostic {
      * @return Returns the diagnostic message in the given locale.
      * If the given locale isn't supported than the returned message should be in English.
      */
-    String getMessage(Locale locale);
+    CharSequence getMessage(Locale locale);
 
     /**
      * @return Return the FileObject associated with this Diagnostic.
@@ -32,7 +32,8 @@ public interface Diagnostic {
         ERROR,
         /** Warnings */
         WARN,
-        /** Information */
-        INFO
+        MANDATORY_WARNING,
+        NOTE,
+        OTHER
     }
 }

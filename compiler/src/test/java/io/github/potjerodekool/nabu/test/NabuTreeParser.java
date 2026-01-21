@@ -2,10 +2,12 @@ package io.github.potjerodekool.nabu.test;
 
 import io.github.potjerodekool.nabu.NabuLexer;
 import io.github.potjerodekool.nabu.NabuParser;
-import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.tools.PathFileObject;
 import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeUtils;
@@ -17,6 +19,7 @@ import org.antlr.v4.runtime.CodePointCharStream;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
 
+import java.nio.file.Paths;
 import java.util.function.Function;
 
 public class NabuTreeParser {
@@ -53,10 +56,18 @@ public class NabuTreeParser {
     }
 
     private void toAst(final Scope scope) {
-        final var visitor = new NabuCompilerVisitor(null);
+        final var file = new PathFileObject(
+                new FileObject.Kind(
+                        ".nabu",
+                        true
+                ),
+                Paths.get("MyClass.nabu")
+        );
+
+        final var visitor = new NabuCompilerVisitor(file);
         final var result = (Tree) parseTree.accept(visitor);
         final var postProcessor = new PostProcessor(compilerContext);
-        result.accept(postProcessor, scope);
+        postProcessor.acceptTree(result, scope);
         this.tree = result;
     }
 }

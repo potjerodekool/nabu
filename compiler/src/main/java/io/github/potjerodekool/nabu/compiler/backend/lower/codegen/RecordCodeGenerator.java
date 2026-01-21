@@ -1,8 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
@@ -10,7 +8,6 @@ import io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda.TypeExpress
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.Tag;
@@ -56,23 +53,7 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
 
         compactConstructorOptional.ifPresent(compactConstructor -> {
             fillCompactConstructor(compactConstructor, classDeclaration);
-            createRecordComponents(compactConstructor, classDeclaration);
             fillComponentAccessMethods(compactConstructor, classDeclaration);
-        });
-    }
-
-    private void createRecordComponents(final CFunction compactConstructor,
-                                        final ClassDeclaration classDeclaration) {
-        final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
-
-        compactConstructor.getParameters().forEach(parameter -> {
-            final var type = parameter.getName().getSymbol().asType();
-
-            clazz.addEnclosedElement(new VariableSymbolBuilderImpl()
-                    .kind(ElementKind.RECORD_COMPONENT)
-                    .simpleName(parameter.getName().getName())
-                    .type(type)
-                    .build());
         });
     }
 

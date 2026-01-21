@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 
 public class DefaultCodeGenerator extends AbstractCodeGenerator {
 

@@ -1,9 +1,11 @@
 package io.github.potjerodekool.nabu.test;
 
-import io.github.potjerodekool.nabu.compiler.io.impl.NabuFileObject;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.tools.PathFileObject;
 import io.github.potjerodekool.nabu.tree.Tree;
+import io.github.potjerodekool.nabu.testing.TreePrinter;
+
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CodePointCharStream;
 import org.antlr.v4.runtime.Parser;
@@ -46,7 +48,7 @@ public abstract class AbstractTreeAssert<P extends Parser> {
                                final Function<P, ParseTree> parseTreeBuilder,
                                final Function<String, String> actualTransformer) {
         final var parser = createParser(CharStreams.fromString(code));
-        final var fileObject = new NabuFileObject(
+        final var fileObject = new PathFileObject(
                 new FileObject.Kind(fileExtension, true),
                 Paths.get("SomeClass" + fileExtension)
         );
@@ -57,7 +59,7 @@ public abstract class AbstractTreeAssert<P extends Parser> {
         final var visitorResult = functionResult.accept(visitor);
         final var actual = switch (visitorResult) {
             case Tree tree -> {
-                tree.accept(printer, null);
+                printer.acceptTree(tree, null);
                 yield printer.getText();
             }
             case Long flag -> flagToName(flag);

@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.tools;
 
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilders;
+import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.resolve.ArgumentBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
@@ -9,6 +10,7 @@ import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
 import io.github.potjerodekool.nabu.tree.TreeUtils;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Elements;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.Optional;
 
@@ -16,6 +18,8 @@ import java.util.Optional;
  * Object to get utils.
  */
 public interface CompilerContext extends AutoCloseable {
+
+    FileManager getFileManager();
 
     /**
      * @return Returns the loader to load classes.
@@ -51,4 +55,12 @@ public interface CompilerContext extends AutoCloseable {
     ElementBuilders getElementBuilders();
 
     TreeUtils getTreeUtils();
+
+    CompilerOptions getCompilerOptions();
+
+    Modules getModules();
+
+    Optional<LanguageParser> getLanguageParser(FileObject.Kind kind);
+
+    Types getTypes();
 }

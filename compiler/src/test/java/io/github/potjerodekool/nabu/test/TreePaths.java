@@ -3,7 +3,11 @@ package io.github.potjerodekool.nabu.test;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -37,23 +41,37 @@ public class TreePaths {
     }
 
     private static List<? extends Tree> subTrees(final Tree tree) {
-        if (tree instanceof CompilationUnit compilationUnit) {
-            return compilationUnit.getClasses();
-        } else if (tree instanceof ClassDeclaration classDeclaration) {
-            return classDeclaration.getEnclosedElements();
-        } else {
-            return Collections.emptyList();
+        switch (tree) {
+            case CompilationUnit compilationUnit -> {
+                return compilationUnit.getClasses();
+            }
+            case ClassDeclaration classDeclaration -> {
+                return classDeclaration.getEnclosedElements();
+            }
+            case MethodInvocationTree methodInvocationTree -> {
+                return subTrees(methodInvocationTree.getMethodSelector());
+            }
+            case FieldAccessExpressionTree fieldAccessExpressionTree -> {
+                final var subtrees = new ArrayList<Tree>(subTrees(fieldAccessExpressionTree.getSelected()));
+                subtrees.add(fieldAccessExpressionTree.getField());
+                return subtrees;
+            }
+            case IdentifierTree identifierTree -> {
+                return List.of(identifierTree);
+            }
+            case null, default -> {
+                return Collections.emptyList();
+            }
         }
     }
 
     private static String getName(final Tree tree) {
-        if (tree instanceof ClassDeclaration classDeclaration) {
-            return classDeclaration.getSimpleName();
-        } else if (tree instanceof io.github.potjerodekool.nabu.tree.element.Function function) {
-            return function.getSimpleName();
-        } else {
-            return "";
-        }
+        return switch (tree) {
+            case ClassDeclaration classDeclaration -> classDeclaration.getSimpleName();
+            case io.github.potjerodekool.nabu.tree.element.Function function -> function.getSimpleName();
+            case IdentifierTree identifierTree -> identifierTree.getName();
+            case null, default -> "";
+        };
     }
 }
 

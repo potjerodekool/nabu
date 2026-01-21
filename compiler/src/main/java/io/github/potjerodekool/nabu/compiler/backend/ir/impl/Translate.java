@@ -12,7 +12,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
@@ -83,7 +83,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             frame.allocateLocal(Constants.THIS, IReferenceType.createClassType(null, className, List.of()), false);
         }
 
-        function.getParameters().forEach(p -> p.accept(this, context));
+        function.getParameters().forEach(p ->
+                acceptTree(p, context));
 
         Exp exp;
 
@@ -95,7 +96,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                         .build()
                 );
             }
-            exp = body.accept(this, context);
+            exp = acceptTree(body, context);
         } else {
             exp = new Nx(new Move(new TempExpr(), new TempExpr(Frame.V0)));
         }
@@ -107,9 +108,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             bodyStm = new Move(expr, new TempExpr(Frame.V0));
         }
 
-        final var procFrag = new ProcFrag(
-                bodyStm
-        );
+        final var procFrag = new ProcFrag(bodyStm, frame);
 
         method.setFrag(procFrag);
         return null;
@@ -266,7 +265,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         if (selected != null
                 && !isStatic) {
-            final var exp = selected.accept(this, context);
+            final var exp = acceptTree(selected, context);
             final var targetExpression = exp.unEx();
 
             if (targetExpression != null) {
@@ -287,7 +286,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         }
 
         final var expArgs = methodInvocation.getArguments().stream()
-                .map(a -> a.accept(this, context))
+                .map(a -> acceptTree(a, context))
                 .toList();
 
         expArgs.forEach(Objects::requireNonNull);
@@ -336,7 +335,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         if (expression == null) {
             expr = new TempExpr();
         } else {
-            final var exp = returnStatement.getExpression().accept(this, context);
+            final var exp = acceptTree(returnStatement.getExpression(), context);
             expr = exp.unEx();
         }
 
@@ -368,7 +367,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
         while (statements.hasNext()) {
             final var next = statements.next();
-            exp = next.accept(this, context);
+            exp = acceptTree(next, context);
             iStatements.add(exp.unNx());
         }
 
@@ -380,7 +379,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     public Exp visitLambdaExpression(final LambdaExpressionTree lambdaExpression,
                                      final TranslateContext context) {
         final var collector = new UsedVarsCollector();
-        lambdaExpression.accept(collector, context);
+        collector.acceptTree(lambdaExpression, context);
 
         final var frame = context.frame;
 
@@ -454,8 +453,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitBinaryExpression(final BinaryExpressionTree binaryExpression, final TranslateContext context) {
-        final var left = binaryExpression.getLeft().accept(this, context);
-        final var right = binaryExpression.getRight().accept(this, context);
+        final var left = acceptTree(binaryExpression.getLeft(), context);
+        final var right = acceptTree(binaryExpression.getRight(), context);
 
         if (left == null) {
             throw new NullPointerException();
@@ -517,7 +516,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         }
 
         if (variableDeclaratorStatement.getValue() != null) {
-            final var value = variableDeclaratorStatement.getValue().accept(this, context);
+            final var value = acceptTree(variableDeclaratorStatement.getValue(), context);
             final var identifier = variableDeclaratorStatement.getName();
             final var varType = toIType(variableDeclaratorStatement.getVariableType().getType());
 
@@ -549,7 +548,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitUnaryExpression(final UnaryExpressionTree unaryExpression, final TranslateContext context) {
-        final var exp = unaryExpression.getExpression().accept(this, context);
+        final var exp = acceptTree(unaryExpression.getExpression(), context);
         var expression = exp.unEx();
 
         if (expression == null) {
@@ -572,10 +571,11 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitIfStatement(final IfStatementTree ifStatementTree, final TranslateContext context) {
-        final Exp condition = ifStatementTree.getExpression().accept(this, context);
-        final Exp trueExpression = ifStatementTree.getThenStatement().accept(this, context);
+        final Exp condition = acceptTree(ifStatementTree.getExpression(), context);
+        final Exp trueExpression = acceptTree(ifStatementTree.getThenStatement(), context);
+
         final Exp falseExpression = ifStatementTree.getElseStatement() != null
-                ? ifStatementTree.getElseStatement().accept(this, context)
+                ? acceptTree(ifStatementTree.getElseStatement(), context)
                 : new Nx(null);
 
         return new IfThenElseExp(
@@ -591,8 +591,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         final var field = fieldAccessExpression.getField();
         final var fieldType = toIType(compilerContext.getTreeUtils().typeOf(field));
 
-        final var selectedExpr = selected.accept(this, context).unEx();
-        final var fieldExpr = field.accept(this, context).unEx();
+        final var selectedExpr = acceptTree(selected, context).unEx();
+        final var fieldExpr = acceptTree(field, context).unEx();
 
         if (selectedExpr == null) {
             return new Ex(fieldExpr);
@@ -619,20 +619,21 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     @Override
     public Exp visitForStatement(final ForStatementTree forStatement, final TranslateContext context) {
         final var init = forStatement.getForInit().stream()
-                .map(it -> it.accept(this, context))
+                .map(it ->
+                        acceptTree(it, context))
                 .reduce((first, second) -> new Ex(new ExpList(first.unEx(), second.unEx())))
                 .orElse(new Ex(new TempExpr()));
 
         final var condition = forStatement.getCondition() != null
-                ? forStatement.getCondition().accept(this, context)
+                ? acceptTree(forStatement.getCondition(), context)
                 : new Ex(new TempExpr());
 
         final var update = forStatement.getForUpdate().stream()
-                .map(it -> it.accept(this, context))
+                .map(it -> acceptTree(it, context))
                 .reduce((first, second) -> new Ex(new ExpList(first.unEx(), second.unEx())))
                 .orElse(new Ex(new TempExpr()));
 
-        final var body = forStatement.getStatement().accept(this, context);
+        final var body = acceptTree(forStatement.getStatement(), context);
 
         return new ForExpr(
                 init,
@@ -645,7 +646,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     @Override
     public Exp visitExpressionStatement(final ExpressionStatementTree expressionStatement, final TranslateContext context) {
         final var expression = expressionStatement.getExpression();
-        final var expr = expression.accept(this, context).unEx();
+        final var expr = acceptTree(expression, context).unEx();
 
         if (expression instanceof MethodInvocationTree methodInvocationTree) {
             if (methodInvocationTree.getMethodType().getReturnType().getKind() != TypeKind.VOID) {
@@ -665,7 +666,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitCastExpression(final CastExpressionTree castExpression, final TranslateContext param) {
-        final var expression = castExpression.getExpression().accept(this, param).unEx();
+        final var expression = acceptTree(castExpression.getExpression(), param).unEx();
         final var targetType = castExpression.getTargetType();
         final var castType = ToIType.toIType(targetType.getType());
         return new Ex(new ITypeExpression(
@@ -677,8 +678,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitWhileStatement(final WhileStatementTree whileStatement, final TranslateContext context) {
-        final var condition = whileStatement.getCondition().accept(this, context);
-        final var body = whileStatement.getBody().accept(this, context);
+        final var condition = acceptTree(whileStatement.getCondition(), context);
+        final var body = acceptTree(whileStatement.getBody(), context);
 
         return new WhileExp(
                 condition,
@@ -688,8 +689,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final TranslateContext context) {
-        final var body = doWhileStatement.getBody().accept(this, context);
-        final var condition = doWhileStatement.getCondition().accept(this, context);
+        final var body = acceptTree(doWhileStatement.getBody(), context);
+        final var condition = acceptTree(doWhileStatement.getCondition(), context);
 
         return new DoWhileExp(
                 body,
@@ -699,7 +700,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final TranslateContext param) {
-        final var expression = instanceOfExpression.getExpression().accept(this, param).unEx();
+        final var expression = acceptTree(instanceOfExpression.getExpression(), param).unEx();
         final var targetType = (IdentifierTree) instanceOfExpression.getTypeExpression();
         final var clazz = ToIType.toIType(targetType.getType());
 
@@ -725,7 +726,8 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
                 .toList();
 
         final var arguments = newClassExpression.getArguments().stream()
-                .map(arg -> arg.accept(this, param))
+                .map(arg ->
+                        acceptTree(arg, param))
                 .map(Exp::unEx)
                 .toList();
 
@@ -754,7 +756,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
         }
 
         final var dimension = dimensions.getFirst();
-        final var dimExpr = dimension.accept(this, param);
+        final var dimExpr = acceptTree(dimension, param);
 
         final var type = (IdentifierTree) newArrayExpression.getElementType();
         final var clazz = ToIType.toIType(type.getType());
@@ -772,7 +774,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             final var expressions = new ArrayList<IExpression>();
 
             for (var index = 0; index < elements.size(); index++) {
-                final var exp = elements.get(index).accept(this, param).unEx();
+                final var exp = acceptTree(elements.get(index), param).unEx();
 
                 expressions.add(new ExpList(
                         InstExpression.dup(),
@@ -792,15 +794,15 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
     @Override
     public Exp visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree,
                                 final TranslateContext context) {
-        final var exp = arrayAccessExpressionTree.getExpression().accept(this, context);
-        final var index = arrayAccessExpressionTree.getIndex().accept(this, context);
+        final var exp = acceptTree(arrayAccessExpressionTree.getExpression(), context);
+        final var index = acceptTree(arrayAccessExpressionTree.getIndex(), context);
         return new Ex(new ArrayLoad(exp.unEx(), index.unEx()));
     }
 
     @Override
     public Exp visitSwitchStatement(final SwitchStatement switchStatement,
                                     final TranslateContext context) {
-        final var selector = switchStatement.getSelector().accept(this, context);
+        final var selector = acceptTree(switchStatement.getSelector(), context);
         final var endLabel = new ILabelStatement(new ILabel());
         var defaultLabel = endLabel.getLabel();
         final var keys = new ArrayList<Integer>();
@@ -835,7 +837,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
             statements.add(new ILabelStatement(label));
 
             final var body = caseStatement.getBody();
-            final var statement = body.accept(this, context).unNx();
+            final var statement = acceptTree(body, context).unNx();
 
             if (statement != null) {
                 statements.add(statement);
@@ -875,7 +877,7 @@ public class Translate extends AbstractTreeVisitor<Exp, TranslateContext> {
 
     @Override
     public Exp visitThrowStatement(final ThrowStatement throwStatement, final TranslateContext param) {
-        final var expr = throwStatement.getExpression().accept(this, param);
+        final var expr = acceptTree(throwStatement.getExpression(), param);
         return new Nx(Seq.seq(
                 new IThrowStatement(expr.unEx()),
                 new ILabelStatement()

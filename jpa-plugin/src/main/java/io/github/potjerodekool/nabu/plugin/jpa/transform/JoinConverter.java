@@ -42,7 +42,7 @@ public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
                             final String joinType) {
         this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
-        this.types = loader.getTypes();
+        this.types = compilerContext.getTypes();
         this.joinType = joinType;
     }
 
@@ -58,7 +58,7 @@ public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
                 scope
         );
 
-        field.accept(this, targetScope);
+        acceptTree(field, targetScope);
 
         final var literalExpression = TreeMaker.literalExpressionTree(
                 field.getName(),
@@ -144,7 +144,7 @@ public class JoinConverter extends AbstractTreeVisitor<Object, Scope> {
     private Scope visitFieldAccessExpressionTarget(final FieldAccessExpressionTree fieldAccessExpression,
                                                    final Scope scope) {
         final var selected = fieldAccessExpression.getSelected();
-        selected.accept(this, scope);
+        acceptTree(selected, scope);
 
         final var targetSymbol = getSymbol(fieldAccessExpression.getSelected());
         final var declaredType = switch (targetSymbol) {

@@ -6,7 +6,7 @@ import io.github.potjerodekool.nabu.type.TypeMirror;
  * An attribute
  */
 public sealed interface Attribute extends AnnotationValue
-        permits AbstractAttribute, ArrayAttribute, CompoundAttribute, ConstantAttribute, EnumAttribute {
+        permits AbstractAttribute, ArrayAttribute, ClassAttribute, CompoundAttribute, ConstantAttribute, EnumAttribute {
 
     /**
      * If the attribute is synthesized or not.

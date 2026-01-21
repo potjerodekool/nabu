@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.test;
 
 import io.github.potjerodekool.nabu.NabuLexer;
 import io.github.potjerodekool.nabu.NabuParser;
-import io.github.potjerodekool.nabu.compiler.frontend.parser.nabu.NabuCompilerVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import org.antlr.v4.runtime.*;
 import org.antlr.v4.runtime.tree.AbstractParseTreeVisitor;

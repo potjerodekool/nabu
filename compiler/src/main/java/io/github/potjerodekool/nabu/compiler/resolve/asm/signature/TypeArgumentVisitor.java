@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
@@ -15,11 +16,11 @@ public class TypeArgumentVisitor extends AbstractVisitor {
     private final char wildcard;
 
     protected TypeArgumentVisitor(final int api,
-                                  final ClassElementLoader loader,
+                                  final CompilerContext compilerContext,
                                   final AbstractVisitor parent,
                                   final char wildcard,
                                   final ModuleSymbol moduleSymbol) {
-        super(api, loader, parent, moduleSymbol);
+        super(api, compilerContext, parent, moduleSymbol);
         this.wildcard = wildcard;
     }
 

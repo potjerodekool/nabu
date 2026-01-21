@@ -9,6 +9,7 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
+import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 import java.util.Objects;
@@ -114,5 +115,10 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
     @Override
     public VariableDeclaratorTreeBuilder builder() {
         return new VariableDeclaratorTreeBuilder(this);
+    }
+
+    @Override
+    public TypeMirror getType() {
+        return variableType.getType();
     }
 }

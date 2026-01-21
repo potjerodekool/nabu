@@ -5,9 +5,13 @@ import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.*;
+import io.github.potjerodekool.nabu.tools.PathFileObject;
 import io.github.potjerodekool.nabu.util.Pair;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
@@ -34,8 +38,11 @@ public class NabuCFileManager implements FileManager {
         final List<BasicLocationHandler> locationHandlers = List.of(
                 new ClassPathLocationHandler(),
                 new SimpleLocationHandler(StandardLocation.SOURCE_PATH, CompilerOption.SOURCE_PATH),
+                new SimpleLocationHandler(StandardLocation.ANNOTATION_PROCESSOR_PATH, CompilerOption.ANNOTATION_PROCESSOR_PATH),
                 new SystemModulesLocationHandler(),
-                new ModuleSourcePathLocationHandler()
+                new ModuleSourcePathLocationHandler(),
+                new OutputLocationHandler(StandardLocation.CLASS_OUTPUT, CompilerOption.CLASS_OUTPUT),
+                new OutputLocationHandler(StandardLocation.SOURCE_OUTPUT, CompilerOption.SOURCE_OUTPUT)
         );
 
         for (final var locationHandler : locationHandlers) {
@@ -53,10 +60,8 @@ public class NabuCFileManager implements FileManager {
     }
 
     public void initialize(final PluginRegistry pluginRegistry) {
-        this.kindSet.addAll(
-                pluginRegistry.getExtensionManager().getLanguageParsers().stream()
-                        .map(LanguageParser::getSourceKind)
-                        .collect(Collectors.toSet()));
+        this.kindSet.addAll(pluginRegistry.getLanguageSupportManager().getSourceKinds());
+        this.kindSet.addAll(pluginRegistry.getLanguageParserManager().getSourceKinds());
 
         this.kindSet.add(FileObject.CLASS_KIND);
         this.kindSet.forEach(kind -> this.extensionToKind.put(kind.extension(), kind));
@@ -106,7 +111,7 @@ public class NabuCFileManager implements FileManager {
         return doGetLocationForModule(locationToUse, moduleName);
     }
 
-    private FileManager.Location doGetLocationForModule(final FileManager.Location location,
+    private Location doGetLocationForModule(final Location location,
                                                         final String moduleName) {
         final var handler = getLocationHandler(location);
         return handler != null
@@ -126,7 +131,22 @@ public class NabuCFileManager implements FileManager {
 
 
     private Path getSourceOutDir() {
-        return null;
+        return getOutputLocation(StandardLocation.SOURCE_OUTPUT);
+    }
+
+    private Path getClassOutDir() {
+        return getOutputLocation(StandardLocation.CLASS_OUTPUT);
+    }
+
+    private Path getOutputLocation(final Location location) {
+        checkIfOutputLocation(location);
+        final var handler = getLocationHandler(location);
+
+        if (handler instanceof OutputLocationHandler outputLocationHandler) {
+            return outputLocationHandler.getOutputDirectory();
+        } else {
+            return null;
+        }
     }
 
     @Override
@@ -138,7 +158,7 @@ public class NabuCFileManager implements FileManager {
         use(path.getFileSystem(), fileSystem -> {
             if (Files.isRegularFile(path)) {
                 final var kind = extensionToFileObjectKind(path.getFileName().toString());
-                list.add(new NabuFileObject(kind, path));
+                list.add(new PathFileObject(kind, path));
             } else if (Files.isDirectory(path)) {
                 collectFiles(
                         path,
@@ -187,6 +207,64 @@ public class NabuCFileManager implements FileManager {
     }
 
     @Override
+    public FileObject getJavaFileForOutput(final Location location,
+                                           final String className,
+                                           final FileObject.Kind kind,
+                                           final FileObject sibling) {
+        checkIfOutputLocation(location);
+        checkIfSourceOrClass(kind);
+        return getFileForOutput(location, className, kind, sibling);
+    }
+
+    @Override
+    public FileObject getFileForOutputForOriginatingFiles(final Location location,
+                                                          final String packageName,
+                                                          final String relativeName,
+                                                          final FileObject... originatingFiles) {
+        checkIfOutputLocation(location);
+        final var separatorIndex = relativeName.indexOf('.');
+        final var extension = relativeName.substring(separatorIndex);
+        final var className = packageName + "." + relativeName.substring(0, separatorIndex);
+        final var kind = new FileObject.Kind(extension, false);
+        return getFileForOutput(location, className, kind, null);
+    }
+
+    private FileObject getFileForOutput(final Location location,
+                                        final String className,
+                                        final FileObject.Kind kind,
+                                        final FileObject sibling) {
+        Path dir = null;
+
+        if (location == StandardLocation.SOURCE_OUTPUT) {
+            dir = getSourceOutDir() != null
+                    ? getSourceOutDir()
+                    : getClassOutDir();
+        } else if (location == StandardLocation.CLASS_OUTPUT) {
+            dir = getClassOutDir();
+        }
+
+        if (dir == null) {
+            dir = Paths.get(System.getProperty("user.dir"));
+        }
+
+        final var fileName = className.replace('.', '/')  + kind.extension();
+        final var file = dir.resolve(fileName);
+        return new PathFileObject(kind, file);
+    }
+
+    private void checkIfOutputLocation(final Location location) {
+        if (!location.isOutputLocation()) {
+            throw new IllegalArgumentException(String.format("Location %s isn't a output location ", location.getName()));
+        }
+    }
+
+    private void checkIfSourceOrClass(final FileObject.Kind kind) {
+        if (!kind.isSource() && !FileObject.CLASS_KIND.equals(kind)) {
+            throw new IllegalArgumentException(String.format("kind is not source or class kind. Extension %s", kind.extension()));
+        }
+    }
+
+    @Override
     public boolean hasLocation(final Location location) {
         return handlersForLocation.containsKey(location);
     }
@@ -215,7 +293,7 @@ public class NabuCFileManager implements FileManager {
     }
 
     @Override
-    public Iterable<Set<FileManager.Location>> listLocationsForModules(final StandardLocation location) {
+    public Iterable<Set<Location>> listLocationsForModules(final StandardLocation location) {
         if (check(location)) {
             final var locationHandler = getLocationHandler(location);
 
@@ -257,7 +335,7 @@ public class NabuCFileManager implements FileManager {
             }
 
             if (Files.exists(subPath)) {
-                return new NabuFileObject(
+                return new PathFileObject(
                         kind,
                         subPath
                 );
@@ -311,7 +389,7 @@ public class NabuCFileManager implements FileManager {
         });
     }
 
-    private List<NabuFileObject> listFilesOf(final Path packagePath,
+    private List<PathFileObject> listFilesOf(final Path packagePath,
                                              final Set<FileObject.Kind> kinds) {
         try (final var stream = Files.list(packagePath)) {
             return stream
@@ -332,7 +410,7 @@ public class NabuCFileManager implements FileManager {
                         return new Pair<>(resolvedKind, file);
                     })
                     .filter(it -> it.first() != null)
-                    .map(fileAndKind -> new NabuFileObject(fileAndKind.first(), fileAndKind.second()))
+                    .map(fileAndKind -> new PathFileObject(fileAndKind.first(), fileAndKind.second()))
                     .toList();
         } catch (final IOException ignored) {
         }
@@ -410,6 +488,25 @@ public class NabuCFileManager implements FileManager {
         return Optional.ofNullable(this.handlerForOption.get(compilerOption));
     }
 
+    public ClassLoader getClassLoader(final Location location) {
+        final var handler = getLocationHandler(location);
+
+        if (handler == null) {
+            return null;
+        }
+
+        final var urls = handler.getPaths().stream()
+                .map(path -> {
+                    try {
+                        return path.toUri().toURL();
+                    } catch (final MalformedURLException e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .toArray(URL[]::new);
+        return new URLClassLoader(urls);
+    }
 }
 
 class DirectoryVisitor implements FileVisitor<Path> {
@@ -447,7 +544,7 @@ class DirectoryVisitor implements FileVisitor<Path> {
 
         if (fileExtension != null && this.extensionToKind.containsKey(fileExtension)) {
             final var kind = this.extensionToKind.get(fileExtension);
-            sourceFiles.add(new NabuFileObject(kind, file));
+            sourceFiles.add(new PathFileObject(kind, file));
         }
 
         return FileVisitResult.CONTINUE;

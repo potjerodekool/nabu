@@ -5,7 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
@@ -16,43 +16,97 @@ import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.CollectionUtils;
 import io.github.potjerodekool.nabu.util.Elements;
+import io.github.potjerodekool.nabu.util.Pair;
 import io.github.potjerodekool.nabu.util.Types;
 
+import java.io.IOException;
 import java.io.Writer;
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class ElementsImpl implements Elements {
 
+    private final CompilerContextImpl compilerContext;
     private final SymbolTable symbolTable;
     private final Types types;
     private final Modules modules;
+    private final Map<Pair<String, String>, Optional<Symbol>> resultCache = new HashMap<>();
 
     public ElementsImpl(final CompilerContextImpl compilerContext) {
+        this.compilerContext = compilerContext;
         this.symbolTable = SymbolTable.getInstance(compilerContext);
-        this.types = compilerContext.getClassElementLoader().getTypes();
+        this.types = compilerContext.getTypes();
         this.modules = Modules.getInstance(compilerContext);
     }
 
     @Override
-    public PackageElement getPackageElement(final String name) {
+    public PackageElement getPackageElement(final CharSequence name) {
         return getPackageElement(null, name);
     }
 
     @Override
     public PackageElement getPackageElement(final ModuleElement module,
-                                            final String name) {
-        return nameToSymbol((ModuleSymbol) module, name, PackageSymbol.class);
+                                            final CharSequence name) {
+        final ModuleSymbol moduleSymbol;
+
+        if (module == null) {
+            moduleSymbol = symbolTable.getUnnamedModule();
+        } else {
+            moduleSymbol = (ModuleSymbol) module;
+        }
+
+        return nameToSymbol(moduleSymbol, name.toString(), PackageSymbol.class);
     }
 
     @Override
-    public TypeElement getTypeElement(final String name) {
+    public TypeElement getTypeElement(final CharSequence name) {
         return getTypeElement(null, name);
     }
 
     @Override
-    public TypeElement getTypeElement(final ModuleElement module, final String name) {
-        return nameToSymbol((ModuleSymbol) module, name, ClassSymbol.class);
+    public TypeElement getTypeElement(final ModuleElement module, final CharSequence name) {
+        return getGetSymbol("getTypeElement", module, name, ClassSymbol.class);
+    }
+
+    private <S extends Symbol> S getGetSymbol(final String methodName,
+                                              final ModuleElement module,
+                                              final CharSequence name,
+                                              final Class<S> clazz) {
+        final var nameString = name.toString();
+
+        if (module == null) {
+            return unboundNameToSymbol(methodName, nameString, clazz);
+        } else {
+            return nameToSymbol((ModuleSymbol) module, nameString, clazz);
+        }
+    }
+
+    private <S extends Symbol> S unboundNameToSymbol(final String methodName,
+                                                     final String name,
+                                                     final Class<S> clazz) {
+        final var result = resultCache.computeIfAbsent(new Pair<>(methodName, name), p -> {
+            final var allModules = new HashSet<>(Modules.getInstance(compilerContext).allModules());
+            final var foundSymbols = allModules.stream()
+                    .map(module -> nameToSymbol(module, name, clazz))
+                    .filter(Objects::nonNull)
+                    .filter(s -> {
+                        if (clazz == ClassSymbol.class) {
+                            return true;
+                        } else if (clazz == PackageSymbol.class) {
+                            final var packageSymbol = (PackageSymbol) s;
+                            return !packageSymbol.getMembers().isEmpty() || packageSymbol.getPackageInfo() != null;
+                        } else {
+                            return false;
+                        }
+                    }).collect(Collectors.toSet());
+
+            if (foundSymbols.size() == 1) {
+                return Optional.of(foundSymbols.iterator().next());
+            } else {
+                return Optional.empty();
+            }
+        }).orElse(null);
+        return (S) result;
     }
 
     @Override
@@ -200,7 +254,7 @@ public class ElementsImpl implements Elements {
 
         if (hider.getKind() == ElementKind.METHOD) {
             if (!hider.isStatic()
-                || !types.isSubsignature((ExecutableType) hider.asType(), (ExecutableType) hidden.asType())) {
+                    || !types.isSubsignature((ExecutableType) hider.asType(), (ExecutableType) hidden.asType())) {
                 return false;
             }
         }
@@ -338,7 +392,15 @@ public class ElementsImpl implements Elements {
     }
 
     @Override
-    public void printElements(final Writer w, final Element... elements) {
+    public void printElements(final Writer w,
+                              final Element... elements) {
+        try {
+            for (final var element : elements) {
+                ElementPrinter.print(element, w);
+            }
+        } catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -350,9 +412,16 @@ public class ElementsImpl implements Elements {
     private <S extends Symbol> S nameToSymbol(final ModuleSymbol module,
                                               final String name,
                                               final Class<S> clazz) {
-        final Symbol symbol = (clazz == ClassSymbol.class)
+        Symbol symbol = (clazz == ClassSymbol.class)
                 ? symbolTable.getClassSymbol(module, name)
                 : symbolTable.lookupPackage(module, name);
+
+        if (symbol == null) {
+            symbol = (Symbol) this.compilerContext.getClassElementLoader().loadClass(
+                    module,
+                    name
+            );
+        }
 
         if (clazz.isInstance(symbol)
                 && symbol.getKind() != ElementKind.OTHER
@@ -480,6 +549,9 @@ public class ElementsImpl implements Elements {
 
         if (symbol.getKind() == ElementKind.MODULE) {
             return (ModuleElement) symbol;
+        } else if (symbol.getKind() == ElementKind.PACKAGE) {
+            final var packageSymbol = (PackageSymbol) symbol;
+            return packageSymbol.getModuleSymbol();
         } else {
             final var enclosingElement = symbol.getEnclosingElement();
             return enclosingElement != null
@@ -541,8 +613,8 @@ public class ElementsImpl implements Elements {
         switch (e.getKind()) {
             case PACKAGE -> {
                 final var packageSymbol = (PackageSymbol) e;
-                return packageSymbol.getClassSymbol() != null
-                        ? packageSymbol.getClassSymbol().getClassFile()
+                return packageSymbol.getPackageInfo() != null
+                        ? packageSymbol.getPackageInfo().getClassFile()
                         : null;
             }
             case MODULE -> {

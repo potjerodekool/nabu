@@ -12,7 +12,11 @@ public interface VariableElementBuilder<E extends VariableElement>
 
     VariableElementBuilder<E> type(TypeMirror type);
 
+    TypeMirror getType();
+
     VariableElementBuilder<E> constantValue(Object constantValue);
+
+    Object getConstantValue();
 
     @Override
     E build();

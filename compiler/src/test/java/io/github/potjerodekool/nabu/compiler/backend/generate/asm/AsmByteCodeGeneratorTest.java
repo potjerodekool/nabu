@@ -1,8 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate.asm;
 
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
@@ -19,14 +18,13 @@ import java.io.PrintWriter;
 class AsmByteCodeGeneratorTest extends AbstractCompilerTest {
 
     private final ByteCodeGenerator generator = new AsmByteCodeGenerator(
-            new CompilerOptions.CompilerOptionsBuilder()
-                    .build()
+            getCompilerContext()
     );
 
     @Disabled
     @Test
     void generate() {
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
         final var clazz = new ClassDeclarationBuilder()
                 .kind(Kind.CLASS)
                 .nestingKind(NestingKind.TOP_LEVEL)

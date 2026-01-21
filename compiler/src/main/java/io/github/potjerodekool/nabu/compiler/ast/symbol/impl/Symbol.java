@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -15,6 +17,8 @@ import java.lang.annotation.Annotation;
 import java.util.*;
 
 public abstract class Symbol implements Element {
+
+    private static final Logger LOGGER = Logger.getLogger(Symbol.class.getName());
 
     private String simpleName;
 
@@ -106,7 +110,7 @@ public abstract class Symbol implements Element {
     public void setSourceFile(final FileObject sourceFile) {
         this.sourceFile = sourceFile;
         this.isError = false;
-        validateSourceAndClassFile();
+        checkFiles();
     }
 
     public FileObject getClassFile() {
@@ -114,17 +118,20 @@ public abstract class Symbol implements Element {
     }
 
     public void setClassFile(final FileObject classFile) {
-        if (classFile.getKind() != FileObject.CLASS_KIND) {
+        if (classFile == null) {
+            this.classFile = null;
+            return;
+        } else if (classFile.getKind() != FileObject.CLASS_KIND) {
             throw new UnsupportedOperationException();
         }
         this.classFile = classFile;
         this.isError = false;
-        validateSourceAndClassFile();
+        checkFiles();
     }
 
-    private void validateSourceAndClassFile() {
+    private void checkFiles() {
         if (sourceFile != null && classFile != null) {
-            //logger.log(LogLevel.WARN, "Symbol " + this + " has both source and class file");
+            LOGGER.log(LogLevel.WARN, "Both source and classfile has been set");
         }
     }
 

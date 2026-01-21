@@ -8,12 +8,12 @@ public class DefaultDiagnostic implements Diagnostic {
 
     private final Kind kind;
 
-    private final String message;
+    private final CharSequence message;
 
     private final FileObject fileObject;
 
     public DefaultDiagnostic(final Kind kind,
-                             final String message,
+                             final CharSequence message,
                              final FileObject fileObject) {
         this.kind = kind;
         this.message = message;
@@ -26,7 +26,7 @@ public class DefaultDiagnostic implements Diagnostic {
     }
 
     @Override
-    public String getMessage(final Locale locale) {
+    public CharSequence getMessage(final Locale locale) {
         return message;
     }
 

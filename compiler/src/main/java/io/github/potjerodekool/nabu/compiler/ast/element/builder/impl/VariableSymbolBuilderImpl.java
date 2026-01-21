@@ -35,20 +35,23 @@ public class VariableSymbolBuilderImpl extends AbstractSymbolBuilder<VariableEle
     }
 
     @Override
+    public TypeMirror getType() {
+        return this.type;
+    }
+
+    @Override
     public VariableSymbolBuilderImpl constantValue(final Object constantValue) {
         this.constantValue = constantValue;
         return this;
     }
 
     @Override
+    public Object getConstantValue() {
+        return constantValue;
+    }
+
+    @Override
     public VariableSymbol build() {
-        return new VariableSymbol(
-                kind,
-                getFlags(),
-                simpleName,
-                type,
-                (Symbol) getEnclosingElement(),
-                constantValue
-        );
+        return new VariableSymbol(this);
     }
 }

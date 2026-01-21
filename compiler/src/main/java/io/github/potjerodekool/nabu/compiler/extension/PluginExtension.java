@@ -18,6 +18,17 @@ public class PluginExtension {
         return attributes.get(name);
     }
 
+    public boolean getBooleanAttribute(final String name,
+                                       final boolean defaultValue) {
+        final var value = getAttribute(name);
+
+        if (value == null) {
+            return defaultValue;
+        } else {
+            return Boolean.valueOf(value);
+        }
+    }
+
     public String getImplementationClass() {
         return attributes.get("implementationClass");
     }
@@ -55,6 +66,37 @@ public class PluginExtension {
             return instance;
         } catch (Exception e) {
             throw new RuntimeException("Failed to create extension " + extensionClass.getName() + " with implementation class " + implementationClass, e);
+        }
+    }
+
+    public boolean supportsJdkFeatureVersion(final int version) {
+        final var min = getMinJdk();
+
+        if (version < min) {
+            return false;
+        }
+
+        final var maxJdk = getMaxJdk();
+        return maxJdk == -1 || version < maxJdk;
+    }
+
+    private int getMinJdk() {
+        return tryParseInt(attributes.get("minJdk"), 1);
+    }
+
+    private int getMaxJdk() {
+        return tryParseInt(attributes.get("maxJdk"), -1);
+    }
+
+    private int tryParseInt(final String value,
+                            final int defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (final NumberFormatException e) {
+            return defaultValue;
         }
     }
 

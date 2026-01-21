@@ -24,7 +24,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
     public static String print(final Tree tree) {
         final var printer = new TreePrinter();
-        tree.accept(printer, null);
+        printer.acceptTree(tree, null);
         return printer.getText();
     }
 
@@ -83,7 +83,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             if (i > 0) {
                 write(sep);
             }
-            list.get(i).accept(this, param);
+            acceptTree(list.get(i), param);
         }
 
         return this;
@@ -97,22 +97,33 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitCompilationUnit(final CompilationUnit compilationUnit,
                                        final Object param) {
+        boolean addNewLine = false;
+
         if (compilationUnit.getPackageDeclaration() != null) {
-            compilationUnit.getPackageDeclaration().accept(this, param);
-            newLine();
+            acceptTree(compilationUnit.getPackageDeclaration(), param);
+            addNewLine = true;
         }
 
         if (!compilationUnit.getImportItems().isEmpty()) {
+            if (addNewLine) {
+                newLine();
+            }
             writeList(compilationUnit.getImportItems(), param, "\n");
             newLine();
+            addNewLine = true;
         }
 
         if (compilationUnit.getModuleDeclaration() != null) {
-            newLine();
-            compilationUnit.getModuleDeclaration().accept(this, param);
+            if (addNewLine) {
+                newLine();
+            }
+            acceptTree(compilationUnit.getModuleDeclaration(), param);
         } else {
-            newLine();
-            compilationUnit.getClasses().forEach(c -> c.accept(this, param));
+            if (addNewLine) {
+                newLine();
+            }
+            compilationUnit.getClasses().forEach(c ->
+                    acceptTree(c, param));
         }
 
         return null;
@@ -133,7 +144,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         }
 
         write("module ");
-        moduleDeclaration.getIdentifier().accept(this, param);
+        acceptTree(moduleDeclaration.getIdentifier(), param);
 
         writeLine(" {");
         incrementTabs();
@@ -162,7 +173,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         }
 
         write(" ");
-        requiresTree.getModuleName().accept(this, param);
+        acceptTree(requiresTree.getModuleName(), param);
         write(";");
         return null;
     }
@@ -171,7 +182,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitExports(final ExportsTree exportsTree,
                                final Object param) {
         write("exports ");
-        exportsTree.getPackageName().accept(this, param);
+        acceptTree(exportsTree.getPackageName(), param);
 
         if (!exportsTree.getModuleNames().isEmpty()) {
             write(" to ");
@@ -186,7 +197,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitOpens(final OpensTree opensTree,
                              final Object param) {
         write("opens ");
-        opensTree.getPackageName().accept(this, param);
+        acceptTree(opensTree.getPackageName(), param);
 
         if (!opensTree.getModuleNames().isEmpty()) {
             write(" to ");
@@ -201,7 +212,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitUses(final UsesTree usesTree,
                             final Object param) {
         write("uses ");
-        usesTree.getServiceName().accept(this, param);
+        acceptTree(usesTree.getServiceName(), param);
         write(";");
         return null;
     }
@@ -210,7 +221,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitProvides(final ProvidesTree providesTree,
                                 final Object param) {
         write("provides ");
-        providesTree.getServiceName().accept(this, param);
+        acceptTree(providesTree.getServiceName(), param);
         write(" with ");
         writeList(providesTree.getImplementationNames(), param, ", ");
         write(";");
@@ -236,7 +247,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write("static ");
         }
 
-        importItem.getQualified().accept(this, param);
+        acceptTree(importItem.getQualified(), param);
 
         write(";");
         return null;
@@ -255,7 +266,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write("(");
 
             if (function.getReceiverParameter() != null) {
-                function.getReceiverParameter().accept(this, param);
+                acceptTree(function.getReceiverParameter(), param);
                 write(", ");
             }
 
@@ -263,7 +274,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write("): ");
 
             if (function.getReturnType() != null) {
-                function.getReturnType().accept(this, param);
+                acceptTree(function.getReturnType(), param);
                 write(" ");
             }
 
@@ -274,12 +285,12 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             }
 
             if (function.getBody() != null) {
-                function.getBody().accept(this, param);
+                acceptTree(function.getBody(), param);
             }
         } else {
             write(function.getSimpleName());
             write(" = ");
-            function.getDefaultValue().accept(this, param);
+            acceptTree(function.getDefaultValue(), param);
         }
 
         return null;
@@ -311,7 +322,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
         if (expression != null) {
             write("return ");
-            expression.accept(this, param);
+            acceptTree(expression, param);
             write(";");
         } else {
             write("return;");
@@ -335,20 +346,20 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         write(")");
         write(" -> ");
 
-        lambdaExpression.getBody().accept(this, param);
+        acceptTree(lambdaExpression.getBody(), param);
         return null;
     }
 
     @Override
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression,
                                         final Object param) {
-        binaryExpression.getLeft().accept(this, param);
+        acceptTree(binaryExpression.getLeft(), param);
         write(" ");
 
         write(binaryExpression.getTag().getText());
 
         write(" ");
-        binaryExpression.getRight().accept(this, param);
+        acceptTree(binaryExpression.getRight(), param);
 
         return null;
     }
@@ -357,11 +368,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Object param) {
         if (fieldAccessExpression.getSelected() != null) {
-            fieldAccessExpression.getSelected().accept(this, param);
+            acceptTree(fieldAccessExpression.getSelected(), param);
             write(".");
         }
 
-        fieldAccessExpression.getField().accept(this, param);
+        acceptTree(fieldAccessExpression.getField(), param);
         return null;
     }
 
@@ -369,7 +380,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Object param) {
-        typeIdentifier.getClazz().accept(this, param);
+        acceptTree(typeIdentifier.getClazz(), param);
 
         if (typeIdentifier.getTypeParameters() != null
                 && !typeIdentifier.getTypeParameters().isEmpty()) {
@@ -388,7 +399,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         final ExpressionTree methodName;
 
         if (methodSelector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-            fieldAccessExpressionTree.getSelected().accept(this, param);
+            acceptTree(fieldAccessExpressionTree.getSelected(), param);
             write(".");
             methodName = fieldAccessExpressionTree.getField();
         } else {
@@ -402,7 +413,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write(">");
         }
 
-        methodName.accept(this, param);
+        acceptTree(methodName, param);
 
         write("(");
         writeList(methodInvocation.getArguments(), param);
@@ -428,7 +439,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitExpressionStatement(final ExpressionStatementTree expressionStatement,
                                            final Object param) {
-        expressionStatement.getExpression().accept(this, param);
+        acceptTree(expressionStatement.getExpression(), param);
         write(";");
         return null;
     }
@@ -436,6 +447,12 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration,
                              final Object param) {
+
+        if (classDeclaration.getModifiers().getFlags() != 0) {
+            printModifierFlags(classDeclaration.getModifiers().getFlags());
+            writer.write(" ");
+        }
+
         final var kindName = switch (classDeclaration.getKind()) {
             case CLASS -> "class";
             case INTERFACE -> "interface";
@@ -451,7 +468,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
 
         final var className = classDeclaration.getSimpleName();
-        write("public " + kindName + " ");
+        write(kindName + " ");
         write(className);
 
         if (!classDeclaration.getTypeParameters().isEmpty()) {
@@ -470,7 +487,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
         if (classDeclaration.getExtending() != null) {
             write(" extends ");
-            classDeclaration.getExtending().accept(this, param);
+            acceptTree(classDeclaration.getExtending(), param);
         }
 
         if (!classDeclaration.getImplementing().isEmpty()) {
@@ -542,7 +559,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitAnnotation(final AnnotationTree annotationTree,
                                   final Object param) {
         write("@");
-        annotationTree.getName().accept(this, param);
+        acceptTree(annotationTree.getName(), param);
 
         if (!annotationTree.getArguments().isEmpty()) {
             write("(");
@@ -556,9 +573,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression,
                                             final Object param) {
-        instanceOfExpression.getExpression().accept(this, param);
+        acceptTree(instanceOfExpression.getExpression(), param);
         write(" instanceof ");
-        instanceOfExpression.getTypeExpression().accept(this, param);
+        acceptTree(instanceOfExpression.getTypeExpression(), param);
         return null;
     }
 
@@ -567,7 +584,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                                     final Object param) {
         write("for (");
         writeList(forStatement.getForInit(), param, ", ");
-        forStatement.getCondition().accept(this, param);
+        acceptTree(forStatement.getCondition(), param);
         write(";");
 
         if (!forStatement.getForUpdate().isEmpty()) {
@@ -580,7 +597,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         }
         write(")");
 
-        forStatement.getStatement().accept(this, param);
+        acceptTree(forStatement.getStatement(), param);
         return null;
     }
 
@@ -591,11 +608,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             if (variableDeclaratorStatement.getNameExpression() == null) {
                 write(variableDeclaratorStatement.getName().getName()).write(" : ");
             } else {
-                variableDeclaratorStatement.getNameExpression().accept(this, param);
+                acceptTree(variableDeclaratorStatement.getNameExpression(), param);
                 write(" : ");
             }
 
-            variableDeclaratorStatement.getVariableType().accept(this, param);
+            acceptTree(variableDeclaratorStatement.getVariableType(), param);
 
             if (Flags.hasFlag(variableDeclaratorStatement.getFlags(), Flags.VARARGS)) {
                 write("...");
@@ -615,13 +632,13 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write("var ");
         }
 
-        variableDeclaratorStatement.getName().accept(this, param);
+        acceptTree(variableDeclaratorStatement.getName(), param);
 
         if (variableDeclaratorStatement.getKind() != Kind.ENUM_CONSTANT
             && variableDeclaratorStatement.getVariableType() != null
             && !(variableDeclaratorStatement.getVariableType() instanceof VariableTypeTree)) {
             write(" : ");
-            variableDeclaratorStatement.getVariableType().accept(this, param);
+            acceptTree(variableDeclaratorStatement.getVariableType(), param);
         }
 
         if (variableDeclaratorStatement.getKind() == Kind.ENUM_CONSTANT) {
@@ -636,7 +653,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                 writeList(newClassExpression.getArguments(), param, ", ");
                 write(")");
             } else if (value != null) {
-                value.accept(this, param);
+                acceptTree(value, param);
             }
 
         } else if ( (variableDeclaratorStatement.getKind() != Kind.FIELD
@@ -645,7 +662,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                 (variableDeclaratorStatement.getKind() == Kind.FIELD
                 && variableDeclaratorStatement.getValue() instanceof LiteralExpressionTree)) {
             write(" = ");
-            variableDeclaratorStatement.getValue().accept(this, param);
+            acceptTree(variableDeclaratorStatement.getValue(), param);
         }
 
         if (variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE
@@ -692,10 +709,10 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitCastExpression(final CastExpressionTree castExpressionTree,
                                       final Object param) {
         write("(");
-        castExpressionTree.getTargetType().accept(this, param);
+        acceptTree(castExpressionTree.getTargetType(), param);
         write(") ");
 
-        castExpressionTree.getExpression().accept(this, param);
+        acceptTree(castExpressionTree.getExpression(), param);
         return null;
     }
 
@@ -704,7 +721,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                                 final Object param) {
         if (newClassExpression.getName() != null) {
             write("new ");
-            newClassExpression.getName().accept(this, param);
+            acceptTree(newClassExpression.getName(), param);
         }
 
         write("(");
@@ -725,9 +742,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitWhileStatement(final WhileStatementTree whileStatement,
                                       final Object param) {
         write("while(");
-        whileStatement.getCondition().accept(this, param);
+        acceptTree(whileStatement.getCondition(), param);
         writeLine(")");
-        whileStatement.getBody().accept(this, param);
+        acceptTree(whileStatement.getBody(), param);
         return null;
     }
 
@@ -746,11 +763,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         switch (wildCardExpression.getBoundKind()) {
             case EXTENDS -> {
                 write("? extends ");
-                bound.accept(this, param);
+                acceptTree(bound, param);
             }
             case SUPER -> {
                 write("? super ");
-                bound.accept(this, param);
+                acceptTree(bound, param);
             }
             case UNBOUND -> write("?");
         }
@@ -763,26 +780,26 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         write("for (");
         visitLocalVariable(enhancedForStatement.getLocalVariable(), param);
         write(" in ");
-        enhancedForStatement.getExpression().accept(this, param);
+        acceptTree(enhancedForStatement.getExpression(), param);
         writeLine(")");
-        enhancedForStatement.getStatement().accept(this, param);
+        acceptTree(enhancedForStatement.getStatement(), param);
         return null;
     }
 
     private void visitLocalVariable(final VariableDeclaratorTree localVariable,
                                     final Object param) {
-        localVariable.getVariableType().accept(this, param);
+        acceptTree(localVariable.getVariableType(), param);
         write(" ");
-        localVariable.getName().accept(this, param);
+        acceptTree(localVariable.getName(), param);
     }
 
     @Override
     public Object visitDoWhileStatement(final DoWhileStatementTree doWhileStatement,
                                         final Object param) {
         writeLine("do");
-        doWhileStatement.getBody().accept(this, param);
+        acceptTree(doWhileStatement.getBody(), param);
         write("while (");
-        doWhileStatement.getCondition().accept(this, param);
+        acceptTree(doWhileStatement.getCondition(), param);
         write(")");
         return null;
     }
@@ -794,7 +811,8 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             writeList(typeParameterTree.getAnnotations(), param);
             write(" ");
         }
-        typeParameterTree.getIdentifier().accept(this, param);
+
+        acceptTree(typeParameterTree.getIdentifier(), param);
 
         if (!typeParameterTree.getTypeBound().isEmpty()) {
             write(" extends ");
@@ -810,7 +828,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         final var clazz = annotatedType.getClazz();
 
         if (clazz instanceof ArrayTypeTree arrayTypeTree) {
-            arrayTypeTree.getComponentType().accept(this, param);
+            acceptTree(arrayTypeTree.getComponentType(), param);
 
             write(" ");
             writeList(annotatedType.getAnnotations(), param, " ");
@@ -819,14 +837,14 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             return null;
         } else {
             if (clazz instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-                fieldAccessExpressionTree.getSelected().accept(this, param);
+                acceptTree(fieldAccessExpressionTree.getSelected(), param);
                 write(".");
                 writeList(annotatedType.getAnnotations(), param, " ");write(" ");
-                fieldAccessExpressionTree.getField().accept(this, param);
+                acceptTree(fieldAccessExpressionTree.getField(), param);
             } else {
                 writeList(annotatedType.getAnnotations(), param, " ");
                 write(" ");
-                annotatedType.getClazz().accept(this, param);
+                acceptTree(annotatedType.getClazz(), param);
             }
 
             return null;
@@ -837,7 +855,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitArrayType(final ArrayTypeTree arrayTypeTree,
                                  final Object param) {
         final var componentType = arrayTypeTree.getComponentType();
-        componentType.accept(this, param);
+        acceptTree(componentType, param);
         write("[]");
         return null;
     }
@@ -863,9 +881,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitAssignment(final AssignmentExpressionTree assignmentExpressionTree,
                                   final Object param) {
-        assignmentExpressionTree.getLeft().accept(this, param);
+        acceptTree(assignmentExpressionTree.getLeft(), param);
         write(" = ");
-        assignmentExpressionTree.getRight().accept(this, param);
+        acceptTree(assignmentExpressionTree.getRight(), param);
         return null;
     }
 
@@ -874,12 +892,12 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                                 final Object param) {
         if (newArrayExpression.getElementType() != null) {
             write("new ");
-            newArrayExpression.getElementType().accept(this, param);
+            acceptTree(newArrayExpression.getElementType(), param);
         }
 
         newArrayExpression.getDimensions().forEach(dimension -> {
             write("[");
-            dimension.accept(this, param);
+            acceptTree(dimension, param);
             write("]");
         });
 
@@ -896,10 +914,10 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree,
                                    final Object param) {
         if (arrayAccessExpressionTree.getExpression() != null) {
-            arrayAccessExpressionTree.getExpression().accept(this, param);
+            acceptTree(arrayAccessExpressionTree.getExpression(), param);
         }
         write("[");
-        arrayAccessExpressionTree.getIndex().accept(this, param);
+        acceptTree(arrayAccessExpressionTree.getIndex(), param);
         write("]");
         return null;
     }
@@ -915,7 +933,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write(">");
         }
 
-        memberReference.getExpression().accept(this, param);
+        acceptTree(memberReference.getExpression(), param);
 
         return null;
     }
@@ -931,13 +949,13 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write(") ");
         }
 
-        tryStatementTree.getBody().accept(this, param);
+        acceptTree(tryStatementTree.getBody(), param);
 
         writeList(tryStatementTree.getCatchers(), param, "");
 
         if (tryStatementTree.getFinalizer() != null) {
             write("finally ");
-            tryStatementTree.getFinalizer().accept(this, param);
+            acceptTree(tryStatementTree.getFinalizer(), param);
         }
 
         return null;
@@ -947,9 +965,9 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitCatch(final CatchTree catchTree,
                              final Object param) {
         write("catch (");
-        catchTree.getVariable().accept(this, param);
+        acceptTree(catchTree.getVariable(), param);
         write(")");
-        catchTree.getBody().accept(this, param);
+        acceptTree(catchTree.getBody(), param);
         return null;
     }
 
@@ -958,7 +976,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                                         final Object param) {
         write(labeledStatement.getLabel());
         write(" : ");
-        labeledStatement.getStatement().accept(this, param);
+        acceptTree(labeledStatement.getStatement(), param);
         return null;
     }
 
@@ -969,7 +987,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
         if (breakStatement.getTarget() != null) {
             write(" ");
-            breakStatement.getTarget().accept(this, param);
+            acceptTree(breakStatement.getTarget(), param);
         }
 
         write(";");
@@ -983,7 +1001,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
         if (continueStatement.getTarget() != null) {
             write(" ");
-            continueStatement.getTarget().accept(this, param);
+            acceptTree(continueStatement.getTarget(), param);
         }
 
         write(";");
@@ -994,22 +1012,22 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitSynchronizedStatement(final SynchronizedStatement synchronizedStatement,
                                              final Object param) {
         write("synchronized(");
-        synchronizedStatement.getExpression().accept(this, param);
+        acceptTree(synchronizedStatement.getExpression(), param);
         write(")");
-        synchronizedStatement.getBody().accept(this, param);
+        acceptTree(synchronizedStatement.getBody(), param);
         return null;
     }
 
     @Override
     public Object visitIfStatement(final IfStatementTree ifStatementTree, final Object param) {
         write("if(");
-        ifStatementTree.getExpression().accept(this, param);
+        acceptTree(ifStatementTree.getExpression(), param);
         write(")");
-        ifStatementTree.getThenStatement().accept(this, param);
+        acceptTree(ifStatementTree.getThenStatement(), param);
 
         if (ifStatementTree.getElseStatement() != null) {
             write(" else ");
-            ifStatementTree.getElseStatement().accept(this, param);
+            acceptTree(ifStatementTree.getElseStatement(), param);
         }
         return null;
     }
@@ -1017,7 +1035,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitThrowStatement(final ThrowStatement throwStatement, final Object param) {
         write("throw ");
-        throwStatement.getExpression().accept(this, param);
+        acceptTree(throwStatement.getExpression(), param);
         write(";");
         return null;
     }
@@ -1025,7 +1043,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitYieldStatement(final YieldStatement yieldStatement, final Object param) {
         write("yield ");
-        yieldStatement.getExpression().accept(this, param);
+        acceptTree(yieldStatement.getExpression(), param);
         write(";");
         return null;
     }
@@ -1033,11 +1051,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitAssertStatement(final AssertStatement assertStatement, final Object param) {
         write("assert ");
-        assertStatement.getCondition().accept(this, param);
+        acceptTree(assertStatement.getCondition(), param);
 
         if (assertStatement.getDetail() != null) {
             write(": ");
-            assertStatement.getDetail().accept(this, param);
+            acceptTree(assertStatement.getDetail(), param);
         }
 
         write(";");
@@ -1047,7 +1065,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitSwitchStatement(final SwitchStatement switchStatement, final Object param) {
         write("switch(");
-        switchStatement.getSelector().accept(this, param);
+        acceptTree(switchStatement.getSelector(), param);
         writeLine(")");
         writeLine("{");
         incrementTabs();
@@ -1081,7 +1099,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         }
 
         final var body = caseStatement.getBody();
-        body.accept(this, param);
+        acceptTree(body, param);
 
         if (body instanceof ExpressionTree) {
             write(";");
@@ -1093,22 +1111,22 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final Object param) {
         final var expression = constantCaseLabel.getExpression();
-        expression.accept(this, param);
+        acceptTree(expression, param);
         return null;
     }
 
     @Override
     public Object visitPatternCaseLabel(final PatternCaseLabel patternCaseLabel, final Object param) {
-        patternCaseLabel.getPattern().accept(this, param);
+        acceptTree(patternCaseLabel.getPattern(), param);
         return null;
     }
 
     @Override
     public Object visitTypePattern(final TypePattern typePattern, final Object param) {
         final var variableDeclarator = typePattern.getVariableDeclarator();
-        variableDeclarator.getVariableType().accept(this, param);
+        acceptTree(variableDeclarator.getVariableType(), param);
         write(" ");
-        variableDeclarator.getName().accept(this, param);
+        acceptTree(variableDeclarator.getName(), param);
         return null;
     }
 
@@ -1121,7 +1139,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitUnaryExpression(final UnaryExpressionTree unaryExpression, final Object param) {
         final var tag = unaryExpression.getTag();
-        unaryExpression.getExpression().accept(this, param);
+        acceptTree(unaryExpression.getExpression(), param);
 
         if (tag == Tag.POST_INC) {
             write("++");

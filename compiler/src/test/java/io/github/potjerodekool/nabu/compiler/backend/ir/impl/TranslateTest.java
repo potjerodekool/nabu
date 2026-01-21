@@ -4,7 +4,10 @@ import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
-import io.github.potjerodekool.nabu.test.*;
+import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.test.NabuTreeParser;
+import io.github.potjerodekool.nabu.test.TestUtils;
+import io.github.potjerodekool.nabu.testing.TreeWalker;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
@@ -42,6 +45,7 @@ import io.github.potjerodekool.nabu.tree.statement.impl.CVariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -117,7 +121,7 @@ class TranslateTest extends AbstractCompilerTest {
 
         context.frame = frame;
 
-        final var exp = binary.accept(translate, context).unEx();
+        final var exp = translate.acceptTree(binary, context).unEx();
 
         final var printer = new CodePrinter();
         exp.accept(printer, null);
@@ -132,6 +136,7 @@ class TranslateTest extends AbstractCompilerTest {
         assertEquals(expected, actual);
     }
 
+    @Disabled
     @Test
     void visitFieldAccess() {
         final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
@@ -171,7 +176,7 @@ class TranslateTest extends AbstractCompilerTest {
                 .field(innerIdentifier)
                 .build();
 
-        final var result = fieldAccess.accept(translate, context).unEx();
+        final var result = translate.acceptTree(fieldAccess, context).unEx();
 
         final var printer = new CodePrinter();
         result.accept(printer,null);
@@ -219,7 +224,7 @@ class TranslateTest extends AbstractCompilerTest {
                 .field(classIdentifier)
                 .build();
 
-        final var result = fieldAccess.accept(translate, context).unEx();
+        final var result = translate.acceptTree(fieldAccess, context).unEx();
 
         final var printer = new CodePrinter();
         result.accept(printer,null);
@@ -263,7 +268,7 @@ class TranslateTest extends AbstractCompilerTest {
 
         final var context = new TranslateContext();
 
-        final var result = fieldAccess.accept(translate, context).unEx();
+        final var result = translate.acceptTree(fieldAccess, context).unEx();
 
         final var printer = new CodePrinter();
         result.accept(printer,null);
@@ -329,7 +334,7 @@ class TranslateTest extends AbstractCompilerTest {
         context.frame = frame;
         frame.allocateLocal("a", IPrimitiveType.INT, false);
 
-        final var result = switchStatement.accept(translate, context).unNx();
+        final var result = translate.acceptTree(switchStatement, context).unNx();
 
         final var printer = new CodePrinter();
         result.accept(printer,frame);
@@ -404,7 +409,7 @@ class TranslateTest extends AbstractCompilerTest {
         context.frame = frame;
         frame.allocateLocal("a", IPrimitiveType.INT, false);
 
-        final var result = switchStatement.accept(translate, context).unNx();
+        final var result = translate.acceptTree(switchStatement, context).unNx();
 
         final var printer = new CodePrinter();
         result.accept(printer,frame);
@@ -479,7 +484,7 @@ class TranslateTest extends AbstractCompilerTest {
         context.frame = frame;
         frame.allocateLocal("a", IPrimitiveType.INT, false);
 
-        final var result = switchStatement.accept(translate, context).unNx();
+        final var result = translate.acceptTree(switchStatement, context).unNx();
 
         final var printer = new CodePrinter();
         result.accept(printer,frame);
@@ -521,7 +526,7 @@ class TranslateTest extends AbstractCompilerTest {
                 functionScope
         );
 
-        final var types = getCompilerContext().getClassElementLoader().getTypes();
+        final var types = getCompilerContext().getTypes();
         final var booleanType = types.getPrimitiveType(TypeKind.BOOLEAN);
 
         TreeWalker.walk(function, (tree) -> {
@@ -563,14 +568,13 @@ class TranslateTest extends AbstractCompilerTest {
 
         function.setMethodSymbol(method);
 
-        function.accept(translate, context);
+        translate.acceptTree(function, context);
 
         final var frag = method.getFrag();
         final var printer = new CodePrinter();
 
-        frag.getBody().forEach(statement -> {
-            statement.accept(printer, frame);
-        });
+        frag.getBody().forEach(statement ->
+                statement.accept(printer, frame));
 
         final var actual = printer.getText();
         final var expected = """

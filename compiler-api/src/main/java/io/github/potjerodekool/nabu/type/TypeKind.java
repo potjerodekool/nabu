@@ -21,7 +21,7 @@ public enum TypeKind {
     INTERSECTION(false),
     UNION(false),
     NONE(false),
-    TYPE_VAR(false),
+    TYPEVAR(false),
     PACKAGE(false),
     MODULE(false),
     ERROR(false);

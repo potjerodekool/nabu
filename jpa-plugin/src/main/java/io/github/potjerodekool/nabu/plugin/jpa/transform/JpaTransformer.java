@@ -1,9 +1,6 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
-import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.*;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
@@ -49,13 +46,13 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
     public JpaTransformer(final CompilerContext compilerContext) {
         this.compilerContext = compilerContext;
         loader = compilerContext.getClassElementLoader();
-        this.types = compilerContext.getClassElementLoader().getTypes();
+        this.types = compilerContext.getTypes();
     }
 
     @Override
     public void transform(final CompilationUnit compilationUnit) {
         final var globalScope = new GlobalScope(compilationUnit, compilerContext);
-        compilationUnit.accept(this, globalScope);
+        accept(compilationUnit, globalScope);
     }
 
     @Override
@@ -70,12 +67,13 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
                 clazz.asType(),
                 scope,
                 null,
-                loader
+                compilerContext
         );
 
         final var symbolScope = new SymbolScope((DeclaredType) clazz.asType(), classScope);
         classDeclaration.getEnclosedElements()
-                .forEach(enclosingElement -> enclosingElement.accept(this, symbolScope));
+                .forEach(enclosingElement ->
+                        acceptTree(enclosingElement, symbolScope));
         return null;
     }
 
@@ -106,8 +104,9 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
             scope.define(parameter);
         }
 
-        lambdaExpression.getVariables().forEach(variable -> variable.accept(this, scope));
-        final var newBody = (StatementTree) lambdaExpression.getBody().accept(this, scope);
+        lambdaExpression.getVariables().forEach(variable ->
+                acceptTree(variable, scope));
+        final var newBody = (StatementTree) acceptTree(lambdaExpression.getBody(), scope);
         lambdaExpression.body(newBody);
         return lambdaExpression;
     }
@@ -120,7 +119,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
         final var module = scope.findModuleElement();
         var selected = fieldAccessExpression.getSelected();
         var field = fieldAccessExpression.getField();
-        final var newTarget = (ExpressionTree) selected.accept(this, scope);
+        final var newTarget = (ExpressionTree) acceptTree(selected, scope);
 
         if (newTarget != selected) {
             fieldAccessExpression.selected(newTarget);
@@ -144,7 +143,8 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
             targetScope = scope;
         }
 
-        final var newField = (IdentifierTree) field.accept(this, targetScope);
+        final var newField = (IdentifierTree)
+                acceptTree(field, targetScope);
 
         if (changed
                 || newField != field) {
@@ -209,7 +209,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
     private DeclaredType resolveSearchType(final DeclaredType declaredType,
                                            final Scope scope) {
         final var pathType = compilerContext.getClassElementLoader().loadClass(scope.findModuleElement(), PATH_CLASS).asType();
-        final var types = compilerContext.getClassElementLoader().getTypes();
+        final var types = compilerContext.getTypes();
 
         if (types.isSubType(declaredType, pathType)) {
             if (isJoinType(declaredType)) {
@@ -272,8 +272,8 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
 
     @Override
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
-        final var newLeft = (ExpressionTree) binaryExpression.getLeft().accept(this, scope);
-        final var newRight = (ExpressionTree) binaryExpression.getRight().accept(this, scope);
+        final var newLeft = (ExpressionTree) acceptTree(binaryExpression.getLeft(), scope);
+        final var newRight = (ExpressionTree) acceptTree(binaryExpression.getRight(), scope);
         final var changed = newLeft != binaryExpression.getLeft()
                 || newRight != binaryExpression.getRight();
 
@@ -387,7 +387,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
 
     @Override
     public Object visitExpressionStatement(final ExpressionStatementTree expressionStatement, final Scope scope) {
-        final var newExpression = (ExpressionTree) expressionStatement.getExpression().accept(this, scope);
+        final var newExpression = (ExpressionTree) acceptTree(expressionStatement.getExpression(), scope);
 
         if (newExpression != expressionStatement.getExpression()) {
             return expressionStatement.builder()
@@ -402,7 +402,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
     public Object visitBlockStatement(final BlockStatementTree blockStatement, final Scope scope) {
         final var newStatements = blockStatement.getStatements().stream()
                 .map(statement -> {
-                    final var result = statement.accept(this, scope);
+                    final var result = acceptTree(statement, scope);
 
                     if (!(result instanceof StatementTree)) {
                         throw new IllegalArgumentException();
@@ -419,16 +419,17 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
 
     private Tree accept(final Tree tree,
                         final Scope scope) {
-        return tree != null ?
-                (Tree) tree.accept(this, scope)
+        return tree != null
+                ? (Tree) acceptTree(tree, scope)
                 : null;
     }
 
     @Override
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
-        final var newType = (ExpressionTree) variableDeclaratorStatement.getVariableType().accept(this, scope);
-        final var newIdentifier = (IdentifierTree) variableDeclaratorStatement.getName().accept(this, scope);
-        final var newValue = accept(variableDeclaratorStatement.getValue(), scope);
+        final var newType = (ExpressionTree)
+                acceptTree(variableDeclaratorStatement.getVariableType(), scope);
+        final var newIdentifier = (IdentifierTree) acceptTree(variableDeclaratorStatement.getName(), scope);
+        final var newValue = this.accept(variableDeclaratorStatement.getValue(), scope);
 
         final var newVariableDeclaratorStatement = variableDeclaratorStatement.builder()
                 .variableType(newType)
@@ -472,7 +473,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
 
     @Override
     public Object visitUnaryExpression(final UnaryExpressionTree unaryExpression, final Scope scope) {
-        final var newExpression = (ExpressionTree) unaryExpression.getExpression().accept(this, scope);
+        final var newExpression = (ExpressionTree) acceptTree(unaryExpression.getExpression(), scope);
 
         if (unaryExpression.getTag() != Tag.NOT) {
             return unaryExpression;
@@ -528,7 +529,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
             return returnStatement;
         }
 
-        final var newExpression = (ExpressionTree) returnStatement.getExpression().accept(this, scope);
+        final var newExpression = (ExpressionTree) acceptTree(returnStatement.getExpression(), scope);
 
         if (newExpression != returnStatement.getExpression()) {
             return returnStatement.builder()
@@ -571,10 +572,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
 
             final var newCastExpression = (CastExpressionTree) super.visitCastExpression(castExpressionTree, scope);
 
-            return newCastExpression.getExpression().accept(
-                    converter,
-                    scope
-            );
+            return converter.acceptTree(newCastExpression.getExpression(), scope);
         } else {
             return super.visitCastExpression(castExpressionTree, scope);
         }

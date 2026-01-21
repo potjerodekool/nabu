@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
@@ -25,7 +24,6 @@ import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
-import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.ArrayList;
@@ -45,9 +43,7 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
 
         final var enclosedElements = new ArrayList<>(classDeclaration.getEnclosedElements());
 
-        enclosedElements.forEach(enclosedElement ->
-                enclosedElement.accept(this, classScope)
-        );
+        enclosedElements.forEach(enclosedElement -> acceptTree(enclosedElement, classScope));
 
         return null;
     }
@@ -67,11 +63,11 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         final var currentFunction = scope.getCurrentFunctionDeclaration();
         final var classSymbol = (ClassSymbol) classDeclaration.getClassSymbol();
 
-        lambdaExpression.getVariables().forEach(
-                variable -> variable.accept(this, scope)
+        lambdaExpression.getVariables().forEach(variable ->
+                acceptTree(variable, scope)
         );
 
-        lambdaExpression.getBody().accept(this, new ImmutableScope(
+        acceptTree(lambdaExpression.getBody(), new ImmutableScope(
                 scope,
                 scope.getOwner()
         ));

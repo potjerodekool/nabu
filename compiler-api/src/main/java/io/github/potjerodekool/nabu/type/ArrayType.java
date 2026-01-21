@@ -21,4 +21,8 @@ public interface ArrayType extends ReferenceType {
     default boolean isParameterized() {
         return getComponentType().isParameterized();
     }
+
+    boolean isVarArgs();
+
+    ArrayType makeVarArg();
 }

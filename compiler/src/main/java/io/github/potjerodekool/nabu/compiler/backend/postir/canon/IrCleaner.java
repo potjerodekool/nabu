@@ -50,7 +50,7 @@ public final class IrCleaner {
             }
         }
 
-        return new ProcFrag(newStatements);
+        return new ProcFrag(newStatements, procFrag.getFrame());
     }
 
     static void doCleanUp(final ProcFrag frag) {
@@ -113,7 +113,8 @@ public final class IrCleaner {
             newBody.forEach(Objects::requireNonNull);
 
             return new ProcFrag(
-                    newBody
+                    newBody,
+                    procFrag.getFrame()
             );
         }
     }
@@ -126,7 +127,7 @@ public final class IrCleaner {
             final var statements = new ArrayList<IStatement>();
 
             basicBlocks.getBlocks().forEach(statements::addAll);
-            return new ProcFrag(statements);
+            return new ProcFrag(statements, procFrag.getFrame());
         }
     }
 }

@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class IsSubTypeTest extends AbstractCompilerTest {
 
-    private final Types types = getCompilerContext().getClassElementLoader().getTypes();
+    private final Types types = getCompilerContext().getTypes();
     private final IsSubType isSubType = new IsSubType((TypesImpl) types);
 
     @Test

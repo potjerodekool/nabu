@@ -70,6 +70,7 @@ public class ModuleSymbol extends TypeSymbol implements ModuleElement {
 
     public void setUnnamedPackage(final PackageSymbol unnamedPackage) {
         this.unnamedPackage = unnamedPackage;
+        unnamedPackage.setModuleSymbol(this);
     }
 
     public void addEnclosedPackage(final int index,
@@ -198,4 +199,8 @@ public class ModuleSymbol extends TypeSymbol implements ModuleElement {
         this.classLocation = classLocation;
     }
 
+    @Override
+    public String toString() {
+        return getSimpleName();
+    }
 }

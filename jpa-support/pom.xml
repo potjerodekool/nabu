@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.potjerodekool</groupId>
         <artifactId>nabu-parent</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>0.1.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>nabu-jpa-support</artifactId>
@@ -14,30 +14,6 @@
     <name>${project.groupId}:${project.artifactId}</name>
     <description>JPA support</description>
     <url>https://github.com/potjerodekool/nabu</url>
-
-    <licenses>
-        <license>
-            <name>The Apache License, Version 2.0</name>
-            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
-        </license>
-    </licenses>
-
-    <developers>
-        <developer>
-            <name>Evert Tigchelaar</name>
-            <email>everttigchelaar@gmail.com</email>
-            <organizationUrl>https://github.com/potjerodekool</organizationUrl>
-        </developer>
-    </developers>
-
-    <scm>
-        <connection>https://github.com/potjerodekool/nabu.git</connection>
-        <developerConnection>https://github.com/potjerodekool/nabu.git</developerConnection>
-        <url>http://github.com/potjerodekool/nabu/tree/main</url>
-    </scm>
-
-    <properties>
-    </properties>
 
     <dependencies>
         <dependency>
@@ -58,64 +34,6 @@
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
-
     </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>attach-sources</id>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>${maven.gpg.plugin.version}</version>
-                <configuration>
-                    <useAgent>true</useAgent>
-                    <!--
-                    <keyname>${gpg.keyname}</keyname>
-                    <passphraseServerId>${gpg.keyname}</passphraseServerId>
-                    -->
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.sonatype.central</groupId>
-                <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.9.0</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <publishingServerId>ossrh</publishingServerId>
-                    <autoPublish>true</autoPublish>
-                    <waitUntil>published</waitUntil>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
 
 </project>

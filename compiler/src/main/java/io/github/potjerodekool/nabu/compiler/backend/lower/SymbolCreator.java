@@ -37,12 +37,12 @@ public class SymbolCreator extends AbstractTreeVisitor<Object, Scope> {
 
         final var parameters = function.getParameters().stream()
                 .map(parameter -> {
-                    parameter.accept(this, functionScope);
+                    acceptTree(parameter, functionScope);
                     return (VariableElement) parameter.getName().getSymbol();
                 })
                 .toList();
 
-        function.getBody().accept(this, functionScope);
+        acceptTree(function.getBody(), functionScope);
 
         return new MethodSymbolBuilderImpl()
                 .kind(elementKind)

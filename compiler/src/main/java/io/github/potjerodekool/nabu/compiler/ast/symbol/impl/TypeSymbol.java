@@ -49,12 +49,16 @@ public abstract class TypeSymbol extends Symbol {
     public static String createFullName(final Symbol owner,
                                         final String name) {
         final String fullName;
-        if (owner == null) {
+        if (owner == null || owner.getQualifiedName().isEmpty()) {
             fullName = name;
         } else if (owner.isError()) {
             fullName = name;
         } else {
-            fullName =  owner.getQualifiedName() + "." + name;
+            fullName = owner.getQualifiedName() + "." + name;
+        }
+
+        if (".".equals(fullName)) {
+            throw new IllegalArgumentException();
         }
 
         return fullName;

@@ -1,9 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.impl;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IType;
-import io.github.potjerodekool.nabu.compiler.backend.ir.type.IWildcardType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
@@ -27,7 +24,7 @@ class TypeResolver extends AbstractTreeVisitor<IType, Object> implements TypeVis
 
         if (typeParameters != null) {
             types = typeParameters.stream()
-                    .map(typeParameter -> typeParameter.accept(this, param))
+                    .map(typeParameter -> acceptTree(typeParameter, param))
                     .toList();
         } else {
             types = null;
@@ -118,7 +115,7 @@ class TypeResolver extends AbstractTreeVisitor<IType, Object> implements TypeVis
     @Override
     public IType visitWildCardExpression(final WildcardExpressionTree wildCardExpression, final Object param) {
         final var bound = wildCardExpression.getBound() != null
-                ? wildCardExpression.getBound().accept(this, param)
+                ? acceptTree(wildCardExpression.getBound(), param)
                 : null;
         return new IWildcardType(wildCardExpression.getBoundKind(), bound);
     }
@@ -126,5 +123,11 @@ class TypeResolver extends AbstractTreeVisitor<IType, Object> implements TypeVis
     @Override
     public IType visitVariableType(final VariableType variableType, final Object param) {
         return variableType.getInterferedType().accept(this, param);
+    }
+
+    @Override
+    public IType visitArrayType(final ArrayType arrayType, final Object param) {
+        final var componentType = arrayType.getComponentType().accept(this, param);
+        return new IArrayType(componentType);
     }
 }

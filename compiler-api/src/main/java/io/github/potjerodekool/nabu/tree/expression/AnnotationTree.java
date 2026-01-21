@@ -17,4 +17,5 @@ public interface AnnotationTree extends ExpressionTree {
      */
     List<ExpressionTree> getArguments();
 
+    ExpressionTree getArgumentValue(String name);
 }

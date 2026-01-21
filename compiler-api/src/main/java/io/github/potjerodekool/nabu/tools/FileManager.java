@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.tools;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -99,11 +100,33 @@ public interface FileManager extends AutoCloseable {
     List<FileObject> getFilesForLocation(Location location,
                                          FileObject.Kind... kinds);
 
+    default FileObject getJavaFileForOutputForOriginatingFiles(final Location location,
+                                                               final String className,
+                                                               final FileObject.Kind kind,
+                                                               final FileObject... originatingFiles) throws IOException {
+        return getJavaFileForOutput(location, className, kind, siblingFrom(originatingFiles));
+    }
+
+    private static FileObject siblingFrom(final FileObject[] originatingFiles) {
+        return originatingFiles != null && originatingFiles.length > 0 ? originatingFiles[0] : null;
+    }
+
+    FileObject getJavaFileForOutput(Location location,
+                                    String className,
+                                    FileObject.Kind kind,
+                                    FileObject sibling)
+            throws IOException;
+
     /**
      * @param location A location.
      * @return Returns true if the given location is known.
      */
     boolean hasLocation(Location location);
+
+    FileObject getFileForOutputForOriginatingFiles(Location location,
+                                             String packageName,
+                                             String relativeName,
+                                             FileObject... originatingFiles);
 
     /**
      * A location where files can be located.

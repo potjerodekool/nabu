@@ -57,7 +57,7 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
 
     @Override
     public TypeKind getKind() {
-        return TypeKind.TYPE_VAR;
+        return TypeKind.TYPEVAR;
     }
 
     @Override

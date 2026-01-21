@@ -1,8 +1,6 @@
 package io.github.potjerodekool.nabu.resolve.scope;
 
-import io.github.potjerodekool.nabu.lang.model.element.Element;
-import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.*;
@@ -35,7 +33,7 @@ public class WritableScope implements Scope {
 
     public void define(final int index,
                        final Element element) {
-        this.elements.add(element);
+        this.elements.add(index, element);
     }
 
     public void remove(final Element element) {

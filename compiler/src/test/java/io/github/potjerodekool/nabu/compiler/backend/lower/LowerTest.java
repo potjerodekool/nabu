@@ -12,8 +12,8 @@ import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.test.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
@@ -53,7 +53,7 @@ import static org.mockito.Mockito.when;
 class LowerTest extends AbstractCompilerTest {
 
     private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = loader.getTypes();
+    private final Types types = getCompilerContext().getTypes();
     private Lower lower;
 
     @BeforeEach
@@ -135,7 +135,7 @@ class LowerTest extends AbstractCompilerTest {
                 -1
         );
 
-        final var newBinaryExpression = binaryExpression.accept(lower, null);
+        final var newBinaryExpression = lower.acceptTree(binaryExpression, null);
         final var actual = TreePrinter.print(newBinaryExpression);
         assertEquals(expected, actual);
     }
@@ -208,7 +208,7 @@ class LowerTest extends AbstractCompilerTest {
 
         final var lowerContext = new Lower.LowerContext(cu);
 
-        final var result = enhancedForStatement.accept(lower, lowerContext);
+        final var result = lower.acceptTree(enhancedForStatement, lowerContext);
         final var actual = TreePrinter.print(result);
 
         assertEquals(
@@ -319,7 +319,7 @@ class LowerTest extends AbstractCompilerTest {
         final var lowerContext = new Lower.LowerContext(cu);
         lowerContext.currentClass = currentClassTree;
 
-        final var result = switchStatement.accept(lower, lowerContext);
+        final var result = lower.acceptTree(switchStatement, lowerContext);
         final var actual = TreePrinter.print(result);
         final var expected = """
                 switch(foo.bar.TT$1.$SwitchMap$foo$bar$State[state.ordinal()])

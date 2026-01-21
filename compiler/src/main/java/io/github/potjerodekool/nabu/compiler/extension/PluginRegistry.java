@@ -1,8 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
+import io.github.potjerodekool.nabu.lang.spi.SourceParser;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
@@ -12,15 +14,21 @@ import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 import java.io.IOException;
 import java.net.URL;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 
 public class PluginRegistry {
 
     private final Logger logger = Logger.getLogger(PluginRegistry.class.getName());
     private final ExtensionManager extensionManager = new ExtensionManager(this);
+    private final LanguageParserManager languageParserManager = new LanguageParserManager(this);
+    private final LanguageSupportManager languageSupportManager = new LanguageSupportManager(this);
 
     public void registerPlugins(final CompilerContext compilerContext) {
+        languageParserManager.init(compilerContext);
+        languageSupportManager.init(compilerContext);
         this.extensionManager.init(compilerContext);
 
         try {
@@ -43,6 +51,10 @@ public class PluginRegistry {
         }
     }
 
+    public List<PluginExtension> getExtensions(final String name) {
+        return this.extensionManager.getExtensions(name);
+    }
+
     public <T> List<T> createExtensions(final boolean createSingleton,
                                         final String name,
                                         final Class<T> extensionClass,
@@ -61,8 +73,30 @@ public class PluginRegistry {
                 .toList();
     }
 
+    public Collection<FileObject.Kind> getSourceKindsForCompilation() {
+        return languageParserManager.getSourceKinds();
+    }
+
     public ExtensionManager getExtensionManager() {
         return extensionManager;
+    }
+
+    public Optional<? extends SourceParser> getSourceParser(final FileObject.Kind kind) {
+        var sourceParserOptional = getLanguageSupportManager().getLanguageSupporter(kind);
+
+        if (sourceParserOptional.isPresent()) {
+            return sourceParserOptional;
+        } else {
+            return getLanguageParserManager().getLanguageParser(kind);
+        }
+    }
+
+    public LanguageParserManager getLanguageParserManager() {
+        return languageParserManager;
+    }
+
+    public LanguageSupportManager getLanguageSupportManager() {
+        return languageSupportManager;
     }
 
     private static class PluginHandler extends DefaultHandler {

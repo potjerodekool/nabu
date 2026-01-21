@@ -6,16 +6,19 @@ public class ConsoleDiagnosticListener implements DiagnosticListener {
 
     @Override
     public void report(final Diagnostic diagnostic) {
-        final var fileName = diagnostic.getFileObject().getFileName();
+        final var fileObject = diagnostic.getFileObject();
+        final var fileName = fileObject != null
+                ? fileObject.getFileName()
+                : null;
 
         switch (diagnostic.getKind()) {
-            case INFO -> print(
-                    System.out,
+            case WARN, MANDATORY_WARNING, ERROR -> print(
+                    System.err,
                     diagnostic.getMessage(null),
                     fileName
             );
-            case WARN, ERROR -> print(
-                    System.err,
+            default -> print(
+                    System.out,
                     diagnostic.getMessage(null),
                     fileName
             );
@@ -23,8 +26,12 @@ public class ConsoleDiagnosticListener implements DiagnosticListener {
     }
 
     private void print(final PrintStream ps,
-                       final String message,
+                       final CharSequence message,
                        final String fileName) {
-        ps.println(fileName + " : " + message);
+        if (fileName != null) {
+            ps.println(fileName + " : " + message);
+        } else {
+            ps.println(message);
+        }
     }
 }

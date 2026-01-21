@@ -49,6 +49,7 @@ public final class SignatureGenerator {
                                            final TypeMirror superType,
                                            final List<? extends TypeMirror> interfaceTypes) {
         final var typeParamSignature = TYPE_PARAM_SIGNATURE_VISITOR.visitTypeParameters(typeParameters);
+
         final var superSignature = superType != null
                 ? superType.accept(STANDARD_VISITOR, null)
                 : "";

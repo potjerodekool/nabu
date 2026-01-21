@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
-import io.github.potjerodekool.nabu.compiler.internal.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.SymbolCreator;
@@ -47,7 +47,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
     public AbstractCodeGenerator(final CompilerContextImpl compilerContext) {
         this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
-        this.types = loader.getTypes();
+        this.types = compilerContext.getTypes();
     }
 
     @Override
@@ -144,7 +144,9 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
     private void initStaticField(final List<VariableDeclaratorTree> staticFields,
                                  final ClassSymbol clazz,
                                  final BlockStatementTree body) {
-        staticFields.forEach(staticField ->
+        staticFields.stream()
+                .filter(staticField -> staticField.getValue() != null)
+                .forEach(staticField ->
                 body.addStatement(createAssignmentExpression(clazz, staticField)));
     }
 

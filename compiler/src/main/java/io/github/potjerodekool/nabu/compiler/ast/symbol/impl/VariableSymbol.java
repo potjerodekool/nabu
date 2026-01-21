@@ -5,11 +5,24 @@ import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.model.element.builder.VariableElementBuilder;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 public class VariableSymbol extends Symbol implements VariableElement {
 
     private final Object constantValue;
+
+    public VariableSymbol(final VariableElementBuilder<?> builder) {
+        this(
+                builder.getKind(),
+                builder.getFlags(),
+                builder.getSimpleName(),
+                builder.getType(),
+                (Symbol) builder.getEnclosingElement(),
+                builder.getConstantValue()
+        );
+        setAnnotations(builder.getAnnotations());
+    }
 
     public VariableSymbol(final ElementKind kind,
                           final long flags,

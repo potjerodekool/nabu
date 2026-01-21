@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.ISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.*;
-import io.github.potjerodekool.nabu.compiler.resolve.internal.ClassUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import org.objectweb.asm.Type;
 
 import java.util.Arrays;

@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
@@ -49,7 +48,7 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                     && otherComponentType.isReferenceType()) {
                 return componentType.accept(this, otherComponentType);
             } else {
-                return false;
+                return componentType.accept(this, otherComponentType);
             }
         }
     }
@@ -232,6 +231,12 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                 }
             }
             return true;
+        } else if (otherType instanceof DeclaredType otherDeclaredType) {
+            return switch (wildcardType.getBoundKind()) {
+                case UNBOUND -> types.getObjectType().accept(this, otherDeclaredType);
+                case SUPER -> wildcardType.getSuperBound().accept(this, otherType);
+                case EXTENDS -> wildcardType.getExtendsBound().accept(this, otherType);
+            };
         }
 
         return false;
@@ -270,7 +275,7 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                         yield false;
                     }
                 }
-                case SUPER -> throw new TodoException();
+                case SUPER -> typeVariable.getUpperBound().accept(this, wildcardType.getBound());
             };
         }
         return isSubType;

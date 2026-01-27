@@ -1,7 +1,10 @@
 class Person {
     id : java.lang.String;
+
     firstName : java.lang.String;
+
     lastName : java.lang.String;
+
     public fun getId(): java.lang.String {
 
     }

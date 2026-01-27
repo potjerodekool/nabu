@@ -63,7 +63,7 @@ public interface Element extends AnnotatedConstruct {
         return false;
     }
 
-    CompoundAttribute attribute(TypeElement typeElement);
+    AnnotationMirror attribute(TypeElement typeElement);
 
     ElementBuilder<?> builder();
 

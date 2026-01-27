@@ -208,7 +208,7 @@ public class ElementsImpl implements Elements {
     @Override
     public List<? extends AnnotationMirror> getAllAnnotationMirrors(final Element e) {
         var symbol = (Symbol) e;
-        var annotationMirrors = new ArrayList<>(symbol.getAnnotationMirrors());
+        var annotationMirrors = new ArrayList<AnnotationMirror>(symbol.getAnnotationMirrors());
 
         while (symbol.getKind() == ElementKind.CLASS) {
             final var superclass = (AbstractType) symbol.getSuperclass();
@@ -220,8 +220,8 @@ public class ElementsImpl implements Elements {
 
             symbol = (Symbol) superclass.asElement();
             for (final var annotation : symbol.getAnnotationMirrors()) {
-                if (isInherited(annotation.getType())
-                        && !containsAnnotationType(annotationMirrors, annotation.getType())) {
+                if (isInherited(annotation.getAnnotationType())
+                        && !containsAnnotationType(annotationMirrors, annotation.getAnnotationType())) {
                     annotationMirrors.addFirst(annotation);
                 }
             }
@@ -235,12 +235,12 @@ public class ElementsImpl implements Elements {
                 .attribute(symbolTable.getInheritedType().asTypeElement()) != null;
     }
 
-    private boolean containsAnnotationType(final List<CompoundAttribute> annotations,
+    private boolean containsAnnotationType(final List<? extends AnnotationMirror> annotations,
                                            final TypeMirror type) {
         final var annotationElement = type.asElement();
         return annotations.stream()
                 .anyMatch(annotation ->
-                        annotation.getType().asTypeElement() == annotationElement);
+                        annotation.getAnnotationType().asTypeElement() == annotationElement);
     }
 
     @Override

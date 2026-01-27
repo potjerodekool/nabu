@@ -12,6 +12,7 @@ import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 
 import java.io.IOException;
 import java.util.*;
@@ -274,7 +275,8 @@ public class ClassFinder {
                 compilerContext
         );
         final var classes = compilationUnit.getClasses();
-        final var classDeclaration = classes.getFirst();
+        final var classDeclaration = (CClassDeclaration) classes.getFirst();
+        classDeclaration.setClassSymbol(classSymbol);
         final var typeEnter = compilerContext.getTypeEnter();
         typeEnter.put(classSymbol, classDeclaration, compilationUnit);
         classSymbol.setCompleter(typeEnter);

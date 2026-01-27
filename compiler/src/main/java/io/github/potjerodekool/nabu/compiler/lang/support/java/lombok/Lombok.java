@@ -1,18 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java.lombok;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.lombok.handler.*;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeFilter;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.util.Types;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 
 /**
  * If lombok is on the classpath then classes are processed
@@ -21,13 +19,11 @@ import java.util.Set;
 public class Lombok {
 
     private final CompilerContext context;
-    private final Types types;
     private DetectionState detectionState = DetectionState.RESOLVE;
     private final Map<String, AnnotationHandler> handlerMap = new HashMap<>();
 
     public Lombok(final CompilerContext context) {
         this.context = context;
-        this.types = context.getTypes();
     }
 
     public void apply(final ClassDeclaration classDeclaration) {
@@ -73,8 +69,20 @@ public class Lombok {
     }
 
     private void initHandlers() {
-        registerHandler(new HandleGetter(types));
-        registerHandler(new HandleSetter(types));
+        final var getterHandler = new GetterHandler(context);
+        final var setterHandler = new SetterHandler(context);
+        final var requiredArgsConstructorHandler = new RequiredArgsConstructorHandler(context);
+
+        registerHandler(getterHandler);
+        registerHandler(setterHandler);
+        registerHandler(new NoArgsConstructorHandler(context));
+        registerHandler(requiredArgsConstructorHandler);
+        registerHandler(new AllArgsConstructorHandler(context));
+        registerHandler(new DataHandler(
+                getterHandler,
+                setterHandler,
+                requiredArgsConstructorHandler
+        ));
     }
 
     private void registerHandler(final AnnotationHandler annotationHandler) {
@@ -82,26 +90,22 @@ public class Lombok {
     }
 
     private void acceptTree(final Tree tree) {
-        switch (tree) {
-            case ClassDeclaration classDeclaration -> {
-                processClass(classDeclaration);
-                TreeFilter.fieldsIn(classDeclaration.getEnclosedElements()).forEach(field -> acceptTree(field));
-            }
-            default -> {
-            }
+        if (Objects.requireNonNull(tree) instanceof ClassDeclaration classDeclaration) {
+            processClass((ClassSymbol) classDeclaration.getClassSymbol());
+            TreeFilter.fieldsIn(classDeclaration.getEnclosedElements()).forEach(this::acceptTree);
         }
     }
 
-    private void processClass(final ClassDeclaration classDeclaration) {
-        classDeclaration.getModifiers().getAnnotations().forEach(annotationTree -> {
-            final var annotationClass = annotationTree.getName().getType().asTypeElement();
+    private void processClass(final ClassSymbol classSymbol) {
+        classSymbol.getAnnotationMirrors().forEach(annotation -> {
+            final var annotationClass = annotation.getAnnotationType().asTypeElement();
             final var annotationName = annotationClass.getQualifiedName();
 
             if (annotationName.startsWith("lombok.")) {
                 final var handler = this.handlerMap.get(annotationName);
 
                 if (handler != null) {
-                    handler.handle(classDeclaration);
+                    handler.handle(classSymbol);
                 }
             }
         });

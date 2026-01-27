@@ -232,7 +232,7 @@ public abstract class Symbol implements Element {
     }
 
     @Override
-    public List<CompoundAttribute> getAnnotationMirrors() {
+    public List<? extends AnnotationMirror> getAnnotationMirrors() {
         deProxyAnnotations();
         return annotationMirrors;
     }
@@ -274,9 +274,9 @@ public abstract class Symbol implements Element {
     }
 
     @Override
-    public CompoundAttribute attribute(final TypeElement typeElement) {
+    public AnnotationMirror attribute(final TypeElement typeElement) {
         return getAnnotationMirrors().stream()
-                .filter(it -> it.getType().asTypeElement() == typeElement)
+                .filter(it -> it.getAnnotationType().asTypeElement() == typeElement)
                 .findFirst()
                 .orElse(null);
     }

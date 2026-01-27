@@ -100,8 +100,6 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                     compilerContext
             );
 
-            lombok(classDeclaration, globalScope);
-
             acceptTree(
                     classDeclaration,
                     new SymbolScope(
@@ -117,6 +115,8 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             }
 
             completeClass(classDeclaration, new SymbolScope((DeclaredType) currentClass.asType(), globalScope));
+
+            lombok(classDeclaration, globalScope);
         }
     }
 
@@ -135,7 +135,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                         final Scope scope) {
         final var file = scope.getCompilationUnit().getFileObject();
         if (".java".equals(file.getKind().extension())) {
-            //TODO lombok.apply(classDeclaration);
+            lombok.apply(classDeclaration);
         }
     }
 
@@ -602,8 +602,11 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             final var currentClass = (ClassSymbol) scope.getCurrentClass();
 
             final var compilationUnit = findCompilationUnit(currentClass);
-            type = compilationUnit.getScope()
-                    .resolveType(identifier.getName());
+
+            if (compilationUnit != null) {
+                type = compilationUnit.getScope()
+                        .resolveType(identifier.getName());
+            }
 
             if (type == null) {
                 type = resolveType(identifier.getName(), currentClass);
@@ -621,8 +624,12 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     private TypeMirror resolveType(final String name,
                                    final ClassSymbol currentClass) {
         final var compilationUnit = findCompilationUnit(currentClass);
-        var type = compilationUnit.getCompositeImportScope()
-                .resolveType(name);
+        TypeMirror type = null;
+
+        if (compilationUnit != null) {
+            type = compilationUnit.getCompositeImportScope()
+                    .resolveType(name);
+        }
 
         if (type == null) {
             final var moduleElement = findModuleElement(currentClass);

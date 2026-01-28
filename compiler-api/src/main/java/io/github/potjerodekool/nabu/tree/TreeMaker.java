@@ -283,16 +283,17 @@ public final class TreeMaker {
     }
 
     /**
-     * @MyAnnotation
-     *
+     * &#064;MyAnnotation
+     * <br/>
      * TreeMaker.annotationTree(
      *  IdentifierTree.create("MyAnnotation"),
      *  Collections.emptyList(),
      *  5,
      *  0);
-     *
-     * @Deprecated(since = "4.8")
-     *
+     * <br/>
+     * <br/>
+     * &#064;Deprecated(since = "4.8")
+     * <br/>
      * TreeMaker.annotationTree(
      *  IdentifierTree.create("Deprecated"),
      *  List.of(

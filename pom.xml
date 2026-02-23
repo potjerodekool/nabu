@@ -67,6 +67,7 @@
         <module>maven-plugin</module>
         <module>compiler-test</module>
         <module>nabu-daemon</module>
+        <module>nabu-client</module>
     </modules>
 
     <repositories>

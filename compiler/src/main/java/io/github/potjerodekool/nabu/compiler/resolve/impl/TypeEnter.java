@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.support.java.lombok.Lombok;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.lomboksupport.Lombok;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;

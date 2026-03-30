@@ -38,7 +38,8 @@ public class JavacFiler implements Filer {
     private final Set<String> generatedClassFiles = new LinkedHashSet<>();
 
     public JavacFiler(final SymbolTable symbolTable,
-                      final Elements elements, final FileManager fileManager) {
+                      final Elements elements,
+                      final FileManager fileManager) {
         this.symbolTable = symbolTable;
         this.elements = elements;
         this.fileManager = fileManager;

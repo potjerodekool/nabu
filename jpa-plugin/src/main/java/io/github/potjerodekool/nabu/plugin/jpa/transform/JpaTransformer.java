@@ -100,7 +100,8 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
 
         for (int argIndex = 0; argIndex < argumentTypes.size(); argIndex++) {
             final var variable = variables.get(argIndex);
-            final var parameter = variable.getName().getSymbol();
+            //final var parameter = variable.getName().getSymbol();
+            final var parameter = getElement(variable);
             scope.define(parameter);
         }
 
@@ -109,6 +110,15 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
         final var newBody = (StatementTree) acceptTree(lambdaExpression.getBody(), scope);
         lambdaExpression.body(newBody);
         return lambdaExpression;
+    }
+
+    private Element getElement(final Tree tree) {
+        if (tree instanceof VariableDeclaratorTree variableDeclaratorTree) {
+            return variableDeclaratorTree.getName().getSymbol();
+        } else if (tree instanceof ExpressionTree expressionTree) {
+            return expressionTree.getSymbol();
+        }
+        return null;
     }
 
     @Override

@@ -2,9 +2,11 @@ package io.github.potjerodekool.nabu.test;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.*;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaLanguageSupport;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.PathFileObject;
 import io.github.potjerodekool.nabu.tools.diagnostic.ConsoleDiagnosticListener;
@@ -30,7 +32,7 @@ public abstract class AbstractAnnotationProcessorTest extends AbstractCompilerTe
         final var context = getCompilerContext();
         final var loader = context.getClassElementLoader();
         final var elements = context.getElements();
-        final var symbolTable = context.getSymbolTable();
+        final var symbolTable = ((CompilerContextImpl)context).getSymbolTable();
         final var fileManager = context.getFileManager();
         final var types = context.getTypes();
         final var javacElements = new JavacElements(elements);

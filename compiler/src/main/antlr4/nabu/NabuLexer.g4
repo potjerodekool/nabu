@@ -884,6 +884,8 @@ fragment IdentifierPart:
 
 WS: [ \t\r\n\u000C]+ -> channel(HIDDEN);
 
+COMMENT: '/*' .*? '*/' -> channel(HIDDEN);
+
 // §3.10.6 Escape Sequences for Character and String Literals
 
 fragment

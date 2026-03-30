@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser.java;
 
-import io.github.potjerodekool.nabu.Java20Lexer;
-import io.github.potjerodekool.nabu.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.PathFileObject;
@@ -28,7 +28,7 @@ class JavaCompilerVisitorTest {
                         return null;
                     }
                 }
-                """,Java20Parser::normalClassDeclaration);
+                """, Java20Parser::normalClassDeclaration);
     }
 
     @Test

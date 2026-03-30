@@ -1,14 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.generate.signature.SignatureGenerator;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.type.*;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.signature.SignatureReader;
@@ -16,7 +15,6 @@ import org.objectweb.asm.signature.SignatureVisitor;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@Disabled
 class SignatureParserTest extends AbstractCompilerTest {
 
     @Test
@@ -124,7 +122,7 @@ class SignatureParserTest extends AbstractCompilerTest {
     }
 
     protected SignatureParser parseSignature(final String signature) {
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
 
         final var reader = new SignatureReader(signature);
 

@@ -12,12 +12,25 @@ public class DefaultDiagnostic implements Diagnostic {
 
     private final FileObject fileObject;
 
+    private final Integer lineNumber;
+    private final Integer columnNumber;
+
     public DefaultDiagnostic(final Kind kind,
                              final CharSequence message,
-                             final FileObject fileObject) {
+                             final FileObject fileObject,
+                             final Integer lineNumber,
+                             final Integer columnNumber) {
         this.kind = kind;
         this.message = message;
         this.fileObject = fileObject;
+        this.lineNumber = lineNumber;
+        this.columnNumber = columnNumber;
+    }
+
+    public DefaultDiagnostic(final Kind kind,
+                             final CharSequence message,
+                             final FileObject fileObject) {
+        this(kind, message, fileObject, null, null);
     }
 
     @Override
@@ -33,5 +46,13 @@ public class DefaultDiagnostic implements Diagnostic {
     @Override
     public FileObject getFileObject() {
         return fileObject;
+    }
+
+    public Integer getLineNumber() {
+        return lineNumber;
+    }
+
+    public Integer getColumnNumber() {
+        return columnNumber;
     }
 }

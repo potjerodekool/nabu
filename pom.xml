@@ -122,6 +122,13 @@
                     <version>3.13.0</version>
                     <configuration>
                         <release>${java.version}</release>
+                        <annotationProcessorPaths>
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                                <version>1.18.42</version>
+                            </path>
+                        </annotationProcessorPaths>
                     </configuration>
                     <executions>
                         <execution>

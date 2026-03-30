@@ -4,10 +4,10 @@ import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmMethodByteC
 import io.github.potjerodekool.nabu.compiler.backend.ir.ToIType;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Frame;
 import io.github.potjerodekool.nabu.compiler.backend.ir.InvocationType;
@@ -421,7 +421,7 @@ class AsmMethodByteCodeGeneratorTest extends AbstractCompilerTest {
 
     @Test
     void ifElseIfElse() {
-        final var javaBase = getCompilerContext().getSymbolTable()
+        final var javaBase = getCompilerContext().getModules()
                 .getJavaBase();
 
         final var localVariable = new VariableSymbolBuilderImpl()

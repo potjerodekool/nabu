@@ -1,12 +1,16 @@
 package io.github.potjerodekool.nabu.testing;
 
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.tools.*;
 import org.junit.jupiter.api.BeforeEach;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ServiceLoader;
@@ -37,6 +41,18 @@ public abstract class AbstractCompilerTest {
         return null;
     }
 
+    protected String createClassPath(String... pathElements) {
+        return String.join(File.pathSeparator, pathElements);
+    }
+
+    protected String getLocationOfClass(final Class<?> clazz) {
+        try {
+            return Paths.get(clazz.getProtectionDomain().getCodeSource().getLocation().toURI()).toString();
+        } catch (final URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @BeforeEach
     public void setupCompiler() {
         final var rootDirectory = resolveCompilerDirectory();
@@ -53,9 +69,14 @@ public abstract class AbstractCompilerTest {
             optionBuilder.option(CompilerOption.CLASS_PATH, classPath);
         }
 
+        configureOptions(optionBuilder);
+
         final var options = optionBuilder.build();
         final var compiler = createCompiler();
         this.compilerContext = compiler.configure(options);
+    }
+
+    protected void configureOptions(final CompilerOptions.CompilerOptionsBuilder optionsBuilder) {
     }
 
     private Compiler createCompiler() {
@@ -82,4 +103,34 @@ public abstract class AbstractCompilerTest {
         }
     }
 
+    protected TypeElement loadClass(final String className) {
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
+        return getCompilerContext().getClassElementLoader().loadClass(javaBase, className);
+    }
+
+    protected VariableElement localVariableSymbol(final String name,
+                                                  final String type) {
+        return getCompilerContext().getElementBuilders()
+                .variableElementBuilder()
+                .kind(ElementKind.LOCAL_VARIABLE)
+                .simpleName(name)
+                .type(loadClass(type).asType())
+                .build();
+    }
+
+    protected VariableElement variableSymbol(final ElementKind kind,
+                                            final String name,
+                                            final String type) {
+        return getCompilerContext().getElementBuilders()
+                .variableElementBuilder()
+                .kind(kind)
+                .simpleName(name)
+                .type(loadClass(type).asType())
+                .build();
+    }
+
+    protected FileObject createFileObject(final String source) {
+        return new InMemoryFileObject(source, "MyClass.nabu");
+    }
 }
+

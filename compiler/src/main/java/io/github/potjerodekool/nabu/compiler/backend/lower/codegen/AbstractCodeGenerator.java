@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.lower.codegen;
 
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.SymbolCreator;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;

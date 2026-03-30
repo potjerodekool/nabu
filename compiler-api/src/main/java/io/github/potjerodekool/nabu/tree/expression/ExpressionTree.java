@@ -14,10 +14,6 @@ public interface ExpressionTree extends Tree {
 
     void setSymbol(Element symbol);
 
-    TypeMirror getType();
-
-    void setType(TypeMirror type);
-
     ExpressionBuilder<?> builder();
 
 }

@@ -1,8 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
-import io.github.potjerodekool.nabu.Java20Lexer;
-import io.github.potjerodekool.nabu.Java20Parser;
-import io.github.potjerodekool.nabu.Java20ParserBaseVisitor;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.VariableArityParameter;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tools.Constants;

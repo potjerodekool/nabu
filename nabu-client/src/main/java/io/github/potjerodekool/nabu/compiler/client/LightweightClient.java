@@ -22,8 +22,16 @@ public class LightweightClient {
         }
     }
 
-    public void ping(final Consumer<CheckEvent> listener) throws IOException {
-        performAction((in, out) -> {
+    private <R> R performAction(final ActionWithResult<R> consumer) throws IOException {
+        try (final Socket socket = new Socket(HOST, PORT)) {
+            final var out = new DataOutputStream(socket.getOutputStream());
+            final var in = new DataInputStream(socket.getInputStream());
+            return consumer.apply(in, out);
+        }
+    }
+
+    public boolean ping() throws IOException {
+        return performAction((in, out) -> {
             // Send PING command
             out.writeByte(Protocol.CMD_PING);
             out.flush();
@@ -34,17 +42,13 @@ public class LightweightClient {
             byte[] data = new byte[length];
             in.readFully(data);
 
-            String response = new String(data, StandardCharsets.UTF_8);
-
-            if (status == Protocol.STATUS_SUCCESS) {
-                listener.accept(new CheckEvent(CheckEvent.Kind.PING, response));
-            }
+            return status == Protocol.STATUS_SUCCESS;
         });
     }
 
-    public void compile(final Map<String, String> compilerOptions,
+    public Status compile(final Map<String, String> compilerOptions,
                         final Consumer<DaemonEvent> listener) throws IOException {
-        performAction((in, out) -> {
+        return performAction((in, out) -> {
             // Send COMPILE command
             out.writeByte(Protocol.CMD_COMPILE);
 
@@ -58,7 +62,7 @@ public class LightweightClient {
             out.flush();
 
             // Read streaming response
-            readStreamingResponse(in, listener);
+            return readStreamingResponse(in, listener);
         });
     }
 
@@ -76,9 +80,10 @@ public class LightweightClient {
         });
     }
 
-    private void readStreamingResponse(final DataInputStream in,
+    private Status readStreamingResponse(final DataInputStream in,
                                        final Consumer<DaemonEvent> listener) throws IOException {
         boolean readResponses = true;
+        Status resultStatus = Status.END;
 
         do {
             byte type = in.readByte();
@@ -88,10 +93,15 @@ public class LightweightClient {
                 if (status == Status.END || status == Status.ERROR) {
                     readResponses = false;
                 }
+                resultStatus = status;
+            } else if (type == Protocol.BYTECODE_GENERATED) {
+                sendBytecodeGenerated(in, listener);
             } else if (type >= Protocol.DIAGNOSTIC_ERROR && type <= Protocol.DIAGNOSTIC_OTHER) {
-                sengDiagnostic(type, in, listener);
+                sendDiagnostic(type, in, listener);
             }
         } while (readResponses);
+
+        return resultStatus;
     }
 
     private Status sendStatusEvent(final int type,
@@ -118,11 +128,15 @@ public class LightweightClient {
         return status;
     }
 
-    private void sengDiagnostic(final int type,
+    private void sendDiagnostic(final int type,
                                 final DataInputStream in,
                                 final Consumer<DaemonEvent> listener) throws IOException {
         final var fileName = readData(in);
         final var message = readData(in);
+        //final var lineNumber = in.readInt();
+        //final var columnNumber = in.readInt();
+        final var lineNumber = -1;
+        final var columnNumber = -1;
 
         final var kind = switch (type) {
             case Protocol.DIAGNOSTIC_ERROR -> DiagnosticEvent.Kind.ERROR;
@@ -132,7 +146,16 @@ public class LightweightClient {
             default -> DiagnosticEvent.Kind.OTHER;
         };
 
-        listener.accept(new DiagnosticEvent(kind, fileName, message));
+        listener.accept(new DiagnosticEvent(kind, fileName, message, lineNumber, columnNumber));
+    }
+
+    private void sendBytecodeGenerated(final DataInputStream in,
+                                       final Consumer<DaemonEvent> listener) throws IOException {
+        final var sourceFileName = readData(in);
+        final var classFileName = readData(in);
+        final var className = readData(in);
+
+        listener.accept(new ByteCodeEvent(sourceFileName, classFileName, className));
     }
 
     private String readData(final DataInputStream in) throws IOException {

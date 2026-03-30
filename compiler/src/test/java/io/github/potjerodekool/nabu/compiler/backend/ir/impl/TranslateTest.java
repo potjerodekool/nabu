@@ -2,11 +2,12 @@ package io.github.potjerodekool.nabu.compiler.backend.ir.impl;
 
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.test.NabuTreeParser;
 import io.github.potjerodekool.nabu.test.TestUtils;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.testing.TreeWalker;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.ir.CodeVisitor;
@@ -56,11 +57,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TranslateTest extends AbstractCompilerTest {
 
-    final Translate translate = new Translate(getCompilerContext());
+    Translate translate;
 
     @BeforeEach
     void setup() {
         TestUtils.resetLabels();
+        translate = new Translate((CompilerContextImpl) getCompilerContext());
     }
 
     @Test
@@ -69,8 +71,7 @@ class TranslateTest extends AbstractCompilerTest {
                 .simpleName("SomeClass")
                 .build();
 
-        final var stringType = getCompilerContext().getSymbolTable()
-                .getStringType();
+        final var stringType = loadClass(Constants.STRING).asType();
 
         final var thisSymbol = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
@@ -139,7 +140,7 @@ class TranslateTest extends AbstractCompilerTest {
     @Disabled
     @Test
     void visitFieldAccess() {
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
 
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
@@ -192,7 +193,7 @@ class TranslateTest extends AbstractCompilerTest {
     @Test
     void visitFieldAccess2() {
         //createFakeClass("ShapeKind");
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
 
         final var clazz = new ClassSymbolBuilder()
                 .simpleName("SomeClass")
@@ -239,7 +240,7 @@ class TranslateTest extends AbstractCompilerTest {
 
     @Test
     void visitFieldAccess3() {
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
 
         final var integerClass = getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.lang.Integer");
 

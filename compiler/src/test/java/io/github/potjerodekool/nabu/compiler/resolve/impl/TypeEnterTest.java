@@ -1,15 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.InMemoryFileObject;
 import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.ImportItem;
 import io.github.potjerodekool.nabu.tree.Modifiers;
@@ -65,7 +68,7 @@ class TypeEnterTest extends AbstractCompilerTest {
                 .modifiers(new Modifiers())
                 .build();
         final var compilationUnit = new CCompilationTreeUnit(
-                null,
+                createFileObject(),
                 List.of(),
                 List.of(),
                 -1,
@@ -108,7 +111,7 @@ class TypeEnterTest extends AbstractCompilerTest {
                 .modifiers(new Modifiers())
                 .build();
         final var compilationUnit = new CCompilationTreeUnit(
-                null,
+                createFileObject(),
                 List.of(),
                 List.of(),
                 -1,
@@ -169,7 +172,7 @@ class TypeEnterTest extends AbstractCompilerTest {
                 .build();
 
         final var compilationUnit = new CCompilationTreeUnit(
-                null,
+                createFileObject(),
                 List.of(),
                 List.of(),
                 -1,
@@ -207,7 +210,7 @@ class TypeEnterTest extends AbstractCompilerTest {
 
     @Test
     void starImportItem() {
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
 
         getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.util.List");
         getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.util.Iterator");
@@ -279,8 +282,8 @@ class TypeEnterTest extends AbstractCompilerTest {
                 ""
         );
 
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
-        packageSymbol.setModuleSymbol(module);
+        final var module = getCompilerContext().getModules().getUnnamedModule();
+        packageSymbol.setModuleSymbol((ModuleSymbol) module);
 
         final var clazz = new ClassSymbolBuilder()
                 .enclosingElement(packageSymbol)
@@ -291,7 +294,7 @@ class TypeEnterTest extends AbstractCompilerTest {
                 .modifiers(new Modifiers(0))
                 .build();
 
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
 
         getCompilerContext().getClassElementLoader().loadClass(
                 javaBase,
@@ -299,7 +302,7 @@ class TypeEnterTest extends AbstractCompilerTest {
         );
 
         final var compilationUnit = new CCompilationTreeUnit(
-                null,
+                createFileObject(),
                 List.of(importItem),
                 List.of(),
                 -1,
@@ -315,6 +318,13 @@ class TypeEnterTest extends AbstractCompilerTest {
         typeEnter.complete(clazz);
 
         return compilationUnit;
+    }
+
+    private FileObject createFileObject() {
+        return new InMemoryFileObject(
+                "",
+                "Dummy.nabu"
+        );
     }
 
     private ImportItem createImportItem(final String className,
@@ -359,7 +369,7 @@ class TypeEnterTest extends AbstractCompilerTest {
                 .build();
 
         final var compilationUnit = new CCompilationTreeUnit(
-                null,
+                createFileObject(),
                 List.of(),
                 List.of(),
                 -1,

@@ -1,5 +1,7 @@
 package io.github.potjerodekool.nabu.tree.expression.builder;
 
+import io.github.potjerodekool.nabu.tree.Tree;
+import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.LambdaExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CLambdaExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;

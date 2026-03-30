@@ -3,16 +3,18 @@ package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
+import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
 import io.github.potjerodekool.nabu.resolve.scope.ClassScope;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
 import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.test.NabuTreeParser;
-import io.github.potjerodekool.nabu.test.TreePaths;
+import io.github.potjerodekool.nabu.testing.TreePaths;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
@@ -23,13 +25,16 @@ import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressio
 import io.github.potjerodekool.nabu.tree.expression.builder.MethodInvocationTreeBuilder;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.impl.CLambdaExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CLiteralExpressionTree;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
+import io.github.potjerodekool.nabu.tree.statement.impl.CBlockStatementTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.TypePrinter;
 import io.github.potjerodekool.nabu.util.Types;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -38,14 +43,21 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@Disabled
 class MethodResolverTest extends AbstractCompilerTest {
 
-    @Disabled
+    private Types types;
+    private MethodResolverImpl methodResolver;
+
+    @BeforeEach
+    void setup() {
+        types = getCompilerContext().getTypes();
+        methodResolver = (MethodResolverImpl) getCompilerContext().getMethodResolver();
+    }
+
     @Test
     void resolveVarargsOverload() {
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
         final var stringClass = getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.lang.String");
 
         final var utilClass = getCompilerContext().getClassElementLoader()
@@ -82,7 +94,7 @@ class MethodResolverTest extends AbstractCompilerTest {
 
     @Test
     void resolveGenericInferenceWithoutExplicitTypeArgs() {
-        final var module = getCompilerContext().getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getModules().getJavaBase();
         final var stringClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.String");
         final var objectType = new ClassSymbolBuilder().kind(ElementKind.CLASS).simpleName("Object").build().asType();
 
@@ -133,8 +145,8 @@ class MethodResolverTest extends AbstractCompilerTest {
 
     @Test
     void resolveMostSpecificOverload() {
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
         final var integerClass = getCompilerContext().getClassElementLoader().loadClass(javaBase, "java.lang.Integer");
 
         final var svcClass = getCompilerContext().getClassElementLoader()
@@ -160,7 +172,7 @@ class MethodResolverTest extends AbstractCompilerTest {
 
     @Test
     void resolveInheritedMethodFromSuperclass() {
-        final var module = getCompilerContext().getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getModules().getJavaBase();
         final var stringClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.lang.String");
 
         final var superClass = new ClassSymbolBuilder().kind(ElementKind.CLASS).simpleName("Super").build();
@@ -193,12 +205,9 @@ class MethodResolverTest extends AbstractCompilerTest {
         assertEquals(expected, actual);
     }
 
-    private final Types types = getCompilerContext().getTypes();
-    private final MethodResolverImpl methodResolver = (MethodResolverImpl) getCompilerContext().getMethodResolver();
-
     @Test
     void resolveMethod() {
-        final var module = getCompilerContext().getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getModules().getJavaBase();
 
         final var target = IdentifierTree.create("list");
         final var listClass = getCompilerContext().getClassElementLoader().loadClass(module, "java.util.List");
@@ -256,8 +265,8 @@ class MethodResolverTest extends AbstractCompilerTest {
     @Test
     void resolveMethod2() {
         final var loader = getCompilerContext().getClassElementLoader();
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
-        final var unnamedModule = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
+        final var unnamedModule = getCompilerContext().getModules().getUnnamedModule();
 
         final var localDateClass = (ClassSymbol) loader.loadClass(javaBase, "java.time.LocalDate");
         localDateClass.complete();
@@ -348,7 +357,7 @@ class MethodResolverTest extends AbstractCompilerTest {
 
     @Test
     void resolveExactMethod() {
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
 
         final var target = new CIdentifierTree("out");
 
@@ -380,6 +389,7 @@ class MethodResolverTest extends AbstractCompilerTest {
         assertEquals(stringClass.asType(), paramType);
     }
 
+    @Disabled
     @Test
     void resolveCollectMethod() {
         final var methodInvocation = NabuTreeParser.<MethodInvocationTree>parse(
@@ -408,6 +418,7 @@ class MethodResolverTest extends AbstractCompilerTest {
         assertEquals(expected, actual);
     }
 
+    @Disabled
     @Test
     void resolveCollectMethod2() {
         final var methodInvocation = NabuTreeParser.<MethodInvocationTree>parse(
@@ -424,7 +435,7 @@ class MethodResolverTest extends AbstractCompilerTest {
 
         final var toSetInvocation = (MethodInvocationTree) methodInvocation.getArguments().getFirst();
         TreePaths.select(toSetInvocation, "Collectors")
-                .setType(loadType("java.util.stream.Collectors"));
+                .setType(loadClass("java.util.stream.Collectors").asType());
 
         final var toSetMethod = methodResolver.resolveMethod(toSetInvocation);
         toSetInvocation.setMethodType(toSetMethod.orElse(null));
@@ -436,9 +447,10 @@ class MethodResolverTest extends AbstractCompilerTest {
         assertEquals(expected, actual);
     }
 
+    @Disabled
     @Test
     void testTransform() {
-        final var targetType = (DeclaredType) loadType("java.util.stream.Stream<java.lang.String>");
+        final var targetType = (DeclaredType) loadClass("java.util.stream.Stream<java.lang.String>").asType();
 
         final var rTypeVariable = new CTypeVariable("R");
         final var aTypeVariable = new CTypeVariable("A");
@@ -459,17 +471,17 @@ class MethodResolverTest extends AbstractCompilerTest {
         final var typeArguments = new ArrayList<TypeMirror>();
         // "java.util.stream.Collector<T extends java.lang.Object, ?, java.util.Set<T extends java.lang.Object>>"
 
-        final var collectorType = (DeclaredType) loadType("java.util.stream.Collector");
+        final var collectorType = (DeclaredType) loadClass("java.util.stream.Collector").asType();
 
         final var setType = types.getDeclaredType(
-                loadType("java.util.Set").asTypeElement(),
-                new CTypeVariable("T", null, null, loadType("java.lang.Object"))
+                loadClass("java.util.Set"),
+                new CTypeVariable("T", null, null, loadClass("java.lang.Object").asType())
         );
 
         final var argumentType = types.getDeclaredType(
                 collectorType.asTypeElement(),
-                loadType("T extends java.lang.Object"),
-                loadType("java.lang.Object"),
+                loadClass("T extends java.lang.Object").asType(),
+                loadClass("java.lang.Object").asType(),
                 setType
         );
 
@@ -485,11 +497,12 @@ class MethodResolverTest extends AbstractCompilerTest {
         assertEquals(expected, actual);
     }
 
+    @Disabled
     @Test
     void testTransform2() {
-        final var targetType = (DeclaredType) loadType("jakarta.persistence.criteria.CriteriaBuilder");
-        final var pathType = loadType("jakarta.persistence.criteria.Path<java.lang.String>");
-        final var stringType = loadType("java.lang.String");
+        final var targetType = (DeclaredType) loadClass("jakarta.persistence.criteria.CriteriaBuilder").asType();
+        final var pathType = loadClass("jakarta.persistence.criteria.Path<java.lang.String>").asType();
+        final var stringType = loadClass("java.lang.String").asType();
         final var method = targetType.asTypeElement().getEnclosedElements().stream()
                 .filter(it -> it.getSimpleName().equals("equal"))
                 .map(it -> (MethodSymbol) it)
@@ -509,7 +522,7 @@ class MethodResolverTest extends AbstractCompilerTest {
 
     @Test
     void test1() {
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
 
         final var companyType = getCompilerContext().getClassElementLoader().loadClass(module, "foo.Company").asType();
         final var employeeType = getCompilerContext().getClassElementLoader().loadClass(module, "foo.Employee").asType();
@@ -555,8 +568,8 @@ class MethodResolverTest extends AbstractCompilerTest {
 
     @Test
     void test() {
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
-        final var javaBase = getCompilerContext().getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
         final var loader = getCompilerContext().getClassElementLoader();
         final var repositoryTypeElement = loader.loadClass(module, "org.springframework.data.jpa.repository.JpaRepository");
         final var uuidType = loader.loadClass(javaBase, "java.util.UUID").asType();
@@ -589,6 +602,57 @@ class MethodResolverTest extends AbstractCompilerTest {
         final var actual = TypePrinter.print(resolvedMethod);
 
         System.out.println(actual);
+    }
+
+    @Test
+    void resolveMethodWithLambda() {
+        final var loader = getCompilerContext().getClassElementLoader();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
+
+        final var stringType = loader.loadClass(javaBase, "java.lang.String").asType();
+        final var optionalString = types.getDeclaredType(
+                loader.loadClass(javaBase, "java.util.Optional"),
+                stringType
+        );
+
+        final var variable = IdentifierTree.create("optionalString");
+        variable.setType(optionalString);
+
+        final var lambda = new CLambdaExpressionTree(
+                List.of(),
+                new CBlockStatementTree(List.of()),
+                -1,
+                -1
+        );
+
+        final var partialType = new UndetVarType(
+                new CMethodType(
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        List.of(stringType),
+                        List.of()
+                )
+        );
+        lambda.setType(partialType);
+
+        final var methodInvocationTree = new MethodInvocationTreeBuilder()
+                .methodSelector(
+                        new CFieldAccessExpressionTree(
+                                variable,
+                                IdentifierTree.create("ifPresent")
+                        )
+                ).arguments(List.of(lambda))
+                .build();
+
+        final var methodType = methodResolver.resolveMethod(methodInvocationTree).orElse(null);
+        assertNotNull(methodType);
+
+        final var actual = TypePrinter.print(methodType);
+
+        assertEquals("""
+                void ifPresent(java.util.function.Consumer<? super java.lang.String>)""", actual);
     }
 
 }

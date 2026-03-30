@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.generate;
 
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.generate.asm.signature.AsmISignatureGenerator;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.backend.ir.type.IReferenceType;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

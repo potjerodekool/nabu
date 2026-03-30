@@ -582,8 +582,21 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (ctx.lambdaParameterList() != null) {
             return acceptList(ctx.lambdaParameterList());
         } else {
-            return ctx.identifier().accept(this);
+            return toLambdaVariable((Tree) ctx.identifier().accept(this));
         }
+    }
+
+    private VariableDeclaratorTree toLambdaVariable(final Tree tree) {
+        return TreeMaker.variableDeclarator(
+                Kind.PARAMETER,
+                new Modifiers(),
+                null,
+                (IdentifierTree) tree,
+                null,
+                null,
+                tree.getLineNumber(),
+                tree.getColumnNumber()
+        );
     }
 
     @Override

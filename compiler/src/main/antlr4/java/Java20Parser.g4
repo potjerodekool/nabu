@@ -8,7 +8,7 @@ options {
 }
 
 @header {
-package io.github.potjerodekool.nabu;
+package io.github.potjerodekool.nabu.compiler.lang.support.java;
 }
 
 //=============

@@ -5,7 +5,7 @@
 lexer grammar Java20Lexer;
 
 @header {
-package io.github.potjerodekool.nabu;
+package io.github.potjerodekool.nabu.compiler.lang.support.java;
 }
 
 // LEXER

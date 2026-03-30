@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.daemon;
 
+import com.fasterxml.jackson.core.io.DataOutputAsStream;
 import io.github.potjerodekool.nabu.compiler.NabuCompiler;
-import io.github.potjerodekool.nabu.tools.CompilerOption;
-import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;
 
 import java.io.*;
@@ -103,7 +103,7 @@ class ClientHandler implements Runnable {
         configureClassPath(compilerOptionsBuilder, optionsMap);
         configureSourceRoots(compilerOptionsBuilder, optionsMap);
 
-        final var outputDirectory = optionsMap.get(CompilerOption.CLASS_OUTPUT.optionName());
+        final var outputDirectory = optionsMap.getOrDefault(CompilerOption.CLASS_OUTPUT.optionName(), "out");
 
         compilerOptionsBuilder.option(CompilerOption.CLASS_OUTPUT, outputDirectory);
 
@@ -114,15 +114,27 @@ class ClientHandler implements Runnable {
                 throw new RuntimeException(e);
             }
         });
+        nabuCompiler.setByteCodeGeneratorListener((sourceFile, classFile, className) -> {
+            try {
+                sendByteCodeMessage(sourceFile, classFile, className, out);
+            } catch (final IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
 
-        final var result = nabuCompiler.compile(compilerOptionsBuilder.build());
-        sendEnd(out, result == 0);
+        final var options = compilerOptionsBuilder.build();
+        if (options.hasOption(CompilerOption.SOURCE_PATH)) {
+            final var result = nabuCompiler.compile(options);
+            sendEnd(out, result == 0);
+        } else {
+            sendEnd(out, true);
+        }
     }
 
     private void configureClassPath(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder,
                                     final Map<String, String> optionsMap) {
-        final var outputDirectory = optionsMap.get(CompilerOption.CLASS_OUTPUT.optionName());
-        final var classPath = optionsMap.get(CompilerOption.CLASS_PATH.optionName());
+        final var outputDirectory = optionsMap.getOrDefault(CompilerOption.CLASS_OUTPUT.optionName(), "out");
+        final var classPath = optionsMap.getOrDefault(CompilerOption.CLASS_PATH.optionName(), "");
         final var classPathEntries = Arrays.asList(classPath.split(File.pathSeparator));
 
         final var paths = new ArrayList<String>();
@@ -136,9 +148,12 @@ class ClientHandler implements Runnable {
 
     private void configureSourceRoots(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder,
                                       final Map<String, String> optionsMap) {
-        final var sourceRoots = optionsMap.get(CompilerOption.SOURCE_PATH.optionName());
+        final var sourceRoots = optionsMap.getOrDefault(CompilerOption.SOURCE_PATH.optionName(), "");
         final var sourcePath = String.join(File.pathSeparator, sourceRoots);
-        compilerOptionsBuilder.option(CompilerOption.SOURCE_PATH, sourcePath);
+
+        if (!sourcePath.isEmpty()) {
+            compilerOptionsBuilder.option(CompilerOption.SOURCE_PATH, sourcePath);
+        }
     }
 
     private void handlePing(final DataOutputStream out) throws IOException {
@@ -193,12 +208,35 @@ class ClientHandler implements Runnable {
         final var file = diagnostic.getFileObject();
         final var fileName = file != null ? toByteArray(file.getFileName()) : NO_DATA;
         final var message = toByteArray(diagnostic.getMessage(null));
+        final var lineNumber = Objects.requireNonNullElse(diagnostic.getLineNumber(), -1);
+        final var columnNumber = Objects.requireNonNullElse(diagnostic.getColumnNumber(), -1);
 
         out.writeByte(diagnosticCode);
-        out.writeInt(fileName.length);
-        out.write(fileName);
+        writeField(out, fileName);
+        writeField(out, message);
+        out.writeInt(lineNumber);
+        out.writeInt(columnNumber);
+        out.flush();
+    }
+
+    private void writeField(final DataOutputStream out,
+                            final byte[] message) throws IOException {
         out.writeInt(message.length);
         out.write(message);
+    }
+
+    private void sendByteCodeMessage(final FileObject sourceFile,
+                                     final PathFileObject classFile,
+                                     final String className,
+                                     final DataOutputStream out) throws IOException {
+        final var sourceFileName = toByteArray(sourceFile.getFileName());
+        final var classFileName = toByteArray(classFile.getFileName());
+
+        out.writeByte(Protocol.BYTECODE_GENERATED);
+        writeField(out, sourceFileName);
+        writeField(out, classFileName);
+        writeField(out, className.getBytes());
+
         out.flush();
     }
 

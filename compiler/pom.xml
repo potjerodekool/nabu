@@ -45,6 +45,18 @@
             <version>${asm.version}</version>
         </dependency>
 
+        <!-- For native backend -->
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>llvm-platform</artifactId>
+            <version>21.1.8-1.5.13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>libffi-platform</artifactId>
+            <version>3.5.2-1.5.13</version>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
@@ -97,7 +109,7 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <version>1.18.42</version>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
 
     </dependencies>

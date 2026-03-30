@@ -67,4 +67,13 @@ public interface Element extends AnnotatedConstruct {
 
     ElementBuilder<?> builder();
 
+    default boolean hasAnnotation(final String annotationClassName) {
+        return getAnnotationMirrors().stream()
+                .anyMatch(annotation ->
+                        annotationClassName.equals(annotation.getAnnotationType()
+                                .asTypeElement()
+                                .getQualifiedName())
+                );
+    }
+
 }

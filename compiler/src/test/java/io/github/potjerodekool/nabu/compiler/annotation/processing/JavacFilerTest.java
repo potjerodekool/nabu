@@ -1,14 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing;
 
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.log.LoggerFactory;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.util.Elements;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import javax.tools.StandardLocation;
@@ -25,34 +27,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class JavacFilerTest extends AbstractCompilerTest {
 
     static {
-        Logger logger = new Logger() {
-            @Override
-            public void log(final LogLevel level, final String message, final Throwable exception) {
-                System.out.println(message);
-            }
-        };
+        Logger logger = (level, message, exception) -> System.out.println(message);
 
-        LoggerFactory.setProvider((name) -> {
-            return logger;
-        });
+        LoggerFactory.setProvider((name) -> logger);
     }
 
-    private final SymbolTable symbolTable = getCompilerContext().getSymbolTable();
-    private final Elements elements = getCompilerContext().getElements();
+    private SymbolTable symbolTable;
+    private Elements elements;
 
     private Path tempDir;
 
-    private final JavacFiler filer = new JavacFiler(
-            symbolTable,
-            elements,
-            getCompilerContext().getFileManager()
-    );
+    private JavacFiler filer;
 
     private Path getTempDir() throws IOException {
         if (tempDir == null) {
             tempDir = Files.createTempDirectory("test");
         }
         return tempDir;
+    }
+
+    @BeforeEach
+    void setUp() {
+        symbolTable = ((CompilerContextImpl)getCompilerContext()).getSymbolTable();
+        elements = getCompilerContext().getElements();
+
+        filer = new JavacFiler(
+                symbolTable,
+                elements,
+                getCompilerContext().getFileManager()
+        );
     }
 
     @AfterEach

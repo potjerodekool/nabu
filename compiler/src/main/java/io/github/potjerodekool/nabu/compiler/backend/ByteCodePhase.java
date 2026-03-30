@@ -4,11 +4,14 @@ import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
+import io.github.potjerodekool.nabu.tools.ByteCodeGeneratorListener;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.tools.PathFileObject;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.ModuleDeclaration;
@@ -26,9 +29,12 @@ public final class ByteCodePhase {
     private static final Logger LOGGER = Logger.getLogger(ByteCodePhase.class.getName());
 
     private final CompilerContextImpl compilerContext;
+    private final ByteCodeGeneratorListener byteCodeGeneratorListener;
 
-    public ByteCodePhase(final CompilerContextImpl compilerContext) {
+    public ByteCodePhase(final CompilerContextImpl compilerContext,
+                         final ByteCodeGeneratorListener byteCodeGeneratorListener) {
         this.compilerContext = compilerContext;
+        this.byteCodeGeneratorListener = byteCodeGeneratorListener;
     }
 
     public int generate(final List<CompilationUnit> compilationUnits,
@@ -60,7 +66,7 @@ public final class ByteCodePhase {
             generateModule(compilerOptions, moduleDeclaration, targetDirectory);
 
         } else if (!classes.isEmpty()) {
-            generateClass(compilerOptions, classes.getFirst(), targetDirectory);
+            generateClass(compilerOptions, classes.getFirst(), targetDirectory, compilationUnit.getFileObject());
         }
     }
 
@@ -75,12 +81,13 @@ public final class ByteCodePhase {
         final ByteCodeGenerator generator = createByteCodeGenerator();
         generator.generate(moduleDeclaration, compilerOptions);
         final var name = "module-info";
-        doGenerate(null, name, generator, targetDirectory);
+        doGenerate(null, name, generator, targetDirectory, null, "module-info");
     }
 
     private void generateClass(final CompilerOptions compilerOptions,
                                final ClassDeclaration classDeclaration,
-                               final Path targetDirectory) {
+                               final Path targetDirectory,
+                               final FileObject sourceFile) {
         final ByteCodeGenerator generator = createByteCodeGenerator();
         final var classSymbol = classDeclaration.getClassSymbol();
 
@@ -90,12 +97,19 @@ public final class ByteCodePhase {
             final var packageName = packageSymbol.getQualifiedName();
             final var fileName = fileName(packageName, classSymbol);
 
-            doGenerate(packageName, fileName, generator, targetDirectory);
+            doGenerate(
+                    packageName,
+                    fileName,
+                    generator,
+                    targetDirectory,
+                    sourceFile,
+                    classSymbol.getFlatName()
+            );
 
             classDeclaration.getEnclosedElements().stream()
                     .flatMap(CollectionUtils.mapOnly(ClassDeclaration.class))
                     .forEach(enclosedElement ->
-                            generateClass(compilerOptions, enclosedElement, targetDirectory));
+                            generateClass(compilerOptions, enclosedElement, targetDirectory, sourceFile));
         } catch (final Exception e) {
             LOGGER.log(LogLevel.ERROR, String.format(
                     "Failed to generate class for %s", classSymbol.getQualifiedName()),
@@ -122,7 +136,9 @@ public final class ByteCodePhase {
     private void doGenerate(final String packageName,
                             final String name,
                             final ByteCodeGenerator generator,
-                            final Path targetDirectory) {
+                            final Path targetDirectory,
+                            final FileObject sourceFile,
+                            final String className) {
         final var bytecode = generator.getBytecode();
         final var outputPath = Path.of(name + ".class");
 
@@ -142,9 +158,20 @@ public final class ByteCodePhase {
             deleteIfExists(path);
             createDirectories(outputDirectory);
             Files.write(path, bytecode);
+            final var message = String.format("Generated %s", path.toAbsolutePath());
+
             LOGGER.log(
                     LogLevel.INFO,
-                    String.format("Generated %s", path.toAbsolutePath())
+                    message
+            );
+
+            byteCodeGeneratorListener.generated(
+                    sourceFile,
+                    new PathFileObject(
+                            FileObject.CLASS_KIND,
+                            path
+                    ),
+                    className
             );
         } catch (final IOException e) {
             throw new RuntimeException(e);

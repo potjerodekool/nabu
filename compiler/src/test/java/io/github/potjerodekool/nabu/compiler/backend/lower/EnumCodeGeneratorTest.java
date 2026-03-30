@@ -1,10 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.EnumCodeGenerator;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.element.Function;
@@ -14,18 +15,24 @@ import io.github.potjerodekool.nabu.tree.expression.builder.NewClassExpressionBu
 import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
 import io.github.potjerodekool.nabu.util.CollectionUtils;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 class EnumCodeGeneratorTest extends AbstractCompilerTest {
 
-    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
+    private ClassElementLoader loader;
+
+    @BeforeEach
+    void setup() {
+        loader = getCompilerContext().getClassElementLoader();
+    }
 
     @Test
     void generateCode() {
         final var generator = new EnumCodeGenerator(
-                getCompilerContext()
+                (CompilerContextImpl) getCompilerContext()
         );
 
         final var enumType = loader.loadClass(null, Constants.ENUM).asType();

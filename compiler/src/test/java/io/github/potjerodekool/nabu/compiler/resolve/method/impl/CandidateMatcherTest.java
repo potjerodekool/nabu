@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import org.junit.jupiter.api.Test;
 

@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
+import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
@@ -85,4 +86,15 @@ public class IsAssignableMatcher extends BooleanResultVisitor {
         }
     }
 
+    @Override
+    public Boolean visitUnknownType(final TypeMirror typeMirror, final TypeMirror otherType) {
+        if (typeMirror instanceof UndetVarType undetVarType && types.isFunctionalInterface(otherType)) {
+            //Is lambda. Check if number of parameters match.
+            final var functionalMethod = otherType.asTypeElement().findFunctionalMethod();
+            if (undetVarType.getParameterTypes().size() == functionalMethod.getParameters().size()) {
+                return true;
+            }
+        }
+        return super.visitUnknownType(typeMirror, otherType);
+    }
 }

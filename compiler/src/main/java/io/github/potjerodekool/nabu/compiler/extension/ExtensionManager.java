@@ -44,7 +44,11 @@ public class ExtensionManager {
                 .filter(extension -> extension.supportsJdkFeatureVersion(runtimeFeatureVersion))
                 .findFirst();
         return extensionOptional
-                .map(extension -> extension.createExtension(ByteCodeGenerator.class, false, compilerContext))
+                .map(extension -> pluginRegistry.createExtension(
+                        extension,
+                        ByteCodeGenerator.class,
+                        false,
+                        compilerContext))
                 .orElseThrow(() -> new CompilerConfigurationException("No bytecode generator available"));
     }
 

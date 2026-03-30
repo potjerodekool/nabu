@@ -4,18 +4,25 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CWildcardType;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.util.Types;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class IsSubTypeTest extends AbstractCompilerTest {
 
-    private final Types types = getCompilerContext().getTypes();
-    private final IsSubType isSubType = new IsSubType((TypesImpl) types);
+    private Types types;
+    private IsSubType isSubType;
+
+    @BeforeEach
+    void setUp() {
+        types = getCompilerContext().getTypes();
+        isSubType = new IsSubType((TypesImpl) types);
+    }
 
     @Test
     void visitWildcardType() {

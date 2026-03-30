@@ -1,8 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 
@@ -17,7 +16,7 @@ public class ExceptionTypeVisitor extends AbstractVisitor {
     protected ExceptionTypeVisitor(final int api,
                                    final CompilerContext compilerContext,
                                    final AbstractVisitor parent,
-                                   final ModuleSymbol moduleSymbol) {
+                                   final ModuleElement moduleSymbol) {
         super(api, compilerContext, parent, moduleSymbol);
     }
 

@@ -23,7 +23,7 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     public CClassType(final TypeMirror outerType,
                       final TypeSymbol classSymbol,
-                      final List<? extends AbstractType> typeArguments) {
+                      final List<? extends TypeMirror> typeArguments) {
         super(classSymbol);
 
         this.outerType = outerType;

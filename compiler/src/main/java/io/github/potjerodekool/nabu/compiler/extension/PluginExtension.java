@@ -33,40 +33,12 @@ public class PluginExtension {
         return attributes.get("implementationClass");
     }
 
-    public <T> T createExtension(final Class<T> extensionClass,
-                                 final boolean createSingleton,
-                                 final CompilerContext compilerContext) {
-        final var implementationClass = getImplementationClass();
-        if (implementationClass == null) {
-            throw new IllegalArgumentException("No implementation class specified for extension " + extensionClass.getName());
-        }
-        try {
-            final var clazz = Class.forName(implementationClass);
-            if (!extensionClass.isAssignableFrom(clazz)) {
-                throw new IllegalArgumentException("Implementation class " + implementationClass + " is not assignable to " + extensionClass.getName());
-            }
+    public Object getSingleton() {
+        return singleton;
+    }
 
-            final T instance;
-            final var constructors = clazz.getDeclaredConstructors();
-
-            if (constructors.length == 0) {
-                throw new IllegalArgumentException("Implementation class " + implementationClass + " has no declared constructors");
-            } else {
-                final var constructor = constructors[0];
-                if (constructor.getParameterCount() == 0) {
-                    instance = (T) constructor.newInstance();
-                } else {
-                    instance = (T) constructor.newInstance(compilerContext);
-                }
-            }
-
-            if (createSingleton) {
-                this.singleton = instance;
-            }
-            return instance;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create extension " + extensionClass.getName() + " with implementation class " + implementationClass, e);
-        }
+    public void setSingleton(final Object singleton) {
+        this.singleton = singleton;
     }
 
     public boolean supportsJdkFeatureVersion(final int version) {

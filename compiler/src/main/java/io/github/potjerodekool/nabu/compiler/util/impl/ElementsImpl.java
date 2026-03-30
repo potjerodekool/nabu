@@ -133,17 +133,7 @@ public class ElementsImpl implements Elements {
 
     @Override
     public boolean isDeprecated(final Element e) {
-        return hasAnnotation(e, "java.lang.Deprecated");
-    }
-
-    private boolean hasAnnotation(final Element e,
-                                  final String annotationClassName) {
-        return e.getAnnotationMirrors().stream()
-                .anyMatch(annotation ->
-                        annotationClassName.equals(annotation.getAnnotationType()
-                                .asTypeElement()
-                                .getQualifiedName())
-                );
+        return e.hasAnnotation("java.lang.Deprecated");
     }
 
     @Override
@@ -406,7 +396,7 @@ public class ElementsImpl implements Elements {
     @Override
     public boolean isFunctionalInterface(final TypeElement type) {
         return type.getKind() == ElementKind.INTERFACE
-                && hasAnnotation(type, "java.lang.FunctionalInterface");
+                && type.hasAnnotation("java.lang.FunctionalInterface");
     }
 
     private <S extends Symbol> S nameToSymbol(final ModuleSymbol module,

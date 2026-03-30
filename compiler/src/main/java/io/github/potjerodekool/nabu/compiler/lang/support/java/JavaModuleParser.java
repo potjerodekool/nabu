@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
-import io.github.potjerodekool.nabu.Java20Parser;
-import io.github.potjerodekool.nabu.Java20ParserBaseVisitor;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.lang.model.element.Directive;

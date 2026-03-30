@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
-import io.github.potjerodekool.nabu.Java20Lexer;
-import io.github.potjerodekool.nabu.Java20Parser;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 

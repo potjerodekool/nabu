@@ -29,7 +29,13 @@ public class LanguageSupportManager {
     private void initLanguageSupporters() {
         if (this.languageSupporters.isEmpty()) {
             this.pluginRegistry.getExtensions("language-support").forEach(extension -> {
-                final var languageSupporter = extension.createExtension(LanguageSupport.class, true, compilerContext);
+                final var languageSupporter = pluginRegistry.createExtension(
+                        extension,
+                        LanguageSupport.class,
+                        true,
+                        compilerContext
+                );
+
                 final var sourceKind = languageSupporter.getSourceKind();
                 this.languageSupporters.put(sourceKind, languageSupporter);
                 this.sourceKinds.add(sourceKind);

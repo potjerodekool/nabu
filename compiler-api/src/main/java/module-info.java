@@ -27,4 +27,10 @@ module io.github.potjerodekool.compiler.api {
     exports io.github.potjerodekool.nabu.tools.transform.spi;
     exports io.github.potjerodekool.nabu.lang.spi;
     exports io.github.potjerodekool.nabu.log;
+    exports io.github.potjerodekool.nabu.ir;
+    exports io.github.potjerodekool.nabu.ir.values;
+    exports io.github.potjerodekool.nabu.ir.types;
+    exports io.github.potjerodekool.nabu.ir.instructions;
+    exports io.github.potjerodekool.nabu.backend;
+    exports io.github.potjerodekool.nabu.debug;
 }

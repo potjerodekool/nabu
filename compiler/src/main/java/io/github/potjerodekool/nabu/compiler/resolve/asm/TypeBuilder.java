@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignature;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -15,7 +16,7 @@ public class TypeBuilder {
 
     public TypeMirror parseFieldSignature(final String signature,
                                           final CompilerContext compilerContext,
-                                          final ModuleSymbol moduleSymbol) {
+                                          final ModuleElement moduleSymbol) {
         final var reader = new SignatureReader(signature);
 
         final var signatureBuilder =

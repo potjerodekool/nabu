@@ -10,6 +10,8 @@ module io.github.potjerodekool.nabu.compiler {
     requires org.objectweb.asm.util; //Used for reading and writing .class files.
     requires org.objectweb.asm; //Used for reading and writing .class files.
     requires java.xml; //Used for parsing plugin.xml files.
-    requires java.compiler;
-    requires jdk.compiler; //Used to support annotation processing.
+    requires java.compiler; //Used to support annotation processing.
+    requires org.bytedeco.llvm;
+    requires org.bytedeco.javacpp; //Used by native backend
+    requires lombok;
 }

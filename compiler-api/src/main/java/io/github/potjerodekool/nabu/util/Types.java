@@ -223,4 +223,6 @@ public interface Types {
     TypeMirror getObjectType();
 
     TypeMirror getUnknownType();
+
+    boolean isFunctionalInterface(TypeMirror type);
 }

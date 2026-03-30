@@ -11,7 +11,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Processor that deproxies an annotation because some things are not known
+ * Processor that de-proxies an annotation because some things are not known
  * when reading an annotation from a .class file.
  */
 public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<Attribute, ExecutableElement> {

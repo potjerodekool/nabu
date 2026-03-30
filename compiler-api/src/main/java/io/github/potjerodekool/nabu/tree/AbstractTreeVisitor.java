@@ -28,16 +28,21 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case ReturnStatementTree returnStatementTree -> visitReturnStatement(returnStatementTree, param);
             case LambdaExpressionTree lambdaExpressionTree -> visitLambdaExpression(lambdaExpressionTree, param);
             case BinaryExpressionTree binaryExpressionTree -> visitBinaryExpression(binaryExpressionTree, param);
-            case FieldAccessExpressionTree fieldAccessExpressionTree -> visitFieldAccessExpression(fieldAccessExpressionTree, param);
+            case FieldAccessExpressionTree fieldAccessExpressionTree ->
+                    visitFieldAccessExpression(fieldAccessExpressionTree, param);
             case MethodInvocationTree methodInvocationTree -> visitMethodInvocation(methodInvocationTree, param);
-            case ExpressionStatementTree expressionStatementTree -> visitExpressionStatement(expressionStatementTree, param);
+            case ExpressionStatementTree expressionStatementTree ->
+                    visitExpressionStatement(expressionStatementTree, param);
             case AnnotatedTypeTree annotatedTypeTree -> visitAnnotatedType(annotatedTypeTree, param);
-            case VariableDeclaratorTree variableDeclaratorTree -> visitVariableDeclaratorStatement(variableDeclaratorTree, param);
+            case VariableDeclaratorTree variableDeclaratorTree ->
+                    visitVariableDeclaratorStatement(variableDeclaratorTree, param);
             case UnaryExpressionTree unaryExpressionTree -> visitUnaryExpression(unaryExpressionTree, param);
-            case WildcardExpressionTree wildcardExpressionTree -> visitWildCardExpression(wildcardExpressionTree, param);
+            case WildcardExpressionTree wildcardExpressionTree ->
+                    visitWildCardExpression(wildcardExpressionTree, param);
             case IfStatementTree ifStatementTree -> visitIfStatement(ifStatementTree, param);
             case ForStatementTree forStatementTree -> visitForStatement(forStatementTree, param);
-            case EnhancedForStatementTree enhancedForStatementTree -> visitEnhancedForStatement(enhancedForStatementTree, param);
+            case EnhancedForStatementTree enhancedForStatementTree ->
+                    visitEnhancedForStatement(enhancedForStatementTree, param);
             case NewClassExpression newClassExpression -> visitNewClass(newClassExpression, param);
             case WhileStatementTree whileStatementTree -> visitWhileStatement(whileStatementTree, param);
             case DoWhileStatementTree doWhileStatementTree -> visitDoWhileStatement(doWhileStatementTree, param);
@@ -58,7 +63,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case InstanceOfExpression instanceOfExpression -> visitInstanceOfExpression(instanceOfExpression, param);
             case IntersectionTypeTree intersectionTypeTree -> visitIntersectionType(intersectionTypeTree, param);
             case TypeParameterTree typeParameterTree -> visitTypeParameter(typeParameterTree, param);
-            case ArrayAccessExpressionTree arrayAccessExpressionTree -> visitArrayAccess(arrayAccessExpressionTree, param);
+            case ArrayAccessExpressionTree arrayAccessExpressionTree ->
+                    visitArrayAccess(arrayAccessExpressionTree, param);
             case PatternCaseLabel patternCaseLabel -> visitPatternCaseLabel(patternCaseLabel, param);
             case MemberReference memberReference -> visitMemberReference(memberReference, param);
             case BreakStatement breakStatement -> visitBreakStatement(breakStatement, param);
@@ -74,7 +80,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case AssertStatement assertStatement -> visitAssertStatement(assertStatement, param);
             case YieldStatement yieldStatement -> visitYieldStatement(yieldStatement, param);
             case LabeledStatement labeledStatement -> visitLabeledStatement(labeledStatement, param);
-            case SynchronizedStatement synchronizedStatement -> visitSynchronizedStatement(synchronizedStatement, param);
+            case SynchronizedStatement synchronizedStatement ->
+                    visitSynchronizedStatement(synchronizedStatement, param);
             case ContinueStatement continueStatement -> visitContinueStatement(continueStatement, param);
             /*
                We could add support for other tree types that are specific to a language.
@@ -97,7 +104,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
         );
 
         compilationUnit.getClasses().forEach(classDeclaration ->
-            acceptTree(classDeclaration, param)
+                acceptTree(classDeclaration, param)
         );
         return defaultAnswer(compilationUnit, param);
     }
@@ -180,7 +187,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     @Override
     public R visitClass(final ClassDeclaration classDeclaration, final P param) {
         classDeclaration.getModifiers().getAnnotations()
-                        .forEach(annotation -> acceptTree(annotation, param));
+                .forEach(annotation -> acceptTree(annotation, param));
         classDeclaration.getEnclosedElements().forEach(enclosedElement ->
                 acceptTree(enclosedElement, param));
         return defaultAnswer(classDeclaration, param);
@@ -189,9 +196,9 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     @Override
     public R visitMethodInvocation(final MethodInvocationTree methodInvocation, final P param) {
         methodInvocation.getTypeArguments()
-                        .forEach(typeArg -> acceptTree(typeArg, param));
+                .forEach(typeArg -> acceptTree(typeArg, param));
         acceptTree(methodInvocation.getMethodSelector(), param);
-methodInvocation.getArguments().forEach(arg -> acceptTree(arg, param));
+        methodInvocation.getArguments().forEach(arg -> acceptTree(arg, param));
         return defaultAnswer(methodInvocation, param);
     }
 

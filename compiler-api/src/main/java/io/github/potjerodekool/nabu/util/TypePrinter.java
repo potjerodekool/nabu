@@ -62,7 +62,9 @@ abstract class AbstractTypePrinter implements TypeVisitor<Object, Object> {
     @Override
     public final Object visitMethodType(final ExecutableType methodType,
                                         final Object param) {
-        final var methodName = methodType.getMethodSymbol().getSimpleName();
+        final var methodName = methodType.getMethodSymbol() != null
+                ? methodType.getMethodSymbol().getSimpleName()
+                : "UNKNOWN";
         final var typeVariables = methodType.getTypeVariables();
 
         if (!typeVariables.isEmpty()) {

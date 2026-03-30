@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
@@ -13,16 +13,23 @@ import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class MemberOfVisitorTest extends AbstractCompilerTest {
 
-    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = getCompilerContext().getTypes();
+    private ClassElementLoader loader;
+    private Types types;
+
+    @BeforeEach
+    void setup() {
+        loader = getCompilerContext().getClassElementLoader();
+        types = getCompilerContext().getTypes();
+    }
 
     @Test
     void visitDeclaredType() {
-        final var module = getCompilerContext().getSymbolTable().getJavaBase();
+        final var module = getCompilerContext().getModules().getJavaBase();
 
         final var visitor = new MemberOfVisitor(types);
         final var listSymbol = loader.loadClass(module, "java.util.List");

@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
@@ -17,12 +17,12 @@ public abstract class AbstractVisitor extends SignatureVisitor {
     protected final ClassElementLoader loader;
     protected final Types types;
     protected final AbstractVisitor parent;
-    protected final ModuleSymbol moduleSymbol;
+    protected final ModuleElement moduleSymbol;
 
     protected AbstractVisitor(final int api,
                               final CompilerContext compilerContext,
                               final AbstractVisitor parent,
-                              final ModuleSymbol moduleSymbol) {
+                              final ModuleElement moduleSymbol) {
         super(api);
         this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();

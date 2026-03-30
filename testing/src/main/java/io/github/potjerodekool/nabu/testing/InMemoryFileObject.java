@@ -11,9 +11,10 @@ public class InMemoryFileObject implements FileObject {
 
     private byte[] source;
     private final String fileName;
+    private final FileObject.Kind kind;
 
     public InMemoryFileObject(final String source,
-                       final String fileName) {
+                              final String fileName) {
         this(source.getBytes(StandardCharsets.UTF_8), fileName);
     }
 
@@ -21,6 +22,9 @@ public class InMemoryFileObject implements FileObject {
                        final String fileName) {
         this.source = source;
         this.fileName = fileName;
+        final var sepIndex = fileName.lastIndexOf('.');
+        final var extension = fileName.substring(sepIndex + 1);
+        this.kind = new FileObject.Kind(extension, true);
     }
 
     @Override
@@ -47,7 +51,7 @@ public class InMemoryFileObject implements FileObject {
 
     @Override
     public Kind getKind() {
-        throw new TodoException();
+        return kind;
     }
 
     @Override

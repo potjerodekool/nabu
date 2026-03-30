@@ -40,7 +40,12 @@ public class LanguageParserManager {
     private void initLanguageParsers() {
         if (this.languageParsers.isEmpty()) {
             this.pluginRegistry.getExtensions("language-parser").forEach(extension -> {
-                final var languageParser = extension.createExtension(LanguageParser.class, true, compilerContext);
+                final var languageParser = pluginRegistry.createExtension(
+                        extension,
+                        LanguageParser.class,
+                        true,
+                        compilerContext
+                );
                 final var sourceKind = languageParser.getSourceKind();
                 this.languageParsers.put(sourceKind, languageParser);
                 this.sourceKinds.add(sourceKind);

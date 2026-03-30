@@ -87,7 +87,11 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
             final var simpleName = getSimpleName(clazz.getSourceFile());
 
             if (!simpleName.equals(clazz.getSimpleName())) {
-                reportError(String.format("Class '%s' is public, should be declared in a file named '%s.nabu'", clazz.getSimpleName(), simpleName), scope);
+                listener.report(new DefaultDiagnostic(
+                        Diagnostic.Kind.ERROR,
+                        String.format("Class '%s' is public, should be declared in a file named '%s.nabu'", clazz.getSimpleName(), simpleName),
+                        resolveFileObject(scope)
+                ));
             }
         }
     }
@@ -126,15 +130,19 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
             final var compilationUnit = getCompilationUnit(scope);
             final var lineInfo = formatLineInfo(methodInvocation);
+            final var message = "Failed to resolve method "
+                    + methodName + createMethodSignature(methodInvocation)
+                    + " on " + targetType
+                    +  " "
+                    + lineInfo;
 
-            reportError(
-                    "Failed to resolve method "
-                            + methodName + createMethodSignature(methodInvocation)
-                            + " on " + targetType
-                            +  " "
-                            + lineInfo,
-                    compilationUnit
-            );
+            listener.report(new DefaultDiagnostic(
+                    Diagnostic.Kind.ERROR,
+                    message,
+                    compilationUnit.getFileObject(),
+                    methodInvocation.getLineNumber(),
+                    methodInvocation.getColumnNumber()
+            ));
         }
 
         methodInvocation.getArguments().forEach(arg ->
@@ -180,20 +188,13 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                                         final Tree tree,
                                         final Scope scope) {
         final var lineInfo = formatLineInfo(tree);
-        reportError(String.format("Failed to resolve symbol %s %s", name, lineInfo), scope);
-    }
 
-    private void reportError(final String message,
-                             final Scope scope) {
-        reportError(message, getCompilationUnit(scope));
-    }
-
-    private void reportError(final String message,
-                             final CompilationUnit compilationUnit) {
         listener.report(new DefaultDiagnostic(
                 Diagnostic.Kind.ERROR,
-                message,
-                compilationUnit.getFileObject()
+                String.format("Failed to resolve symbol %s %s", name, lineInfo),
+                resolveFileObject(scope),
+                tree.getLineNumber(),
+                tree.getColumnNumber()
         ));
     }
 
@@ -230,7 +231,13 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                     className);
         }
 
-        reportError(message, scope);
+        listener.report(
+                new DefaultDiagnostic(
+                        Diagnostic.Kind.ERROR,
+                        message,
+                        resolveFileObject(scope)
+                )
+        );
     }
 
     @Override
@@ -251,7 +258,21 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         final var className = new StringBuilder();
         resolveClassName(expressionTree, className);
         final var lineInfo = formatLineInfo(expressionTree);
-        reportError("Failed to resolve class " + className + " " + lineInfo, scope);
+        final var message = "Failed to resolve class %s %s ".formatted(className, lineInfo);
+
+        final var diagnostic = new DefaultDiagnostic(
+                Diagnostic.Kind.ERROR,
+                message,
+                resolveFileObject(scope),
+                expressionTree.getLineNumber(),
+                expressionTree.getColumnNumber()
+        );
+        listener.report(diagnostic);
+    }
+
+    private FileObject resolveFileObject(final Scope scope) {
+        final var cu = getCompilationUnit(scope);
+        return cu.getFileObject();
     }
 
     private boolean isNullOrErrorType(final TypeMirror typeMirror) {
@@ -306,12 +327,19 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         final var annotationType = annotationTree.getName().getType();
 
         if (isNullOrErrorType(annotationType)) {
-            reportError(
-                    String.format("Failed to resolve %s at %s:%s",
-                            annotationTree.getName().getName(),
-                            annotationTree.getName().getLineNumber(),
-                            annotationTree.getName().getColumnNumber()
-                    ), scope);
+            listener.report(
+                    new DefaultDiagnostic(
+                            Diagnostic.Kind.ERROR,
+                            String.format("Failed to resolve %s at %s:%s",
+                                    annotationTree.getName().getName(),
+                                    annotationTree.getName().getLineNumber(),
+                                    annotationTree.getName().getColumnNumber()
+                            ),
+                            resolveFileObject(scope),
+                            annotationTree.getLineNumber(),
+                            annotationTree.getColumnNumber()
+                    )
+            );
         }
 
         annotationTree.getArguments().forEach(argument ->

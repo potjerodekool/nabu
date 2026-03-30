@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
@@ -25,7 +25,7 @@ public class SignatureParser extends AbstractVisitor {
 
     public SignatureParser(final int api,
                            final CompilerContext compilerContext,
-                           final ModuleSymbol moduleSymbol) {
+                           final ModuleElement moduleSymbol) {
         super(api, compilerContext, null, moduleSymbol);
     }
 

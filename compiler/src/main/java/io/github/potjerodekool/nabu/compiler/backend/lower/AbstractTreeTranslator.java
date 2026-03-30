@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.lower;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
+import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.statement.*;
 
@@ -73,7 +74,8 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
     @Override
     public Tree visitLambdaExpression(final LambdaExpressionTree lambdaExpression, final P param) {
         final var variables = lambdaExpression.getVariables().stream()
-                .map(it -> (VariableDeclaratorTree) acceptTree(it, param))
+                .map(it -> acceptTree(it, param))
+                .map(this::toLambdaVariable)
                 .toList();
 
         final var body = (StatementTree) acceptTree(lambdaExpression.getBody(), param);
@@ -82,6 +84,23 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
                 .variables(variables)
                 .body(body)
                 .build();
+    }
+
+    private VariableDeclaratorTree toLambdaVariable(final Tree tree) {
+        if (tree instanceof VariableDeclaratorTree variableDeclaratorTree) {
+            return variableDeclaratorTree;
+        } else {
+            return TreeMaker.variableDeclarator(
+                    Kind.PARAMETER,
+                    new Modifiers(),
+                    null,
+                    (IdentifierTree) tree,
+                    null,
+                    null,
+                    tree.getLineNumber(),
+                    tree.getColumnNumber()
+            );
+        }
     }
 
     @Override

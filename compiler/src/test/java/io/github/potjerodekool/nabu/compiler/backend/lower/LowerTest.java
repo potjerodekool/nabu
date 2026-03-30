@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
-import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
@@ -8,10 +9,11 @@ import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.InMemoryFileObject;
 import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
@@ -52,12 +54,15 @@ import static org.mockito.Mockito.when;
 
 class LowerTest extends AbstractCompilerTest {
 
-    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = getCompilerContext().getTypes();
+    private ClassElementLoader loader;
+    private Types types;
     private Lower lower;
 
     @BeforeEach
     void setup() {
+        loader = getCompilerContext().getClassElementLoader();
+        types = getCompilerContext().getTypes();
+
         final var methodResolver = mock(MethodResolver.class);
 
         final var clazz = new ClassSymbolBuilder()
@@ -80,13 +85,12 @@ class LowerTest extends AbstractCompilerTest {
                         new ArrayList<>()
                 )));
 
-        lower = new Lower(getCompilerContext());
+        lower = new Lower((CompilerContextImpl) getCompilerContext());
     }
 
     @Test
     void visitBinaryExpression() {
-        final var symbolTable = SymbolTable.getInstance(getCompilerContext());
-        final var module = symbolTable.getUnnamedModule();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
 
         assertBinaryExpression(
                 """
@@ -143,8 +147,7 @@ class LowerTest extends AbstractCompilerTest {
 
     @Test
     void visitEnhancedForStatement() {
-        final var symbolTable = SymbolTable.getInstance(getCompilerContext());
-        final var module = symbolTable.getJavaBase();
+        final var module = (ModuleSymbol) getCompilerContext().getModules().getJavaBase();
         final var stringType = loader.loadClass(module, Constants.STRING).asType();
         final var listType = loader.loadClass(module, "java.util.List").asType();
         final var stringListType = types.getDeclaredType(
@@ -223,7 +226,7 @@ class LowerTest extends AbstractCompilerTest {
 
     @Test
     void visitSwitchWithEnum() {
-        final var module = getCompilerContext().getSymbolTable().getUnnamedModule();
+        final var module = getCompilerContext().getModules().getUnnamedModule();
 
         final var packageSymbol = loader.findOrCreatePackage(
                 module,
@@ -248,21 +251,22 @@ class LowerTest extends AbstractCompilerTest {
         currentClassTree.setClassSymbol(currentClass);
 
         final var cu = new CCompilationTreeUnit(
-                null,
+                new InMemoryFileObject("", "dummy.nabu"),
                 List.of(),
                 List.of(),
                 0,
                 0
         );
 
+        final var context = (CompilerContextImpl) getCompilerContext();
 
-        getCompilerContext().getTypeEnter().put(
+        context.getTypeEnter().put(
                 currentClass,
                 currentClassTree,
                 cu
         );
 
-        currentClass.setCompleter(getCompilerContext().getTypeEnter());
+        currentClass.setCompleter(context.getTypeEnter());
         currentClass.complete();
 
         final var enumClass = loader.loadClass(

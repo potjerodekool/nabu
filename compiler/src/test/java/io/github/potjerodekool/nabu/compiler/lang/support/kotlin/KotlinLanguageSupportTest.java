@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.kotlin;
 
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.testing.TreePrinter;
 import org.junit.jupiter.api.Test;
 

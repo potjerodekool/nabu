@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.lower;
 
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
@@ -10,15 +10,22 @@ import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 class CasterTest extends AbstractCompilerTest {
 
-    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = getCompilerContext().getTypes();
+    private ClassElementLoader loader;
+    private Types types;
     private final Caster caster = new Caster();
+
+    @BeforeEach
+    void setUp() {
+        loader = getCompilerContext().getClassElementLoader();
+        types = getCompilerContext().getTypes();
+    }
 
     @Test
     void visitPrimitiveType() {

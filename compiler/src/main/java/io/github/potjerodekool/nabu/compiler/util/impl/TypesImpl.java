@@ -625,5 +625,18 @@ public class TypesImpl implements Types {
     public TypeMirror getUnknownType() {
         return new CUnknownType();
     }
+
+    @Override
+    public boolean isFunctionalInterface(final TypeMirror type) {
+        if (type.getKind() == TypeKind.DECLARED
+                && type.asTypeElement() instanceof TypeElement typeElement
+                && typeElement.getKind() == ElementKind.INTERFACE) {
+            return typeElement.hasAnnotation("java.lang.FunctionalInterface");
+        }
+
+        return false;
+    }
+
+
 }
 

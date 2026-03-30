@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.tree.expression.impl;
 
+import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;

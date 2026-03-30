@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.test.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
@@ -12,13 +12,21 @@ import io.github.potjerodekool.nabu.type.TypeVisitor;
 import io.github.potjerodekool.nabu.util.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class WideningConverterTest extends AbstractCompilerTest {
 
-    private final ClassElementLoader loader = getCompilerContext().getClassElementLoader();
-    private final Types types = getCompilerContext().getTypes();
-    private final WideningConverter wideningConverter = new WideningConverter(getCompilerContext());
+    private ClassElementLoader loader;
+    private Types types;
+    private WideningConverter wideningConverter;
+
+    @BeforeEach
+    void setup() {
+        this.loader = getCompilerContext().getClassElementLoader();
+        this.types = getCompilerContext().getTypes();
+        this.wideningConverter = new WideningConverter(getCompilerContext());
+    }
 
     @AfterEach
     void teardown() throws Exception {

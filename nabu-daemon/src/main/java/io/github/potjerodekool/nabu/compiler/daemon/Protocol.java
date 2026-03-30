@@ -14,11 +14,13 @@ public final class Protocol {
     public static final byte DIAGNOSTIC_NOTE = 0x13;
     public static final byte DIAGNOSTIC_OTHER = 0x14;
 
+    public static final byte BYTECODE_GENERATED = 0x20;
+
     //Status
-    public static final byte STATUS_SUCCESS = 0x20;
-    public static final byte STATUS_ERROR = 0x21;
-    public static final byte STATUS_COMPILE_STARTED = 0x22;
-    public static final byte STATUS_END = 0x23;
+    public static final byte STATUS_SUCCESS = 0x30;
+    public static final byte STATUS_ERROR = 0x31;
+    public static final byte STATUS_COMPILE_STARTED = 0x32;
+    public static final byte STATUS_END = 0x33;
 
     private Protocol() {
     }

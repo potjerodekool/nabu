@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbo
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
@@ -20,8 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.mapstruct.Mapper;
 import org.mapstruct.ap.MappingProcessor;
 
-import javax.annotation.processing.Processor;
-import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,7 +55,7 @@ class JavacProcessingEnvironmentTest extends AbstractAnnotationProcessorTest {
     }
 
     private ClassSymbol createPersonClass() {
-        final var context = getCompilerContext();
+        final var context = (CompilerContextImpl) getCompilerContext();
 
         final var loader = context.getClassElementLoader();
         final var types = context.getTypes();
@@ -115,7 +114,7 @@ class JavacProcessingEnvironmentTest extends AbstractAnnotationProcessorTest {
     }
 
     private ClassSymbol createPersonDtoClass() {
-        final var context = getCompilerContext();
+        final var context = (CompilerContextImpl) getCompilerContext();
 
         final var loader = context.getClassElementLoader();
         final var types = context.getTypes();
@@ -168,7 +167,7 @@ class JavacProcessingEnvironmentTest extends AbstractAnnotationProcessorTest {
 
     @Test
     void testMapStruct() {
-        final var symbolTable = getCompilerContext().getSymbolTable();
+        final var symbolTable = ((CompilerContextImpl) getCompilerContext()).getSymbolTable();
         final var loader = getCompilerContext().getClassElementLoader();
         final var mapperClass = loader.loadClass(null, "org.mapstruct.Mapper");
         final var module = SymbolTable.NO_MODULE;
@@ -208,26 +207,6 @@ class JavacProcessingEnvironmentTest extends AbstractAnnotationProcessorTest {
         process(
                 Set.of(personMapper),
                 List.of(new MappingProcessor())
-        );
-    }
-
-    @Test
-    void testLombok() throws ClassNotFoundException, NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
-        final var clazz = getClass().getClassLoader().loadClass("lombok.launch.AnnotationProcessorHider");
-        final var processorClass = Arrays.stream(clazz.getDeclaredClasses())
-                        .filter(it -> "AnnotationProcessor".equals(it.getSimpleName()))
-                                .findFirst()
-                                        .orElse(null);
-        final var processor = (Processor) processorClass.getConstructor().newInstance();
-
-        System.out.println(clazz);
-
-        //lombok.launch.AnnotationProcessorHider
-                //.AnnotationProcessor.
-
-        process(
-                Set.of(),
-                List.of(processor)
         );
     }
 

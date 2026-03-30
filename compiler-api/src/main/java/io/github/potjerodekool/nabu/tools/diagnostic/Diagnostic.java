@@ -26,6 +26,16 @@ public interface Diagnostic {
      */
     FileObject getFileObject();
 
+    /**
+     * @return Returns the line number this diagnostic refers to or null.
+     */
+    Integer getLineNumber();
+
+    /**
+     * @return Returns the column number this diagnostic refers to or null.
+     */
+    Integer getColumnNumber();
+
     /** Enumeration of the Diagnostic kinds */
     enum Kind {
         /** Error diagnostic like compilation errors */

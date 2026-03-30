@@ -39,9 +39,14 @@ public class NabuCompiler implements Compiler {
 
     private Path targetDirectory = Paths.get("output");
     private final CompilerDiagnosticListener compilerDiagnosticListener = new CompilerDiagnosticListener(new ConsoleDiagnosticListener());
+    private ByteCodeGeneratorListener byteCodeGeneratorListener = DevNullByteCodeGeneratorListener.INSTANCE;
 
     public void setListener(final DiagnosticListener listener) {
         compilerDiagnosticListener.setListener(listener);
+    }
+
+    public void setByteCodeGeneratorListener(final ByteCodeGeneratorListener byteCodeGeneratorListener) {
+        this.byteCodeGeneratorListener = byteCodeGeneratorListener;
     }
 
     @Override
@@ -59,7 +64,7 @@ public class NabuCompiler implements Compiler {
             final var sourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
             final var compilationUnits = processFiles(sourceFiles, compilerContext);
 
-            final ByteCodePhase byteCodePhase = new ByteCodePhase(compilerContext);
+            final ByteCodePhase byteCodePhase = new ByteCodePhase(compilerContext, byteCodeGeneratorListener);
 
             return byteCodePhase.generate(
                     compilationUnits,
@@ -281,4 +286,18 @@ public class NabuCompiler implements Compiler {
                 .toList();
     }
 
+}
+
+class DevNullByteCodeGeneratorListener implements ByteCodeGeneratorListener {
+
+    static final DevNullByteCodeGeneratorListener INSTANCE = new DevNullByteCodeGeneratorListener();
+
+    private DevNullByteCodeGeneratorListener() {}
+
+    @Override
+    public void generated(final FileObject sourceFile,
+                          final PathFileObject classFile,
+                          final String className) {
+
+    }
 }

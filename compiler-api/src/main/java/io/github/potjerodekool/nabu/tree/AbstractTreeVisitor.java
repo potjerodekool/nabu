@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.tree;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.element.*;
 import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.expression.impl.CParenthesizedExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
 
 public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, PatternTreeVisitor<R, P> {
@@ -83,6 +84,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case SynchronizedStatement synchronizedStatement ->
                     visitSynchronizedStatement(synchronizedStatement, param);
             case ContinueStatement continueStatement -> visitContinueStatement(continueStatement, param);
+            case ParenthesizedExpression parenthesizedExpression -> visitParenthesizedExpression(parenthesizedExpression, param);
+
             /*
                We could add support for other tree types that are specific to a language.
                We could add that via extension points so a language plugin can implement
@@ -367,5 +370,11 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     public R visitThrowStatement(final ThrowStatement throwStatement, final P param) {
         acceptTree(throwStatement.getExpression(), param);
         return TreeVisitor.super.visitThrowStatement(throwStatement, param);
+    }
+
+    @Override
+    public R visitParenthesizedExpression(final ParenthesizedExpression parenthesizedExpression, final P param) {
+        acceptTree(parenthesizedExpression.getExpression(), param);
+        return defaultAnswer(parenthesizedExpression, param);
     }
 }

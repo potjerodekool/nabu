@@ -1,10 +1,15 @@
 package io.github.potjerodekool.nabu.tree.statement.impl;
 
+import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
 import io.github.potjerodekool.nabu.tree.statement.WhileStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.WhileStatementTreeBuilder;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
+
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * Implementation of WhileStatement
@@ -47,4 +52,8 @@ public non-sealed class CWhileStatementTree extends CStatementTree implements Wh
         return new WhileStatementTreeBuilder(this);
     }
 
+    @Override
+    public List<? extends Tree> children() {
+        return List.of(condition, body);
+    }
 }

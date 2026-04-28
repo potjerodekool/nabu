@@ -17,7 +17,7 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     private List<TypeMirror> allParameters;
 
-    private TypeMirror supertypeField;
+    private CClassType supertypeField;
 
     private List<TypeMirror> interfacesField;
 
@@ -119,7 +119,8 @@ public class CClassType extends AbstractType implements DeclaredType {
         if (allParameters == null) {
             allParameters = new ArrayList<>();
 
-            if (getEnclosingType() != null) {
+            if (getEnclosingType() != null && getEnclosingType().getKind() != TypeKind.NONE) {
+                //TODO should not be null.
                 allParameters.addAll(getEnclosingType().getAllParameters());
             }
 
@@ -136,6 +137,14 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     public TypeMirror getSupertypeField() {
         return supertypeField;
+    }
+
+    public void setSupertypeField(final CClassType supertypeField) {
+        if (supertypeField == this) {
+            throw new IllegalStateException();
+        }
+
+        this.supertypeField = supertypeField;
     }
 
     public List<TypeMirror> getInterfacesField() {

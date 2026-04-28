@@ -92,6 +92,20 @@ public class IsAssignableMatcher extends BooleanResultVisitor {
             //Is lambda. Check if number of parameters match.
             final var functionalMethod = otherType.asTypeElement().findFunctionalMethod();
             if (undetVarType.getParameterTypes().size() == functionalMethod.getParameters().size()) {
+                final var paramTypes = undetVarType.getParameterTypes();
+
+                final var functionalMethodType = types.asMemberOf((DeclaredType) otherType, functionalMethod);
+                final var functionalMethodParameterTypes = functionalMethodType.getParameterTypes();
+
+                for (var i = 0; i < paramTypes.size(); i++) {
+                    final var paramType = paramTypes.get(i);
+                    final var functionalParameterType = functionalMethodParameterTypes.get(i);
+
+                    if (!paramType.accept(this, functionalParameterType)) {
+                        return false;
+                    }
+                }
+
                 return true;
             }
         }

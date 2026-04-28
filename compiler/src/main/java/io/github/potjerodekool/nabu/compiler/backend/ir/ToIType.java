@@ -32,7 +32,8 @@ public class ToIType implements TypeVisitor<IType, Void> {
                 .toList()
                 : null;
 
-        final var enclosingType = declaredType.getEnclosingType() != null
+        final var enclosingType =
+                declaredType.getEnclosingType() != null
                 ? (IReferenceType) declaredType.getEnclosingType().accept(this, param)
                 : null;
 

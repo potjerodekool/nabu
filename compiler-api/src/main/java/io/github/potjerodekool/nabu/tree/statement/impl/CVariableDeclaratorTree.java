@@ -119,6 +119,10 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
 
     @Override
     public TypeMirror getType() {
-        return variableType.getType();
+        if (variableType != null) {
+            return variableType.getType();
+        } else {
+            return super.getType();
+        }
     }
 }

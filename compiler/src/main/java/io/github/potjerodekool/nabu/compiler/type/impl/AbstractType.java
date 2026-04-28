@@ -9,6 +9,13 @@ import java.util.List;
 
 public abstract class AbstractType implements TypeMirror {
 
+    public static final CNoType noType = new CNoType() {
+        @Override
+        public String toString() {
+            return "none";
+        }
+    };
+
     protected TypeSymbol element;
 
     protected AbstractType(final TypeSymbol typeElement) {
@@ -42,5 +49,12 @@ public abstract class AbstractType implements TypeMirror {
         return element.isError();
     }
 
+    public boolean hasErasedSupertypes() {
+        return isRaw();
+    }
+
+    public <Z> AbstractType map(final TypeMapping<Z> mapping) {
+        return mapping.visit(this, null);
+    }
 
 }

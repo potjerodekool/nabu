@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ModuleSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tools.FileManager.Location;
 import io.github.potjerodekool.nabu.lang.Flags;

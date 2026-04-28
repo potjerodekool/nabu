@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir2;
 
+import io.github.potjerodekool.nabu.ir.CallKind;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
@@ -23,13 +24,6 @@ public final class CallKindResolver {
 
     private CallKindResolver() {}
 
-    public enum CallKind {
-        STATIC,
-        VIRTUAL,
-        INTERFACE,
-        SPECIAL   // constructor of super
-    }
-
     /**
      * Bepaalt de CallKind voor een MethodInvocationTree.
      *
@@ -37,8 +31,8 @@ public final class CallKindResolver {
      * @return De CallKind.
      */
     public static CallKind resolve(MethodInvocationTree invocation) {
-        ExpressionTree selector = invocation.getMethodSelector();
-        Element symbol = extractSymbol(selector);
+        final var methodType = invocation.getMethodType();
+        final var symbol = methodType.getMethodSymbol();
 
         if (symbol == null) {
             // Geen symbool — behandel als virtual (veilige fallback)
@@ -47,14 +41,14 @@ public final class CallKindResolver {
 
         ElementKind kind = symbol.getKind();
 
-        // Constructor
-        if (kind == ElementKind.CONSTRUCTOR) {
-            return CallKind.SPECIAL;
-        }
-
         // Statische methode
         if (symbol.isStatic()) {
             return CallKind.STATIC;
+        }
+
+        // Constructor
+        if (kind == ElementKind.CONSTRUCTOR || symbol.isPrivate()) {
+            return CallKind.SPECIAL;
         }
 
         // Instantie-methode — check of de eigenaar een interface is

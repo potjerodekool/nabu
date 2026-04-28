@@ -45,4 +45,9 @@ public class CTypeApplyTree extends CExpressionTree implements TypeApplyTree {
     public void setType(final TypeMirror type) {
         super.setType(type);
     }
+
+    @Override
+    public String toString() {
+        return clazz.toString();
+    }
 }

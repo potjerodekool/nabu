@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
@@ -45,6 +46,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -329,9 +331,9 @@ class LowerTest extends AbstractCompilerTest {
                 switch(foo.bar.TT$1.$SwitchMap$foo$bar$State[state.ordinal()])
                 {
                     case ON : {
-
+                
                     }
-
+                
                 }
                 """;
 
@@ -417,6 +419,53 @@ class LowerTest extends AbstractCompilerTest {
 
         assertEquals("""
                 item : Integer = (java.lang.Integer) get()""", actualText);
+    }
+
+    @Test
+    void visitMethodInvocation() {
+        final var mapClass = loadClass("java.util.Map");
+        final var stringClass = loadClass(Constants.STRING);
+        final var integerClass = loadClass(Constants.INTEGER);
+        final var primitiveIntType = getCompilerContext().getTypes()
+                .getPrimitiveType(TypeKind.INT);
+
+        final var putMethod = ElementFilter.methodsIn(mapClass.getEnclosedElements()).stream()
+                .filter(m -> m.getSimpleName().equals("put"))
+                .findFirst()
+                .orElse(null);
+
+        final var putMethodType = getCompilerContext().getTypes()
+                .getExecutableType(
+                        putMethod,
+                        List.of(),
+                        null,
+                        List.of(
+                                stringClass.asType(),
+                                integerClass.asType()
+                        ),
+                        List.of()
+                );
+
+        final var stringLiteral = TreeMaker.literalExpressionTree("Hello", 0, 0);
+        stringLiteral.setType(stringClass.asType());
+
+        final var identifierTree = IdentifierTree.create("test");
+        identifierTree.setSymbol(getCompilerContext().getElementBuilders()
+                .variableElementBuilder()
+                .kind(ElementKind.LOCAL_VARIABLE)
+                .simpleName("test")
+                .type(primitiveIntType)
+                        .build()
+        );
+
+        final var methodInvocation = new MethodInvocationTreeBuilder()
+                .methodSelector(new CIdentifierTree("put"))
+                .arguments(List.of(stringLiteral, identifierTree))
+                .build();
+        methodInvocation.setMethodType(putMethodType);
+
+        lower.accept(methodInvocation, null);
+
     }
 
 }

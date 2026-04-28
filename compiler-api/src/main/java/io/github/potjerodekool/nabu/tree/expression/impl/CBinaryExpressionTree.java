@@ -1,9 +1,14 @@
 package io.github.potjerodekool.nabu.tree.expression.impl;
+import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.BinaryExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.BinaryExpressionBuilder;
 import io.github.potjerodekool.nabu.tree.Tag;
+import io.github.potjerodekool.nabu.util.CollectionUtils;
+
+import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -74,4 +79,8 @@ public class CBinaryExpressionTree extends CExpressionTree implements BinaryExpr
         return new BinaryExpressionBuilder(this);
     }
 
+    @Override
+    public List<? extends Tree> children() {
+        return List.of(left, right);
+    }
 }

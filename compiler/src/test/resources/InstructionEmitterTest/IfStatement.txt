@@ -1,0 +1,39 @@
+// class version 61.0 (61)
+// access flags 0x21
+public class MyClass {
+
+  // compiled from: MyClass.java
+
+  // access flags 0x1
+  public compareToFive(I)I
+    // parameter  number
+   L0
+    LINENUMBER 2 L0
+    ILOAD 1
+    ICONST_5
+    IF_ICMPLE L1
+   L2
+    LINENUMBER 3 L2
+    ICONST_1
+    IRETURN
+   L1
+    LINENUMBER 4 L1
+   FRAME FULL [MyClass I] []
+    ILOAD 1
+    ICONST_5
+    IF_ICMPGE L3
+   L4
+    LINENUMBER 5 L4
+    ICONST_M1
+    IRETURN
+   L3
+    LINENUMBER 7 L3
+   FRAME FULL [MyClass I] []
+    ICONST_0
+    IRETURN
+   L5
+    LOCALVARIABLE this LMyClass; L0 L5 0
+    LOCALVARIABLE number I L0 L5 1
+    MAXSTACK = 2
+    MAXLOCALS = 2
+}

@@ -1,9 +1,11 @@
 package io.github.potjerodekool.nabu.ir.types;
 
+import io.github.potjerodekool.nabu.type.TypeMirror;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
-public sealed interface IRType permits IRType.Array, IRType.Bool, IRType.CustomType, IRType.Float, IRType.Function, IRType.Int, IRType.Ptr, IRType.Struct, IRType.Void {
+public sealed interface IRType permits IRType.Array, IRType.Bool, IRType.Float, IRType.Function, IRType.Int, IRType.Ptr, IRType.Struct, IRType.Void {
 
     //Byte = 8
     //Short|Character = 16
@@ -21,7 +23,13 @@ public sealed interface IRType permits IRType.Array, IRType.Bool, IRType.CustomT
         @Override public String toString() { return "i1"; }
     }
 
-    record Ptr(IRType pointee) implements IRType {
+    record Ptr(IRType pointee,
+               TypeMirror customType) implements IRType {
+
+        public Ptr(final IRType pointee) {
+            this(pointee, null);
+        }
+
         @Override public String toString() { return "ptr"; }
     }
 
@@ -52,9 +60,6 @@ public sealed interface IRType permits IRType.Array, IRType.Bool, IRType.CustomT
                     .map(Object::toString)
                     .collect(Collectors.joining(", ", "{ ", " }"));
         }
-    }
-
-    record CustomType(String name) implements IRType {
     }
 
     // Veelgebruikte constanten

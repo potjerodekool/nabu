@@ -1,10 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser.java;
 
+import io.github.potjerodekool.nabu.compiler.frontend.parser.ASTPrinter;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
+import io.github.potjerodekool.nabu.test.JavaLangTreeAssert;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.PathFileObject;
+import io.github.potjerodekool.nabu.tree.Tree;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -18,6 +21,22 @@ import java.util.function.Function;
 
 class JavaCompilerVisitorTest {
 
+    protected void parseAndAssert(final String code,
+                                  final Function<Java20Parser, ParseTree> parseTreeBuilder) {
+        JavaLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder);
+    }
+
+    public void parseAndAssert(final String code,
+                               final Function<Java20Parser, ParseTree> parseTreeBuilder,
+                               final String actualPrefix) {
+        JavaLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder, actual -> actualPrefix + actual);
+    }
+
+    public void parseAndAssert(final String code,
+                               final Function<Java20Parser, ParseTree> parseTreeBuilder,
+                               final Function<String, String> actualTransformer) {
+        JavaLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder, actualTransformer);
+    }
 
     @Test
     void testClassDeclaration() {
@@ -44,7 +63,46 @@ class JavaCompilerVisitorTest {
         }));
     }
 
-    private void parse(final String code,
+    @Test
+    void testCast() {
+        final var tree = parse("""
+                class SomeClass {
+                
+                    public void work(final A a) {
+                        final var list = new ArrayList<Integer>();
+                        var count = 0;
+                        count += ((Integer) list.get(0)).intValue();
+
+                        return null;
+                    }
+                }
+                """, Java20Parser::normalClassDeclaration);
+
+        final var astText = ASTPrinter.print(tree);
+        System.out.println(astText);
+    }
+
+    @Test
+    void testPrimaryNoNewArrayParenthesizedExpression() {
+        final var tree = parse("""
+                ((Integer) list.get(0)).intValue()
+                """, Java20Parser::expression);
+
+        final var astText = ASTPrinter.print(tree);
+        System.out.println(astText);
+    }
+
+    @Test
+    void testPrimaryNoNewArrayLiteral() {
+        final var tree = parse("""
+                "".length()
+                """, Java20Parser::expression);
+
+        final var astText = ASTPrinter.print(tree);
+        System.out.println(astText);
+    }
+
+    private Tree parse(final String code,
                        final Function<Java20Parser, ParseTree> function1) {
         final var parser = createParser(code);
         final var fileObject = new PathFileObject(
@@ -52,10 +110,9 @@ class JavaCompilerVisitorTest {
                 Paths.get("SomeClass.class")
         );
 
-        final var visitor = new JavaCompilerVisitor(fileObject);
+        final var visitor = new JavaCompilerVisitor(fileObject, false);
         final ParseTree functionResult = function1.apply(parser);
-        final var visitorResult = functionResult.accept(visitor);
-        System.out.println(visitorResult);
+        return (Tree) functionResult.accept(visitor);
     }
 
     private static Java20Parser createParser(final String code) {
@@ -82,12 +139,5 @@ class SimplePathVisitor extends SimpleFileVisitor<Path> {
         }
 
         return super.visitFile(file, attrs);
-    }
-}
-
-class SomeClass<A,B extends A> {
-
-    public <C> C work(final A a) {
-        return null;
     }
 }

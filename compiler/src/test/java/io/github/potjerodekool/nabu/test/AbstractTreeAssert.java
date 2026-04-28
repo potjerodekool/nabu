@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.test;
 
+import io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuCompilerVisitor;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.PathFileObject;
@@ -31,7 +32,9 @@ public abstract class AbstractTreeAssert<P extends Parser> {
 
     protected abstract P createParser(final CodePointCharStream inputSteam);
 
-    protected abstract AbstractParseTreeVisitor<?> createVisitor(final FileObject fileObject);
+    protected AbstractParseTreeVisitor<?> createVisitor(final FileObject fileObject) {
+        return new NabuCompilerVisitor(fileObject);
+    }
 
     public void parseAndAssert(final String code,
                                final Function<P, ParseTree> parseTreeBuilder) {

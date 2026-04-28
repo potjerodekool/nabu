@@ -154,9 +154,6 @@
                 <version>${project.version}</version>
                 <configuration>
                     <generatedSourcesDirectory>${project.build.directory}/generated-src/annotations</generatedSourcesDirectory>
-                    <properties>
-                        <compile-generated-source>true</compile-generated-source>
-                    </properties>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.hibernate</groupId>
@@ -172,6 +169,9 @@
                     <compilerArgs>
                         <arg>
                             -Amapstruct.verbose=true
+                        </arg>
+                        <arg>
+                            --backend=ASM
                         </arg>
                     </compilerArgs>
                 </configuration>

@@ -18,7 +18,7 @@ public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpress
 
     private List<VariableDeclaratorTree> variables;
 
-    private StatementTree body;
+    private Tree body;
 
     private ExecutableType lambdaMethodType;
 
@@ -38,7 +38,7 @@ public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpress
         return variables;
     }
 
-    public StatementTree getBody() {
+    public Tree getBody() {
         return body;
     }
 
@@ -57,6 +57,11 @@ public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpress
     }
 
     public LambdaExpressionTreeBuilder body(final StatementTree body) {
+        this.body = body;
+        return this;
+    }
+
+    public LambdaExpressionTreeBuilder body(final ExpressionTree body) {
         this.body = body;
         return this;
     }

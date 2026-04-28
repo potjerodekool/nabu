@@ -1,0 +1,26 @@
+// class version 61.0 (61)
+// access flags 0x21
+public class MyClass {
+
+  // compiled from: MyClass.java
+
+  // access flags 0x1
+  public forLoop()V
+   L0
+    LINENUMBER 2 L0
+    ICONST_0
+    ISTORE 1
+    ILOAD 1
+    SIPUSH 10
+    IF_ICMPGE L1
+    ILOAD 1
+    ICONST_1
+    IADD
+    ISTORE 1
+   L1
+   FRAME FULL [MyClass I] []
+    RETURN
+    LOCALVARIABLE this LMyClass; L0 L1 0
+    MAXSTACK = 2
+    MAXLOCALS = 2
+}

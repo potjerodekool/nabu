@@ -1,8 +1,12 @@
 package io.github.potjerodekool.nabu.tree.expression.impl;
+import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.CastExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.builder.CastExpressionTreeBuilder;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+
+import java.util.List;
 
 /**
  * Implementation of CastExpressionTree.
@@ -58,5 +62,20 @@ public class CCastExpressionTree extends CExpressionTree implements CastExpressi
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
         return visitor.visitCastExpression(this, param);
+    }
+
+    @Override
+    public List<? extends Tree> children() {
+        return List.of(expression, targetType);
+    }
+
+    @Override
+    public TypeMirror getType() {
+        return targetType.getType();
+    }
+
+    @Override
+    public String toString() {
+        return "(%s) %s".formatted(targetType, expression);
     }
 }

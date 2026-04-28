@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.lang.model.element;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * A type element.
@@ -12,6 +13,8 @@ public interface TypeElement extends Element, QualifiedNameable {
     NestingKind getNestingKind();
 
     List<? extends TypeParameterElement> getTypeParameters();
+
+    boolean isFunctionalInterface();
 
     ExecutableElement findFunctionalMethod();
 
@@ -26,4 +29,6 @@ public interface TypeElement extends Element, QualifiedNameable {
     TypeMirror getErasureField();
 
     String getFlatName();
+
+    Optional<ModuleElement> getModuleElement();
 }

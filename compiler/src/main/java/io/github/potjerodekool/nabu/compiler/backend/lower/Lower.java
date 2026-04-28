@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.*;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
@@ -64,6 +65,13 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
         this.defaultCodeGenerator = new DefaultCodeGenerator(compilerContext);
         this.enumUserCodeGenerator = new EnumUserCodeGenerator(compilerContext);
         initCodeGenerators();
+    }
+
+    public static CompilationUnit lower(final CompilationUnit compilationUnit,
+                                        final CompilerContext compilerContext) {
+        final var lower = new Lower((CompilerContextImpl) compilerContext);
+        lower.process(compilationUnit);
+        return compilationUnit;
     }
 
     private void initCodeGenerators() {
@@ -491,6 +499,45 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
         return variableDeclaratorStatement.builder()
                 .value(newValue)
                 .build();
+    }
+
+    @Override
+    public Tree visitMethodInvocation(final MethodInvocationTree methodInvocation, final LowerContext param) {
+        final String methodName;
+
+        if (methodInvocation.getMethodSelector() instanceof IdentifierTree
+                identifierTree) {
+            methodName = identifierTree.getName();
+        } else if (methodInvocation.getMethodSelector() instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            methodName = fieldAccessExpressionTree.getField().getName();
+        } else {
+            methodName = "";
+        }
+
+        final var methodType = methodInvocation.getMethodType();
+        final var arguments = methodInvocation.getArguments();
+        final var paramTypes = methodType.getParameterTypes();
+        final var newArguments = new ArrayList<ExpressionTree>();
+        var argChanged = false;
+
+        for (var i = 0; i < paramTypes.size(); i++) {
+            final var paramType = paramTypes.get(i);
+            final var argument = arguments.get(i);
+            final var newArgument = paramType.accept(boxer, argument);
+
+            if (newArgument != argument) {
+                argChanged = true;
+            }
+            newArguments.add(newArgument);
+        }
+
+        if (argChanged) {
+            return methodInvocation.builder()
+                    .arguments(newArguments)
+                    .build();
+        } else {
+            return methodInvocation;
+        }
     }
 
     public static class LowerContext {

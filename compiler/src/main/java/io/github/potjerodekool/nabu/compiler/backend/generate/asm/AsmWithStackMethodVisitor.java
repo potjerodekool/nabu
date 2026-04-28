@@ -15,8 +15,8 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
 
     private Label lastLabel;
 
-    protected AsmWithStackMethodVisitor(final int api,
-                                        final MethodVisitor methodVisitor) {
+    public AsmWithStackMethodVisitor(final int api,
+                                     final MethodVisitor methodVisitor) {
         super(api, methodVisitor);
     }
 
@@ -178,8 +178,7 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
             case Opcodes.ACONST_NULL -> {
                 push(null);
             }
-            case
-                 Opcodes.ICONST_M1,
+            case Opcodes.ICONST_M1,
                  Opcodes.ICONST_0,
                  Opcodes.ICONST_1,
                  Opcodes.ICONST_2,
@@ -216,6 +215,9 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
             case Opcodes.AASTORE -> pop(3);
             case Opcodes.IFNONNULL -> push(Type.BOOLEAN_TYPE);
             case Opcodes.POP -> pop();
+            case Opcodes.ISUB -> {
+                pop();
+            }
             default -> throw new TodoException("" + opcode);
         }
     }

@@ -101,8 +101,8 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
     public ExpressionTree visitDeclaredType(final ExpressionTree expressionTree,
                                             final DeclaredType declaredType,
                                             final TypeMirror otherType) {
-        if (otherType instanceof PrimitiveType primitiveType) {
-            return boxExpression(expressionTree, primitiveType.getKind());
+        if (otherType.getKind().isPrimitive()) {
+            return boxExpression(expressionTree, otherType.getKind());
         } else if (!types.isBoxType(declaredType)) {
             return expressionTree;
         }

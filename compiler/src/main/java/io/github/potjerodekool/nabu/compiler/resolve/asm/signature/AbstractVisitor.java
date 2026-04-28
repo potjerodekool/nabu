@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
+import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.util.Types;
 import org.objectweb.asm.signature.SignatureVisitor;
 
@@ -167,7 +168,8 @@ public abstract class AbstractVisitor extends SignatureVisitor {
     protected MutableClassType createMutableClass(final TypeSymbol typeElement) {
         final var enclosingType = typeElement.asType().getEnclosingType();
 
-        if (enclosingType == null) {
+        if (enclosingType == null || enclosingType.getKind() == TypeKind.NONE) {
+            //TODO should not be null.
             return new MutableClassType(typeElement);
         } else {
             final var mutableEnclosingType = createMutableClass((ClassSymbol) enclosingType.asTypeElement());

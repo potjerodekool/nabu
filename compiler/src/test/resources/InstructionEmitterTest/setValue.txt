@@ -1,0 +1,20 @@
+// class version 61.0 (61)
+// access flags 0x21
+public class MyClass {
+
+  // compiled from: MyClass.java
+
+  // access flags 0x1
+  public setValue(I)V
+    // parameter  number
+   L0
+    LINENUMBER 2 L0
+    LINENUMBER 3 L0
+    ILOAD 1
+    ISTORE 1
+    RETURN
+    LOCALVARIABLE this LMyClass; L0 L0 0
+    LOCALVARIABLE number I L0 L0 1
+    MAXSTACK = 1
+    MAXLOCALS = 2
+}

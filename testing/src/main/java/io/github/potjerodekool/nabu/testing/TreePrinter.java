@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.*;
 import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.expression.impl.CParenthesizedExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
 import io.github.potjerodekool.nabu.util.CollectionUtils;
 
@@ -606,13 +607,16 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
                                                    final Object param) {
         if (variableDeclaratorStatement.getKind() == Kind.PARAMETER) {
             if (variableDeclaratorStatement.getNameExpression() == null) {
-                write(variableDeclaratorStatement.getName().getName()).write(" : ");
+                write(variableDeclaratorStatement.getName().getName());
             } else {
                 acceptTree(variableDeclaratorStatement.getNameExpression(), param);
-                write(" : ");
             }
 
-            acceptTree(variableDeclaratorStatement.getVariableType(), param);
+            if (variableDeclaratorStatement.getVariableType() != null) {
+                write(" : ");
+                acceptTree(variableDeclaratorStatement.getVariableType(), param);
+            }
+
 
             if (Flags.hasFlag(variableDeclaratorStatement.getFlags(), Flags.VARARGS)) {
                 write("...");
@@ -1127,6 +1131,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         acceptTree(variableDeclarator.getVariableType(), param);
         write(" ");
         acceptTree(variableDeclarator.getName(), param);
+        return null;
+    }
+
+    @Override
+    public Object visitParenthesizedExpression(final ParenthesizedExpression parenthesizedExpression, final Object param) {
         return null;
     }
 

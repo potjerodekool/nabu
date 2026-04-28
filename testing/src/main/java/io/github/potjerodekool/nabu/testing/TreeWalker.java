@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.expression.impl.CParenthesizedExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
 
 import java.util.function.Consumer;
@@ -184,5 +185,24 @@ public class TreeWalker extends AbstractTreeVisitor<Object, Consumer<Tree
     public Object visitUnknown(final Tree tree,
                                final Consumer<Tree> consumer) {
         throw new TodoException();
+    }
+
+    @Override
+    public Object visitNewClass(final NewClassExpression newClassExpression, final Consumer<Tree> consumer) {
+        consumer.accept(newClassExpression);
+        acceptTree(newClassExpression.getName(), consumer);
+        newClassExpression.getArguments().forEach(arg -> acceptTree(arg, consumer));
+        return null;
+    }
+
+    @Override
+    public Object visitParenthesizedExpression(final ParenthesizedExpression parenthesizedExpression, final Consumer<Tree> param) {
+        return null;
+    }
+
+    @Override
+    public Object visitPrimitiveType(final PrimitiveTypeTree primitiveType, final Consumer<Tree> consumer) {
+        consumer.accept(primitiveType);
+        return null;
     }
 }

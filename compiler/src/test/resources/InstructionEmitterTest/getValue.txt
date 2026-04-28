@@ -1,0 +1,26 @@
+// class version 61.0 (61)
+// access flags 0x21
+public class Myclass {
+
+  // compiled from: Myclass.java
+
+  // access flags 0x1
+  public getValue()I
+   L0
+    ALOAD 0
+    GETFIELD MyClass.number : I
+    IRETURN
+    LOCALVARIABLE this LMyClass; L0 L0 0
+    MAXSTACK = 1
+    MAXLOCALS = 1
+
+  // access flags 0x1
+  public init()V
+   L0
+    ALOAD 0
+    INVOKESPECIAL java/lang/Object.super ()V
+    RETURN
+    LOCALVARIABLE this LMyClass; L0 L0 0
+    MAXSTACK = 1
+    MAXLOCALS = 1
+}

@@ -1,22 +1,14 @@
 package io.github.potjerodekool.nabu.ir.instructions;
 
 import io.github.potjerodekool.nabu.debug.SourceLocation;
+import io.github.potjerodekool.nabu.ir.CallKind;
 import io.github.potjerodekool.nabu.ir.types.IRType;
 import io.github.potjerodekool.nabu.ir.values.IRValue;
 
 import java.util.List;
+import java.util.Objects;
 
-public sealed interface IRInstruction permits
-        IRInstruction.BinaryOp,
-        IRInstruction.Alloca,
-        IRInstruction.Load,
-        IRInstruction.Store,
-        IRInstruction.Call,
-        IRInstruction.IndirectCall,
-        IRInstruction.Branch,
-        IRInstruction.CondBranch,
-        IRInstruction.Return,
-        IRInstruction.Cast {
+public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw {
 
     /** Resultaat van de instructie; null als de instructie void is. */
     IRValue result();
@@ -35,6 +27,14 @@ public sealed interface IRInstruction permits
             IRValue        right,
             SourceLocation location
     ) implements IRInstruction {
+
+        public BinaryOp {
+            Objects.requireNonNull(result, "result");
+            Objects.requireNonNull(op, "op");
+            Objects.requireNonNull(left, "left");
+            Objects.requireNonNull(right, "right");
+            Objects.requireNonNull(location, "location");
+        }
 
         public enum Op {
             ADD, SUB, MUL, DIV, MOD,
@@ -55,9 +55,19 @@ public sealed interface IRInstruction permits
 
     record Load(
             IRValue        result,
+            IRType type,
             IRValue        ptr,
             SourceLocation location
-    ) implements IRInstruction {}
+    ) implements IRInstruction {
+
+    }
+
+    record AllocaArray(IRValue result,
+                       IRType allocType,
+                       IRValue size,
+                       SourceLocation location) implements IRInstruction {
+
+    }
 
     record Store(
             IRValue        ptr,
@@ -72,11 +82,14 @@ public sealed interface IRInstruction permits
     // -------------------------------------------------------
 
     record Call(
+            CallKind callKind,
+            IRType returnType,
+            List<IRType> paramTypes,
             IRValue        result,
             String         function,
             List<IRValue>  args,
-            SourceLocation location
-    ) implements IRInstruction {}
+            SourceLocation location,
+            io.github.potjerodekool.nabu.type.ExecutableType methodType) implements IRInstruction {}
 
     record IndirectCall(
             IRValue           result,
@@ -123,4 +136,21 @@ public sealed interface IRInstruction permits
             IRType         targetType,
             SourceLocation location
     ) implements IRInstruction {}
+
+    record InstanceOf(IRValue result,
+                      IRValue source,
+                      IRType type,
+                      SourceLocation location) implements IRInstruction {
+    }
+
+    record Throw(IRValue result,
+                 IRType type,
+                 SourceLocation location) implements IRInstruction {
+
+    }
+
+    record Pop(IRValue result,
+               SourceLocation location) implements IRInstruction {
+
+    }
 }

@@ -15,6 +15,24 @@ public final class CollectionUtils {
     private CollectionUtils() {
     }
 
+    public static <T> Iterator<T> unmodifiableIterator(final T... elements) {
+        return unmodifiableIterator(List.of(elements).iterator());
+    }
+
+    public static <T> Iterator<T> unmodifiableIterator(final Iterator<? extends T> it) {
+        return new Iterator<T>() {
+            @Override
+            public boolean hasNext() {
+                return it.hasNext();
+            }
+
+            @Override
+            public T next() {
+                return it.next();
+            }
+        };
+    }
+
     /**
      * @param a   A list.
      * @param b   Another list.

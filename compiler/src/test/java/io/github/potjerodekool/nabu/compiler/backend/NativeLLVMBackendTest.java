@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.backend.native_llvm.NativeLLVMBackend;
+import io.github.potjerodekool.nabu.ir.CallKind;
 import io.github.potjerodekool.nabu.ir.IRBuilder;
 import io.github.potjerodekool.nabu.ir.IRModule;
 import io.github.potjerodekool.nabu.ir.instructions.IRInstruction;
@@ -156,7 +157,7 @@ class NativeLLVMBackendTest {
     @Test @Order(9)
     void constStringAsGlobal() throws Exception {
         builder.declareGlobal("greeting",
-                new IRType.Ptr(IRType.I8), IRValue.ofString("Hallo wereld"));
+                new IRType.Ptr(IRType.I8), IRValue.ofString("Hallo wereld"), null);
         builder.beginFunction("main", IRType.VOID, List.of(), false);
         builder.endFunction();
 
@@ -174,7 +175,7 @@ class NativeLLVMBackendTest {
 
         builder.beginFunction("main", IRType.I32, List.of(), false);
         IRValue msg = builder.constString("Hello, World!");
-        builder.emitCall("puts", IRType.I32, List.of(msg));
+        builder.emitCall(CallKind.VIRTUAL,"puts", IRType.I32, List.of(),List.of(msg));
         builder.emitReturn(builder.constInt(0));
         builder.endFunction();
 
@@ -268,7 +269,7 @@ class NativeLLVMBackendTest {
 
         // fn main() -> i32 { return helper(); }
         builder.beginFunction("main", IRType.I32, List.of(), false);
-        var res = builder.emitCall("helper", IRType.I32, List.of());
+        var res = builder.emitCall(CallKind.VIRTUAL,"helper", IRType.I32, List.of(), List.of());
         builder.emitReturn(res);
         builder.endFunction();
 
@@ -286,7 +287,7 @@ class NativeLLVMBackendTest {
 
         builder.beginFunction("main", IRType.I32, List.of(), false);
         var msg = builder.constString("Test extern");
-        builder.emitCall("puts", IRType.I32, List.of(msg));
+        builder.emitCall(CallKind.VIRTUAL,"puts", IRType.I32, List.of(), List.of(msg));
         builder.emitReturn(builder.constInt(0));
         builder.endFunction();
 
@@ -329,7 +330,7 @@ class NativeLLVMBackendTest {
 
     @Test @Order(19)
     void globalVariableReadWrite() throws Exception {
-        builder.declareGlobal("counter", IRType.I32, IRValue.ofI32(0));
+        builder.declareGlobal("counter", IRType.I32, IRValue.ofI32(0), null);
 
         builder.beginFunction("main", IRType.I32, List.of(), false);
         var ptr = builder.lookup("counter");

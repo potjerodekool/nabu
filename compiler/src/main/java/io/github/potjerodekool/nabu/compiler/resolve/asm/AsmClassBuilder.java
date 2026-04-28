@@ -112,7 +112,7 @@ class AsmClassBuilder extends ClassVisitor {
         }
 
         if (signature != null) {
-            typeBuilder.parseClassSignature(signature, clazz, compilerContext, clazz.resolveModuleSymbol());
+            typeBuilder.parseClassSignature(signature, clazz, compilerContext, clazz.getModuleElement().orElse(null));
         } else {
             final TypeMirror outerType;
 

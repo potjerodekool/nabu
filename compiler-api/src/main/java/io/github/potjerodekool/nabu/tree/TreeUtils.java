@@ -45,6 +45,12 @@ public final class TreeUtils {
                         : variableType.getType();
             }
             case NewClassExpression newClassExpression -> typeOf(newClassExpression.getName());
+            case TypeApplyTree typeApplyTree -> {
+                if (typeApplyTree.getType() != null) {
+                    yield typeApplyTree.getType();
+                }
+                yield typeOf(typeApplyTree.getClazz());
+            }
             case ExpressionTree expressionTree -> expressionTree.getType();
             default -> throw new UnsupportedOperationException(tree.getClass().getName());
         };

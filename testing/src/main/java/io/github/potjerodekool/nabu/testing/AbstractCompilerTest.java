@@ -132,5 +132,6 @@ public abstract class AbstractCompilerTest {
     protected FileObject createFileObject(final String source) {
         return new InMemoryFileObject(source, "MyClass.nabu");
     }
+
 }
 

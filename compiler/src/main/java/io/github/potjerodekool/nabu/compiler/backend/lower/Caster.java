@@ -49,7 +49,13 @@ public class Caster implements TypeVisitor<ExpressionTree, ExpressionTree> {
     @Override
     public ExpressionTree visitDeclaredType(final DeclaredType declaredType,
                                             final ExpressionTree expressionTree) {
-        return castIfNeeded(expressionTree);
+        final var newExpression = castIfNeeded(expressionTree);
+
+        if (newExpression != expressionTree) {
+            return newExpression;
+        }
+
+        return newExpression;
     }
 
     @Override

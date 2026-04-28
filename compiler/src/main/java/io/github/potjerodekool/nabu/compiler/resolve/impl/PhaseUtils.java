@@ -21,7 +21,7 @@ public final class PhaseUtils {
 
     public VariableSymbol createVariable(final VariableDeclaratorTree variableDeclaratorStatement) {
         final var identifier = variableDeclaratorStatement.getName();
-        var type = variableDeclaratorStatement.getVariableType().getType();
+        var type = variableDeclaratorStatement.getType();
 
         if (type instanceof VariableType) {
             if (variableDeclaratorStatement.getValue() == null) {

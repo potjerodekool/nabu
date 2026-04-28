@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.tree;
 
 import io.github.potjerodekool.nabu.tree.element.*;
 import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.expression.impl.CParenthesizedExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
 
 /**
@@ -773,4 +774,7 @@ public interface TreeVisitor<R, P> {
                                P param) {
         return visitUnknown(typePattern, param);
     }
+
+    R visitParenthesizedExpression(ParenthesizedExpression parenthesizedExpression, P param);
+
 }

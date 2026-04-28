@@ -76,7 +76,7 @@ public final class TreeMaker {
 
 
     public static LambdaExpressionTree lambdaExpressionTree(final List<VariableDeclaratorTree> parameters,
-                                                            final StatementTree body,
+                                                            final Tree body,
                                                             final int lineNumber,
                                                             final int columnNumber) {
         return new CLambdaExpressionTree(
@@ -286,32 +286,30 @@ public final class TreeMaker {
      * &#064;MyAnnotation
      * <br/>
      * TreeMaker.annotationTree(
-     *  IdentifierTree.create("MyAnnotation"),
-     *  Collections.emptyList(),
-     *  5,
-     *  0);
+     * IdentifierTree.create("MyAnnotation"),
+     * Collections.emptyList(),
+     * 5,
+     * 0);
      * <br/>
      * <br/>
      * &#064;Deprecated(since = "4.8")
      * <br/>
      * TreeMaker.annotationTree(
-     *  IdentifierTree.create("Deprecated"),
-     *  List.of(
-     *      TreeMaker.assignmentExpression(
-     *          IdentifierTree.create("since"),
-     *          TreeMaker.literalExpressionTree("4.0", 5, 0),
-     *          5,
-     *          0
-     *      )
-     *  ),
-     *  5,
-     *  0);
-
+     * IdentifierTree.create("Deprecated"),
+     * List.of(
+     * TreeMaker.assignmentExpression(
+     * IdentifierTree.create("since"),
+     * TreeMaker.literalExpressionTree("4.0", 5, 0),
+     * 5,
+     * 0
+     * )
+     * ),
+     * 5,
+     * 0);
      *
-     *
-     * @param name annotation name
-     * @param arguments annotation arguments.
-     * @param lineNumber lineNumber
+     * @param name         annotation name
+     * @param arguments    annotation arguments.
+     * @param lineNumber   lineNumber
      * @param columnNumber columnNumber
      * @return Returns an annotation tree.
      */
@@ -503,5 +501,15 @@ public final class TreeMaker {
     public static ErrorTree errorTree(final int lineNumber,
                                       final int columnNumber) {
         return new CErrorTree(lineNumber, columnNumber);
+    }
+
+    public static ParenthesizedExpression parenthesizedExpression(final ExpressionTree expression,
+                                                                  final int lineNumber,
+                                                                  final int columnNumber) {
+        return new CParenthesizedExpressionTree(
+                expression,
+                lineNumber,
+                columnNumber
+        );
     }
 }

@@ -14,4 +14,5 @@ module io.github.potjerodekool.nabu.compiler {
     requires org.bytedeco.llvm;
     requires org.bytedeco.javacpp; //Used by native backend
     requires lombok;
+    requires jdk.compiler;
 }

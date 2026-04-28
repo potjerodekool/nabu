@@ -1,12 +1,16 @@
 package io.github.potjerodekool.nabu.compiler;
 
+import io.github.potjerodekool.nabu.backend.CompileException;
+import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.*;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
+import io.github.potjerodekool.nabu.compiler.backend.asm.ASMBackend;
+import io.github.potjerodekool.nabu.compiler.backend.ir2.IrGeneratingVisitor;
+import io.github.potjerodekool.nabu.compiler.backend.ir2.Optimizer;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.impl.AnnotatePhase;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
-import io.github.potjerodekool.nabu.compiler.impl.FileObjectAndCompilationUnit;
 import io.github.potjerodekool.nabu.compiler.impl.LambdaToMethodPhase;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.tools.*;
@@ -20,7 +24,6 @@ import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
-import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 
 import javax.annotation.processing.Processor;
 import javax.lang.model.element.TypeElement;
@@ -29,11 +32,11 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static io.github.potjerodekool.nabu.compiler.backend.lower.Lower.lower;
 import static io.github.potjerodekool.nabu.compiler.impl.CheckPhase.check;
 import static io.github.potjerodekool.nabu.compiler.impl.EnterPhase.enterPhase;
-import static io.github.potjerodekool.nabu.compiler.impl.ResolvePhase.resolvePhase;
+import static io.github.potjerodekool.nabu.compiler.resolve.impl.ResolverPhase.resolvePhase;
 import static io.github.potjerodekool.nabu.compiler.impl.TransformPhase.transform;
-import static io.github.potjerodekool.nabu.compiler.backend.LowerPhase.lower;
 
 public class NabuCompiler implements Compiler {
 
@@ -63,19 +66,55 @@ public class NabuCompiler implements Compiler {
             final var sourceFileKinds = allSourceKinds.toArray(FileObject.Kind[]::new);
             final var sourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
             final var compilationUnits = processFiles(sourceFiles, compilerContext);
-
-            final ByteCodePhase byteCodePhase = new ByteCodePhase(compilerContext, byteCodeGeneratorListener);
-
-            return byteCodePhase.generate(
-                    compilationUnits,
-                    fullOptions,
-                    compilerDiagnosticListener,
-                    targetDirectory
-            );
+            return generateCode(compilerContext, compilationUnits, fullOptions);
         } catch (final Exception e) {
             throw new RuntimeException(e);
         }
     }
+
+    private int generateCode(final CompilerContextImpl compilerContext,
+                             final List<CompilationUnit> compilationUnits,
+                             final CompilerOptions compilerOptions) {
+        final var backend = getBackendName(compilerOptions);
+
+        if ("ASM-classic".equals(backend)) {
+            final ByteCodePhase byteCodePhase = new ByteCodePhase(compilerContext, byteCodeGeneratorListener);
+
+            return byteCodePhase.generate(
+                    compilationUnits,
+                    compilerOptions,
+                    compilerDiagnosticListener,
+                    targetDirectory
+            );
+        } else if ("ASM".equals(backend)) {
+            final var asmBackend = new ASMBackend();
+
+            final var modules = compilationUnits.stream()
+                    .map(cu -> {
+                        final IrGeneratingVisitor visitor = new IrGeneratingVisitor();
+                        visitor.acceptTree(cu, null);
+                        return visitor.getModule();
+                    }).toList();
+
+            for (var module : modules) {
+                try {
+                    final var optimizedModule = Optimizer.optimize(module);
+                    asmBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
+                } catch (CompileException e) {
+                    return -1;
+                }
+            }
+            return 0;
+        } else {
+            return -1;
+        }
+    }
+
+    private String getBackendName(final CompilerOptions compilerOptions) {
+        return compilerOptions.getOption(CompilerOption.BACKEND)
+                .orElse("ASM");
+    }
+
 
     @Override
     public CompilerContextImpl configure(final CompilerOptions compilerOptions) {
@@ -123,25 +162,25 @@ public class NabuCompiler implements Compiler {
 
     private List<CompilationUnit> processFiles(final List<FileObject> files,
                                                final CompilerContextImpl compilerContext) {
-        var fileObjectAndCompilationUnits = parseFiles(files, compilerContext);
+        var compilationUnits = parseFiles(files, compilerContext);
 
         Modules.getInstance(compilerContext)
                 .initAllModules();
 
-        fileObjectAndCompilationUnits = fileObjectAndCompilationUnits.stream()
+        compilationUnits = compilationUnits.stream()
                 .map(fileObjectAndCompilationUnit ->
                         enterPhase(fileObjectAndCompilationUnit, compilerContext))
                 .toList();
 
-        runAnnotationProcessors(compilerContext, fileObjectAndCompilationUnits);
+        runAnnotationProcessors(compilerContext, compilationUnits);
 
-        final var allSources = new ArrayList<>(fileObjectAndCompilationUnits);
+        final var allSources = new ArrayList<>(compilationUnits);
 
-        final var compilationUnits = allSources.stream()
+        compilationUnits = allSources.stream()
                 .map(it -> resolvePhase(it, compilerContext))
                 .map(it -> AnnotatePhase.annotate(it, compilerContext))
                 .map(it -> transform(it, compilerContext))
-                .map(it -> check(it.compilationUnit(), compilerContext, compilerDiagnosticListener))
+                .map(it -> check(it, compilerContext, compilerDiagnosticListener))
                 .toList();
 
         if (compilerDiagnosticListener.getErrorCount() > 0) {
@@ -155,21 +194,18 @@ public class NabuCompiler implements Compiler {
                 .toList();
     }
 
-    private List<FileObjectAndCompilationUnit> parseAndEnter(final List<? extends FileObject> files,
-                                                             final CompilerContextImpl compilerContext) {
+    private List<CompilationUnit> parseAndEnter(final List<? extends FileObject> files,
+                                                final CompilerContextImpl compilerContext) {
         return parseFiles(files, compilerContext).stream()
                 .map(it -> enterPhase(it, compilerContext))
                 .toList();
     }
 
-    private List<FileObjectAndCompilationUnit> parseFiles(final List<? extends FileObject> files,
-                                                          final CompilerContextImpl compilerContext) {
+    private List<CompilationUnit> parseFiles(final List<? extends FileObject> files,
+                                             final CompilerContextImpl compilerContext) {
         return files.stream()
                 .map(file -> {
-                    final var compilationUnit = parseFile(file, compilerContext);
-                    return compilationUnit != null
-                            ? new FileObjectAndCompilationUnit(file, compilationUnit)
-                            : null;
+                    return parseFile(file, compilerContext);
                 })
                 .filter(Objects::nonNull)
                 .toList();
@@ -182,9 +218,7 @@ public class NabuCompiler implements Compiler {
 
         if (sourceParserOptional.isPresent()) {
             final var parser = sourceParserOptional.get();
-            final var unit = (CCompilationTreeUnit) parser.parse(fileObject, compilerContext);
-            unit.setParsedBy(parser.getClass().getName());
-            return unit;
+            return parser.parse(fileObject, compilerContext);
         } else {
             compilerDiagnosticListener.report(new DefaultDiagnostic(
                     Diagnostic.Kind.ERROR,
@@ -196,8 +230,8 @@ public class NabuCompiler implements Compiler {
     }
 
     private void runAnnotationProcessors(final CompilerContextImpl compilerContext,
-                                                                       final List<FileObjectAndCompilationUnit> fileObjectAndCompilationUnits) {
-        Set<TypeElement> classes = resolveClasses(fileObjectAndCompilationUnits);
+                                         final List<CompilationUnit> compilationUnits) {
+        Set<TypeElement> classes = resolveClasses(compilationUnits);
         final var processors = findAnnotationProcessors(compilerContext);
         final var processingEnvironment = createProcessingEnvironment(compilerContext);
         final var filer = processingEnvironment.getFiler();
@@ -211,7 +245,7 @@ public class NabuCompiler implements Compiler {
                 .toList();
 
         Set<String> generatedSourceFiles;
-        List<FileObjectAndCompilationUnit> roundResult;
+        List<CompilationUnit> roundResult;
 
         do {
             processingEnvironment.round(classes, processorStates);
@@ -244,9 +278,8 @@ public class NabuCompiler implements Compiler {
         return new JavacProcessingEnvironment(messager, filer, javacElements, types, options);
     }
 
-    private Set<TypeElement> resolveClasses(final List<FileObjectAndCompilationUnit> fileObjectAndCompilationUnits) {
-        return fileObjectAndCompilationUnits.stream()
-                .map(FileObjectAndCompilationUnit::compilationUnit)
+    private Set<TypeElement> resolveClasses(final List<CompilationUnit> compilationUnits) {
+        return compilationUnits.stream()
                 .flatMap(unit -> unit.getClasses().stream())
                 .map(ClassDeclaration::getClassSymbol)
                 .map(classSymbol -> (TypeElement) ElementWrapperFactory.wrap(classSymbol))
@@ -292,7 +325,8 @@ class DevNullByteCodeGeneratorListener implements ByteCodeGeneratorListener {
 
     static final DevNullByteCodeGeneratorListener INSTANCE = new DevNullByteCodeGeneratorListener();
 
-    private DevNullByteCodeGeneratorListener() {}
+    private DevNullByteCodeGeneratorListener() {
+    }
 
     @Override
     public void generated(final FileObject sourceFile,

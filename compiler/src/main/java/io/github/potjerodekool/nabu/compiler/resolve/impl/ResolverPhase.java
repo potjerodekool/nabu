@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.*;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
@@ -25,6 +26,7 @@ import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Pair;
 import io.github.potjerodekool.nabu.util.Types;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -43,6 +45,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         this.types = compilerContext.getTypes();
         this.methodResolver = compilerContext.getMethodResolver();
         this.phaseUtils = new PhaseUtils(compilerContext);
+    }
+
+    public static CompilationUnit resolvePhase(final CompilationUnit compilationUnit,
+                                               final CompilerContext compilerContext) {
+        final var resolverPhase = new ResolverPhase((CompilerContextImpl) compilerContext);
+        resolverPhase.acceptTree(compilationUnit, null);
+        return compilationUnit;
     }
 
     @Override
@@ -152,14 +161,33 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
                                                    final Scope scope) {
+        final var isVariableType = variableDeclaratorStatement.getVariableType() instanceof VariableTypeTree;
 
-        if (variableDeclaratorStatement.getValue() != null) {
-            acceptTree(variableDeclaratorStatement.getValue(), scope);
+        if (isVariableType) {
+            if (variableDeclaratorStatement.getValue() != null) {
+                acceptTree(variableDeclaratorStatement.getValue(), scope);
+            }
+            acceptTree(variableDeclaratorStatement.getVariableType(), scope);
+        } else {
+            if (variableDeclaratorStatement.getVariableType() != null) {
+                acceptTree(variableDeclaratorStatement.getVariableType(), scope);
+            }
+
+            if (variableDeclaratorStatement.getValue() != null) {
+                final var variableType = variableDeclaratorStatement.getVariableType().getType();
+
+                lambdaCheck(variableDeclaratorStatement.getValue(), variableType);
+                acceptTree(variableDeclaratorStatement.getValue(), scope);
+            }
         }
 
-        acceptTree(variableDeclaratorStatement.getVariableType(), scope);
+        TypeMirror type;
 
-        var type = variableDeclaratorStatement.getVariableType().getType();
+        if (variableDeclaratorStatement.getVariableType() != null) {
+            type = variableDeclaratorStatement.getVariableType().getType();
+        } else {
+            type = variableDeclaratorStatement.getType();
+        }
 
         if (type instanceof VariableType) {
             if (variableDeclaratorStatement.getValue() == null) {
@@ -205,6 +233,26 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         }
 
         return null;
+    }
+
+    private void lambdaCheck(final Tree value, final TypeMirror variableType) {
+        if (value instanceof LambdaExpressionTree lambdaExpressionTree) {
+            final var typeElement = variableType.asTypeElement();
+
+            if (!typeElement.isFunctionalInterface()) {
+                return;
+            }
+
+            final var functionalMethod = typeElement.findFunctionalMethod();
+
+            if (functionalMethod == null) {
+                return;
+            }
+
+            final var executableType = (ExecutableType) types.asMemberOf((DeclaredType) variableType, functionalMethod);
+            lambdaExpressionTree.setLambdaMethodType(executableType);
+            lambdaExpressionTree.setType(variableType);
+        }
     }
 
 
@@ -256,7 +304,22 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var leftType = compilerContext.getTreeUtils().typeOf(binaryExpression.getLeft());
         final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());
 
-        if (leftType != null
+        var binaryType = switch (binaryExpression.getTag()) {
+            case ADD, SUB  -> {
+                if (leftType.isPrimitiveType()) {
+                    yield leftType;
+                } else if (rightType.isPrimitiveType()) {
+                    yield rightType;
+                } else {
+                    yield null;
+                }
+            }
+            default -> null;
+        };
+
+        if (binaryType != null) {
+            binaryExpression.setType(binaryType);
+        } else if (leftType != null
                 && rightType != null) {
 
             if (!types.isSameType(leftType, rightType)) {
@@ -334,33 +397,76 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitLambdaExpression(final LambdaExpressionTree lambdaExpression,
                                         final Scope scope) {
-        /*
-        //lambdaExpression.getVariables().forEach(variable -> acceptTree(variable, scope));
-        final var lambdaScope = new LocalScope(scope);
-        acceptTree(lambdaExpression.getBody(), lambdaScope);
-        */
 
-        final var parameterTypes = lambdaExpression.getVariables().stream()
-                .map(variable -> {
-                    var variableType = variable.getType();
-                    if (variableType == null || variableType.isError()) {
-                        variableType = types.getUnknownType();
-                    }
+        if (lambdaExpression.getParameterKind() == LambdaExpressionTree.ParameterKind.EXPLICIT) {
+            lambdaExpression.getVariables().forEach(variable -> acceptTree(variable, scope));
+            acceptTree(lambdaExpression.getBody(), scope);
+            defaultAnswer(lambdaExpression, scope);
 
-                    return variableType;
-                }).toList();
+            final var parameterTypes = lambdaExpression.getVariables().stream()
+                    .map(Tree::getType)
+                    .toList();
 
-        final var partialType = new UndetVarType(
-                new CMethodType(
-                        null,
-                        null,
-                        List.of(),
-                        null,
-                        parameterTypes,
-                        List.of()
-                )
-        );
-        lambdaExpression.setType(partialType);
+            final var partialType = new UndetVarType(
+                    new CMethodType(
+                            null,
+                            null,
+                            List.of(),
+                            null,
+                            parameterTypes,
+                            List.of()
+                    )
+            );
+            lambdaExpression.setType(partialType);
+        }
+
+        final var lambdaMethodType = lambdaExpression.getLambdaMethodType();
+
+        if (lambdaMethodType != null) {
+            final var lambdaParameterTypes = lambdaMethodType.getParameterTypes();
+
+            final var variables = lambdaExpression.getVariables();
+            for (var variableIndex = 0; variableIndex < variables.size(); variableIndex++) {
+                final var variable = variables.get(variableIndex);
+                final TypeMirror lambdaParameterType;
+
+                if (variableIndex < lambdaParameterTypes.size()) {
+                    lambdaParameterType = lambdaParameterTypes.get(variableIndex);
+                } else {
+                    lambdaParameterType = null;
+                }
+
+                if (variable.getVariableType() == null) {
+                    variable.setType(lambdaParameterType);
+                }
+            }
+
+            final var parameterTypes = lambdaExpression.getVariables().stream()
+                    .map(variable -> {
+                        var variableType = variable.getType();
+                        if (variableType == null || variableType.isError()) {
+                            variableType = types.getUnknownType();
+                        }
+
+                        return variableType;
+                    }).toList();
+
+            final var partialType = new UndetVarType(
+                    new CMethodType(
+                            null,
+                            null,
+                            List.of(),
+                            null,
+                            parameterTypes,
+                            List.of()
+                    )
+            );
+            lambdaExpression.setType(partialType);
+            lambdaExpression.getVariables().forEach(variable -> {
+                acceptTree(variable, scope);
+            });
+            acceptTree(lambdaExpression.getBody(), scope);
+        }
 
         return defaultAnswer(lambdaExpression, scope);
     }
@@ -650,8 +756,12 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var methodSelector = methodInvocation.getMethodSelector();
         acceptTree(methodSelector, scope);
 
-        methodInvocation.getArguments().forEach(arg ->
-                acceptTree(arg, scope));
+        final var list = new ArrayList<String>();
+        list.forEach( (String value) -> {
+
+        });
+
+        methodInvocation.getArguments().forEach(arg -> acceptTree(arg, scope));
         methodInvocation.getTypeArguments().forEach(typeArgument ->
                 acceptTree(typeArgument, scope));
 
@@ -820,5 +930,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             return AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
         }
         throw new TodoException();
+    }
+
+    @Override
+    public Object visitNewArray(final NewArrayExpression newArrayExpression, final Scope param) {
+        final var result = super.visitNewArray(newArrayExpression, param);
+        return result;
     }
 }

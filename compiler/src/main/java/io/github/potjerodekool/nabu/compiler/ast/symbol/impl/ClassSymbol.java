@@ -6,9 +6,11 @@ import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.type.ArrayType;
 import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
 
@@ -60,11 +62,11 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         asType().setElement(this);
     }
 
-    private static CClassType resolveOuterType(final Symbol symbol) {
+    private static TypeMirror resolveOuterType(final Symbol symbol) {
         if (symbol instanceof ClassSymbol classSymbol) {
-            return (CClassType) classSymbol.asType();
+            return classSymbol.asType();
         } else {
-            return null;
+            return AbstractType.noType;
         }
     }
 
@@ -219,7 +221,16 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     }
 
     @Override
+    public boolean isFunctionalInterface() {
+        return hasAnnotation(Constants.FUNCTIONAL_INTERFACE);
+    }
+
+    @Override
     public ExecutableElement findFunctionalMethod() {
+        if (!isFunctionalInterface()) {
+            return null;
+        }
+
         return getEnclosedElements().stream()
                 .filter(element -> element.getKind() == ElementKind.METHOD)
                 .map(element -> (ExecutableElement) element)
@@ -260,9 +271,9 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     public TypeMirror erasure(final Types types) {
         if (erasureType == null) {
             final var type = asType();
-            final var enclosingType = type.getEnclosingType() != null
-                    ? types.erasure(type.getEnclosingType())
-                    : null;
+            final var enclosingType =
+                    type.getEnclosingType().getKind() == TypeKind.NONE ? type.getEnclosingType()
+                    : types.erasure(type.getEnclosingType());
 
             erasureType = new CClassType(
                     enclosingType,
@@ -329,9 +340,9 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         this.permitted.addAll(permitted);
     }
 
-
-    public ModuleSymbol resolveModuleSymbol() {
-        return resolveModuleSymbol(this);
+    @Override
+    public Optional<ModuleElement> getModuleElement() {
+        return Optional.ofNullable(resolveModuleSymbol(this));
     }
 
     private ModuleSymbol resolveModuleSymbol(final Symbol symbol) {

@@ -154,14 +154,17 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
                     );
                 }).toList();
 
+        final var newArrayExpression = new CNewArrayExpression(
+                type,
+                List.of(dimension),
+                arrayElements
+        );
+        newArrayExpression.setType(arrayType);
+
         final var body = new CBlockStatementTree(
                 List.of(
                         new CReturnStatementTree(
-                                new CNewArrayExpression(
-                                        type,
-                                        List.of(dimension),
-                                        arrayElements
-                                )
+                                newArrayExpression
                         )
                 )
         );
@@ -277,12 +280,7 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         final var classLiteral = TreeMaker.classLiteralTree(type, -1, -1);
 
         classLiteral.getField()
-                .setType(
-                        loader.loadClass(
-                                findModule(clazz),
-                                Constants.CLAZZ
-                        ).asType()
-                );
+                .setType(clazz.asType());
 
         final var name = new CIdentifierTree("name");
 

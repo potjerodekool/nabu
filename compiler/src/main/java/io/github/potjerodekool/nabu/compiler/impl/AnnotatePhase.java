@@ -2,13 +2,14 @@ package io.github.potjerodekool.nabu.compiler.impl;
 
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
 
 public class AnnotatePhase extends AbstractTreeVisitor<Object, CompilerContext> {
 
-    public static FileObjectAndCompilationUnit annotate(final FileObjectAndCompilationUnit fileObjectAndCompilationUnit,
-                                                        final CompilerContext compilerContext) {
+    public static CompilationUnit annotate(final CompilationUnit compilationUnit,
+                                           final CompilerContext compilerContext) {
         final var phase = new AnnotatePhase();
-        phase.acceptTree(fileObjectAndCompilationUnit.compilationUnit(), compilerContext);
-        return fileObjectAndCompilationUnit;
+        phase.acceptTree(compilationUnit, compilerContext);
+        return compilationUnit;
     }
 }

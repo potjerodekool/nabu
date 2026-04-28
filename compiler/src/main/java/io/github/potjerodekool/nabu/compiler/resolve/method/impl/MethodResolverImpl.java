@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
+import io.github.potjerodekool.nabu.compiler.resolve.types.MemberType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CUnknownType;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
@@ -15,6 +16,7 @@ import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.type.*;
+import io.github.potjerodekool.nabu.util.Elements;
 import io.github.potjerodekool.nabu.util.Pair;
 import io.github.potjerodekool.nabu.util.Types;
 
@@ -24,9 +26,12 @@ import java.util.stream.Collectors;
 
 public class MethodResolverImpl implements MethodResolver {
 
+    private final Elements elements;
     private final Types types;
 
-    public MethodResolverImpl(final Types types) {
+    public MethodResolverImpl(final Elements elements,
+                              final Types types) {
+        this.elements = elements;
         this.types = types;
     }
 
@@ -525,6 +530,44 @@ public class MethodResolverImpl implements MethodResolver {
         final var applier = new TypeMapApplier(typeMap, types);
         return targetType.accept(applier, null);
     }
+
+    //632
+    public List<ExecutableType> getPotentiallyApplicableMethods(final DeclaredType searchType,
+                                                                final String methodName,
+                                                                final Scope scope) {
+        final var currentClass = scope.getCurrentClass();
+
+        return ElementFilter.methodsIn(elements.getAllMembers(searchType.asTypeElement())).stream()
+                .filter(method -> isPotentiallyApplicable(searchType, methodName, method, currentClass))
+                .map(it -> (ExecutableType) it.asType())
+                .toList();
+    }
+
+    public boolean isPotentiallyApplicable(final DeclaredType searchType,
+                                           final String methodName,
+                                           final ExecutableElement method, final TypeElement caller) {
+        if (!methodName.equals(method.getSimpleName())) {
+            return false;
+        }
+
+        if (!method.isPublic()) {
+            final var callerPackageElement = findPackageElement(caller.getEnclosingElement());
+            final var packageElement = findPackageElement(method.getEnclosingElement());
+
+            throw new TodoException();
+        }
+
+        return true;
+    }
+
+    private PackageElement findPackageElement(final Element element) {
+        if (element instanceof PackageElement) {
+            return (PackageElement) element;
+        } else {
+            return findPackageElement(element.getEnclosingElement());
+        }
+    }
+
 }
 
 class TypeMapFiller implements TypeVisitor<TypeMirror, TypeMirror> {
@@ -827,4 +870,5 @@ class TypeApplier implements TypeVisitor<TypeMirror, TypeMirror> {
             }
         };
     }
+
 }

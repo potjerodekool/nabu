@@ -21,24 +21,37 @@ public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpr
 
     private final List<VariableDeclaratorTree> variables = new ArrayList<>();
 
-    private StatementTree body;
+    private final ParameterKind parameterKind;
+
+    private Tree body;
 
     private ExecutableType lambdaMethodType;
 
     public CLambdaExpressionTree(final List<VariableDeclaratorTree> parameters,
-                                 final StatementTree body,
+                                 final Tree body,
                                  final int lineNumber,
                                  final int columnNumber) {
         super(lineNumber, columnNumber);
         this.variables.addAll(parameters);
+        this.parameterKind = resolveParameterKind(parameters);
         this.body = body;
+    }
+
+    private ParameterKind resolveParameterKind(final List<VariableDeclaratorTree> parameters) {
+        return parameters.isEmpty() || parameters.getFirst().getVariableType() != null ? ParameterKind.EXPLICIT : ParameterKind.IMPLICIT;
     }
 
     public CLambdaExpressionTree(final LambdaExpressionTreeBuilder builder) {
         super(builder);
         this.variables.addAll(builder.getVariables());
+        this.parameterKind = resolveParameterKind(builder.getVariables());
         this.body = builder.getBody();
         this.lambdaMethodType = builder.getLambdaMethodType();
+    }
+
+    @Override
+    public ParameterKind getParameterKind() {
+        return parameterKind;
     }
 
     public List<VariableDeclaratorTree> getVariables() {
@@ -55,7 +68,7 @@ public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpr
         return this;
     }
 
-    public StatementTree getBody() {
+    public Tree getBody() {
         return body;
     }
 
@@ -92,5 +105,4 @@ public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpr
     public LambdaExpressionTreeBuilder builder() {
         return new LambdaExpressionTreeBuilder(this);
     }
-
 }

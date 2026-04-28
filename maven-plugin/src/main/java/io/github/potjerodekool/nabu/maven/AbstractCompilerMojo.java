@@ -230,9 +230,24 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
                }
            }
 
-           compilerOptionsBuilder.option(new CompilerOption(name), value);
+           compilerOptionsBuilder.option(create(name), value);
         });
 
+    }
+
+    private CompilerOption create(final String name) {
+        final var optionOptional = CompilerOption.COMPILER_OPTIONS.stream()
+                .filter(option -> {
+                    final var optionName = option.optionName().replace("-", "");
+                    return optionName.equals(name);
+                })
+                .findFirst();
+
+        if  (optionOptional.isPresent()) {
+            return optionOptional.get();
+        }
+
+        return new CompilerOption(name);
     }
 
     /*

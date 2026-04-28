@@ -1,10 +1,11 @@
 package io.github.potjerodekool.nabu.ir.values;
 
 import io.github.potjerodekool.nabu.ir.types.IRType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 
-public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstFloat, IRValue.ConstInt, IRValue.ConstNull, IRValue.ConstString, IRValue.ConstUndef, IRValue.FunctionRef, IRValue.Named, IRValue.Temp {
+public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstClass, IRValue.ConstFloat, IRValue.ConstInt, IRValue.ConstNull, IRValue.ConstString, IRValue.ConstUndef, IRValue.FunctionRef, IRValue.Named, IRValue.Temp, IRValue.Values {
 
     static String nameOf(final IRValue value) {
         if (value instanceof Temp t) {
@@ -22,9 +23,19 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstFloat, I
     // Registerwaarden
     // -------------------------------------------------------
 
-    record Temp(String name, IRType type) implements IRValue {}
+    record Temp(String name, IRType type) implements IRValue {
+    }
 
-    record Named(String name, IRType type) implements IRValue {}
+    record Named(String name,
+                 IRType type,
+                 IRType ownerType,
+                 boolean isStatic) implements IRValue {
+
+        public Named(String name,
+                     IRType type) {
+            this(name, type, null, false);
+        }
+    }
 
     // -------------------------------------------------------
     // Constanten
@@ -45,11 +56,15 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstFloat, I
     }
 
     record ConstBool(boolean value) implements IRValue {
-        public IRType type() { return IRType.BOOL; }
+        public IRType type() {
+            return IRType.BOOL;
+        }
     }
 
     record ConstString(String value) implements IRValue {
-        public IRType type() { return new IRType.Ptr(IRType.I8); }
+        public IRType type() {
+            return new IRType.Ptr(IRType.I8);
+        }
     }
 
     record ConstNull(IRType type) implements IRValue {
@@ -59,28 +74,80 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstFloat, I
         }
     }
 
-    record ConstUndef(IRType type) implements IRValue {}
+    record ConstUndef(IRType type) implements IRValue {
+    }
+
+    record ConstClass(IRType.Ptr type) implements IRValue {
+
+    }
+
+    record Values(List<IRValue> values) implements IRValue {
+
+        public Values(IRValue... values) {
+            this(List.of(values));
+        }
+
+        @Override
+        public IRType type() {
+            return null;
+        }
+    }
 
     // -------------------------------------------------------
     // Functiereferentie
     // -------------------------------------------------------
 
     record FunctionRef(String name, IRType.Function fnType) implements IRValue {
-        public IRType type() { return fnType.ptr(); }
+        public IRType type() {
+            return fnType.ptr();
+        }
     }
 
     // -------------------------------------------------------
     // Fabrieksmethoden
     // -------------------------------------------------------
 
-    static IRValue ofInt(long value)              { return new ConstInt(value, IRType.I64); }
-    static IRValue ofInt(long value, int bits)    { return new ConstInt(value, new IRType.Int(bits)); }
-    static IRValue ofI32(long value)              { return new ConstInt(value, IRType.I32); }
-    static IRValue ofFloat(double value)          { return new ConstFloat(value, IRType.F64); }
-    static IRValue ofF32(double value)            { return new ConstFloat(value, IRType.F32); }
-    static IRValue ofBool(boolean value)          { return new ConstBool(value); }
-    static IRValue ofString(String value)         { return new ConstString(value); }
-    static IRValue nullPtr(IRType pointee)        { return new ConstNull(new IRType.Ptr(pointee)); }
-    static IRValue undef(IRType type)             { return new ConstUndef(type); }
-    static IRValue fnRef(String name, IRType.Function t) { return new FunctionRef(name, t); }
+    static IRValue ofInt(long value) {
+        return new ConstInt(value, IRType.I64);
+    }
+
+    static IRValue ofInt(long value, int bits) {
+        return new ConstInt(value, new IRType.Int(bits));
+    }
+
+    static IRValue ofI32(long value) {
+        return new ConstInt(value, IRType.I32);
+    }
+
+    static IRValue ofFloat(double value) {
+        return new ConstFloat(value, IRType.F64);
+    }
+
+    static IRValue ofF32(double value) {
+        return new ConstFloat(value, IRType.F32);
+    }
+
+    static IRValue ofBool(boolean value) {
+        return new ConstBool(value);
+    }
+
+    static IRValue ofString(String value) {
+        return new ConstString(value);
+    }
+
+    static IRValue nullPtr(IRType pointee) {
+        return new ConstNull(new IRType.Ptr(pointee));
+    }
+
+    static IRValue ptr(IRType type) {
+        return new ConstUndef(type);
+    }
+
+    static IRValue undef(IRType type) {
+        return new ConstUndef(type);
+    }
+
+    static IRValue fnRef(String name, IRType.Function t) {
+        return new FunctionRef(name, t);
+    }
 }

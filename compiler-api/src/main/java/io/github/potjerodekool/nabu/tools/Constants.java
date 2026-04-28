@@ -33,7 +33,7 @@ public final class Constants {
     public static final String STRING_BUILDER = "java.lang.StringBuilder";
     public static final String NUMBER = "java.lang.Number";
 
-
+    public static final String FUNCTIONAL_INTERFACE = "java.lang.FunctionalInterface";
 
     public static final String PRIMITIVE_BOOLEAN = "boolean";
     public static final String PRIMITIVE_SHORT = "short";

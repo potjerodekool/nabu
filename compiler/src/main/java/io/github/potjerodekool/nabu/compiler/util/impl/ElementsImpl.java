@@ -28,7 +28,7 @@ public class ElementsImpl implements Elements {
 
     private final CompilerContextImpl compilerContext;
     private final SymbolTable symbolTable;
-    private final Types types;
+    private final TypesImpl types;
     private final Modules modules;
     private final Map<Pair<String, String>, Optional<Symbol>> resultCache = new HashMap<>();
 
@@ -157,23 +157,47 @@ public class ElementsImpl implements Elements {
 
     @Override
     public List<? extends Element> getAllMembers(final TypeElement typeElement) {
+        final var symbol = cast(Symbol.class, typeElement);
+        final var closure = types.closure(symbol.asType());
+
         final var allMembers = new ArrayList<Element>();
-        collectAllMembers(typeElement, allMembers);
+        closure.forEach(type -> collectAllMembers(type, allMembers));
+
         return allMembers;
     }
 
-    private void collectAllMembers(final TypeElement typeElement,
+    private static <T> T cast(final Class<T> clazz, final Object o) {
+        if (!clazz.isInstance(o)) {
+            throw new IllegalArgumentException(o.toString());
+        } else {
+            return clazz.cast(o);
+        }
+    }
+
+    private void collectAllMembers(final AbstractType type,
                                    final List<Element> allMembers) {
-        final var symbol = (Symbol) typeElement;
+        final var symbol = (Symbol) type.asElement();
 
         final var elements = symbol.getMembers().elements().stream()
                 .filter(this::noLocalOrAnonymous)
+                .filter(e ->
+                        (!(e instanceof ExecutableElement executableElement) ||
+                        !overWrites(executableElement, allMembers))
+                )
                 .toList();
         allMembers.addAll(elements);
 
+        /*
         addAllMembers(typeElement.getSuperclass(), allMembers);
         typeElement.getInterfaces().forEach(interfaceType ->
                 addAllMembers(interfaceType, allMembers));
+        */
+    }
+
+    private boolean overWrites(final ExecutableElement e,
+                               final List<Element> allMembers) {
+        return ElementFilter.methodsIn(allMembers).stream()
+                .anyMatch(method -> overrides(e, method, e.getClosestEnclosingClass()));
     }
 
     private boolean noLocalOrAnonymous(final Element element) {
@@ -184,15 +208,6 @@ public class ElementsImpl implements Elements {
         } else {
             return true;
         }
-    }
-
-    private void addAllMembers(final TypeMirror typeMirror,
-                               final List<Element> allMembers) {
-        if (typeMirror == null) {
-            return;
-        }
-
-        collectAllMembers(typeMirror.asTypeElement(), allMembers);
     }
 
     @Override

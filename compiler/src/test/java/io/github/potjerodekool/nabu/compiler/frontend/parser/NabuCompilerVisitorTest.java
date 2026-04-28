@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.frontend.parser;
 import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuCompilerParser;
 import io.github.potjerodekool.nabu.test.NabuLangTreeAssert;
+import org.antlr.v4.runtime.Parser;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.util.function.Function;
 
 class NabuCompilerVisitorTest {
+
 
     protected void parseAndAssert(final String code,
                                   final Function<NabuParser, ParseTree> parseTreeBuilder) {
@@ -530,6 +532,23 @@ class NabuCompilerVisitorTest {
                     return it;
                 }
                 ).toList()""", NabuParser::expression);
+    }
+
+    @Test
+    void ifThenElseStatement() {
+        parseAndAssert("""
+                fun isNull(s : String): boolean {
+                    var result : boolean = false;
+                    if(s == null){
+                        result = true;
+                    }
+                     else if(s != null){
+                        result = false;
+                    }
+            
+                    return result;
+                }
+                """, NabuParser::functionDeclaration);
     }
 
 }

@@ -10,28 +10,56 @@ import java.util.List;
 
 public class IRFunction {
 
-    public final String         name;
+    public final String name;
     public final IRType returnType;
-    public final List<IRValue>  params;
+    public final List<IRValue> params;
     public final SourceLocation location;
     private final List<IRBasicBlock> blocks = new ArrayList<>();
     private boolean external = false;
-    private final boolean isStatic;
+    private final long flags;
+    private final boolean isConstructor;
 
-    public IRFunction(String name,
-                      IRType returnType,
-                      List<IRValue> params,
-                      SourceLocation location,
-                      final boolean isStatic) {
-        this.name       = name;
-        this.returnType = returnType;
-        this.params     = List.copyOf(params);
-        this.location   = location;
-        this.isStatic = isStatic;
+    public IRFunction(final String name,
+                      final IRType returnType,
+                      final List<IRValue> params,
+                      final SourceLocation location,
+                      final long flags) {
+        this(name, returnType, params, location, flags, false);
     }
 
-    public boolean isStatic() {
-        return isStatic;
+    public IRFunction(final String name,
+                      final IRType returnType,
+                      final List<IRValue> params,
+                      final SourceLocation location,
+                      final long flags,
+                      final boolean isConstructor) {
+
+        if (flags == 0) {
+            //TODO Should have some flags set like access flags.
+            //Add check and throw exeption here.
+            System.err.println("Warning: Function " + name + " has no flags.");
+        }
+
+        this.name = name;
+        this.returnType = returnType;
+        this.params = List.copyOf(params);
+        this.location = location;
+        this.flags = flags;
+        this.isConstructor = isConstructor;
+    }
+
+    public IRFunction withBlocks(final List<IRBasicBlock> blocks) {
+        final var newFunction = new IRFunction(name, returnType, params, location, flags, isConstructor);
+        blocks.forEach(newFunction::addBlock);
+        return newFunction;
+    }
+
+    public boolean isConstructor() {
+        return isConstructor;
+    }
+
+    public long getFlags() {
+        return flags;
     }
 
     public List<IRBasicBlock> blocks() {
@@ -48,7 +76,9 @@ public class IRFunction {
         return blocks.getFirst();
     }
 
-    /** Het functietype van deze functie (voor gebruik als FunctionRef). */
+    /**
+     * Het functietype van deze functie (voor gebruik als FunctionRef).
+     */
     public IRType.Function functionType() {
         List<IRType> paramTypes = params.stream()
                 .map(IRValue::type)
@@ -56,9 +86,16 @@ public class IRFunction {
         return new IRType.Function(returnType, paramTypes);
     }
 
-    public void markExternal()   { this.external = true; }
-    public boolean isExternal()  { return external; }
+    public void markExternal() {
+        this.external = true;
+    }
+
+    public boolean isExternal() {
+        return external;
+    }
 
     @Override
-    public String toString() { return "@" + name; }
+    public String toString() {
+        return "@" + name;
+    }
 }

@@ -1450,8 +1450,8 @@ postDecrementExpression
 unaryExpression
     : preIncrementExpression
     | preDecrementExpression
-    | '+' unaryExpression
-    | '-' unaryExpression
+    | prefix='+' unaryExpression
+    | prefix='-' unaryExpression
     | unaryExpressionNotPlusMinus
     ;
 
@@ -1495,8 +1495,8 @@ multiplicativeExpression
 
 additiveExpression
     : multiplicativeExpression
-    | additiveExpression '+' multiplicativeExpression
-    | additiveExpression '-' multiplicativeExpression
+    | additiveExpression oper='+' multiplicativeExpression
+    | additiveExpression oper='-' multiplicativeExpression
     ;
 
 // Paragraph 15.19
@@ -1533,8 +1533,8 @@ relationalExpression
 
 equalityExpression
     : relationalExpression
-    | equalityExpression '==' relationalExpression
-    | equalityExpression '!=' relationalExpression
+    | equalityExpression oper='==' relationalExpression
+    | equalityExpression oper='!=' relationalExpression
     ;
 
 // Paragraph 15.22

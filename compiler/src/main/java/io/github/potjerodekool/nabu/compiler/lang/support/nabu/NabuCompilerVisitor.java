@@ -39,6 +39,7 @@ import java.util.stream.Stream;
 
 import static io.github.potjerodekool.nabu.compiler.frontend.parser.SourceVisitor.createFunction;
 import static io.github.potjerodekool.nabu.compiler.frontend.parser.SourceVisitor.processImportExpression;
+import static io.github.potjerodekool.nabu.compiler.lang.support.shared.CompilerVisitorHelper.*;
 
 public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
@@ -586,19 +587,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         }
     }
 
-    private VariableDeclaratorTree toLambdaVariable(final Tree tree) {
-        return TreeMaker.variableDeclarator(
-                Kind.PARAMETER,
-                new Modifiers(),
-                null,
-                (IdentifierTree) tree,
-                null,
-                null,
-                tree.getLineNumber(),
-                tree.getColumnNumber()
-        );
-    }
-
     @Override
     public Object visitLambdaParameterList(final NabuParser.LambdaParameterListContext ctx) {
         if (!ctx.lambdaParameter().isEmpty()) {
@@ -753,22 +741,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     ctx.getStart().getCharPositionInLine()
             );
         }
-    }
-
-    private boolean isStringLiteral(final ExpressionTree expressionTree) {
-        return expressionTree instanceof LiteralExpressionTree literalExpressionTree
-                && literalExpressionTree.getLiteralKind() == LiteralExpressionTree.Kind.STRING;
-    }
-
-    private LiteralExpressionTree mergeLiterals(final LiteralExpressionTree left,
-                                                final LiteralExpressionTree right) {
-        final var leftValue = left.getLiteral().toString();
-        final var rightValue = right.getLiteral().toString();
-        return TreeMaker.literalExpressionTree(
-                leftValue + rightValue,
-                left.getLineNumber(),
-                left.getColumnNumber()
-        );
     }
 
     @Override
@@ -2227,34 +2199,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         }
 
         return lastExpression;
-    }
-
-    private MemberReference createMemberReference(final List<IdentifierTree> typeArguments,
-                                                  final IdentifierTree identifier,
-                                                  final ParserRuleContext ctx) {
-        final IdentifierTree expression;
-        final MemberReference.ReferenceKind mode;
-
-        if (Constants.NEW.equals(identifier.getName())) {
-            expression = TreeMaker.identifier(
-                    Constants.INIT,
-                    identifier.getLineNumber(),
-                    identifier.getColumnNumber()
-            );
-            mode = MemberReference.ReferenceKind.NEW;
-        } else {
-            expression = identifier;
-            mode = MemberReference.ReferenceKind.INVOKE;
-        }
-
-
-        return new MemberReferenceBuilder()
-                .typeArguments(typeArguments)
-                .expression(expression)
-                .mode(mode)
-                .lineNumber(ctx.getStart().getLine())
-                .columnNumber(ctx.getStart().getCharPositionInLine())
-                .build();
     }
 
     private ArrayAccessExpressionTree fillExpression(final ArrayAccessExpressionTree arrayAccessExpressionTree,
@@ -3813,11 +3757,6 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitLambdaParameterType(final NabuParser.LambdaParameterTypeContext ctx) {
         return super.visitLambdaParameterType(ctx);
-    }
-
-    @Override
-    public Object visitLambdaBody(final NabuParser.LambdaBodyContext ctx) {
-        return super.visitLambdaBody(ctx);
     }
 
     @Override

@@ -3,14 +3,15 @@ package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
 import io.github.potjerodekool.nabu.lang.model.element.builder.PackageElementBuilder;
 
 public class PackageSymbolBuilder extends AbstractSymbolBuilder<PackageElementBuilder<PackageSymbol>> implements PackageElementBuilder<PackageSymbol> {
 
     private Element enclosingElement;
-
     private String simpleName;
+    private ModuleElement module;
 
     public PackageSymbolBuilder() {
     }
@@ -41,6 +42,10 @@ public class PackageSymbolBuilder extends AbstractSymbolBuilder<PackageElementBu
         return simpleName;
     }
 
+    public ModuleElement getModule() {
+        return module;
+    }
+
     @Override
     public PackageSymbolBuilder simpleName(final String name) {
         this.simpleName = name;
@@ -65,5 +70,11 @@ public class PackageSymbolBuilder extends AbstractSymbolBuilder<PackageElementBu
     @Override
     public PackageElement createUnnamed() {
         return PackageSymbol.UNNAMED_PACKAGE;
+    }
+
+    @Override
+    public PackageSymbolBuilder module(final ModuleElement module) {
+        this.module = module;
+        return this;
     }
 }

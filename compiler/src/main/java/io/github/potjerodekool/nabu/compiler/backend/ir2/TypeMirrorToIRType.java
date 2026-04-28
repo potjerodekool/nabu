@@ -1,10 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir2;
 
 import io.github.potjerodekool.nabu.ir.types.IRType;
-import io.github.potjerodekool.nabu.type.ArrayType;
-import io.github.potjerodekool.nabu.type.ExecutableType;
-import io.github.potjerodekool.nabu.type.TypeKind;
-import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.*;
 
 /**
  * Vertaalt een Nabu TypeMirror naar een IRType.
@@ -27,6 +24,10 @@ public final class TypeMirrorToIRType {
     public static IRType map(TypeMirror type) {
         if (type == null) return IRType.VOID;
 
+        if (type instanceof VariableType variableType) {
+            return map(variableType.getInterferedType());
+        }
+
         return switch (type.getKind()) {
             // -------------------------------------------------------
             // Primitieven
@@ -47,7 +48,7 @@ public final class TypeMirrorToIRType {
             case ARRAY -> {
                 if (type instanceof ArrayType arrayType) {
                     IRType elementType = map(arrayType.getComponentType());
-                    yield new IRType.Ptr(elementType);
+                    yield new IRType.Ptr(elementType, arrayType);
                 }
                 yield new IRType.Ptr(IRType.I8);
             }
@@ -56,7 +57,8 @@ public final class TypeMirrorToIRType {
             // Gedeclareerde types (klassen, interfaces, enums, records)
             // Na type-erasure: opaque pointer
             // -------------------------------------------------------
-            case DECLARED -> new IRType.Ptr(IRType.I8);
+            case DECLARED -> //yield new IRType.CustomType(type);
+                    new IRType.Ptr(IRType.I8, type);
 
             // -------------------------------------------------------
             // Type-variabelen en wildcards — na erasure: Object = Ptr(I8)

@@ -29,7 +29,7 @@ public class FieldBuilder extends FieldVisitor {
         if (signature == null) {
             type = asmTypeResolver.resolveByDescriptor(descriptor);
         } else {
-            type = typeBuilder.parseFieldSignature(signature, compilerContext, clazz.resolveModuleSymbol());
+            type = typeBuilder.parseFieldSignature(signature, compilerContext, clazz.getModuleElement().orElse(null));
         }
 
         final var field = new VariableSymbolBuilderImpl()

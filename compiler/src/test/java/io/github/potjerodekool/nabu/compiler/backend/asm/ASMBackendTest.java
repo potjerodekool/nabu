@@ -2,11 +2,14 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.backend.CompileException;
 import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.ir.CallKind;
 import io.github.potjerodekool.nabu.ir.IRBuilder;
 import io.github.potjerodekool.nabu.ir.IRModule;
 import io.github.potjerodekool.nabu.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.ir.types.IRType;
 import io.github.potjerodekool.nabu.ir.values.IRValue;
+import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.tools.Constants;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -19,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Disabled
-class ASMBackendTest {
+class ASMBackendTest extends AbstractCompilerTest {
 
     @TempDir
     Path tempDir;
@@ -44,7 +47,7 @@ class ASMBackendTest {
                 0
         ));
 
-        builder.beginFunction("main", IRType.VOID, List.of(paramType), false);
+        builder.beginFunction("main", IRType.VOID, List.of(paramType), true);
         builder.emitReturn(null);
         builder.endFunction();
 
@@ -157,7 +160,7 @@ class ASMBackendTest {
     @Test @Order(9)
     void constStringAsGlobal() throws Exception {
         builder.declareGlobal("greeting",
-                new IRType.Ptr(IRType.I8), IRValue.ofString("Hallo wereld"));
+                new IRType.Ptr(IRType.I8), IRValue.ofString("Hallo wereld"), null);
         builder.beginFunction("main", IRType.VOID, List.of(), true);
         builder.endFunction();
 
@@ -180,7 +183,7 @@ class ASMBackendTest {
 
         builder.beginFunction("main", IRType.I32, List.of(), true);
         IRValue msg = builder.constString("Hello, World!");
-        builder.emitCall("puts", IRType.I32, List.of(msg));
+        builder.emitCall(CallKind.VIRTUAL,"puts", IRType.I32, List.of(), List.of(msg));
         builder.emitReturn(builder.constInt(0));
         builder.endFunction();
 
@@ -298,7 +301,7 @@ class ASMBackendTest {
 
         // fn main() -> i32 { return helper(); }
         builder.beginFunction("main", IRType.I32, List.of(), true);
-        var res = builder.emitCall("helper", IRType.I32, List.of());
+        var res = builder.emitCall(CallKind.VIRTUAL,"helper", IRType.I32, List.of(), List.of());
         builder.emitReturn(res);
         builder.endFunction();
 
@@ -314,27 +317,32 @@ class ASMBackendTest {
     }
 
     @Test @Order(17)
-    void externalFunctionCallPuts() throws Exception {
-        var putsType = IRType.fn(IRType.I32, new IRType.Ptr(IRType.I8));
-        builder.declareExternalFunction("puts", putsType);
+    void cast() throws Exception {
+        final var loader = getCompilerContext().getClassElementLoader();
+        final var javaBase = getCompilerContext().getModules().getJavaBase();
+        final var objectType = new IRType.Ptr(IRType.I8,loader.loadClass(javaBase, Constants.OBJECT).asType());
+        final var integerType = new IRType.Ptr(IRType.I8,loader.loadClass(javaBase, Constants.INTEGER).asType());
 
-        builder.beginFunction("main", IRType.I32, List.of(), true);
-        var msg = builder.constString("Test extern");
-        builder.emitCall("puts", IRType.I32, List.of(msg));
-        builder.emitReturn(builder.constInt(0));
+        builder.beginFunction("cast", integerType, List.of(new IRValue.Named("value", objectType)), true);
+
+        builder.emitReturn(
+                builder.emitCast(
+                        new IRValue.Temp("value", objectType),
+                        integerType
+                )
+        );
         builder.endFunction();
 
         final var module = buildAndGet();
         final var classFileName = compileDefault(module);
 
         loadClass(classFileName, module, clazz -> {
-            final var method = clazz.getDeclaredMethod("main");
+            final var method = clazz.getDeclaredMethod("cast", Object.class);
             method.trySetAccessible();
-            final var functionResult = (int) method.invoke(null);
-            assertEquals(7, functionResult);
+            final var functionResult = (int) method.invoke(null, 25);
+            assertEquals(25, functionResult);
         });
     }
-
 
     private Path compileDefault(final IRModule module) throws CompileException {
         final var classFileName = module.name + ".class";

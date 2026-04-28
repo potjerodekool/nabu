@@ -1,0 +1,36 @@
+// class version 61.0 (61)
+// access flags 0x21
+public class MyClass {
+
+  // compiled from: MyClass.java
+
+  // access flags 0x1
+  public forEachLoop(Ljava/util/List;)V
+    // parameter  list
+   L0
+    LINENUMBER 2 L0
+    ALOAD 1
+    INVOKEINTERFACE java/util/List.iterator ()Ljava/util/Iterator; (itf)
+    ASTORE 2
+   L1
+    LINENUMBER 65535 L1
+    ALOAD 2
+    INVOKEINTERFACE java/util/Iterator.hasNext ()Z (itf)
+    IFNE L2
+   L3
+    LINENUMBER 3 L3
+    ALOAD 2
+    INVOKEINTERFACE java/util/Iterator.next ()Ljava/lang/Object; (itf)
+    CHECKCAST java/lang/String
+    ASTORE 3
+    GETSTATIC java/lang/System.out : Ljava/io/PrintStream;
+    ALOAD 3
+    INVOKEVIRTUAL java/io/PrintStream.println (Ljava/lang/String;)V
+   L2
+   FRAME FULL [MyClass java/util/List java/util/Iterator] []
+    RETURN
+    LOCALVARIABLE this LMyClass; L0 L2 0
+    LOCALVARIABLE list Ljava/util/List; L0 L2 1
+    MAXSTACK = 2
+    MAXLOCALS = 4
+}

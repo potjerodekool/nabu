@@ -66,9 +66,13 @@ public class TypesImpl implements Types {
 
     private final Substitute substitute = new Substitute();
 
-    private final SuperTypeVisitor superTypeVisitor = new SuperTypeVisitor();
+    private final SuperTypeVisitor superTypeVisitor = new SuperTypeVisitor(this);
+
+    private final DirectSuperTypeVisitor directSuperTypeVisitor = new DirectSuperTypeVisitor();
 
     private final InterfaceTypeVisitor interfaceTypeVisitor = new InterfaceTypeVisitor(this);
+
+    private final ClassBoundVisitor classBoundVisitor = new ClassBoundVisitor();
 
     public TypesImpl(final SymbolTable symbolTable) {
         this.symbolTable = symbolTable;
@@ -150,6 +154,7 @@ public class TypesImpl implements Types {
             return getErrorType(typeElem.getQualifiedName());
         } else if (typeElem.asType().getEnclosingType() != null
                 && typeElem.asType().getEnclosingType().isParameterized()) {
+            //TODO should not be null.
             throw new IllegalArgumentException("Enclosing type is parameterized");
         }
 
@@ -336,6 +341,14 @@ public class TypesImpl implements Types {
         }
     }
 
+    public AbstractType erasureRecursive(final TypeMirror typeMirror) {
+        if (isErasureNeeded(typeMirror)) {
+            return (AbstractType) erasureTypeVisitor.erasure(typeMirror, true);
+        } else {
+            return (AbstractType) typeMirror;
+        }
+    }
+
     private boolean isErasureNeeded(final TypeMirror typeMirror) {
         return !(typeMirror.isPrimitiveType()
                 || typeMirror instanceof DeclaredType declaredType
@@ -406,7 +419,10 @@ public class TypesImpl implements Types {
                 final var interfaces = element.getInterfaces().stream()
                         .map(interfaceType -> interfaceType.accept(interfaceTypeVisitor, t))
                         .toList();
-                final var superclass = element.getSuperclass().accept(superTypeVisitor, t);
+
+                final var superclass = directSuperTypeVisitor.visit(t);
+
+                //final var superclass = element.getSuperclass().accept(superTypeVisitor, t);
                 final var superTypes = new ArrayList<TypeMirror>(1 + interfaces.size());
                 superTypes.add(superclass);
                 superTypes.addAll(interfaces);
@@ -426,7 +442,9 @@ public class TypesImpl implements Types {
 
         var type = (DeclaredType) typeMirror;
 
-        if (typeMirror.getEnclosingType() != null) {
+        if (typeMirror.getEnclosingType() != null
+                && typeMirror.getEnclosingType().getKind() != TypeKind.NONE) {
+            //TODO should not be null.
             final var capturedEnclosingType = capture(typeMirror.getEnclosingType());
 
             if (capturedEnclosingType != typeMirror.getEnclosingType()) {
@@ -457,11 +475,11 @@ public class TypesImpl implements Types {
             if (currentS.getFirst() != currentT.getFirst()) {
                 captured = true;
                 var Ti = (WildcardType) currentT.getFirst();
-                var Ui = currentA.getFirst().getUpperBound();
+                var Ui = (AbstractType) currentA.getFirst().getUpperBound();
                 var Si = (CCapturedType) currentS.getFirst();
 
                 if (Ui == null) {
-                    Ui = symbolTable.getObjectType();
+                    Ui = (AbstractType) symbolTable.getObjectType();
                 }
 
                 switch (Ti.getBoundKind()) {
@@ -490,7 +508,7 @@ public class TypesImpl implements Types {
             }
             currentA = currentA.subList(1, currentA.size());
 
-            currentT = currentT.subList(1,currentT.size());
+            currentT = currentT.subList(1, currentT.size());
             currentS = currentS.subList(1, currentS.size());
         }
 
@@ -509,10 +527,10 @@ public class TypesImpl implements Types {
         throw new TodoException();
     }
 
-    private TypeMirror subst(final TypeMirror ui,
-                             final List<TypeMirror> a,
-                             final List<TypeMirror> s) {
-        throw new TodoException();
+    public TypeMirror subst(final AbstractType type,
+                            final List<? extends TypeMirror> from,
+                            final List<? extends TypeMirror> to) {
+        return type.map(new Substitute(from, to));
     }
 
     private List<TypeMirror> freshTypeVariables(final List<? extends TypeMirror> types) {
@@ -638,5 +656,31 @@ public class TypesImpl implements Types {
     }
 
 
-}
+    public List<AbstractType> closure(final AbstractType type) {
+        final var closure = new ArrayList<AbstractType>();
+        closure.add(type);
 
+        AbstractType superType = superType(type);
+
+        if (!type.isCompound() && superType != null) {
+            if (superType.asElement().getKind() == ElementKind.CLASS
+                    || superType.asElement().getKind() == ElementKind.INTERFACE) {
+                closure.addAll(closure(superType));
+            }
+        }
+
+        interfaces(type).stream()
+                .map(it -> (AbstractType) it)
+                .forEach(closure::add);
+
+        return closure;
+    }
+
+    private AbstractType superType(final TypeMirror type) {
+        return type.accept(superTypeVisitor, null);
+    }
+
+    public AbstractType classBound(final TypeMirror type) {
+        return type.accept(classBoundVisitor, null);
+    }
+}

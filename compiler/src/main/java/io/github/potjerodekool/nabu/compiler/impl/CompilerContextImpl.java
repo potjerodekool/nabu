@@ -44,7 +44,7 @@ public class CompilerContextImpl implements CompilerContext {
     private final EnumUsageMap enumUsageMap = new EnumUsageMap();
     private final PluginRegistry pluginRegistry;
     private final Modules modules;
-    private Types types;
+    private TypesImpl types;
 
     private final Map<Key<?>, Object> data = new HashMap<>();
     private final Map<Class<?>, Key<?>> keyTable = new HashMap<>();
@@ -63,7 +63,7 @@ public class CompilerContextImpl implements CompilerContext {
         fileManager.initialize(pluginRegistry);
 
         this.elements = new ElementsImpl(this);
-        this.methodResolver = new MethodResolverImpl(getTypes());
+        this.methodResolver = new MethodResolverImpl(elements, getTypes());
 
         this.argumentBoxer = new ArgumentBoxerImpl(this);
 
@@ -135,7 +135,7 @@ public class CompilerContextImpl implements CompilerContext {
     }
 
     @Override
-    public Types getTypes() {
+    public TypesImpl getTypes() {
         if (this.types == null) {
             this.types = new TypesImpl(getSymbolTable());
         }

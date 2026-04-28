@@ -20,7 +20,7 @@ public class CVariableType extends AbstractType implements VariableType {
 
     @Override
     public TypeKind getKind() {
-        return null;
+        return interferedType != null ? interferedType.getKind() : null;
     }
 
     @Override

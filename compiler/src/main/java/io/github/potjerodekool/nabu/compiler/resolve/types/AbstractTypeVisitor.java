@@ -5,6 +5,10 @@ import io.github.potjerodekool.nabu.type.*;
 public abstract class AbstractTypeVisitor<R,P> implements TypeVisitor<R, P> {
 
     public final R visit(final TypeMirror typeMirror, P param) {
+        if (typeMirror == null) {
+            return null;
+        }
+
         return typeMirror.accept(this, param);
     }
 

@@ -194,6 +194,14 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
                 .toList();
     }
 
+    private BlockStatementTree asBlockStatement(final Tree tree) {
+        if (tree instanceof StatementTree statement) {
+            return asBlockStatement(statement);
+        } else {
+            return asBlockStatement(TreeMaker.expressionStatement((ExpressionTree) tree, tree.getLineNumber(), tree.getColumnNumber()));
+        }
+    }
+
     private BlockStatementTree asBlockStatement(final StatementTree statement) {
         if (statement instanceof BlockStatementTree blockStatement) {
             return blockStatement;

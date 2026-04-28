@@ -39,7 +39,7 @@ public class TypeBuilder {
     public void parseClassSignature(final String signature,
                                     final ClassSymbol classSymbol,
                                     final CompilerContext compilerContext,
-                                    final ModuleSymbol moduleSymbol) {
+                                    final ModuleElement moduleSymbol) {
         final var enclosingElement = classSymbol.getEnclosingElement();
         final var outerType = enclosingElement instanceof TypeElement enclosingTypeElement
                 ? enclosingTypeElement.asType()

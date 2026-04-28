@@ -17,6 +17,8 @@ public enum Tag {
     NOT("!"),
     ADD("+"),
     SUB("-"),
+    MUL("*"),
+    DIV("/"),
     POST_INC,
     POST_DEC,
     ASSIGN("="),

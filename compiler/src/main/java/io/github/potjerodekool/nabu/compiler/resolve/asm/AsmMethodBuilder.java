@@ -51,7 +51,7 @@ public class AsmMethodBuilder extends MethodVisitor {
         this.loader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getTypes();
         this.moduleSymbol = moduleSymbol;
-        final var module = clazz.resolveModuleSymbol();
+        final var module = clazz.getModuleElement().orElse(null);
 
         final var flags = AccessUtils.parseMethodAccessToFlags(access);
 

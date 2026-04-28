@@ -3,10 +3,7 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.PackageSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPackageType;
 import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.lang.model.element.Element;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
-import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 
 public class PackageSymbol extends TypeSymbol implements PackageElement {
@@ -24,7 +21,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     private ClassSymbol packageInfo;
 
-    private ModuleSymbol moduleSymbol;
+    private ModuleElement moduleSymbol;
 
     public PackageSymbol(final PackageSymbol parentPackage,
                          final String packageName) {
@@ -38,6 +35,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     public PackageSymbol(final PackageSymbolBuilder packageSymbolBuilder) {
         this(null, packageSymbolBuilder.getSimpleName());
+        moduleSymbol = packageSymbolBuilder.getModule();
     }
 
     @Override
@@ -58,7 +56,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
     }
 
     @Override
-    public ModuleSymbol getModuleSymbol() {
+    public ModuleElement getModuleSymbol() {
         return moduleSymbol;
     }
 
@@ -124,7 +122,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     @Override
     public boolean isUnnamed() {
-        return this == UNNAMED_PACKAGE;
+        return this == UNNAMED_PACKAGE || "".equals(fullName);
     }
 
     public ClassSymbol getPackageInfo() {

@@ -26,6 +26,8 @@ public final class TagToIROp {
             // Rekenkundig
             case ADD -> Op.ADD;
             case SUB -> Op.SUB;
+            case MUL -> Op.MUL;
+            case DIV -> Op.DIV;
 
             // Vergelijkingen
             case EQ  -> Op.EQ;

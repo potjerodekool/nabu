@@ -1,0 +1,50 @@
+// class version 61.0 (61)
+// access flags 0x21
+public class MyClass {
+
+  // compiled from: MyClass.java
+
+  // access flags 0x1
+  public whileLoop()I
+   L0
+    LINENUMBER 2 L0
+    LINENUMBER 3 L0
+    LINENUMBER 4 L0
+    NEW java/util/ArrayList
+    DUP
+    INVOKESPECIAL java/util/ArrayList.<init> ()V
+    ASTORE 1
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
+   L1
+    LINENUMBER 5 L1
+    ILOAD 3
+    ALOAD 1
+    INVOKEVIRTUAL java/util/ArrayList.size ()I
+    IF_ICMPGE L2
+   L3
+    LINENUMBER 6 L3
+    LINENUMBER 7 L3
+    ILOAD 2
+    ALOAD 1
+    ILOAD 3
+    INVOKEVIRTUAL java/util/ArrayList.get (I)Ljava/lang/Object;
+    CHECKCAST java/lang/Integer
+    INVOKEVIRTUAL java/lang/Integer.intValue ()I
+    IADD
+    ISTORE 2
+    ILOAD 3
+    ICONST_1
+    IADD
+    ISTORE 3
+   L2
+    LINENUMBER 9 L2
+   FRAME FULL [MyClass java/util/ArrayList I I] []
+    ILOAD 2
+    IRETURN
+    LOCALVARIABLE this LMyClass; L0 L2 0
+    MAXSTACK = 3
+    MAXLOCALS = 4
+}

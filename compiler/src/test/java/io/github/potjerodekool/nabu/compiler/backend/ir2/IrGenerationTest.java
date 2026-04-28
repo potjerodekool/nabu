@@ -67,14 +67,6 @@ class IrGenerationTest {
     }
 
     @Test
-    void gedeclareerdTypeWordtOpaquePtrI8() {
-        var mirror = new StubTypeMirror(TypeKind.DECLARED);
-        IRType result = TypeMirrorToIRType.map(mirror);
-        assertInstanceOf(IRType.Ptr.class, result);
-        assertEquals(IRType.I8, ((IRType.Ptr) result).pointee());
-    }
-
-    @Test
     void nullTypeWordtOpaquePtrI8() {
         var mirror = new StubTypeMirror(TypeKind.NULL);
         IRType result = TypeMirrorToIRType.map(mirror);

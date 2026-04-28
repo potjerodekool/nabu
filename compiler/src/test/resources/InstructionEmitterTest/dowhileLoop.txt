@@ -1,0 +1,42 @@
+// class version 61.0 (61)
+// access flags 0x21
+public class MyClass {
+
+  // compiled from: MyClass.java
+
+  // access flags 0x1
+  public doWhileLoop(I)I
+    // parameter  number
+   L0
+    LINENUMBER 2 L0
+    LINENUMBER 3 L0
+    ICONST_0
+    ISTORE 2
+    ICONST_5
+    ISTORE 3
+   L1
+    LINENUMBER 6 L1
+    LINENUMBER 7 L1
+   FRAME FULL [MyClass I I I] []
+    ILOAD 2
+    ILOAD 1
+    IADD
+    ISTORE 2
+    ILOAD 3
+    ICONST_1
+    ISUB
+    ISTORE 3
+   L2
+    LINENUMBER 8 L2
+    ILOAD 3
+    ICONST_0
+    IF_ICMPGT L1
+   L3
+    LINENUMBER 10 L3
+    ILOAD 2
+    IRETURN
+    LOCALVARIABLE this LMyClass; L0 L3 0
+    LOCALVARIABLE number I L0 L3 1
+    MAXSTACK = 2
+    MAXLOCALS = 4
+}

@@ -31,6 +31,8 @@ public interface ModuleElement extends Element, QualifiedNameable  {
 
     TypeElement getModuleInfo();
 
+    PackageElement getUnnamedPackage();
+
     enum DirectiveKind {
         REQUIRES,
         EXPORTS,

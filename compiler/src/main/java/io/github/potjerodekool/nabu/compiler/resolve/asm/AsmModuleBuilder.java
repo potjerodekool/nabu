@@ -24,10 +24,10 @@ public class AsmModuleBuilder extends ModuleVisitor {
     private final SymbolTable symbolTable;
 
     protected AsmModuleBuilder(final int api,
-                               final ModuleSymbol moduleSymbol,
+                               final ModuleElement moduleSymbol,
                                final SymbolTable symbolTable) {
         super(api);
-        this.moduleSymbol = moduleSymbol;
+        this.moduleSymbol = (ModuleSymbol) moduleSymbol;
         this.symbolTable = symbolTable;
     }
 

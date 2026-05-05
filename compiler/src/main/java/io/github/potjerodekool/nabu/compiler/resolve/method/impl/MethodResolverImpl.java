@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
-import io.github.potjerodekool.nabu.compiler.resolve.types.MemberType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CUnknownType;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
@@ -11,10 +10,7 @@ import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.lang.model.element.*;
-import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
-import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
-import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
-import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
+import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Elements;
 import io.github.potjerodekool.nabu.util.Pair;
@@ -531,42 +527,516 @@ public class MethodResolverImpl implements MethodResolver {
         return targetType.accept(applier, null);
     }
 
-    //632
-    public List<ExecutableType> getPotentiallyApplicableMethods(final DeclaredType searchType,
-                                                                final String methodName,
-                                                                final Scope scope) {
-        final var currentClass = scope.getCurrentClass();
+    public ExecutableType tryResolveMethod(final MethodInvocationTree methodInvocationTree,
+                                              final DeclaredType searchType,
+                                              final String methodName,
+                                              final Scope scope) {
 
+        final var arguments = methodInvocationTree.getArguments();
+
+        final var argumentTypes = arguments.stream()
+                .map(this::resolveType)
+                .toList();
+
+        // Step 1: Identify Potentially Applicable Methods
+        final var potentiallyApplicable = getPotentiallyApplicableMethods(
+                methodInvocationTree,
+                searchType,
+                methodName,
+                argumentTypes,
+                scope);
+
+        // Step 2: Phase 1 - Strict Invocation (no boxing/unboxing, no varargs)
+
+        final var phase1Results = phase1StrictInvocation(
+                potentiallyApplicable,
+                argumentTypes,
+                arguments
+        );
+        final var applicableMethods = new ArrayList<>(phase1Results);
+
+        // If methods found in phase 1, choose the most specific and return
+        if (!applicableMethods.isEmpty()) {
+            return chooseMostSpecificMethod(applicableMethods).method();
+        }
+
+        // Step 3: Phase 2 - Loose Invocation (with boxing/unboxing, no varargs)
+        List<ApplicableMethod> phase2Results =
+                phase2LooseInvocation(potentiallyApplicable, argumentTypes, arguments);
+        applicableMethods.addAll(phase2Results);
+
+        // If methods found in phase 2, choose the most specific and return
+        if (!applicableMethods.isEmpty()) {
+            return chooseMostSpecificMethod(applicableMethods).method();
+        }
+
+        // Step 4: Phase 3 - Variable Arity Invocation (with boxing/unboxing/varargs)
+        List<ApplicableMethod> phase3Results =
+                phase3VariableArity(potentiallyApplicable, argumentTypes, arguments);
+        applicableMethods.addAll(phase3Results);
+
+        // If methods found in phase 3, choose the most specific and return
+        if (!applicableMethods.isEmpty()) {
+            return chooseMostSpecificMethod(applicableMethods).method();
+        }
+
+        throw new MethodResolveException(
+                "No applicable method found for: " + methodName +
+                        " with argument types: ");
+
+    }
+
+    //632
+    public List<ExecutableType> getPotentiallyApplicableMethods(final MethodInvocationTree methodInvocation,
+                                                                final DeclaredType searchType,
+                                                                final String methodName,
+                                                                final List<TypeMirror> argumentTypes,
+                                                                final Scope scope) {
+
+        final var typeArguments = methodInvocation.getTypeArguments().stream()
+                .map(this::resolveType)
+                .toList();
+
+        final var currentClass = scope.getCurrentClass();
         return ElementFilter.methodsIn(elements.getAllMembers(searchType.asTypeElement())).stream()
-                .filter(method -> isPotentiallyApplicable(searchType, methodName, method, currentClass))
-                .map(it -> (ExecutableType) it.asType())
+                .map(method -> {
+
+                    final var transformedResult = transform(
+                            searchType,
+                            method,
+                            typeArguments,
+                            argumentTypes
+                    );
+                    final var methodType = transformedResult.first();
+
+                    return methodType;
+                })
+                .filter(method -> isPotentiallyApplicable(methodName, argumentTypes, method, currentClass))
                 .toList();
     }
 
-    public boolean isPotentiallyApplicable(final DeclaredType searchType,
-                                           final String methodName,
-                                           final ExecutableElement method, final TypeElement caller) {
-        if (!methodName.equals(method.getSimpleName())) {
+    public boolean isPotentiallyApplicable(final String methodName,
+                                           final List<TypeMirror> argumentTypes,
+                                           final ExecutableType method,
+                                           final TypeElement caller) {
+        final var methodSymbol = method.getMethodSymbol();
+
+        if (!methodName.equals(methodSymbol.getSimpleName())) {
             return false;
         }
 
-        if (!method.isPublic()) {
-            final var callerPackageElement = findPackageElement(caller.getEnclosingElement());
-            final var packageElement = findPackageElement(method.getEnclosingElement());
-
-            throw new TodoException();
+        if (!AccessChecker.isAccessible(methodSymbol, caller)) {
+            return false;
         }
 
-        return true;
-    }
+        final var parameterTypes = method.getParameterTypes();
 
-    private PackageElement findPackageElement(final Element element) {
-        if (element instanceof PackageElement) {
-            return (PackageElement) element;
+        if (methodSymbol.isVarArgs()) {
+            final var fixedParamCount = parameterTypes.size() - 1;
+
+            if (argumentTypes.size() < fixedParamCount) {
+                return false;
+            }
+
+            for (int index = 0; index < fixedParamCount; index++) {
+                if (!isPotentiallyCompatible(argumentTypes.get(index), parameterTypes.get(index))) {
+                    return false;
+                }
+            }
+
+            // Check varargs
+            final var varargType = ((ArrayType) parameterTypes.get(fixedParamCount)).getComponentType();
+            for (int i = fixedParamCount; i < argumentTypes.size(); i++) {
+                if (!isPotentiallyCompatible(argumentTypes.get(i), varargType) &&
+                        !isPotentiallyCompatible(argumentTypes.get(i), parameterTypes.get(fixedParamCount))) {
+                    return false;
+                }
+            }
+
+            return true;
         } else {
-            return findPackageElement(element.getEnclosingElement());
+            if (parameterTypes.size() != argumentTypes.size()) {
+                return false;
+            }
+
+            for (int i = 0; i < argumentTypes.size(); i++) {
+                if (!isPotentiallyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
+
+    private boolean isPotentiallyCompatible(final TypeMirror sourceType,
+                                            final TypeMirror targetType) {
+        if (sourceType == null) {
+            // null is potentially compatible with any reference type
+            return !targetType.isPrimitiveType();
+        }
+
+        // Same type
+        if (sourceType == targetType) {
+            return true;
+        }
+
+        // Reference types
+        if (!sourceType.isPrimitiveType() && !targetType.isPrimitiveType()) {
+            return true; // Could be compatible after type checking
+        }
+
+        // Primitive types
+        if (sourceType.isPrimitiveType() && targetType.isPrimitiveType()) {
+            return true; // Could be compatible via widening
+        }
+
+        return false;
+    }
+
+    private List<ApplicableMethod> phase1StrictInvocation(
+            final List<ExecutableType> candidates,
+            final List<TypeMirror> argumentTypes,
+            final List<ExpressionTree> arguments) {
+        return candidates.stream()
+                .filter(method -> !method.getMethodSymbol().isVarArgs())
+                .filter(method -> {
+                    final var parameterTypes = method.getParameterTypes();
+                    return parameterTypes.size() == argumentTypes.size();
+                })
+                .filter(method -> {
+                    final var parameterTypes = method.getParameterTypes();
+
+                    for (int i = 0; i < argumentTypes.size(); i++) {
+                        if (!isStrictlyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                })
+                .map(method -> {
+                    final var parameterTypes = method.getParameterTypes();
+                    double specificity = calculateSpecificity(parameterTypes, argumentTypes);
+                    return new ApplicableMethod(method, 1, specificity);
+                })
+                .toList();
+    }
+
+    private boolean isStrictlyCompatible(final TypeMirror sourceType,
+                                         final TypeMirror targetType) {
+        if (sourceType == null) {
+            // null is compatible with any reference type
+            return !targetType.isPrimitiveType();
+        }
+
+        // Same type
+        if (types.isSameType(sourceType, targetType)) {
+            return true;
+        }
+
+        // Widening primitive conversion
+        if (isWideningPrimitive(sourceType, targetType)) {
+            return true;
+        }
+
+        // Widening reference conversion (subclass to superclass)
+        if (!sourceType.isPrimitiveType() && !targetType.isPrimitiveType()) {
+            return types.isAssignable(targetType, sourceType);
+        }
+
+        return false;
+    }
+
+    private double calculateSpecificity(final List<? extends TypeMirror> parameterTypes,
+                                        final List<? extends TypeMirror> argumentTypes) {
+        double specificity = 0.0;
+
+        for (int i = 0; i < Math.min(parameterTypes.size(), argumentTypes.size()); i++) {
+            final var paramType = parameterTypes.get(i);
+            final var argType = argumentTypes.get(i);
+
+            if (argType == null) {
+                continue;
+            }
+
+            // Penalize boxing conversions (less specific)
+            if (argType.isPrimitiveType() && !paramType.isPrimitiveType()) {
+                if (isBoxingCompatible(argType, paramType)) {
+                    specificity += 1.0;
+                }
+            }
+
+            // Penalize type hierarchy depth
+            if (!paramType.isPrimitiveType() && !argType.isPrimitiveType()) {
+                specificity += getClassDepth((DeclaredType) paramType);
+            }
+        }
+
+        return specificity;
+    }
+
+    private int getClassDepth(final DeclaredType clazz) {
+        final var objectType = types.getObjectType();
+
+        int depth = 0;
+        DeclaredType current = clazz;
+        while (current != null && current != objectType) {
+            depth++;
+            current = (DeclaredType) current.asTypeElement().getSuperclass();
+        }
+        return depth;
+    }
+
+
+    private boolean isWideningPrimitive(final TypeMirror source,
+                                        final TypeMirror target) {
+        if (!source.isPrimitiveType() || !target.isPrimitiveType()) {
+            return false;
+        }
+
+        // Define widening conversions
+        return switch (source.getKind()) {
+            case BYTE -> switch (target.getKind()) {
+                case SHORT, INT, LONG, FLOAT, DOUBLE -> true;
+                default -> false;
+            };
+            case SHORT -> switch (target.getKind()) {
+                case INT, LONG, FLOAT, DOUBLE -> true;
+                default -> false;
+            };
+            case CHAR -> switch (target.getKind()) {
+                case INT, LONG, FLOAT, DOUBLE -> true;
+                default -> false;
+            };
+            case INT -> switch (target.getKind()) {
+                case LONG, FLOAT, DOUBLE -> true;
+                default -> false;
+            };
+            case LONG -> switch (target.getKind()) {
+                case FLOAT, DOUBLE -> true;
+                default -> false;
+            };
+            case FLOAT -> target.getKind() == TypeKind.DOUBLE;
+            default -> false;
+        };
+    }
+
+    private boolean isBoxingCompatible(final TypeMirror source,
+                                       final TypeMirror target) {
+        if (!source.isPrimitiveType() || !types.isBoxType(target)) {
+            return false;
+        }
+
+        final var boxTypeName = target.asTypeElement().getQualifiedName();
+
+        return switch (source.getKind()) {
+            case BOOLEAN -> Constants.BOOLEAN.equals(boxTypeName);
+            case BYTE -> Constants.BYTE.equals(boxTypeName);
+            case SHORT -> Constants.SHORT.equals(boxTypeName);
+            case CHAR -> Constants.CHARACTER.equals(boxTypeName);
+            case INT -> Constants.INTEGER.equals(boxTypeName);
+            case LONG -> Constants.LONG.equals(boxTypeName);
+            case FLOAT -> Constants.FLOAT.equals(boxTypeName);
+            case DOUBLE -> Constants.DOUBLE.equals(boxTypeName);
+            default -> false;
+        };
+    }
+
+    private ApplicableMethod chooseMostSpecificMethod(
+            final List<ApplicableMethod> applicableMethods) {
+
+        if (applicableMethods.isEmpty()) {
+            throw new MethodResolveException("No applicable methods found");
+        }
+
+        if (applicableMethods.size() == 1) {
+            return applicableMethods.getFirst();
+        }
+
+        // First, find the minimum phase
+        int minPhase = applicableMethods.stream()
+                .mapToInt(ApplicableMethod::phase)
+                .min()
+                .orElse(Integer.MAX_VALUE);
+
+        // Filter to only methods in the minimum phase
+        List<ApplicableMethod> samePhase = applicableMethods.stream()
+                .filter(m -> m.phase() == minPhase)
+                .toList();
+
+        // Sort by specificity (lower is better)
+        samePhase = new ArrayList<>(samePhase);
+        samePhase.sort(Comparator.comparingDouble(m -> m.specificity()));
+
+        // Check for ambiguity
+        if (samePhase.size() > 1) {
+            ApplicableMethod first = samePhase.get(0);
+            ApplicableMethod second = samePhase.get(1);
+
+            if (first.specificity() == second.specificity()) {
+                throw new MethodResolveException(
+                        "Ambiguous method invocation: " + first.method() + " vs " + second.method());
+            }
+        }
+
+        return samePhase.getFirst();
+    }
+
+    private List<ApplicableMethod> phase2LooseInvocation(
+            final List<ExecutableType> candidates,
+            final List<TypeMirror> argumentTypes,
+            final List<ExpressionTree> arguments) {
+
+        List<ApplicableMethod> applicableMethods = new ArrayList<>();
+
+        for (var method : candidates) {
+            // Check if variable arity (varargs)
+            if (method.getMethodSymbol().isVarArgs()) {
+                continue; // Skip varargs methods in phase 2
+            }
+
+            final var parameterTypes = method.getParameterTypes();
+
+            // Check arity
+            if (parameterTypes.size() != argumentTypes.size()) {
+                continue; // Wrong number of arguments
+            }
+
+            // Check loose type compatibility (with boxing/unboxing)
+            boolean isApplicable = true;
+            for (int i = 0; i < argumentTypes.size(); i++) {
+                if (!isLooselyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
+                    isApplicable = false;
+                    break;
+                }
+            }
+
+            if (isApplicable) {
+                double specificity = calculateSpecificity(parameterTypes, argumentTypes);
+                applicableMethods.add(new ApplicableMethod(method, 2, specificity));
+            }
+        }
+
+        return applicableMethods;
+    }
+
+    private boolean isLooselyCompatible(final TypeMirror sourceType,
+                                        final TypeMirror targetType) {
+        if (sourceType == null) {
+            // null is compatible with any reference type
+            return !targetType.isPrimitiveType();
+        }
+
+        // First check strict compatibility
+        if (isStrictlyCompatible(sourceType, targetType)) {
+            return true;
+        }
+
+        // Unboxing conversion: wrapper type -> primitive type
+        if (isUnboxingCompatible(sourceType, targetType)) {
+            return true;
+        }
+
+        // Boxing conversion: primitive type -> wrapper type
+        if (isBoxingCompatible(sourceType, targetType)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isUnboxingCompatible(final TypeMirror source,
+                                         final TypeMirror target) {
+        if (!target.isPrimitiveType() || !types.isBoxType(source)) {
+            return false;
+        }
+
+        final var sourceTypeName = source.asTypeElement().getQualifiedName();
+
+        return switch (sourceTypeName) {
+            case Constants.BOOLEAN -> target.getKind() == TypeKind.BOOLEAN;
+            case Constants.BYTE -> target.getKind() == TypeKind.BYTE;
+            case Constants.SHORT -> target.getKind() == TypeKind.SHORT;
+            case Constants.CHARACTER -> target.getKind() == TypeKind.CHAR;
+            case Constants.INTEGER -> target.getKind() == TypeKind.INT;
+            case Constants.LONG -> target.getKind() == TypeKind.LONG;
+            case Constants.FLOAT -> target.getKind() == TypeKind.FLOAT;
+            case Constants.DOUBLE -> target.getKind() == TypeKind.DOUBLE;
+            default -> false;
+        };
+    }
+
+    private List<ApplicableMethod> phase3VariableArity(
+            final List<ExecutableType> candidates,
+            final List<TypeMirror> argumentTypes,
+            final List<ExpressionTree> arguments) {
+
+        List<ApplicableMethod> applicableMethods = new ArrayList<>();
+
+        for (var method : candidates) {
+            final var parameterTypes = method.getParameterTypes();
+
+            if (method.getMethodSymbol().isVarArgs()) {
+                // Variable arity method
+                int fixedParamCount = parameterTypes.size() - 1;
+
+                // Check if argument count is at least the fixed parameter count
+                if (argumentTypes.size() < fixedParamCount) {
+                    continue;
+                }
+
+                // Check fixed parameters
+                boolean isApplicable = true;
+                for (int i = 0; i < fixedParamCount; i++) {
+                    if (!isLooselyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
+                        isApplicable = false;
+                        break;
+                    }
+                }
+
+                if (!isApplicable) {
+                    continue;
+                }
+
+                // Check varargs parameter
+                final var varargType = ((ArrayType) parameterTypes.get(fixedParamCount)).getComponentType();
+
+                for (int i = fixedParamCount; i < argumentTypes.size(); i++) {
+                    if (!isLooselyCompatible(argumentTypes.get(i), varargType)) {
+                        isApplicable = false;
+                        break;
+                    }
+                }
+
+                if (isApplicable) {
+                    double specificity = calculateSpecificity(parameterTypes, argumentTypes);
+                    applicableMethods.add(new ApplicableMethod(method, 3, specificity));
+                }
+            } else {
+                // Fixed arity method - also check in phase 3 with loose compatibility
+                if (parameterTypes.size() != argumentTypes.size()) {
+                    continue;
+                }
+
+                boolean isApplicable = true;
+                for (int i = 0; i < argumentTypes.size(); i++) {
+                    if (!isLooselyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
+                        isApplicable = false;
+                        break;
+                    }
+                }
+
+                if (isApplicable) {
+                    double specificity = calculateSpecificity(parameterTypes, argumentTypes);
+                    applicableMethods.add(new ApplicableMethod(method, 3, specificity));
+                }
+            }
+        }
+
+        return applicableMethods;
+    }
+
 
 }
 
@@ -871,4 +1341,43 @@ class TypeApplier implements TypeVisitor<TypeMirror, TypeMirror> {
         };
     }
 
+}
+
+// 640 (5.12)
+class ApplicablePhase1 {
+
+    public boolean isApplicable(final MethodInvocationTree methodInvocationTree,
+                                final ExecutableType method) {
+        method.getMethodSymbol();
+        method.getTypeArguments();
+
+        return true;
+    }
+
+    private boolean isGeneric(final MethodSymbol method) {
+        return !method.getTypeParameters().isEmpty()
+                || isGeneric(method.getReturnType())
+                || method.getParameters().stream()
+                .anyMatch(param -> isGeneric(param.asType()));
+    }
+
+    private boolean isGeneric(final TypeMirror typeMirror) {
+        return typeMirror.getKind() == TypeKind.TYPEVAR
+                || typeMirror.getKind() == TypeKind.WILDCARD;
+    }
+
+    public boolean isApplicable(final ExpressionTree expressionTree) {
+        if (expressionTree instanceof LambdaExpressionTree lambdaExpressionTree
+                && lambdaExpressionTree.getParameterKind() == LambdaExpressionTree.ParameterKind.IMPLICIT) {
+            return true;
+        }
+        //TODO check method reference
+
+        return true;
+    }
+}
+
+record ApplicableMethod(ExecutableType method,
+                        int phase,
+                        double specificity) {
 }

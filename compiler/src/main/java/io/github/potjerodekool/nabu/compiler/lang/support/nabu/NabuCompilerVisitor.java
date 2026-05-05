@@ -3731,7 +3731,50 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitFunctionReference(final NabuParser.FunctionReferenceContext ctx) {
-        return super.visitFunctionReference(ctx);
+        final ExpressionTree expressionTree;
+
+        if (ctx.expressionName() != null) {
+            expressionTree = (ExpressionTree) ctx.expressionName().accept(this);
+        } else if (ctx.primary() != null) {
+            expressionTree = (ExpressionTree) ctx.primary().accept(this);
+        } else if (ctx.referenceType() != null) {
+            expressionTree = (ExpressionTree) ctx.referenceType().accept(this);
+        } else if (ctx.typeName() != null) {
+            final var target = (ExpressionTree) ctx.typeName().accept(this);
+            expressionTree = TreeMaker.fieldAccessExpressionTree(
+                    target,
+                    IdentifierTree.create(ctx.token.getText()),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        } else if (ctx.classType() != null) {
+            expressionTree = (ExpressionTree) ctx.classType().accept(this);
+        } else if (ctx.arrayType() != null) {
+            expressionTree = (ExpressionTree) ctx.arrayType().accept(this);
+        } else if (ctx.token != null && "super".equals(ctx.token.getText())) {
+            expressionTree = IdentifierTree.create(ctx.token.getText());
+        } else {
+            expressionTree = null;
+        }
+
+        final List<IdentifierTree> typeArguments = acceptList(ctx.typeArguments());
+        final var identifier =
+                ctx.identifier() != null
+                        ? ((IdentifierTree) accept(ctx.identifier())).getName()
+                        : "init";
+
+        final var mode = ctx.token != null && "new".equals(ctx.token.getText())
+                ? MemberReference.ReferenceKind.NEW
+                : MemberReference.ReferenceKind.INVOKE;
+
+        return new CMemberReference(
+                mode,
+                identifier,
+                typeArguments,
+                expressionTree,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -3768,4 +3811,5 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     public Object visitConstantExpression(final NabuParser.ConstantExpressionContext ctx) {
         return super.visitConstantExpression(ctx);
     }
+
 }

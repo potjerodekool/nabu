@@ -205,6 +205,16 @@ public abstract class Symbol implements Element {
         return hasFlag(Flags.PRIVATE);
     }
 
+    @Override
+    public boolean isProtected() {
+        return hasFlag(Flags.PROTECTED);
+    }
+
+    @Override
+    public boolean isDefaultAccess() {
+        return !(isPrivate() || isProtected() || isPublic());
+    }
+
     public boolean isStatic() {
         return hasFlag(Flags.STATIC);
     }
@@ -325,7 +335,7 @@ public abstract class Symbol implements Element {
         } else if (Flags.hasFlag(flags, Flags.PROTECTED)) {
             return !Flags.hasFlag(flags, Flags.INTERFACE);
         } else {
-            final var packageSymbol = this.findPackageSymbol();
+            final var packageSymbol = this.getPackageElement();
 
             for (var symbol = clazz;
                  symbol != null && symbol != this.getEnclosingElement();
@@ -337,7 +347,7 @@ public abstract class Symbol implements Element {
 
                 if (symbol.type.isError()) {
                     return true;
-                } else if (symbol.findPackageSymbol() != packageSymbol) {
+                } else if (symbol.getPackageElement() != packageSymbol) {
                     return false;
                 }
             }
@@ -346,7 +356,7 @@ public abstract class Symbol implements Element {
         }
     }
 
-    public PackageSymbol findPackageSymbol() {
+    public PackageSymbol getPackageElement() {
         var symbol = this;
 
         while (symbol.getKind() != ElementKind.PACKAGE) {
@@ -354,6 +364,18 @@ public abstract class Symbol implements Element {
         }
 
         return (PackageSymbol) symbol;
+    }
+
+    private ModuleElement resolveModuleSymbol(final Symbol symbol) {
+        if (symbol == null) {
+            return null;
+        } else if (symbol instanceof ModuleElement moduleElement) {
+            return moduleElement;
+        } else if (symbol instanceof PackageSymbol packageSymbol) {
+            return packageSymbol.getModuleSymbol();
+        } else {
+            return resolveModuleSymbol(symbol.getEnclosingElement());
+        }
     }
 
     public boolean isSubClass(final Symbol base,

@@ -30,5 +30,7 @@ public interface TypeElement extends Element, QualifiedNameable {
 
     String getFlatName();
 
-    Optional<ModuleElement> getModuleElement();
+    ModuleElement getModuleElement();
+
+    PackageElement getPackageElement();
 }

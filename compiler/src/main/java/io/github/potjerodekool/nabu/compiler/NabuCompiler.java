@@ -6,16 +6,14 @@ import io.github.potjerodekool.nabu.compiler.annotation.processing.*;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
 import io.github.potjerodekool.nabu.compiler.backend.asm.ASMBackend;
-import io.github.potjerodekool.nabu.compiler.backend.ir2.IrGeneratingVisitor;
-import io.github.potjerodekool.nabu.compiler.backend.ir2.Optimizer;
+import io.github.potjerodekool.nabu.compiler.backend.ir.IrGeneratingVisitor;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Optimizer;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.impl.AnnotatePhase;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.impl.LambdaToMethodPhase;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.tools.*;
-import io.github.potjerodekool.nabu.compiler.backend.ByteCodePhase;
-import io.github.potjerodekool.nabu.compiler.backend.IRPhase;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
 import io.github.potjerodekool.nabu.tools.diagnostic.ConsoleDiagnosticListener;
@@ -77,16 +75,7 @@ public class NabuCompiler implements Compiler {
                              final CompilerOptions compilerOptions) {
         final var backend = getBackendName(compilerOptions);
 
-        if ("ASM-classic".equals(backend)) {
-            final ByteCodePhase byteCodePhase = new ByteCodePhase(compilerContext, byteCodeGeneratorListener);
-
-            return byteCodePhase.generate(
-                    compilationUnits,
-                    compilerOptions,
-                    compilerDiagnosticListener,
-                    targetDirectory
-            );
-        } else if ("ASM".equals(backend)) {
+        if ("ASM".equals(backend)) {
             final var asmBackend = new ASMBackend();
 
             final var modules = compilationUnits.stream()
@@ -190,7 +179,7 @@ public class NabuCompiler implements Compiler {
         return compilationUnits.stream()
                 .map(LambdaToMethodPhase::lambdaToMethod)
                 .map(cu -> lower(cu, compilerContext))
-                .map(cu -> IRPhase.ir(compilerContext, cu))
+                //.map(cu -> IRPhase.ir(compilerContext, cu))
                 .toList();
     }
 

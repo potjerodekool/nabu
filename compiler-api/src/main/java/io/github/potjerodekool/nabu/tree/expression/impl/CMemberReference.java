@@ -16,15 +16,18 @@ public class CMemberReference extends CExpressionTree implements MemberReference
 
     private final MemberReference.ReferenceKind mode;
     private final List<IdentifierTree> typeArguments = new ArrayList<>();
-    private final IdentifierTree expression;
+    private final String name;
+    private final ExpressionTree expression;
 
     public CMemberReference(MemberReference.ReferenceKind mode,
+                            final String name,
                             final List<IdentifierTree> typeArguments,
-                            final IdentifierTree expression,
+                            final ExpressionTree expression,
                             final int lineNumber,
                             final int columnNumber) {
         super(lineNumber, columnNumber);
         this.mode = mode;
+        this.name = name;
         this.typeArguments.addAll(typeArguments);
         this.expression = expression;
     }
@@ -32,8 +35,14 @@ public class CMemberReference extends CExpressionTree implements MemberReference
     public CMemberReference(final MemberReferenceBuilder builder) {
         super(builder);
         this.mode = builder.getMode();
+        this.name = builder.getName();
         this.typeArguments.addAll(builder.getTypeArguments());
         this.expression = builder.getExpression();
+    }
+
+    @Override
+    public String getName() {
+        return name;
     }
 
     @Override

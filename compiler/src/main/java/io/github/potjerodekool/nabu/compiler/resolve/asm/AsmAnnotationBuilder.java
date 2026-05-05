@@ -2,13 +2,9 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ElementBuildersImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.lang.model.element.CArrayAttributeProxy;
-import io.github.potjerodekool.nabu.lang.model.element.CCompoundAttribute;
-import io.github.potjerodekool.nabu.lang.model.element.CEnumAttributeProxy;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.lang.model.element.Attribute;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.type.DeclaredType;
@@ -27,7 +23,7 @@ public class AsmAnnotationBuilder extends AbstractAsmAnnotationBuilder {
                                                      final boolean visible,
                                                      final Symbol annotationTarget,
                                                      final ClassElementLoader loader,
-                                                     final ModuleSymbol moduleSymbol) {
+                                                     final ModuleElement moduleSymbol) {
         final var annotation = createAnnotation(descriptor, loader, moduleSymbol);
         annotationTarget.addAnnotationMirror(annotation);
         return new AsmAnnotationBuilder(
@@ -44,7 +40,7 @@ public class AsmAnnotationBuilder extends AbstractAsmAnnotationBuilder {
                                 final boolean visible,
                                 final ClassElementLoader loader,
                                 final CCompoundAttribute annotation,
-                                final ModuleSymbol moduleSymbol) {
+                                final ModuleElement moduleSymbol) {
         super(api, visible, annotation, loader, moduleSymbol);
         this.annotation = annotation;
     }
@@ -69,13 +65,13 @@ abstract class AbstractAsmAnnotationBuilder extends AnnotationVisitor {
     protected final boolean visible;
     private final Attribute attribute;
     protected final ClassElementLoader loader;
-    private final ModuleSymbol moduleSymbol;
+    private final ModuleElement moduleSymbol;
 
     protected AbstractAsmAnnotationBuilder(final int api,
                                            final boolean visible,
                                            final Attribute attribute,
                                            final ClassElementLoader loader,
-                                           final ModuleSymbol moduleSymbol) {
+                                           final ModuleElement moduleSymbol) {
         super(api);
         this.visible = visible;
         this.attribute = attribute;
@@ -85,7 +81,7 @@ abstract class AbstractAsmAnnotationBuilder extends AnnotationVisitor {
 
     protected static CCompoundAttribute createAnnotation(final String descriptor,
                                                          final ClassElementLoader loader,
-                                                         final ModuleSymbol moduleSymbol) {
+                                                         final ModuleElement moduleSymbol) {
         final var annotationType = loadTypeFromDescriptor(descriptor, loader, moduleSymbol);
         return new CCompoundAttribute(annotationType, Map.of());
     }
@@ -96,7 +92,7 @@ abstract class AbstractAsmAnnotationBuilder extends AnnotationVisitor {
 
     private static DeclaredType loadTypeFromDescriptor(final String descriptor,
                                                        final ClassElementLoader loader,
-                                                       final ModuleSymbol moduleSymbol) {
+                                                       final ModuleElement moduleSymbol) {
         final var asmType = Type.getType(descriptor);
         var clazz = loader.loadClass(moduleSymbol, asmType.getClassName());
 
@@ -163,7 +159,7 @@ abstract class AbstractAsmAnnotationBuilder extends AnnotationVisitor {
                                        final boolean visible,
                                        final ClassElementLoader loader,
                                        final CCompoundAttribute attribute,
-                                       final ModuleSymbol moduleSymbol) {
+                                       final ModuleElement moduleSymbol) {
         return new AsmAnnotationBuilder(
                 api,
                 visible,
@@ -184,7 +180,7 @@ class AsmArrayAnnotationBuilder extends AbstractAsmAnnotationBuilder {
                                      final ClassElementLoader loader,
                                      final CArrayAttributeProxy arrayAttribute,
                                      final Attribute attribute,
-                                     final ModuleSymbol moduleSymbol) {
+                                     final ModuleElement moduleSymbol) {
         super(api, visible, attribute, loader, moduleSymbol);
         this.arrayAttribute = arrayAttribute;
     }

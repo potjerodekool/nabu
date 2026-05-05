@@ -31,6 +31,10 @@ public interface Element extends AnnotatedConstruct {
 
     boolean isPrivate();
 
+    boolean isProtected();
+
+    boolean isDefaultAccess();
+
     boolean isStatic();
 
     boolean isFinal();
@@ -74,6 +78,12 @@ public interface Element extends AnnotatedConstruct {
                                 .asTypeElement()
                                 .getQualifiedName())
                 );
+    }
+
+    PackageElement getPackageElement();
+
+    default ModuleElement getModuleElement() {
+        return null;
     }
 
 }

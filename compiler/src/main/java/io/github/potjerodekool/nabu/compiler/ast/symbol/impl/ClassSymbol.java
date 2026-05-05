@@ -272,7 +272,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         if (erasureType == null) {
             final var type = asType();
             final var enclosingType =
-                    type.getEnclosingType().getKind() == TypeKind.NONE ? type.getEnclosingType()
+                    type.getEnclosingType() == null || type.getEnclosingType().getKind() == TypeKind.NONE ? type.getEnclosingType()
                     : types.erasure(type.getEnclosingType());
 
             erasureType = new CClassType(
@@ -341,11 +341,11 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     }
 
     @Override
-    public Optional<ModuleElement> getModuleElement() {
-        return Optional.ofNullable(resolveModuleSymbol(this));
+    public ModuleElement getModuleElement() {
+        return resolveModuleSymbol(this);
     }
 
-    private ModuleSymbol resolveModuleSymbol(final Symbol symbol) {
+    private ModuleElement resolveModuleSymbol(final Symbol symbol) {
         if (symbol == null) {
             return null;
         } else if (symbol instanceof PackageSymbol packageSymbol) {

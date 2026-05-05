@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.backend.ASMTestUtils;
-import io.github.potjerodekool.nabu.compiler.backend.ir2.BackendTest;
-import io.github.potjerodekool.nabu.compiler.backend.ir2.IrGeneratingVisitor;
-import io.github.potjerodekool.nabu.compiler.backend.ir2.Optimizer;
+import io.github.potjerodekool.nabu.compiler.backend.ir.BackendTest;
+import io.github.potjerodekool.nabu.compiler.backend.ir.IrGeneratingVisitor;
+import io.github.potjerodekool.nabu.compiler.backend.ir.Optimizer;
 import io.github.potjerodekool.nabu.compiler.impl.EnterPhase;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.ResolverPhase;

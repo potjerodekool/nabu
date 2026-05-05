@@ -1346,10 +1346,10 @@ functionReference
     : expressionName '::' typeArguments? identifier
     | primary '::' typeArguments? identifier
     | referenceType '::' typeArguments? identifier
-    | 'super' '::' typeArguments? identifier
-    | typeName '.' 'super' '::' typeArguments? identifier
-    | classType '::' typeArguments? 'new'
-    | arrayType '::' 'new'
+    | token='super' '::' typeArguments? identifier
+    | typeName '.' token='super' '::' typeArguments? identifier
+    | classType '::' typeArguments? token='new'
+    | arrayType '::' token='new'
     ;
 
 // Paragraph 15.14

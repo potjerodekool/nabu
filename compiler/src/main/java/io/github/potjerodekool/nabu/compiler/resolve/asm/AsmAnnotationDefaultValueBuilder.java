@@ -1,12 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.lang.model.element.CArrayAttributeProxy;
-import io.github.potjerodekool.nabu.lang.model.element.CCompoundAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.lang.model.element.Attribute;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.Constants;
@@ -29,7 +26,7 @@ public class AsmAnnotationDefaultValueBuilder extends AbstractAsmAnnotationDefau
                                             final ClassElementLoader loader,
                                             final Types types,
                                             final MethodSymbol method,
-                                            final ModuleSymbol moduleSymbol) {
+                                            final ModuleElement moduleSymbol) {
         super(api, loader, types, moduleSymbol);
         this.methodSymbol = method;
     }
@@ -45,12 +42,12 @@ abstract class AbstractAsmAnnotationDefaultValueBuilder extends AnnotationVisito
 
     protected final ClassElementLoader loader;
     protected final Types types;
-    private final ModuleSymbol moduleSymbol;
+    private final ModuleElement moduleSymbol;
 
     protected AbstractAsmAnnotationDefaultValueBuilder(final int api,
                                                        final ClassElementLoader loader,
                                                        final Types types,
-                                                       final ModuleSymbol moduleSymbol) {
+                                                       final ModuleElement moduleSymbol) {
         super(api);
         this.loader = loader;
         this.types = types;
@@ -148,7 +145,7 @@ class AsmAnnotationDefaultValueArrayBuilder extends AbstractAsmAnnotationDefault
                                                     final ClassElementLoader loader,
                                                     final Types types,
                                                     final CArrayAttributeProxy attribute,
-                                                    final ModuleSymbol moduleSymbol) {
+                                                    final ModuleElement moduleSymbol) {
         super(api, loader, types, moduleSymbol);
         this.arrayAttribute = attribute;
     }
@@ -168,7 +165,7 @@ class AsmAnnotationDefaultValueAnnotationBuilder extends AbstractAsmAnnotationDe
                                                          final ClassElementLoader loader,
                                                          final Types types,
                                                          final CCompoundAttribute annotation,
-                                                         final ModuleSymbol moduleSymbol) {
+                                                         final ModuleElement moduleSymbol) {
         super(api, loader, types, moduleSymbol);
         this.annotation = annotation;
     }

@@ -68,6 +68,7 @@
         <module>compiler-test</module>
         <module>nabu-daemon</module>
         <module>nabu-client</module>
+        <module>tools</module>
     </modules>
 
     <repositories>

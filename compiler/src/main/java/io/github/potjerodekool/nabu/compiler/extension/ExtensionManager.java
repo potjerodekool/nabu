@@ -1,9 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.compiler.backend.generate.ByteCodeGenerator;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
-import io.github.potjerodekool.nabu.tools.CompilerConfigurationException;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -36,20 +34,6 @@ public class ExtensionManager {
 
     private int getRuntimeFeatureVersion() {
         return Runtime.version().feature();
-    }
-
-    public ByteCodeGenerator createByteCodeGenerator() {
-        final var runtimeFeatureVersion = getRuntimeFeatureVersion();
-        final var extensionOptional = getExtensions("bytecode-generator").stream()
-                .filter(extension -> extension.supportsJdkFeatureVersion(runtimeFeatureVersion))
-                .findFirst();
-        return extensionOptional
-                .map(extension -> pluginRegistry.createExtension(
-                        extension,
-                        ByteCodeGenerator.class,
-                        false,
-                        compilerContext))
-                .orElseThrow(() -> new CompilerConfigurationException("No bytecode generator available"));
     }
 
     private void initSymbolResolvers() {

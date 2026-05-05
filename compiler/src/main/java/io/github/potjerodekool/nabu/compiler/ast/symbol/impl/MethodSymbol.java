@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.backend.ir.ProcFrag;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -16,7 +15,6 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
     private final List<TypeParameterElement> typeParameters = new ArrayList<>();
     private final boolean isDefaultMethod;
     private AnnotationValue defaultValue;
-    private ProcFrag frag;
 
     public MethodSymbol(final ElementKind kind,
                         final long flags,
@@ -46,14 +44,6 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         parameters.forEach(this::addParameter);
 
         this.isDefaultMethod = isDefaultMethod(owner);
-    }
-
-    public ProcFrag getFrag() {
-        return frag;
-    }
-
-    public void setFrag(final ProcFrag frag) {
-        this.frag = frag;
     }
 
     private boolean isDefaultMethod(final Element owner) {

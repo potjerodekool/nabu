@@ -7,9 +7,5 @@
         <language-parser implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.nabu.NabuLanguageParser"/>
         <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.java.JavaLanguageSupport"/>
         <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.kotlin.KotlinLanguageSupport"/>
-        <bytecode-generator
-                minJdk="17"
-                implementationClass="io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmByteCodeGenerator"
-        />
     </extensions>
 </plugin>

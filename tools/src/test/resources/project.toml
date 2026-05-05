@@ -1,0 +1,9 @@
+[workspace]
+members = ["core", "payments", "api"]
+
+[java]
+preferred-distribution = "temurin"
+min = 21
+
+[repositories]
+central = "https://repo1.maven.org/maven2"

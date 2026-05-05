@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.TodoException;
@@ -35,7 +36,7 @@ class AsmClassBuilder extends ClassVisitor {
 
     private final ClassSymbol clazz;
 
-    private final ModuleSymbol moduleSymbol;
+    private final ModuleElement moduleSymbol;
 
     public TypeElement getClazz() {
         return clazz;
@@ -44,7 +45,7 @@ class AsmClassBuilder extends ClassVisitor {
     protected AsmClassBuilder(final SymbolTable symbolTable,
                               final CompilerContext compilerContext,
                               final ClassSymbol classSymbol,
-                              final ModuleSymbol moduleSymbol) {
+                              final ModuleElement moduleSymbol) {
         super(Opcodes.ASM9);
         this.compilerContext = compilerContext;
         this.symbolTable = symbolTable;
@@ -86,7 +87,7 @@ class AsmClassBuilder extends ClassVisitor {
 
             if (packageEnd > -1) {
                 final var packageName = qualifiedName.substring(0, packageEnd);
-                enclosingElement = symbolTable.lookupPackage(
+                enclosingElement = (Symbol) symbolTable.lookupPackage(
                         moduleSymbol,
                         packageName
                 );
@@ -112,7 +113,7 @@ class AsmClassBuilder extends ClassVisitor {
         }
 
         if (signature != null) {
-            typeBuilder.parseClassSignature(signature, clazz, compilerContext, clazz.getModuleElement().orElse(null));
+            typeBuilder.parseClassSignature(signature, clazz, compilerContext, clazz.getModuleElement());
         } else {
             final TypeMirror outerType;
 

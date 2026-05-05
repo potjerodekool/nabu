@@ -8,6 +8,8 @@ import java.util.List;
  * Person::firstName
  */
 public interface MemberReference extends ExpressionTree {
+    String getName();
+
     List<IdentifierTree> getTypeArguments();
 
     ExpressionTree getExpression();

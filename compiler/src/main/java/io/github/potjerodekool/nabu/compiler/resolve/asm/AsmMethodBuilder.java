@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
@@ -12,9 +12,6 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignature;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
 import org.objectweb.asm.AnnotationVisitor;
@@ -33,7 +30,7 @@ public class AsmMethodBuilder extends MethodVisitor {
     private final CompilerContext compilerContext;
     private final ClassElementLoader loader;
     private final Types types;
-    private final ModuleSymbol moduleSymbol;
+    private final ModuleElement moduleSymbol;
 
     protected AsmMethodBuilder(final int api,
                                final int access,
@@ -45,13 +42,13 @@ public class AsmMethodBuilder extends MethodVisitor {
                                final AsmTypeResolver asmTypeResolver,
                                final CompilerContext compilerContext,
                                final TypeBuilder typeBuilder,
-                               final ModuleSymbol moduleSymbol) {
+                               final ModuleElement moduleSymbol) {
         super(api);
         this.compilerContext = compilerContext;
         this.loader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getTypes();
         this.moduleSymbol = moduleSymbol;
-        final var module = clazz.getModuleElement().orElse(null);
+        final var module = clazz.getModuleElement();
 
         final var flags = AccessUtils.parseMethodAccessToFlags(access);
 

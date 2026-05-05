@@ -337,7 +337,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         return (ClassSymbol) clazz;
     }
 
-    private PackageSymbol importStarImport(final ModuleElement moduleElement,
+    private PackageElement importStarImport(final ModuleElement moduleElement,
                                            final String classOrPackageName,
                                            final CompilationUnit compilationUnit) {
         final var packageSymbol = symbolTable.lookupPackage(

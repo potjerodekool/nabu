@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
@@ -218,14 +219,14 @@ public class SymbolTable {
         var classSymbol = getClassSymbol(packageSymbol.getModuleSymbol(), flatname);
 
         if (classSymbol == null) {
-            classSymbol = defineClass(getShortName(flatname), packageSymbol);
+            classSymbol = defineClass(getShortName(flatname), (Symbol) packageSymbol);
             doEnterClass(packageSymbol.getModuleSymbol(), classSymbol);
         }
 
         return classSymbol;
     }
 
-    private void doEnterClass(final ModuleSymbol module,
+    private void doEnterClass(final ModuleElement module,
                               final ClassSymbol classSymbol) {
         final var flatName = classSymbol.getFlatName();
 
@@ -254,14 +255,14 @@ public class SymbolTable {
         return classSymbol;
     }
 
-    public PackageSymbol lookupPackage(final ModuleSymbol moduleSymbol,
-                                       final String flatName) {
-        return lookupPackage(moduleSymbol, flatName, false);
+    public PackageSymbol lookupPackage(final ModuleElement moduleSymbol,
+                                        final String flatName) {
+        return lookupPackage((ModuleSymbol) moduleSymbol, flatName, false);
     }
 
     private PackageSymbol lookupPackage(final ModuleSymbol moduleSymbol,
-                                        final String flatName,
-                                        final boolean onlyExisting) {
+                                         final String flatName,
+                                         final boolean onlyExisting) {
         if (flatName.isEmpty()) {
             return moduleSymbol.getUnnamedPackage();
         } else if (moduleSymbol == NO_MODULE) {
@@ -329,7 +330,7 @@ public class SymbolTable {
         module.setUnnamedPackage(unnamedPackage);
     }
 
-    public PackageSymbol enterPackage(final ModuleSymbol module,
+    public PackageSymbol enterPackage(final ModuleElement module,
                                       final String flatName) {
         if (flatName == null) {
             return null;
@@ -349,7 +350,7 @@ public class SymbolTable {
             packageSymbol.setCompleter(initialCompleter);
 
             packageSymbol.setModuleSymbol(module);
-            doEnterPackage(module, packageSymbol);
+            doEnterPackage((ModuleSymbol) module, packageSymbol);
         }
 
         return packageSymbol;
@@ -372,7 +373,7 @@ public class SymbolTable {
                 : null;
     }
 
-    private PackageSymbol getPackage(final ModuleSymbol module,
+    private PackageSymbol getPackage(final ModuleElement module,
                                      final String flatName) {
         final var map = this.packagesMap.getOrDefault(flatName, Collections.emptyMap());
         PackageSymbol result;
@@ -436,7 +437,7 @@ public class SymbolTable {
         });
     }
 
-    public ClassSymbol enterClass(final ModuleSymbol moduleSymbol,
+    public ClassSymbol enterClass(final ModuleElement moduleSymbol,
                                   final String className,
                                   final TypeSymbol owner) {
         final var flatName = Symbol.createFlatName(owner, className);

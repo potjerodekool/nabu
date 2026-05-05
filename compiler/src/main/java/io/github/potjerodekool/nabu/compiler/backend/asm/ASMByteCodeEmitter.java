@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.compiler.backend.generate.asm.AsmWithStackMethodVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.ir.*;
 import io.github.potjerodekool.nabu.ir.values.IRValue;

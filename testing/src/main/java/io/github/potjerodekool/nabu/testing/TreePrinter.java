@@ -929,6 +929,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitMemberReference(final MemberReference memberReference,
                                        final Object param) {
+        acceptTree(memberReference.getExpression(), param);
         write("::");
 
         if (!memberReference.getTypeArguments().isEmpty()) {
@@ -937,7 +938,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             write(">");
         }
 
-        acceptTree(memberReference.getExpression(), param);
+        if (memberReference.getMode() == MemberReference.ReferenceKind.NEW) {
+            write("new");
+        } else {
+            write(memberReference.getName());
+        }
 
         return null;
     }

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeKind;
@@ -12,10 +12,10 @@ public class AsmTypeResolver {
 
     private final ClassElementLoader classElementLoader;
     private final Types types;
-    private final ModuleSymbol moduleSymbol;
+    private final ModuleElement moduleSymbol;
 
     public AsmTypeResolver(final CompilerContext compilerContext,
-                           final ModuleSymbol moduleSymbol) {
+                           final ModuleElement moduleSymbol) {
         this.classElementLoader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getTypes();
         this.moduleSymbol = moduleSymbol;

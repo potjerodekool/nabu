@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignature;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
@@ -28,7 +27,7 @@ public class TypeBuilder {
 
     public MethodSignature parseMethodSignature(final String signature,
                                                 final CompilerContext compilerContext,
-                                                final ModuleSymbol moduleSymbol) {
+                                                final ModuleElement moduleSymbol) {
         final var reader = new SignatureReader(signature);
         final var signatureBuilder =
                 new SignatureParser(Opcodes.ASM9, compilerContext, moduleSymbol);

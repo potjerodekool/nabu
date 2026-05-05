@@ -81,7 +81,7 @@ public class ClassFinder {
                 var enclosing = (Symbol) owner.getMembers().resolve(enclosingName);
 
                 if (enclosing == null) {
-                    final var packageSymbol = findPackageSymbol(classSymbol);
+                    final var packageSymbol = classSymbol.getPackageElement();
 
                     if (packageSymbol != null) {
                         enclosing = symbolTable.getClassSymbol(packageSymbol.getModuleSymbol(), Symbol.createFlatName(owner, enclosingName));
@@ -94,18 +94,6 @@ public class ClassFinder {
             }
         } else if (classSymbol.getEnclosingElement() instanceof ClassSymbol) {
             classSymbol.setNestingKind(NestingKind.MEMBER);
-        }
-    }
-
-    private PackageSymbol findPackageSymbol(final ClassSymbol classSymbol) {
-        final var enclosing = classSymbol.getEnclosingElement();
-
-        if (enclosing instanceof PackageSymbol packageSymbol) {
-            return packageSymbol;
-        } else if (enclosing instanceof ClassSymbol enclosingClass) {
-            return findPackageSymbol(enclosingClass);
-        } else {
-            return null;
         }
     }
 
@@ -152,7 +140,7 @@ public class ClassFinder {
     }
 
     private void fillInClassFromClass(final ClassSymbol classSymbol) {
-        final var packageSymbol = findPackageSymbol(classSymbol.getEnclosingElement());
+        final var packageSymbol = classSymbol.getPackageElement();
 
         try (final var inputStream = classSymbol.getClassFile().openInputStream()) {
             ClazzReader.read(
@@ -171,23 +159,13 @@ public class ClassFinder {
         sourceTypeEnter.fill(classSymbol);
     }
 
-    private PackageSymbol findPackageSymbol(final Symbol symbol) {
-        if (symbol instanceof PackageSymbol packageSymbol) {
-            return packageSymbol;
-        } else if (symbol == null) {
-            return null;
-        } else {
-            return findPackageSymbol(symbol.getEnclosingElement());
-        }
-    }
-
     private void fillInPackage(final PackageSymbol packageSymbol) {
         if (packageSymbol.getMembers() == null) {
             final var members = new WritableScope();
             packageSymbol.setMembers(members);
         }
 
-        final var module = packageSymbol.getModuleSymbol();
+        final var module = (ModuleSymbol) packageSymbol.getModuleSymbol();
 
         if (module.getClassLocation() == StandardLocation.CLASS_PATH) {
             scanUserPaths(

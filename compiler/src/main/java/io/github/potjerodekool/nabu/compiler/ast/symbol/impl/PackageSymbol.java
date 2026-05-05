@@ -21,7 +21,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     private ClassSymbol packageInfo;
 
-    private ModuleElement moduleSymbol;
+    private ModuleSymbol moduleSymbol;
 
     public PackageSymbol(final PackageSymbol parentPackage,
                          final String packageName) {
@@ -35,7 +35,7 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
 
     public PackageSymbol(final PackageSymbolBuilder packageSymbolBuilder) {
         this(null, packageSymbolBuilder.getSimpleName());
-        moduleSymbol = packageSymbolBuilder.getModule();
+        moduleSymbol = (ModuleSymbol) packageSymbolBuilder.getModule();
     }
 
     @Override
@@ -56,12 +56,12 @@ public class PackageSymbol extends TypeSymbol implements PackageElement {
     }
 
     @Override
-    public ModuleElement getModuleSymbol() {
+    public ModuleSymbol getModuleSymbol() {
         return moduleSymbol;
     }
 
-    public void setModuleSymbol(final ModuleSymbol moduleSymbol) {
-        this.moduleSymbol = moduleSymbol;
+    public void setModuleSymbol(final ModuleElement moduleSymbol) {
+        this.moduleSymbol = (ModuleSymbol) moduleSymbol;
     }
 
     @Override

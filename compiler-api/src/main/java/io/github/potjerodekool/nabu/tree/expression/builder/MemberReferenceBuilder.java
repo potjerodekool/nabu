@@ -14,6 +14,7 @@ import java.util.List;
 public class MemberReferenceBuilder extends ExpressionBuilder<MemberReferenceBuilder> {
 
     private final List<IdentifierTree> typeArguments = new ArrayList<>();
+    private String name;
     private IdentifierTree expression;
     private MemberReference.ReferenceKind mode;
 
@@ -32,12 +33,21 @@ public class MemberReferenceBuilder extends ExpressionBuilder<MemberReferenceBui
         return this;
     }
 
+    public String getName() {
+        return name;
+    }
+
     public IdentifierTree getExpression() {
         return expression;
     }
 
     public MemberReference.ReferenceKind getMode() {
         return mode;
+    }
+
+    public MemberReferenceBuilder name(final String name) {
+        this.name = name;
+        return this;
     }
 
     public MemberReferenceBuilder mode(final MemberReference.ReferenceKind mode) {

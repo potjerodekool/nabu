@@ -9,7 +9,9 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 class NabuCompilerVisitorTest {
 
@@ -551,4 +553,23 @@ class NabuCompilerVisitorTest {
                 """, NabuParser::functionDeclaration);
     }
 
+    @Test
+    void functionReference() {
+        parseAndAssert("""
+                MyClass::<String>test""", NabuParser::functionReference);
+        parseAndAssert("""
+                int[]::new""", NabuParser::functionReference);
+        parseAndAssert("""
+                super::<String>test""", NabuParser::functionReference);
+        parseAndAssert("""                
+                MyClass.super::<String>test""", NabuParser::functionReference);
+    }
+
+}
+
+class MyClass {
+
+    static boolean test(final String s) {
+        return true;
+    }
 }

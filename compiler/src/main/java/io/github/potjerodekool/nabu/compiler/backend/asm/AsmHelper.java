@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir2.TypeMirrorToIRType;
+import io.github.potjerodekool.nabu.compiler.backend.ir.TypeMirrorToIRType;
 import io.github.potjerodekool.nabu.ir.types.IRType;
 import io.github.potjerodekool.nabu.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tools.TodoException;

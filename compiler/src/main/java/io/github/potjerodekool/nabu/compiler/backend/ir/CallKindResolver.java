@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.ir.CallKind;
-import io.github.potjerodekool.nabu.lang.model.element.Element;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ir.CallKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;

@@ -1,0 +1,18 @@
+package io.github.potjerodekool.nabu.tree.expression;
+
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
+import io.github.potjerodekool.nabu.tree.Tree;
+import io.github.potjerodekool.nabu.tree.expression.builder.ExpressionBuilder;
+
+/**
+ * Base interface for expressions.
+ */
+public interface ExpressionTree extends Tree {
+
+    Element getSymbol();
+
+    void setSymbol(Element symbol);
+
+    ExpressionBuilder<?> builder();
+
+}

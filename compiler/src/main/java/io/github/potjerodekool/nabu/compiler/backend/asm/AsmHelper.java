@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.TypeMirrorToIRType;
-import io.github.potjerodekool.nabu.ir.types.IRType;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.*;
 
@@ -147,6 +147,7 @@ public final class AsmHelper {
 
                 yield createDescriptor(m);
             }
+            case IRType.Array arrayType -> "[" + createDescriptor(arrayType.elem());
             default -> throw new TodoException();
         };
     }

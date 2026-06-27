@@ -1,5 +1,6 @@
 package io.github.potjerodekool.tools;
 
+import io.github.potjerodekool.tools.model.Module;
 import io.github.potjerodekool.tools.model.MutableModule;
 import io.github.potjerodekool.tools.model.Repository;
 import org.junit.jupiter.api.Test;
@@ -17,7 +18,7 @@ class ParserTest {
     void parseProject() {
         final var project = Parser.parseProject(Paths.get("src/test/resources/project.toml"));
         final var moduleNames = project.modules().stream()
-                .map(MutableModule::name)
+                .map(Module::name)
                 .toList();
 
         final var jdk = project.jdk();

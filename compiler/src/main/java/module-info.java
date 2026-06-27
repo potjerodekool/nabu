@@ -4,8 +4,15 @@ module io.github.potjerodekool.nabu.compiler {
     provides io.github.potjerodekool.nabu.tools.Compiler with NabuCompiler;
     uses io.github.potjerodekool.nabu.tools.Compiler;
     uses javax.annotation.processing.Processor;
-    exports io.github.potjerodekool.nabu.compiler; //Export the compiler so it can be used.
-    requires io.github.potjerodekool.compiler.api;
+    exports io.github.potjerodekool.nabu.compiler;  //Export the compiler so it can be used.
+    exports io.github.potjerodekool.nabu.lang.spi;
+    exports io.github.potjerodekool.nabu.log;
+    exports io.github.potjerodekool.nabu.tools;
+    exports io.github.potjerodekool.nabu.tree;
+    exports io.github.potjerodekool.nabu.tree.expression;
+    exports io.github.potjerodekool.nabu.tree.element;
+    exports io.github.potjerodekool.nabu.tree.expression.impl;
+    exports io.github.potjerodekool.nabu.tree.statement;
     requires org.antlr.antlr4.runtime; //Used for lexer and parsing.
     requires org.objectweb.asm.util; //Used for reading and writing .class files.
     requires org.objectweb.asm; //Used for reading and writing .class files.

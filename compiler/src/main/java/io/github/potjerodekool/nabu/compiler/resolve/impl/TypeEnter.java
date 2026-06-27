@@ -1,21 +1,21 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.lomboksupport.Lombok;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
-import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.*;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.backend.lower.SymbolCreator;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
-import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;

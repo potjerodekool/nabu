@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.TodoException;
@@ -9,19 +8,16 @@ import io.github.potjerodekool.nabu.tools.TodoException;
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeMirror;
 import java.lang.annotation.Annotation;
-import java.util.Collections;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
-public class JTypeElement extends JElement<TypeElement> implements javax.lang.model.element.TypeElement {
+public class JTypeElement extends JElement<io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement> implements javax.lang.model.element.TypeElement {
 
     private final Logger logger = Logger.getLogger(getClass().getName());
     private List<? extends TypeMirror> interfaces;
     private final NestingKind nestingKind;
     private List<TypeParameterElement> typeParameterElements;
 
-    protected JTypeElement(final TypeElement original) {
+    protected JTypeElement(final io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement original) {
         super(original);
         this.nestingKind = NestingKind.valueOf(original.getNestingKind().name());
     }

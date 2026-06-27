@@ -183,6 +183,15 @@
                     </execution>
                 </executions>
                 <dependencies>
+                    <!-- Nabu lang compiler plugin for compiling .nabu files -->
+                    <!--
+                    <dependency>
+                        <groupId>io.github.potjerodekool</groupId>
+                        <artifactId>nabu-lang</artifactId>
+                        <version>${project.version}</version>
+                    </dependency>
+                    -->
+
                     <!--
                     <dependency>
                         <groupId>io.github.potjerodekool</groupId>

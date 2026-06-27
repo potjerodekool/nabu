@@ -3,8 +3,9 @@ package io.github.potjerodekool.nabu.compiler.annotation.processing;
 import io.github.potjerodekool.nabu.compiler.annotation.tools.JavacFileObject;
 import io.github.potjerodekool.nabu.compiler.annotation.tools.JavacFillerFileObject;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.log.LogLevel;
+
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.FileManager;
 import io.github.potjerodekool.nabu.tools.StandardLocation;

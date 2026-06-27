@@ -3,15 +3,15 @@ package io.github.potjerodekool.nabu.compiler.resolve.impl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
-import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
-import io.github.potjerodekool.nabu.lang.spi.SourceParser;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.compiler.lang.spi.SourceParser;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.FileManager;
 import io.github.potjerodekool.nabu.tools.FileManager.Location;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 
 import java.io.IOException;

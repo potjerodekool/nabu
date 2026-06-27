@@ -81,7 +81,8 @@ public class Lombok {
         registerHandler(new DataHandler(
                 getterHandler,
                 setterHandler,
-                requiredArgsConstructorHandler
+                requiredArgsConstructorHandler,
+                context
         ));
     }
 

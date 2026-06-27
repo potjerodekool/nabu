@@ -1,14 +1,14 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
-import io.github.potjerodekool.nabu.lang.model.element.Element;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.Tree;

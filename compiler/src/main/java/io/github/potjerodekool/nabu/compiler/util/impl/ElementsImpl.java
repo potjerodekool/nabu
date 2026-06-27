@@ -1,16 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
-import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -282,28 +279,15 @@ public class ElementsImpl implements Elements {
     public boolean overrides(final ExecutableElement overrider,
                              final ExecutableElement overridden,
                              final TypeElement type) {
-        if (overrider == overridden) {
-            return false;
-        }
+        final var overriderSymbol = (MethodSymbol) overrider;
+        final var overriddenSymbol = (MethodSymbol) overridden;
 
-        if (!overrider.getSimpleName().equals(overridden.getSimpleName())) {
-            return false;
-        }
+        return overrider.getSimpleName().equals(overridden.getSimpleName())
+                && overrider != overridden
+                && !overrider.isStatic()
+                && overriddenSymbol.isMemberOf((ClassSymbol) type, types)
+                && overriderSymbol.overrides(overridden, type, types, false);
 
-        if (overrider.getParameters().size() != overridden.getParameters().size()) {
-            return false;
-        }
-
-        final var paramTypes = overrider.getParameters().stream()
-                .map(Element::asType)
-                .toList();
-
-        final var otherParamTypes = overrider.getParameters().stream()
-                .map(Element::asType)
-                .toList();
-
-        return CollectionUtils.pairStream(paramTypes, otherParamTypes)
-                .allMatch(pair -> types.isSameType(pair.first(), pair.second()));
     }
 
     @Override

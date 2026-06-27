@@ -2,9 +2,9 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
-import io.github.potjerodekool.nabu.ir.types.IRType;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

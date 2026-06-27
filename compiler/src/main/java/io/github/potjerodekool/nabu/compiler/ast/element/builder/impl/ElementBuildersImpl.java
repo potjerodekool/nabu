@@ -2,11 +2,11 @@ package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
-import io.github.potjerodekool.nabu.lang.model.element.builder.*;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.PackageElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.*;
 
 public final class ElementBuildersImpl implements ElementBuilders {
 

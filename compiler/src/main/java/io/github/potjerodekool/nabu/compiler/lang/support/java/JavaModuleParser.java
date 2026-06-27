@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Directive;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.lang.model.element.Directive;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.TodoException;
 

@@ -1,8 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.ir.IRBasicBlock;
-import io.github.potjerodekool.nabu.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
+import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tools.TodoException;
 
 import java.util.*;
@@ -26,7 +27,7 @@ public final class Linearizer {
         for (final var instruction : block.instructions()) {
             if (instruction instanceof IRInstruction.CondBranch(
                     IRValue condition, String trueLabel, String falseLabel,
-                    io.github.potjerodekool.nabu.debug.SourceLocation location
+                    SourceLocation location
             )) {
                 if (!visited.contains(trueLabel) && !visited.contains(falseLabel)) {
                     //invert condition

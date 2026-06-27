@@ -1,6 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.TodoException;
@@ -11,9 +14,6 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
 import org.objectweb.asm.*;
@@ -219,7 +219,8 @@ class AsmClassBuilder extends ClassVisitor {
     }
 
     @Override
-    public AnnotationVisitor visitAnnotation(final String descriptor, final boolean visible) {
+    public AnnotationVisitor visitAnnotation(final String descriptor,
+                                             final boolean visible) {
         return AsmAnnotationBuilder.createBuilder(
                 api,
                 descriptor,
@@ -231,8 +232,19 @@ class AsmClassBuilder extends ClassVisitor {
     }
 
     @Override
-    public AnnotationVisitor visitTypeAnnotation(final int typeRef, final TypePath typePath, final String descriptor, final boolean visible) {
-        throw new TodoException();
+    public AnnotationVisitor visitTypeAnnotation(final int typeRef,
+                                                 final TypePath typePath,
+                                                 final String descriptor,
+                                                 final boolean visible) {
+        //TODO typeRef and typePath
+        return AsmAnnotationBuilder.createBuilder(
+                api,
+                descriptor,
+                visible,
+                clazz,
+                classElementLoader,
+                moduleSymbol
+        );
     }
 
     @Override

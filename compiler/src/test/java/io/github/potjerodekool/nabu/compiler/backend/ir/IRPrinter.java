@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.backend.asm.LocalVarManager;
-import io.github.potjerodekool.nabu.ir.IRBasicBlock;
-import io.github.potjerodekool.nabu.ir.IRFunction;
-import io.github.potjerodekool.nabu.ir.IRModule;
-import io.github.potjerodekool.nabu.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.ir.types.IRType;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
+import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
+import io.github.potjerodekool.nabu.compiler.ir.IRModule;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 
 public class IRPrinter {
 

@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.LongBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.ShortBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
@@ -135,7 +135,7 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
                 -1
         );
 
-        methodResolver.resolveMethod(methodInvocation).ifPresent(methodType -> {
+        methodResolver.resolveMethod(methodInvocation, null).ifPresent(methodType -> {
             methodInvocation.getMethodSelector().setType(methodType.getOwner().asType());
             methodInvocation.setMethodType(methodType);
         });
@@ -194,7 +194,7 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
                                 final String methodName) {
         final var methodInvocation = createMethodInvocationForUnbox(expressionTree, methodName);
 
-        methodResolver.resolveMethod(methodInvocation).ifPresent(methodType -> {
+        methodResolver.resolveMethod(methodInvocation, null).ifPresent(methodType -> {
             methodInvocation.getMethodSelector().setType(methodType.getOwner().asType());
             methodInvocation.setMethodType(methodType);
         });

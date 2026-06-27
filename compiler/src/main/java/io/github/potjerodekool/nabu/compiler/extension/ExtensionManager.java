@@ -24,7 +24,8 @@ public class ExtensionManager {
         this.compilerContext = compilerContext;
     }
 
-    public void registerExtension(final String name, final PluginExtension pluginExtension) {
+    public void registerExtension(final String name,
+                                  final PluginExtension pluginExtension) {
         this.extensions.computeIfAbsent(name, key -> new ArrayList<>()).add(pluginExtension);
     }
 
@@ -70,4 +71,5 @@ public class ExtensionManager {
                 compilerContext
         );
     }
+
 }

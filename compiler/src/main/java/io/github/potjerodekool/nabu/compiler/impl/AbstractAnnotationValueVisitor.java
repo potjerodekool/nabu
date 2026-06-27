@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
-import io.github.potjerodekool.nabu.lang.model.element.AnnotationValueVisitor;
-import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
+
+import io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationValueVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.AnnotationBuilder;
 
 public abstract class AbstractAnnotationValueVisitor<R, P> implements AnnotationValueVisitor<R, P> {
 

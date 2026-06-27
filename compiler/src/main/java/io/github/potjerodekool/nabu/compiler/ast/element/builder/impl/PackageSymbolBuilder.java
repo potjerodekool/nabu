@@ -1,11 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
-import io.github.potjerodekool.nabu.lang.model.element.Element;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
-import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
-import io.github.potjerodekool.nabu.lang.model.element.builder.PackageElementBuilder;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.PackageElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.PackageElementBuilder;
 
 public class PackageSymbolBuilder extends AbstractSymbolBuilder<PackageElementBuilder<PackageSymbol>> implements PackageElementBuilder<PackageSymbol> {
 

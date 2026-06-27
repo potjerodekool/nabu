@@ -1,11 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.MethodSignature;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.signature.SignatureParser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.objectweb.asm.Opcodes;

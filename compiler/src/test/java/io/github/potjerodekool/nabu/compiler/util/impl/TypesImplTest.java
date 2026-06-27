@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;

@@ -1,0 +1,36 @@
+package io.github.potjerodekool.lang.support.nabu;
+
+import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+
+import java.io.IOException;
+
+public class NabuLanguageParser implements LanguageParser {
+
+    private final Logger logger = Logger.getLogger(getClass().getName());
+
+    private final FileObject.Kind sourceKind = new FileObject.Kind(".nabu", true);
+
+    @Override
+    public FileObject.Kind getSourceKind() {
+        return sourceKind;
+    }
+
+    @Override
+    public CompilationUnit parse(final FileObject fileObject,
+                                 final CompilerContext compilerContext) {
+        logger.log(LogLevel.INFO, "Parsing " + fileObject.getFileName());
+
+        try (var inputStream = fileObject.openInputStream()) {
+            final var compilationUnitContext = NabuCompilerParser.parse(inputStream);
+            final var visitor = new NabuCompilerVisitor(fileObject);
+            return (CompilationUnit) compilationUnitContext.accept(visitor);
+        } catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}

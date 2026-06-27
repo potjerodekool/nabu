@@ -86,7 +86,7 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
                 .build();
     }
 
-    private VariableDeclaratorTree toLambdaVariable(final Tree tree) {
+    private Tree toLambdaVariable(final Tree tree) {
         if (tree instanceof VariableDeclaratorTree variableDeclaratorTree) {
             return variableDeclaratorTree;
         } else {

@@ -202,7 +202,7 @@ public class JpaTransformer extends AbstractTreeVisitor<Object, Scope> implement
                         -1
                 );
 
-                final var methodTypeOptional = compilerContext.getMethodResolver().resolveMethod(methodInvocation);
+                final var methodTypeOptional = compilerContext.getMethodResolver().resolveMethod(methodInvocation, null);
 
                 methodTypeOptional.ifPresent(methodType -> {
                     methodInvocation.getMethodSelector().setType(methodType.getOwner().asType());

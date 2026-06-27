@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
+import io.github.potjerodekool.nabu.compiler.ir.*;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
-import io.github.potjerodekool.nabu.ir.*;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
-import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.JavaVersion;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;

@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;

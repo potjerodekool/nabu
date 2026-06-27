@@ -1,8 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 
 import java.util.Objects;
 
@@ -12,7 +11,7 @@ public final class AsmErrorUtils {
     }
 
     /**
-     * TODO Temporary fix, {@link io.github.potjerodekool.nabu.resolve.ClassElementLoader#loadClass(ModuleElement, String)}
+     * TODO Temporary fix, {@link io.github.potjerodekool.nabu.resolve.ClassElementLoader#loadClass(io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement, String)}
      * should return a ErrorSymbol if class wasn't found.
      * After that is fixed this method should be deleted.
      */

@@ -4,8 +4,8 @@ import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymb
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
 import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;

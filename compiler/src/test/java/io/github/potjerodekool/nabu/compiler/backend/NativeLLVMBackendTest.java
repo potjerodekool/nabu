@@ -2,15 +2,13 @@ package io.github.potjerodekool.nabu.compiler.backend;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.backend.native_llvm.NativeLLVMBackend;
-import io.github.potjerodekool.nabu.ir.CallKind;
-import io.github.potjerodekool.nabu.ir.IRBuilder;
-import io.github.potjerodekool.nabu.ir.IRModule;
-import io.github.potjerodekool.nabu.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.ir.types.IRType;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
-import io.github.potjerodekool.nabu.ir.instructions.IRInstruction.BinaryOp.Op;
+import io.github.potjerodekool.nabu.compiler.ir.CallKind;
+import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
+import io.github.potjerodekool.nabu.compiler.ir.IRModule;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction.BinaryOp.Op;
+import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -189,7 +187,7 @@ class NativeLLVMBackendTest {
     @Test @Order(11)
     void binaryOpAdd() throws Exception {
         builder.beginFunction("add", IRType.I32, List.of(), false);
-        var result = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.ADD,
+        var result = builder.emitBinaryOp(Op.ADD,
                 builder.constInt(3), builder.constInt(4));
         builder.emitReturn(result);
         builder.endFunction();

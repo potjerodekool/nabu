@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
 
 public class IsSameType extends BooleanResultVisitor {
@@ -87,7 +87,7 @@ public class IsSameType extends BooleanResultVisitor {
 
     @Override
     public Boolean visitNoType(final NoType noType, final TypeMirror otherType) {
-        return otherType instanceof VoidType;
+        return otherType instanceof NoType && noType.getKind() == otherType.getKind();
     }
 
     @Override
@@ -103,7 +103,7 @@ public class IsSameType extends BooleanResultVisitor {
 
     @Override
     public Boolean visitVariableType(final VariableType variableType, final TypeMirror otherType) {
-        return otherType instanceof VariableType;
+        return variableType.getInterferedType().accept(this, otherType);
     }
 
     @Override

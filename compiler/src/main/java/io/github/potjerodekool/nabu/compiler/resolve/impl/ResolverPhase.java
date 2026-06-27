@@ -1,10 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
-import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.*;
@@ -15,7 +16,6 @@ import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
-import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
@@ -418,6 +418,19 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     )
             );
             lambdaExpression.setType(partialType);
+        } else {
+            //TODO tempory fix
+            final var partialType = new UndetVarType(
+                    new CMethodType(
+                            null,
+                            null,
+                            List.of(),
+                            null,
+                            List.of(),
+                            List.of()
+                    )
+            );
+            lambdaExpression.setType(partialType);
         }
 
         final var lambdaMethodType = lambdaExpression.getLambdaMethodType();
@@ -436,7 +449,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     lambdaParameterType = null;
                 }
 
-                if (variable.getVariableType() == null) {
+                if (variable instanceof IdentifierTree) {
                     variable.setType(lambdaParameterType);
                 }
             }
@@ -765,10 +778,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         methodInvocation.getTypeArguments().forEach(typeArgument ->
                 acceptTree(typeArgument, scope));
 
-        final var resolvedMetho0dTypeOptional = methodResolver.resolveMethod(methodInvocation, scope.getCurrentElement(), scope);
+        final var resolvedMetho0dTypeOptional = methodResolver.resolveMethod(methodInvocation, scope);
 
         if (resolvedMetho0dTypeOptional.isEmpty()) {
-            methodResolver.resolveMethod(methodInvocation, scope.getCurrentElement(), scope);
+            methodResolver.resolveMethod(methodInvocation, scope);
         }
 
         resolvedMetho0dTypeOptional.ifPresent(resolvedMethodType -> {

@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 
 import java.util.HashSet;
 

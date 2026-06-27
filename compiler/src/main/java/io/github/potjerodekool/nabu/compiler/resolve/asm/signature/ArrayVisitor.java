@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 

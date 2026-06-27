@@ -1,12 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class CMethodType extends AbstractType implements ExecutableType {
 
@@ -133,5 +134,16 @@ public class CMethodType extends AbstractType implements ExecutableType {
                 typeVariables,
                 thrownTypes,
                 methodSymbol);
+    }
+
+    @Override
+    public String toString() {
+        final var builder = new StringBuilder();
+        builder.append(returnType);
+        builder.append(parameterTypes.stream()
+                .map(TypeMirror::toString)
+                .collect(Collectors.joining(",", "(", ")"))
+        );
+        return builder.toString();
     }
 }

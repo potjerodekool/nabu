@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
-import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.tools.TodoException;
 
 public final class AccessChecker {
@@ -36,7 +36,7 @@ public final class AccessChecker {
                 return element.getPackageElement().equals(caller.getPackageElement());
             }
         } else if (element.isPrivate()) {
-            return element == caller;
+            return element.getEnclosingElement() == caller;
         }
 
         return false;

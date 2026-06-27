@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Directive;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.lang.model.element.Directive;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import org.objectweb.asm.ModuleVisitor;
 
 import java.util.ArrayList;

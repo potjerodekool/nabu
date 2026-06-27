@@ -1,11 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.VariableElementBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
-import io.github.potjerodekool.nabu.lang.model.element.builder.VariableElementBuilder;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 public class VariableSymbol extends Symbol implements VariableElement {

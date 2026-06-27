@@ -15,4 +15,12 @@
     <description>Compiler api for the Nabu compiler</description>
     <url>https://github.com/potjerodekool/nabu</url>
 
+    <dependencies>
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4</artifactId>
+            <version>4.13.2</version>
+        </dependency>
+    </dependencies>
+
 </project>

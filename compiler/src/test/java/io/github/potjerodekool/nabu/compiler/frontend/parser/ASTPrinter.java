@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
-import io.github.potjerodekool.nabu.testing.IndentPrinter;
+import io.github.potjerodekool.nabu.compiler.IndentPrinter;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;

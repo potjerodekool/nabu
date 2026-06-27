@@ -2,9 +2,9 @@ package io.github.potjerodekool.nabu.compiler.ast.element.builder.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
-import io.github.potjerodekool.nabu.lang.model.element.builder.ExecutableElementBuilder;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeParameterElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.ExecutableElementBuilder;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.ArrayList;

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 
 import java.util.ArrayDeque;
 import java.util.Deque;

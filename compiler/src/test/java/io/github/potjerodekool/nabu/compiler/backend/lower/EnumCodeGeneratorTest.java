@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.EnumCodeGenerator;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;

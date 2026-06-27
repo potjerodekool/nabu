@@ -1,13 +1,13 @@
 package io.github.potjerodekool.nabu.compiler;
 
-import io.github.potjerodekool.nabu.backend.CompileException;
-import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.*;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
-import io.github.potjerodekool.nabu.compiler.backend.asm.ASMBackend;
+import io.github.potjerodekool.nabu.compiler.backend.CompileException;
+import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.backend.ir.IrGeneratingVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Optimizer;
+import io.github.potjerodekool.nabu.compiler.extension.BackendManager;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.impl.AnnotatePhase;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
@@ -72,12 +72,16 @@ public class NabuCompiler implements Compiler {
 
     private int generateCode(final CompilerContextImpl compilerContext,
                              final List<CompilationUnit> compilationUnits,
-                             final CompilerOptions compilerOptions) {
+                             final CompilerOptions compilerOptions) throws CompileException {
         final var backend = getBackendName(compilerOptions);
 
-        if ("ASM".equals(backend)) {
-            final var asmBackend = new ASMBackend();
+        final var codeBackend = BackendManager.createBackend(
+                backend,
+                compilerContext.getPluginRegistry(),
+                compilerContext
+        );
 
+        if (codeBackend != null) {
             final var modules = compilationUnits.stream()
                     .map(cu -> {
                         final IrGeneratingVisitor visitor = new IrGeneratingVisitor();
@@ -88,7 +92,7 @@ public class NabuCompiler implements Compiler {
             for (var module : modules) {
                 try {
                     final var optimizedModule = Optimizer.optimize(module);
-                    asmBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
+                    codeBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
                 } catch (CompileException e) {
                     return -1;
                 }

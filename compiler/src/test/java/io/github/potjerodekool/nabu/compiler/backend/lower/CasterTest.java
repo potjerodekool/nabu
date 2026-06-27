@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;

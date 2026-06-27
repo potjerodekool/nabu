@@ -2,23 +2,24 @@
 // access flags 0x21
 public class MyClass {
 
-  // compiled from: MyClass.java
+  // compiled from: Myclass.java
 
   // access flags 0x1
   public forEachLoop(Ljava/util/List;)V
     // parameter  list
    L0
-    LINENUMBER 2 L0
+    LINENUMBER 3 L0
     ALOAD 1
     INVOKEINTERFACE java/util/List.iterator ()Ljava/util/Iterator; (itf)
     ASTORE 2
    L1
     LINENUMBER 65535 L1
+   FRAME FULL [MyClass java/util/List java/util/Iterator] []
     ALOAD 2
     INVOKEINTERFACE java/util/Iterator.hasNext ()Z (itf)
     IFNE L2
    L3
-    LINENUMBER 3 L3
+    LINENUMBER 4 L3
     ALOAD 2
     INVOKEINTERFACE java/util/Iterator.next ()Ljava/lang/Object; (itf)
     CHECKCAST java/lang/String
@@ -26,11 +27,24 @@ public class MyClass {
     GETSTATIC java/lang/System.out : Ljava/io/PrintStream;
     ALOAD 3
     INVOKEVIRTUAL java/io/PrintStream.println (Ljava/lang/String;)V
+    GOTO L1
    L2
    FRAME FULL [MyClass java/util/List java/util/Iterator] []
     RETURN
-    LOCALVARIABLE this LMyClass; L0 L2 0
-    LOCALVARIABLE list Ljava/util/List; L0 L2 1
+   L4
+    LOCALVARIABLE this LMyClass; L0 L4 0
+    LOCALVARIABLE list Ljava/util/List; L0 L4 1
     MAXSTACK = 2
     MAXLOCALS = 4
+
+  // access flags 0x1
+  public <init>()V
+   L0
+    ALOAD 0
+    INVOKESPECIAL java/lang/Object.super ()V
+    RETURN
+   L1
+    LOCALVARIABLE this LMyClass; L0 L1 0
+    MAXSTACK = 1
+    MAXLOCALS = 1
 }

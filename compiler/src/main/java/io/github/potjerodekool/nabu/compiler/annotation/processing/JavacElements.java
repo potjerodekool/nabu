@@ -70,7 +70,7 @@ public class JavacElements implements Elements {
 
         return map.computeIfAbsent(name, (key) -> {
             final var typeElement = nabuElements.getTypeElement(
-                    (io.github.potjerodekool.nabu.lang.model.element.ModuleElement) ElementWrapperFactory.unwrap(module),
+                    (io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement) ElementWrapperFactory.unwrap(module),
                     key
             );
 
@@ -137,9 +137,9 @@ public class JavacElements implements Elements {
                              final ExecutableElement overridden,
                              final TypeElement type) {
         return nabuElements.overrides(
-                (io.github.potjerodekool.nabu.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
-                (io.github.potjerodekool.nabu.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
-                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
         );
     }
 
@@ -161,7 +161,7 @@ public class JavacElements implements Elements {
     @Override
     public boolean isFunctionalInterface(final TypeElement type) {
         return nabuElements.isFunctionalInterface(
-                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
         );
     }
 

@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.io.impl;
 
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
-import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.*;

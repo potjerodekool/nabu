@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import org.objectweb.asm.Opcodes;
 
 /**

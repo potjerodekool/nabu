@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
-import io.github.potjerodekool.nabu.backend.CompileException;
+import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 
 import java.io.IOException;
 import java.nio.file.Path;

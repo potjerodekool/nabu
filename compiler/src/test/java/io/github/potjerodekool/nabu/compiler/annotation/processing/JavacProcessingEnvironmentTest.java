@@ -1,15 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing;
 
+import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
 import io.github.potjerodekool.nabu.test.AbstractAnnotationProcessorTest;
-import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.type.DeclaredType;

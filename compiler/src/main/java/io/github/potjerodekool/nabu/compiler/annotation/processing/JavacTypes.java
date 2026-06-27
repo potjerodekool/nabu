@@ -149,7 +149,7 @@ public class JavacTypes implements Types {
                         .map(TypeWrapperFactory::unwrap)
                                 .toArray(io.github.potjerodekool.nabu.type.TypeMirror[]::new);
         final var declaredType = nabuTypes.getDeclaredType(
-                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(typeElem),
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(typeElem),
                 nabuTypeArgs
         );
 
@@ -168,7 +168,7 @@ public class JavacTypes implements Types {
 
         final var declaredType = nabuTypes.getDeclaredType(
                 nabuContaining,
-                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(typeElem),
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(typeElem),
                 nabuTypeArgs
         );
 

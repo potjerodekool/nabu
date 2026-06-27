@@ -1,21 +1,22 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
+import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
-import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.testing.InMemoryFileObject;
-import io.github.potjerodekool.nabu.testing.TreePrinter;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
@@ -46,7 +47,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -78,7 +78,7 @@ class LowerTest extends AbstractCompilerTest {
                 .enclosingElement(clazz)
                 .build();
 
-        when(methodResolver.resolveMethod(any(MethodInvocationTree.class)))
+        when(methodResolver.resolveMethod(any(MethodInvocationTree.class), any(Scope.class)))
                 .thenReturn(Optional.of(types.getExecutableType(
                         method,
                         List.of(),
@@ -211,9 +211,11 @@ class LowerTest extends AbstractCompilerTest {
                 0
         );
 
-        final var lowerContext = new Lower.LowerContext(cu);
+        //final var lowerContext = new Lower.LowerContext(cu);
+        final var lowerScope = new Lower.LowerScope(cu);
+        lowerScope.setCurrentClass(clazz);
 
-        final var result = lower.acceptTree(enhancedForStatement, lowerContext);
+        final var result = lower.acceptTree(enhancedForStatement, lowerScope);
         final var actual = TreePrinter.print(result);
 
         assertEquals(
@@ -322,10 +324,12 @@ class LowerTest extends AbstractCompilerTest {
                 .cases(List.of(caseStatement))
                 .build();
 
-        final var lowerContext = new Lower.LowerContext(cu);
-        lowerContext.currentClass = currentClassTree;
+        //final var lowerContext = new Lower.LowerContext(cu);
+        final var lowerScope = new Lower.LowerScope(cu);
+        lowerScope.setCurrentClassDeclaration(currentClassTree);
+        //lowerContext.currentClass = currentClassTree;
 
-        final var result = lower.acceptTree(switchStatement, lowerContext);
+        final var result = lower.acceptTree(switchStatement, lowerScope);
         final var actual = TreePrinter.print(result);
         final var expected = """
                 switch(foo.bar.TT$1.$SwitchMap$foo$bar$State[state.ordinal()])

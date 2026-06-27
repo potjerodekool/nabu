@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;
 

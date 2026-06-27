@@ -1,13 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
-import io.github.potjerodekool.nabu.ir.*;
-import io.github.potjerodekool.nabu.ir.instructions.IRInstruction.BinaryOp.Op;
-import io.github.potjerodekool.nabu.ir.types.IRType;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
-import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.backend.CompileException;
+import io.github.potjerodekool.nabu.compiler.ir.*;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction.BinaryOp.Op;
+import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;

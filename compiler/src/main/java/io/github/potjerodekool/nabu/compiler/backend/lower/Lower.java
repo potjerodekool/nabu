@@ -3,17 +3,20 @@ package io.github.potjerodekool.nabu.compiler.backend.lower;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
-import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.backend.lower.codegen.*;
 import io.github.potjerodekool.nabu.compiler.backend.lower.widen.WideningConverter;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.Boxer;
-
-import io.github.potjerodekool.nabu.lang.model.element.*;
-import io.github.potjerodekool.nabu.tree.*;
+import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
+import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.Modifiers;
+import io.github.potjerodekool.nabu.tree.Tree;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
@@ -38,7 +41,7 @@ import java.util.*;
  * Add boxing and unboxing code.
  * Add code to enhanced for statements.
  */
-public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
+public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
     private final CompilerContextImpl compilerContext;
     private final WideningConverter wideningConverter;
@@ -80,8 +83,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     }
 
     public void process(final CompilationUnit compilationUnit) {
-        final var context = new LowerContext(compilationUnit);
-        acceptTree(compilationUnit, context);
+        final var scope = new LowerScope(compilationUnit);
+        acceptTree(compilationUnit, scope);
     }
 
     private AbstractCodeGenerator getGenerator(final ClassDeclaration classDeclaration) {
@@ -90,36 +93,37 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
     @Override
     public Tree visitUnknown(final Tree tree,
-                             final LowerContext context) {
+                             final LowerScope context) {
         return tree;
     }
 
     public Tree defaultAnswer(final Tree tree,
-                              final Lower.LowerContext param) {
+                              final LowerScope scope) {
         return tree;
     }
 
     @Override
-    public Tree visitModuleDeclaration(final ModuleDeclaration moduleDeclaration, final LowerContext context) {
-        context.module = moduleDeclaration.getModuleSymbol();
-        return super.visitModuleDeclaration(moduleDeclaration, context);
+    public Tree visitModuleDeclaration(final ModuleDeclaration moduleDeclaration,
+                                       final LowerScope scope) {
+        scope.setModuleElement(moduleDeclaration.getModuleSymbol());
+        return super.visitModuleDeclaration(moduleDeclaration, scope);
     }
 
     @Override
-    public Tree visitClass(final ClassDeclaration classDeclaration, final LowerContext context) {
-        final var oldClass = context.currentClass;
-        context.currentClass = classDeclaration;
+    public Tree visitClass(final ClassDeclaration classDeclaration, final LowerScope scope) {
+        final var oldClass = scope.getCurrentClassDeclaration();
+        scope.setCurrentClassDeclaration(classDeclaration);
 
-        final var result = super.visitClass(classDeclaration, context);
+        final var result = super.visitClass(classDeclaration, scope);
         final var generator = getGenerator(classDeclaration);
         generator.generateCode(classDeclaration);
-        context.currentClass = oldClass;
+        scope.setCurrentClassDeclaration(oldClass);
         return result;
     }
 
     @Override
     public Tree visitBinaryExpression(final BinaryExpressionTree binaryExpression,
-                                      final LowerContext context) {
+                                      final LowerScope scope) {
         var left = wideningConverter.convert(
                 binaryExpression.getLeft(),
                 binaryExpression.getRight()
@@ -150,10 +154,10 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
     @Override
     public Tree visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement,
-                                          final LowerContext context) {
-        final var expression = (ExpressionTree) acceptTree(enhancedForStatement.getExpression(), context);
-        final var localVariable = (VariableDeclaratorTree) acceptTree(enhancedForStatement.getLocalVariable(), context);
-        final var statement = (StatementTree) acceptTree(enhancedForStatement.getStatement(), context);
+                                          final LowerScope scope) {
+        final var expression = (ExpressionTree) acceptTree(enhancedForStatement.getExpression(), scope);
+        final var localVariable = (VariableDeclaratorTree) acceptTree(enhancedForStatement.getLocalVariable(), scope);
+        final var statement = (StatementTree) acceptTree(enhancedForStatement.getStatement(), scope);
 
         var methodInvocation = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
@@ -166,15 +170,23 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
                 -1
         );
 
+        methodResolver.resolveMethod(methodInvocation, scope)
+                .ifPresent(resolvedMethod -> {
+                    methodInvocation.getMethodSelector().setType(resolvedMethod.getOwner().asType());
+                    methodInvocation.setMethodType(resolvedMethod);
+                });
+
+        /*
         methodResolver.resolveMethod(methodInvocation).ifPresent(resolvedMethod -> {
             methodInvocation.getMethodSelector().setType(resolvedMethod.getOwner().asType());
             methodInvocation.setMethodType(resolvedMethod);
         });
+        */
 
         final var localVariableType = (DeclaredType) localVariable.getVariableType().getType();
         final var iteratorName = generateVariableName();
         final var iteratorClassElement = loader.loadClass(
-                context.module,
+                scope.findModuleElement(),
                 "java.util.Iterator"
         );
 
@@ -214,7 +226,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
                 -1
         );
 
-        final var resolvedHasNextMethod = methodResolver.resolveMethod(check)
+        final var resolvedHasNextMethod = methodResolver.resolveMethod(check, scope)
                 .orElseThrow(() -> new IllegalStateException("Failed to resolve hasNext method"));
 
         check.getMethodSelector().setType(resolvedHasNextMethod.getOwner().asType());
@@ -233,7 +245,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
                 -1
         );
 
-        final var resolvedNextMethod = methodResolver.resolveMethod(nextInvocation)
+        final var resolvedNextMethod = methodResolver.resolveMethod(nextInvocation, scope)
                 .orElseThrow(() -> new IllegalStateException("Failed to resolve next method"));
 
         nextInvocation.getMethodSelector().setType(resolvedNextMethod.getOwner().asType());
@@ -314,7 +326,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
     @Override
     public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
-                                           final LowerContext param) {
+                                           final LowerScope scope) {
         final var selected = access(fieldAccessExpression.getSelected(), null);
         final var field = (IdentifierTree) access(fieldAccessExpression.getField(), selected);
         return fieldAccessExpression.builder()
@@ -324,7 +336,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     }
 
     @Override
-    public Tree visitIdentifier(final IdentifierTree identifier, final LowerContext param) {
+    public Tree visitIdentifier(final IdentifierTree identifier,
+                                final LowerScope scope) {
         final var symbol = identifier.getSymbol();
 
         if (symbol instanceof VariableSymbol variableSymbol
@@ -343,7 +356,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
             );
         }
 
-        return super.visitIdentifier(identifier, param);
+        return super.visitIdentifier(identifier, scope);
     }
 
     private ExpressionTree access(final ExpressionTree field,
@@ -385,8 +398,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
     @Override
     public Tree visitSwitchStatement(final SwitchStatement switchStatement,
-                                     final LowerContext context) {
-        var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), context);
+                                     final LowerScope scope) {
+        var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), scope);
 
         final var selectorType = selector.getSymbol().asType();
 
@@ -399,12 +412,12 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
             return visitEnumSwitchStatement(
                     switchStatement,
-                    context,
+                    scope,
                     enumElement);
         }
 
         final var cases = switchStatement.getCases().stream()
-                .map(caseStatement -> acceptTree(caseStatement, context))
+                .map(caseStatement -> acceptTree(caseStatement, scope))
                 .map(it -> (CaseStatement) it)
                 .toList();
 
@@ -415,14 +428,14 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     }
 
     private SwitchStatement visitEnumSwitchStatement(final SwitchStatement switchStatement,
-                                                     final LowerContext context,
+                                                     final LowerScope scope,
                                                      final TypeElement enumElement) {
-        var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), context);
+        var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), scope);
 
-        final var currentClass = context.currentClass;
+        final var currentClass = scope.getCurrentClassDeclaration();
 
         final var enumUsage = enumUserCodeGenerator.addEnumUsage(
-                context.compilationUnit,
+                scope.getCompilationUnit(),
                 currentClass,
                 enumElement
         );
@@ -462,7 +475,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
 
         final var cases = switchStatement.getCases().stream()
                 .map(caseStatement ->
-                        acceptTree(caseStatement, context))
+                        acceptTree(caseStatement, scope))
                 .map(it -> (CaseStatement) it)
                 .toList();
 
@@ -483,14 +496,15 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     }
 
     @Override
-    public Tree visitFunction(final Function function, final LowerContext param) {
-        return super.visitFunction(function, param);
+    public Tree visitFunction(final Function function,
+                              final LowerScope scope) {
+        return super.visitFunction(function, scope);
     }
 
     @Override
     public Tree visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
-                                                 final LowerContext lowerContext) {
-        var newValue = (ExpressionTree) accept(variableDeclaratorStatement.getValue(), lowerContext);
+                                                 final LowerScope scope) {
+        var newValue = (ExpressionTree) accept(variableDeclaratorStatement.getValue(), scope);
         //Add cast if needed.
         newValue = variableDeclaratorStatement
                 .getVariableType()
@@ -502,7 +516,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
     }
 
     @Override
-    public Tree visitMethodInvocation(final MethodInvocationTree methodInvocation, final LowerContext param) {
+    public Tree visitMethodInvocation(final MethodInvocationTree methodInvocation,
+                                      final LowerScope scope) {
         final String methodName;
 
         if (methodInvocation.getMethodSelector() instanceof IdentifierTree
@@ -540,15 +555,56 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerContext> {
         }
     }
 
-    public static class LowerContext {
+    public static class LowerScope implements Scope {
 
-        final CompilationUnit compilationUnit;
-        ModuleElement module;
-        ClassDeclaration currentClass;
+        private final CompilationUnit compilationUnit;
+        private ModuleElement moduleElement;
+        private ClassDeclaration currentClassDeclaration;
+        private TypeElement currentClass;
 
-        LowerContext(final CompilationUnit compilationUnit) {
+        LowerScope(final CompilationUnit compilationUnit) {
             this.compilationUnit = compilationUnit;
         }
+
+        @Override
+        public CompilationUnit getCompilationUnit() {
+            return compilationUnit;
+        }
+
+        @Override
+        public ModuleElement findModuleElement() {
+            return moduleElement;
+        }
+
+        public void setModuleElement(final ModuleElement moduleElement) {
+            this.moduleElement = moduleElement;
+        }
+
+        public ClassDeclaration getCurrentClassDeclaration() {
+            return currentClassDeclaration;
+        }
+
+        public void setCurrentClassDeclaration(final ClassDeclaration currentClassDeclaration) {
+            this.currentClassDeclaration = currentClassDeclaration;
+        }
+
+        @Override
+        public TypeElement getCurrentClass() {
+            if (currentClass == null && currentClassDeclaration != null) {
+                return currentClassDeclaration.getClassSymbol();
+            }
+
+            return currentClass;
+        }
+
+        public void setCurrentClass(final TypeElement currentClass) {
+            this.currentClass = currentClass;
+        }
+
+        @Override
+        public void define(final Element element) {
+        }
     }
+
 }
 

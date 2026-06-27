@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
-import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;

@@ -1,6 +1,6 @@
 // class version 61.0 (61)
 // access flags 0x21
-public class Myclass {
+public class MyClass {
 
   // compiled from: Myclass.java
 
@@ -17,21 +17,23 @@ public class Myclass {
     IRETURN
    L1
     LINENUMBER 6 L1
-   FRAME FULL [Myclass java/lang/Integer] []
+   FRAME FULL [MyClass java/lang/Integer] []
     ICONST_0
     IRETURN
-    LOCALVARIABLE this LMyClass; L0 L1 0
-    LOCALVARIABLE i Ljava/lang/Integer; L0 L1 1
+   L3
+    LOCALVARIABLE this LMyClass; L0 L3 0
+    LOCALVARIABLE i Ljava/lang/Integer; L0 L3 1
     MAXSTACK = 1
     MAXLOCALS = 2
 
   // access flags 0x1
-  public init()V
+  public <init>()V
    L0
     ALOAD 0
     INVOKESPECIAL java/lang/Object.super ()V
     RETURN
-    LOCALVARIABLE this LMyClass; L0 L0 0
+   L1
+    LOCALVARIABLE this LMyClass; L0 L1 0
     MAXSTACK = 1
     MAXLOCALS = 1
 }

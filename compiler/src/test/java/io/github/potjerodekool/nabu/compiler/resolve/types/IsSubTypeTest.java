@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.type.impl.CTypeVariable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CWildcardType;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.util.Types;

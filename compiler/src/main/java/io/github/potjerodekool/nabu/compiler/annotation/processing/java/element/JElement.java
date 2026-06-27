@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.lang.model.element.QualifiedNameable;
 import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.*;
@@ -11,7 +10,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public abstract class JElement<S extends io.github.potjerodekool.nabu.lang.model.element.Element> implements Element {
+public abstract class JElement<S extends io.github.potjerodekool.nabu.compiler.lang.model.element.Element> implements Element {
 
     private final S original;
 
@@ -42,7 +41,7 @@ public abstract class JElement<S extends io.github.potjerodekool.nabu.lang.model
 
     public Name getQualifiedName() {
         if (qualifiedName == null) {
-            if (original instanceof QualifiedNameable qualifiedNameable) {
+            if (original instanceof io.github.potjerodekool.nabu.compiler.lang.model.element.QualifiedNameable qualifiedNameable) {
                 qualifiedName = new JName(qualifiedNameable.getQualifiedName());
             } else {
                 qualifiedName = getSimpleName();

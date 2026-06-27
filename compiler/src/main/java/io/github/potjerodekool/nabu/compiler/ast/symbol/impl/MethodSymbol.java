@@ -1,9 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
-import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 
@@ -130,5 +132,19 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
 
     public MethodSymbolBuilderImpl builder() {
         return new MethodSymbolBuilderImpl(this);
+    }
+
+    @Override
+    public ModuleElement getModuleElement() {
+        final var enclosingElement = getEnclosingElement();
+        return enclosingElement != null ? enclosingElement.getModuleElement() : null;
+    }
+
+
+    public boolean overrides(final ExecutableElement overridden,
+                             final TypeElement type,
+                             final TypesImpl types,
+                             final boolean b) {
+        throw new TodoException();
     }
 }

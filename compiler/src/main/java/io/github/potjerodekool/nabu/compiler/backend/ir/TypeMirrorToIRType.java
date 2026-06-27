@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.ir.types.IRType;
+import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.type.*;
 
 /**

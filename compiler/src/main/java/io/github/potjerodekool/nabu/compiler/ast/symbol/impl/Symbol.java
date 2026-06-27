@@ -1,14 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
-import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
+import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.AnnotationDeProxyProcessor;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
-import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 import io.github.potjerodekool.nabu.util.Types;
@@ -366,18 +368,6 @@ public abstract class Symbol implements Element {
         return (PackageSymbol) symbol;
     }
 
-    private ModuleElement resolveModuleSymbol(final Symbol symbol) {
-        if (symbol == null) {
-            return null;
-        } else if (symbol instanceof ModuleElement moduleElement) {
-            return moduleElement;
-        } else if (symbol instanceof PackageSymbol packageSymbol) {
-            return packageSymbol.getModuleSymbol();
-        } else {
-            return resolveModuleSymbol(symbol.getEnclosingElement());
-        }
-    }
-
     public boolean isSubClass(final Symbol base,
                               final Types types) {
         if (this == base) {
@@ -405,5 +395,34 @@ public abstract class Symbol implements Element {
 
     public TypeMirror getSuperclass() {
         return null;
+    }
+
+    public boolean isMemberOf(final ClassSymbol clazz,
+                              final TypesImpl types) {
+        return getEnclosingElement() == clazz
+                || clazz.isSubClass(getEnclosingElement(), types)
+                && isInheritedIn(clazz, types)
+                && !hiddenIn(clazz, types);
+    }
+
+    private boolean isInheritedIn(final ClassSymbol clazz,
+                                  final TypesImpl types) {
+        return isAccessibleIn(clazz, types);
+    }
+
+    private boolean hiddenIn(final ClassSymbol clazz,
+                             final TypesImpl types) {
+        final Symbol symbol = hiddenInInternal(clazz, types);
+        return symbol != this;
+    }
+
+    private Symbol hiddenInInternal(final ClassSymbol currentClass,
+                                    final TypesImpl types) {
+        if (currentClass == getEnclosingElement()) {
+            return this;
+        }
+
+        currentClass.getMembers().getSymbolsByName(getSimpleName());
+        throw new TodoException();
     }
 }

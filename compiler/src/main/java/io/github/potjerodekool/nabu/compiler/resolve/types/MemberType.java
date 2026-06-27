@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
+import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
 import io.github.potjerodekool.nabu.tools.TodoException;
-import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 public class MemberType extends SimpleVisitor<TypeMirror, Element> {

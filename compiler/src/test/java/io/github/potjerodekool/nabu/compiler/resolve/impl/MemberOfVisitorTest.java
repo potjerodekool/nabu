@@ -1,15 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
-import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;

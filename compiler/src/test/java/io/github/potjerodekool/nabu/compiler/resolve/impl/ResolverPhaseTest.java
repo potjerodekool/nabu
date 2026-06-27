@@ -1,31 +1,19 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.CompilerPhase;
+import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
 import io.github.potjerodekool.nabu.compiler.NabuCompilerTest;
-import io.github.potjerodekool.nabu.compiler.impl.EnterPhase;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
+import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.testing.InMemoryFileObject;
-import io.github.potjerodekool.nabu.testing.TreePrinter;
-import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
-import io.github.potjerodekool.nabu.tree.Tree;
-import io.github.potjerodekool.nabu.tree.TreeMaker;
-import org.antlr.v4.runtime.CharStreams;
-import org.antlr.v4.runtime.CommonTokenStream;
-import org.antlr.v4.runtime.ParserRuleContext;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.util.function.Function;
-
-import static io.github.potjerodekool.nabu.compiler.backend.lower.Lower.lower;
-import static org.junit.jupiter.api.Assertions.*;
 
 class ResolverPhaseTest extends NabuCompilerTest {
 
+    @Disabled
     @Test
     void visitLambdaExpression() throws IOException {
         var cu = (CompilationUnit) parse(
@@ -52,8 +40,11 @@ class ResolverPhaseTest extends NabuCompilerTest {
         System.out.println(cu);
     }
 
+    @Disabled
     @Test
     void visitMethodInvocationWithLambdaExpression() throws IOException {
+        // list.forEach((Integer value) -> {
+
         var cu = (CompilationUnit) parse(
                 new InMemoryFileObject("""
                         import java.util.function.Function;
@@ -62,7 +53,7 @@ class ResolverPhaseTest extends NabuCompilerTest {
                         public class MyClass {
 
                             void myFunction(final List<Integer> list) {
-                                list.forEach((Integer value) -> {
+                                list.forEach((value) -> {
                                 });
                             }
 

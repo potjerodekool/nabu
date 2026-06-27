@@ -32,7 +32,7 @@ public class UndetVarType extends AbstractType {
 
     @Override
     public <R, P> R accept(final TypeVisitor<R, P> visitor, final P param) {
-        return visitor.visitUnknownType(this, param);
+        return delegate.accept(visitor, param);
     }
 
     @Override

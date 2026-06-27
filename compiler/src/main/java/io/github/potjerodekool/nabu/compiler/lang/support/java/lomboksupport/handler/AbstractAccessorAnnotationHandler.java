@@ -2,11 +2,11 @@ package io.github.potjerodekool.nabu.compiler.lang.support.java.lomboksupport.ha
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.lang.model.element.ClassAttribute;
-import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ClassAttribute;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
@@ -33,16 +33,16 @@ public abstract class AbstractAccessorAnnotationHandler extends AbstractAnnotati
     @Override
     public void handle(final VariableSymbol field,
                        final ClassSymbol classSymbol) {
-        final var getterOptional = findAccessorMethod(field.getSimpleName(), field.asType(), classSymbol);
-        if (getterOptional.isEmpty()) {
+        final var accessorOptional = findAccessorMethod(field.getSimpleName(), field.asType(), classSymbol);
+        if (accessorOptional.isEmpty()) {
             final var accessLevel = accessLevel(field, classSymbol);
             addAccessorMethod(field, accessLevel, classSymbol);
         }
     }
 
     protected abstract Optional<ExecutableElement> findAccessorMethod(final String fieldName,
-                                                                      final TypeMirror fieldType,
-                                                                      final ClassSymbol classDeclaration);
+                                                                     final TypeMirror fieldType,
+                                                                     final ClassSymbol classDeclaration);
 
     protected abstract void addAccessorMethod(final VariableElement field,
                            final long accessLevel,

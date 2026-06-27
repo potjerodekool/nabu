@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.tools.CompilerContext;
-
 import java.util.Map;
 
 public class PluginExtension {

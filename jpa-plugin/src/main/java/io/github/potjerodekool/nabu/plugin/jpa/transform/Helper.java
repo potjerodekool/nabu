@@ -94,7 +94,7 @@ public final class Helper {
 
     private static void resolveMethodCall(final MethodInvocationTree methodInvocation,
                                           final CompilerContext compilerContext) {
-        final var resolvedMethodTypeOptional = compilerContext.getMethodResolver().resolveMethod(methodInvocation);
+        final var resolvedMethodTypeOptional = compilerContext.getMethodResolver().resolveMethod(methodInvocation, null);
 
         resolvedMethodTypeOptional.ifPresent(resolvedMethodType -> {
             final var type = resolvedMethodType.getOwner().asType();

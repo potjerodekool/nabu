@@ -1,6 +1,6 @@
 // class version 61.0 (61)
 // access flags 0x21
-public class Myclass {
+public class MyClass {
 
   // compiled from: Myclass.java
 
@@ -16,6 +16,7 @@ public class Myclass {
     ISTORE 3
    L1
     LINENUMBER 7 L1
+   FRAME FULL [MyClass java/util/List I I] []
     ILOAD 3
     ALOAD 1
     INVOKEINTERFACE java/util/List.size ()I (itf)
@@ -35,23 +36,26 @@ public class Myclass {
     ICONST_1
     IADD
     ISTORE 3
+    GOTO L1
    L2
     LINENUMBER 12 L2
-   FRAME FULL [Myclass java/util/List I I] []
+   FRAME FULL [MyClass java/util/List I I] []
     ILOAD 2
     IRETURN
-    LOCALVARIABLE this LMyClass; L0 L2 0
-    LOCALVARIABLE list Ljava/util/List; L0 L2 1
+   L4
+    LOCALVARIABLE this LMyClass; L0 L4 0
+    LOCALVARIABLE list Ljava/util/List; L0 L4 1
     MAXSTACK = 3
     MAXLOCALS = 4
 
   // access flags 0x1
-  public init()V
+  public <init>()V
    L0
     ALOAD 0
     INVOKESPECIAL java/lang/Object.super ()V
     RETURN
-    LOCALVARIABLE this LMyClass; L0 L0 0
+   L1
+    LOCALVARIABLE this LMyClass; L0 L1 0
     MAXSTACK = 1
     MAXLOCALS = 1
 }

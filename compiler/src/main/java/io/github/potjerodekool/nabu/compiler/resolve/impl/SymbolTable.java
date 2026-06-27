@@ -1,18 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
-import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
-import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilder;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.ElementBuilder;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CNoType;
-import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.type.NullType;
 import io.github.potjerodekool.nabu.type.TypeKind;
@@ -92,9 +91,9 @@ public class SymbolTable {
         final var module = new ModuleSymbol(0, "<unnamed>") {
             {
                 final var baseModule = enterModule(JAVA_BASE_NAME);
-                final var required = new io.github.potjerodekool.nabu.lang.model.element.Directive.RequiresDirective(
+                final var required = new io.github.potjerodekool.nabu.compiler.lang.model.element.Directive.RequiresDirective(
                         baseModule,
-                        EnumSet.of(io.github.potjerodekool.nabu.lang.model.element.Directive.RequiresFlag.MANDATED)
+                        EnumSet.of(io.github.potjerodekool.nabu.compiler.lang.model.element.Directive.RequiresFlag.MANDATED)
                 );
                 setRequires(List.of(required));
             }

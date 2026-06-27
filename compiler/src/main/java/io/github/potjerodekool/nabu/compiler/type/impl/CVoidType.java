@@ -35,4 +35,9 @@ public class CVoidType extends AbstractType implements NoType {
     public int hashCode() {
         return 32;
     }
+
+    @Override
+    public String toString() {
+        return "void";
+    }
 }

@@ -1,7 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CUnknownType;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
@@ -9,7 +12,6 @@ import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Elements;
@@ -22,6 +24,7 @@ import java.util.stream.Collectors;
 
 public class MethodResolverImpl implements MethodResolver {
 
+    private final Logger logger = Logger.getLogger(MethodResolverImpl.class.getName());
     private final Elements elements;
     private final Types types;
 
@@ -29,11 +32,6 @@ public class MethodResolverImpl implements MethodResolver {
                               final Types types) {
         this.elements = elements;
         this.types = types;
-    }
-
-    @Override
-    public Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocation) {
-        return resolveMethod(methodInvocation, null, null);
     }
 
     @Override
@@ -49,10 +47,6 @@ public class MethodResolverImpl implements MethodResolver {
         final DeclaredType targetType = resolveTargetType(selected, currentElement);
         final boolean onlyStaticCalls = onlyStaticCalls(selected, currentElement);
 
-        final var argumentTypes = methodInvocation.getArguments().stream()
-                .map(this::resolveType)
-                .toList();
-
         final var typeArguments = methodInvocation.getTypeArguments().stream()
                 .map(this::resolveType)
                 .toList();
@@ -61,7 +55,7 @@ public class MethodResolverImpl implements MethodResolver {
                 targetType,
                 methodName,
                 typeArguments,
-                argumentTypes,
+                methodInvocation.getArguments(),
                 onlyStaticCalls,
                 scope
         );
@@ -159,7 +153,7 @@ public class MethodResolverImpl implements MethodResolver {
     private Optional<ExecutableType> resolveMethod(final DeclaredType targetType,
                                                    final String methodName,
                                                    final List<TypeMirror> typeArguments,
-                                                   final List<TypeMirror> argumentTypes,
+                                                   final List<ExpressionTree> arguments,
                                                    final boolean onlyStaticCalls,
                                                    final Scope scope) {
         if ("super".equals(methodName)) {
@@ -169,7 +163,7 @@ public class MethodResolverImpl implements MethodResolver {
                     searchType,
                     "this",
                     typeArguments,
-                    argumentTypes,
+                    arguments,
                     onlyStaticCalls,
                     null);
         } else {
@@ -177,7 +171,7 @@ public class MethodResolverImpl implements MethodResolver {
                     targetType,
                     methodName,
                     typeArguments,
-                    argumentTypes,
+                    arguments,
                     onlyStaticCalls,
                     scope
             );
@@ -187,7 +181,7 @@ public class MethodResolverImpl implements MethodResolver {
     private Optional<ExecutableType> doResolveMethod(final DeclaredType type,
                                                      final String methodName,
                                                      final List<? extends TypeMirror> typeArguments,
-                                                     final List<TypeMirror> argumentTypes,
+                                                     final List<ExpressionTree> arguments,
                                                      final boolean onlyStaticCalls,
                                                      final Scope scope) {
         final Optional<ExecutableType> methodTypeOptional;
@@ -209,7 +203,7 @@ public class MethodResolverImpl implements MethodResolver {
                         type,
                         method,
                         typeArguments,
-                        argumentTypes
+                        arguments
                 ))
                 .filter(methodAndArgTypes -> match(methodAndArgTypes.first(), methodAndArgTypes.second()))
                 .map(Pair::first)
@@ -222,7 +216,13 @@ public class MethodResolverImpl implements MethodResolver {
         if (methodTypes.size() == 1) {
             methodTypeOptional = Optional.of(methodTypes.getFirst());
         } else if (methodTypes.size() > 1) {
-            final var bestMatch = bestMatch(methodTypes, argumentTypes);
+            final var argumentTypes = arguments.stream()
+                    .map(this::resolveType)
+                    .toList();
+
+            final var bestMatch = bestMatch(
+                    methodTypes,
+                    argumentTypes);
 
             if (bestMatch.isPresent()) {
                 return bestMatch;
@@ -237,7 +237,7 @@ public class MethodResolverImpl implements MethodResolver {
                             interfaceType,
                             methodName,
                             typeArguments,
-                            argumentTypes,
+                            arguments,
                             onlyStaticCalls,
                             null))
                     .findFirst()
@@ -255,7 +255,7 @@ public class MethodResolverImpl implements MethodResolver {
                             superType,
                             methodName,
                             typeArguments,
-                            argumentTypes,
+                            arguments,
                             onlyStaticCalls, null);
                 }
             }
@@ -294,10 +294,10 @@ public class MethodResolverImpl implements MethodResolver {
         return Optional.of(bestMatch);
     }
 
-    Pair<ExecutableType, List<TypeMirror>> transform(final DeclaredType targetType,
-                                                     final ExecutableElement method,
-                                                     final List<? extends TypeMirror> typeArguments,
-                                                     final List<TypeMirror> argumentTypes) {
+    public Pair<ExecutableType, List<TypeMirror>> transform(final DeclaredType targetType,
+                                                            final ExecutableElement method,
+                                                            final List<? extends TypeMirror> typeArguments,
+                                                            final List<ExpressionTree> arguments) {
         final var methodType = (ExecutableType) method.asType();
         final var typeMapFiller = new TypeMapFiller(types);
         final var typeMap = typeMapFiller.getTypeMap();
@@ -330,7 +330,10 @@ public class MethodResolverImpl implements MethodResolver {
             applyTypes(typeArguments, methodType.getTypeVariables(), typeMapApplier);
         }
 
-        //argumentTypes.forEach(argType -> argType.accept(typeMapFiller, null));
+        final var argumentTypes = arguments.stream()
+                .map(this::resolveType)
+                .toList();
+
         final var argTypes = applyTypes(argumentTypes, typeMapApplier);
 
         fillTypeMap(
@@ -338,8 +341,6 @@ public class MethodResolverImpl implements MethodResolver {
                 argTypes,
                 typeMapFiller
         );
-
-        method.getParameters();
 
         final var parameterTypes = applyTypes(methodType.getParameterTypes(), typeMapApplier);
 
@@ -421,8 +422,8 @@ public class MethodResolverImpl implements MethodResolver {
         }
     }
 
-    public boolean match(final ExecutableType methodType,
-                         final List<TypeMirror> argumentTypes) {
+    private boolean match(final ExecutableType methodType,
+                          final List<TypeMirror> argumentTypes) {
         final var parameterTypes = methodType.getParameterTypes();
 
         if (argumentTypes.isEmpty() && parameterTypes.isEmpty()) {
@@ -527,57 +528,163 @@ public class MethodResolverImpl implements MethodResolver {
         return targetType.accept(applier, null);
     }
 
-    public ExecutableType tryResolveMethod(final MethodInvocationTree methodInvocationTree,
-                                              final DeclaredType searchType,
-                                              final String methodName,
+    @Override
+    public Optional<ExecutableType> resolveMethod(final MethodInvocationTree methodInvocationTree,
+                                                  final Scope scope) {
+        final var selector = methodInvocationTree.getMethodSelector();
+
+        if (selector instanceof IdentifierTree identifierTree) {
+            var searchType = (DeclaredType) scope.getCurrentClass().asType();
+            final var methodName = identifierTree.getName();
+
+            logger.log(LogLevel.INFO, "1 Resolving " + methodName);
+
+            final boolean isConstructorCall;
+
+            if (Constants.THIS.equals(methodName)) {
+                isConstructorCall = true;
+            } else if (Constants.SUPER.equals(methodName)) {
+                isConstructorCall = true;
+                searchType = (DeclaredType) searchType.asTypeElement().getSuperclass();
+            } else {
+                isConstructorCall = false;
+            }
+
+            do {
+                var executableType = resolveMethod(
+                        methodInvocationTree,
+                        searchType,
+                        scope,
+                        isConstructorCall
+                );
+
+                if (executableType != null) {
+                    return Optional.of(executableType);
+                } else {
+                    searchType = (DeclaredType) searchType.getEnclosingType();
+                }
+            } while (searchType != null);
+
+            //TODO resolve via static import.
+
+            return fallback(methodInvocationTree, scope);
+        } else if (selector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            var searchType = getTypeOf(fieldAccessExpressionTree.getSelected());
+            final var methodName = fieldAccessExpressionTree.getField().getName();
+            logger.log(LogLevel.INFO, "2 Resolving " + methodName);
+            final boolean isConstructorCall;
+
+            if (Constants.SUPER.equals(methodName)) {
+                searchType = (DeclaredType) searchType.asTypeElement().getSuperclass();
+                isConstructorCall = true;
+            } else {
+                isConstructorCall = false;
+            }
+
+            final var resolvedMethod = resolveMethod(
+                    methodInvocationTree,
+                    searchType,
+                    scope,
+                    isConstructorCall
+            );
+
+            if (resolvedMethod != null) {
+                return Optional.of(resolvedMethod);
+            }
+        }
+
+        return fallback(methodInvocationTree, scope);
+    }
+
+    private DeclaredType getTypeOf(final ExpressionTree expressionTree) {
+        if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            return getTypeOf(fieldAccessExpressionTree.getField());
+        }
+
+        if (expressionTree.getSymbol() != null) {
+            final var type = expressionTree.getSymbol().asType();
+
+            return type instanceof VariableType variableType
+                    ? (DeclaredType) variableType.getInterferedType()
+                    : (DeclaredType) type;
+        } else {
+            final var type = expressionTree.getType();
+            return type instanceof VariableType variableType
+                    ? (DeclaredType) variableType.getInterferedType()
+                    : (DeclaredType) type;
+        }
+    }
+
+    private Optional<ExecutableType> fallback(final MethodInvocationTree methodInvocationTree,
                                               final Scope scope) {
+        return resolveMethod(
+                methodInvocationTree,
+                (Element) null,
+                scope
+        );
+    }
+
+    private String resolveMethodName(final MethodInvocationTree methodInvocationTree) {
+        final var selector = methodInvocationTree.getMethodSelector();
+
+        if (selector instanceof IdentifierTree methodName) {
+            return methodName.getName();
+        } else {
+            final var fieldAccess = (FieldAccessExpressionTree) selector;
+            return fieldAccess.getField().getName();
+        }
+    }
+
+    private ExecutableType resolveMethod(final MethodInvocationTree methodInvocationTree,
+                                         final DeclaredType searchType,
+                                         final Scope scope,
+                                         final boolean isConstructorCall) {
+
+        final var methodName = resolveMethodName(methodInvocationTree);
 
         final var arguments = methodInvocationTree.getArguments();
-
-        final var argumentTypes = arguments.stream()
-                .map(this::resolveType)
-                .toList();
 
         // Step 1: Identify Potentially Applicable Methods
         final var potentiallyApplicable = getPotentiallyApplicableMethods(
                 methodInvocationTree,
                 searchType,
                 methodName,
-                argumentTypes,
-                scope);
+                arguments,
+                scope,
+                isConstructorCall
+        );
 
         // Step 2: Phase 1 - Strict Invocation (no boxing/unboxing, no varargs)
 
         final var phase1Results = phase1StrictInvocation(
                 potentiallyApplicable,
-                argumentTypes,
                 arguments
         );
         final var applicableMethods = new ArrayList<>(phase1Results);
 
         // If methods found in phase 1, choose the most specific and return
         if (!applicableMethods.isEmpty()) {
-            return chooseMostSpecificMethod(applicableMethods).method();
+            return chooseMostSpecificMethod(applicableMethods, searchType).method();
         }
 
         // Step 3: Phase 2 - Loose Invocation (with boxing/unboxing, no varargs)
         List<ApplicableMethod> phase2Results =
-                phase2LooseInvocation(potentiallyApplicable, argumentTypes, arguments);
+                phase2LooseInvocation(potentiallyApplicable, arguments);
         applicableMethods.addAll(phase2Results);
 
         // If methods found in phase 2, choose the most specific and return
         if (!applicableMethods.isEmpty()) {
-            return chooseMostSpecificMethod(applicableMethods).method();
+            return chooseMostSpecificMethod(applicableMethods, searchType).method();
         }
 
         // Step 4: Phase 3 - Variable Arity Invocation (with boxing/unboxing/varargs)
         List<ApplicableMethod> phase3Results =
-                phase3VariableArity(potentiallyApplicable, argumentTypes, arguments);
+                phase3VariableArity(potentiallyApplicable, arguments);
         applicableMethods.addAll(phase3Results);
 
         // If methods found in phase 3, choose the most specific and return
         if (!applicableMethods.isEmpty()) {
-            return chooseMostSpecificMethod(applicableMethods).method();
+            return chooseMostSpecificMethod(applicableMethods, searchType).method();
         }
 
         throw new MethodResolveException(
@@ -590,38 +697,104 @@ public class MethodResolverImpl implements MethodResolver {
     public List<ExecutableType> getPotentiallyApplicableMethods(final MethodInvocationTree methodInvocation,
                                                                 final DeclaredType searchType,
                                                                 final String methodName,
-                                                                final List<TypeMirror> argumentTypes,
-                                                                final Scope scope) {
+                                                                final List<ExpressionTree> arguments,
+                                                                final Scope scope,
+                                                                final boolean isConstructorCall) {
 
         final var typeArguments = methodInvocation.getTypeArguments().stream()
                 .map(this::resolveType)
                 .toList();
 
-        final var currentClass = scope.getCurrentClass();
-        return ElementFilter.methodsIn(elements.getAllMembers(searchType.asTypeElement())).stream()
-                .map(method -> {
+        final var currentClass = scope != null
+                ? scope.getCurrentClass()
+                : searchType.asTypeElement();
+
+        final var allMembers = elements.getAllMembers(searchType.asTypeElement());
+
+        final var methods = isConstructorCall
+                ? ElementFilter.constructorsIn(allMembers)
+                : ElementFilter.methodsIn(allMembers);
+
+        final var methodCollection = new ArrayList<ExecutableType>();
+        collectMethods(searchType, methodCollection, isConstructorCall);
+
+        /*
+        methods.stream()
+         .map(method -> {
 
                     final var transformedResult = transform(
                             searchType,
                             method,
                             typeArguments,
-                            argumentTypes
+                            arguments
                     );
-                    final var methodType = transformedResult.first();
 
-                    return methodType;
+                    return transformedResult.first();
                 })
-                .filter(method -> isPotentiallyApplicable(methodName, argumentTypes, method, currentClass))
+         */
+
+        return methodCollection.stream()
+                .filter(method -> isPotentiallyApplicable(
+                        methodName,
+                        arguments,
+                        method,
+                        currentClass,
+                        isConstructorCall
+                ))
                 .toList();
     }
 
+    private void collectMethods(final DeclaredType declaredType,
+                                final List<ExecutableType> methodCollection,
+                                final boolean isConstructorCall) {
+        final var typeElement = declaredType.asTypeElement();
+        final var methods = isConstructorCall
+                ? ElementFilter.constructorsIn(typeElement.getEnclosedElements())
+                : ElementFilter.methodsIn(typeElement.getEnclosedElements()).stream()
+                .toList();
+
+        final var map = SimpleTypeMapFiller.fill(declaredType);
+
+        final var mapper = new SimpleTypeMapApplier(map, types);
+        final var methodTypes = methods.stream()
+                .map(Element::asType)
+                .map(methodType -> (ExecutableType) methodType.accept(mapper, null))
+                .toList();
+
+        methodCollection.addAll(methodTypes);
+
+        final var superClazz = typeElement.getSuperclass();
+
+        if (superClazz != null) {
+            final var mappedType = mapType((DeclaredType) superClazz, map);
+            collectMethods(mappedType, methodCollection, isConstructorCall);
+        }
+
+        typeElement.getInterfaces().stream()
+                .map(it -> (DeclaredType) it)
+                .forEach(iface -> {
+                    final var mappedType = mapType(iface, map);
+                    collectMethods(mappedType, methodCollection, isConstructorCall);
+                });
+    }
+
+    private DeclaredType mapType(final DeclaredType declaredType,
+                                 final Map<String, TypeMirror> map) {
+        return (DeclaredType) SimpleTypeMapApplier.apply(
+                map,
+                declaredType,
+                types
+        );
+    }
+
     public boolean isPotentiallyApplicable(final String methodName,
-                                           final List<TypeMirror> argumentTypes,
+                                           final List<ExpressionTree> arguments,
                                            final ExecutableType method,
-                                           final TypeElement caller) {
+                                           final TypeElement caller,
+                                           final boolean isConstructorCall) {
         final var methodSymbol = method.getMethodSymbol();
 
-        if (!methodName.equals(methodSymbol.getSimpleName())) {
+        if (!isConstructorCall && !methodName.equals(methodSymbol.getSimpleName())) {
             return false;
         }
 
@@ -634,33 +807,42 @@ public class MethodResolverImpl implements MethodResolver {
         if (methodSymbol.isVarArgs()) {
             final var fixedParamCount = parameterTypes.size() - 1;
 
-            if (argumentTypes.size() < fixedParamCount) {
+            if (arguments.size() < fixedParamCount) {
                 return false;
             }
 
             for (int index = 0; index < fixedParamCount; index++) {
-                if (!isPotentiallyCompatible(argumentTypes.get(index), parameterTypes.get(index))) {
+                final var argument = arguments.get(index);
+                final var argumentType = resolveType(argument);
+
+                if (!isPotentiallyCompatible(argumentType, parameterTypes.get(index))) {
                     return false;
                 }
             }
 
             // Check varargs
             final var varargType = ((ArrayType) parameterTypes.get(fixedParamCount)).getComponentType();
-            for (int i = fixedParamCount; i < argumentTypes.size(); i++) {
-                if (!isPotentiallyCompatible(argumentTypes.get(i), varargType) &&
-                        !isPotentiallyCompatible(argumentTypes.get(i), parameterTypes.get(fixedParamCount))) {
+            for (int i = fixedParamCount; i < arguments.size(); i++) {
+                final var argument = arguments.get(i);
+                final var argumentType = resolveType(argument);
+
+                if (!isPotentiallyCompatible(argumentType, varargType) &&
+                        !isPotentiallyCompatible(argumentType, parameterTypes.get(fixedParamCount))) {
                     return false;
                 }
             }
 
             return true;
         } else {
-            if (parameterTypes.size() != argumentTypes.size()) {
+            if (parameterTypes.size() != arguments.size()) {
                 return false;
             }
 
-            for (int i = 0; i < argumentTypes.size(); i++) {
-                if (!isPotentiallyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
+            for (int i = 0; i < arguments.size(); i++) {
+                final var argument = arguments.get(i);
+                final var argumentType = resolveType(argument);
+
+                if (!isPotentiallyCompatible(argumentType, parameterTypes.get(i))) {
                     return false;
                 }
             }
@@ -696,8 +878,11 @@ public class MethodResolverImpl implements MethodResolver {
 
     private List<ApplicableMethod> phase1StrictInvocation(
             final List<ExecutableType> candidates,
-            final List<TypeMirror> argumentTypes,
             final List<ExpressionTree> arguments) {
+        final var argumentTypes = arguments.stream()
+                .map(this::resolveType)
+                .toList();
+
         return candidates.stream()
                 .filter(method -> !method.getMethodSymbol().isVarArgs())
                 .filter(method -> {
@@ -708,6 +893,11 @@ public class MethodResolverImpl implements MethodResolver {
                     final var parameterTypes = method.getParameterTypes();
 
                     for (int i = 0; i < argumentTypes.size(); i++) {
+                        final var argument = arguments.get(i);
+                        if (isImplicitlyTypedLambda(argument)) {
+                            continue;
+                        }
+
                         if (!isStrictlyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
                             return false;
                         }
@@ -721,6 +911,10 @@ public class MethodResolverImpl implements MethodResolver {
                     return new ApplicableMethod(method, 1, specificity);
                 })
                 .toList();
+    }
+
+    private boolean isImplicitlyTypedLambda(final ExpressionTree expressionTree) {
+        return expressionTree instanceof LambdaExpressionTree lambdaExpressionTree && lambdaExpressionTree.getParameterKind() == LambdaExpressionTree.ParameterKind.IMPLICIT;
     }
 
     private boolean isStrictlyCompatible(final TypeMirror sourceType,
@@ -742,7 +936,7 @@ public class MethodResolverImpl implements MethodResolver {
 
         // Widening reference conversion (subclass to superclass)
         if (!sourceType.isPrimitiveType() && !targetType.isPrimitiveType()) {
-            return types.isAssignable(targetType, sourceType);
+            return types.isAssignable(sourceType, targetType);
         }
 
         return false;
@@ -844,7 +1038,7 @@ public class MethodResolverImpl implements MethodResolver {
     }
 
     private ApplicableMethod chooseMostSpecificMethod(
-            final List<ApplicableMethod> applicableMethods) {
+            final List<ApplicableMethod> applicableMethods, final DeclaredType searchType) {
 
         if (applicableMethods.isEmpty()) {
             throw new MethodResolveException("No applicable methods found");
@@ -867,14 +1061,33 @@ public class MethodResolverImpl implements MethodResolver {
 
         // Sort by specificity (lower is better)
         samePhase = new ArrayList<>(samePhase);
-        samePhase.sort(Comparator.comparingDouble(m -> m.specificity()));
+        samePhase.sort(Comparator.comparingDouble(ApplicableMethod::specificity));
 
         // Check for ambiguity
         if (samePhase.size() > 1) {
             ApplicableMethod first = samePhase.get(0);
             ApplicableMethod second = samePhase.get(1);
 
+
+            if (first.method().getMethodSymbol().getKind() == ElementKind.CONSTRUCTOR) {
+                if (isMemberOf(first.method(), searchType)) {
+                    return first;
+                }
+            }
+
+            if (second.method().getMethodSymbol().getKind() == ElementKind.CONSTRUCTOR) {
+                if (isMemberOf(second.method(), searchType)) {
+                    return second;
+                }
+            }
+
             if (first.specificity() == second.specificity()) {
+                final var methods = filterOverwritten(samePhase);
+
+                if (methods.size() == 1) {
+                    return methods.getFirst();
+                }
+
                 throw new MethodResolveException(
                         "Ambiguous method invocation: " + first.method() + " vs " + second.method());
             }
@@ -883,10 +1096,77 @@ public class MethodResolverImpl implements MethodResolver {
         return samePhase.getFirst();
     }
 
+    private List<ApplicableMethod> filterOverwritten(final List<ApplicableMethod> methods) {
+        if (methods.size() < 2) {
+            return methods;
+        }
+
+        var remaining = methods.stream()
+                .filter(method -> !overwrites(method, methods))
+                .toList();
+
+        final List<ApplicableMethod> checkList = new ArrayList<>(methods);
+
+        final var overwritten = new HashSet<ApplicableMethod>();
+
+        for (ApplicableMethod applicableMethod : checkList) {
+            for (final var applicableMethod2 : methods) {
+                if (applicableMethod != applicableMethod2) {
+                    if (elements.overrides(
+                            applicableMethod.method().getMethodSymbol(),
+                            applicableMethod2.method().getMethodSymbol(),
+                            (TypeElement) applicableMethod.method().getMethodSymbol().getEnclosingElement()
+                    )) {
+                        overwritten.add(applicableMethod);
+                    }
+                }
+            }
+        }
+
+        final var result = new ArrayList<ApplicableMethod>();
+
+        loop:
+        for (final var method : methods) {
+            for (final var applicableMethod : overwritten) {
+                if (method == applicableMethod) {
+                    continue loop;
+                }
+            }
+            result.add(method);
+        }
+
+        return result;
+    }
+
+    public boolean overwrites(final ApplicableMethod applicableMethod,
+                              final List<ApplicableMethod> methods) {
+        final var overriddenMethod = applicableMethod.method().getMethodSymbol();
+        return methods.stream()
+                .anyMatch(otherMethod ->
+                {
+                    final var overrider = otherMethod.method().getMethodSymbol();
+                    final var first = overrider != overriddenMethod;
+                    final var second = elements.overrides(overrider, overriddenMethod, (TypeElement) otherMethod.method().getMethodSymbol().getEnclosingElement());
+
+                    return first && second;
+                });
+    }
+
+    private boolean isMemberOf(final ExecutableType method,
+                               final DeclaredType searchType) {
+        final var declaringClass = (TypeElement) method.getMethodSymbol().getEnclosingElement();
+        final var searchClass = searchType.asTypeElement();
+        return declaringClass.getQualifiedName().equals(searchClass.getQualifiedName());
+    }
+
+
     private List<ApplicableMethod> phase2LooseInvocation(
             final List<ExecutableType> candidates,
-            final List<TypeMirror> argumentTypes,
             final List<ExpressionTree> arguments) {
+
+        final var argumentTypes = arguments.stream()
+                .map(this::resolveType)
+                .toList();
 
         List<ApplicableMethod> applicableMethods = new ArrayList<>();
 
@@ -969,8 +1249,11 @@ public class MethodResolverImpl implements MethodResolver {
 
     private List<ApplicableMethod> phase3VariableArity(
             final List<ExecutableType> candidates,
-            final List<TypeMirror> argumentTypes,
             final List<ExpressionTree> arguments) {
+
+        final var argumentTypes = arguments.stream()
+                .map(this::resolveType)
+                .toList();
 
         List<ApplicableMethod> applicableMethods = new ArrayList<>();
 
@@ -1038,78 +1321,6 @@ public class MethodResolverImpl implements MethodResolver {
     }
 
 
-}
-
-class TypeMapFiller implements TypeVisitor<TypeMirror, TypeMirror> {
-
-    private final TypeMap typeMap = new TypeMap();
-    private final Types types;
-
-    TypeMapFiller(final Types types) {
-        this.types = types;
-    }
-
-    public TypeMap getTypeMap() {
-        return typeMap;
-    }
-
-    @Override
-    public TypeMirror visitUnknownType(final TypeMirror typeMirror,
-                                       final TypeMirror param) {
-        return typeMirror;
-    }
-
-    @Override
-    public TypeMirror visitDeclaredType(final DeclaredType declaredType,
-                                        final TypeMirror otherType) {
-        final var typeArguments = declaredType.getTypeArguments();
-        final var typeParameters = declaredType.asTypeElement()
-                .getTypeParameters();
-        final var typeParameterCount = typeParameters.size();
-
-        if (otherType instanceof DeclaredType otherDeclaredType) {
-            final var otherTypeArguments = otherDeclaredType.getTypeArguments();
-            final var typeArgumentCount = typeArguments.size();
-
-            if (typeArguments.size() == otherTypeArguments.size()) {
-                for (int index = 0; index < typeArgumentCount; index++) {
-                    final var typeArg = typeArguments.get(index);
-                    final var otherTypeArg = otherTypeArguments.get(index).accept(this, null);
-                    typeArg.accept(this, otherTypeArg);
-                }
-            }
-        } else {
-            for (int index = 0; index < typeParameterCount; index++) {
-                final var typeParameter = typeParameters.get(index);
-                final var name = typeParameter.getSimpleName();
-                final var typeArg = typeArguments.get(index);
-                this.typeMap.put(name, typeArg);
-            }
-        }
-
-        return declaredType;
-    }
-
-    @Override
-    public TypeMirror visitWildcardType(final WildcardType wildcardType,
-                                        final TypeMirror param) {
-        return switch (wildcardType.getBoundKind()) {
-            case EXTENDS -> wildcardType.getExtendsBound();
-            case SUPER -> wildcardType.getSuperBound();
-            case UNBOUND -> types.getObjectType();
-        };
-    }
-
-    @Override
-    public TypeMirror visitTypeVariable(final TypeVariable typeVariable,
-                                        final TypeMirror param) {
-        if (param != null) {
-            final var name = typeVariable.asElement().getSimpleName();
-            this.typeMap.put(name, param);
-            return param;
-        }
-        return typeVariable;
-    }
 }
 
 class TypeMapApplier implements TypeVisitor<TypeMirror, TypeMirror> {
@@ -1332,6 +1543,8 @@ class TypeApplier implements TypeVisitor<TypeMirror, TypeMirror> {
                 yield types.getWildcardType(extendsBound, null);
             }
             case SUPER -> {
+                final var isTypeVar = wildcardType.getSuperBound() instanceof TypeVariable;
+
                 var superBound = wildcardType.getSuperBound().accept(this, null);
                 if (superBound.isPrimitiveType()) {
                     superBound = types.boxedClass((PrimitiveType) superBound).asType();
@@ -1341,6 +1554,10 @@ class TypeApplier implements TypeVisitor<TypeMirror, TypeMirror> {
         };
     }
 
+    @Override
+    public TypeMirror visitMethodType(final ExecutableType methodType, final TypeMirror param) {
+        return TypeVisitor.super.visitMethodType(methodType, param);
+    }
 }
 
 // 640 (5.12)
@@ -1377,7 +1594,3 @@ class ApplicablePhase1 {
     }
 }
 
-record ApplicableMethod(ExecutableType method,
-                        int phase,
-                        double specificity) {
-}

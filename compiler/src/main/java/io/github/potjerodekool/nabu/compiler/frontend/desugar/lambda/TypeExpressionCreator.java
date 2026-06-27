@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.frontend.desugar.lambda;
 
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;

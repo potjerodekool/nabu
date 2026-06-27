@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
@@ -10,7 +11,6 @@ import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.MemberOfVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.types.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.*;
-import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;
 
@@ -152,14 +152,10 @@ public class TypesImpl implements Types {
             return (DeclaredType) ((Symbol) typeElem).erasure(this);
         } else if (!typeElem.asType().isParameterized()) {
             return getErrorType(typeElem.getQualifiedName());
-        } else if (typeElem.asType().getEnclosingType() != null
-                && typeElem.asType().getEnclosingType().isParameterized()) {
-            //TODO should not be null.
-            throw new IllegalArgumentException("Enclosing type is parameterized");
         }
 
         return getDeclaredTypeImpl(
-                (DeclaredType) typeElem.asType().getEnclosingType(),
+                typeElem.asType().getEnclosingType(),
                 typeElem,
                 typeArgs
         );
@@ -189,7 +185,7 @@ public class TypesImpl implements Types {
         }
     }
 
-    private DeclaredType getDeclaredTypeImpl(final DeclaredType enclosing,
+    private DeclaredType getDeclaredTypeImpl(final TypeMirror enclosing,
                                              final TypeElement typeElem,
                                              final TypeMirror... typeArgs) {
         final var symbol = (Symbol) typeElem;
@@ -629,9 +625,9 @@ public class TypesImpl implements Types {
     }
 
     @Override
-    public List<? extends TypeMirror> interfaces(final TypeMirror t) {
+    public List<AbstractType> interfaces(final TypeMirror t) {
         final var declared = (DeclaredType) t;
-        return declared.asTypeElement().getInterfaces();
+        return (List<AbstractType>) declared.asTypeElement().getInterfaces();
     }
 
     @Override
@@ -669,11 +665,26 @@ public class TypesImpl implements Types {
             }
         }
 
-        interfaces(type).stream()
-                .map(it -> (AbstractType) it)
-                .forEach(closure::add);
+        final var interfaces = interfaces(type);
 
-        return closure;
+        interfaces.forEach(interfaceType -> {
+            final var interfaceClosure = closure(interfaceType);
+            closure.addAll(interfaceClosure);
+        });
+
+        return removeDuplicates(closure);
+    }
+
+    private List<AbstractType> removeDuplicates(final List<AbstractType> types) {
+        final var cleaned = new ArrayList<AbstractType>();
+
+        types.forEach(type -> {
+            if (!cleaned.contains(type)) {
+                cleaned.add(type);
+            }
+        });
+
+        return cleaned;
     }
 
     private AbstractType superType(final TypeMirror type) {
@@ -682,5 +693,10 @@ public class TypesImpl implements Types {
 
     public AbstractType classBound(final TypeMirror type) {
         return type.accept(classBoundVisitor, null);
+    }
+
+    @Override
+    public TypeMirror getUndetType(final TypeMirror delegate) {
+        return new UndetVarType(delegate);
     }
 }

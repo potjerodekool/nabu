@@ -2,9 +2,9 @@ package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
-import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.FileObject;
@@ -110,10 +110,10 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         this.members = members;
     }
 
-    public void addEnclosedElement(final Symbol enclosedElement) {
+    public void addEnclosedElement(final Element enclosedElement) {
         initMembersIfNeeded();
         members.define(enclosedElement);
-        enclosedElement.setEnclosingElement(this);
+        ((Symbol)enclosedElement).setEnclosingElement(this);
     }
 
     public void addEnclosedElement(final int index,

@@ -2,10 +2,10 @@ package io.github.potjerodekool.nabu.compiler.lang.support.java.lomboksupport.ha
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
-import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
@@ -35,7 +35,9 @@ public class GetterHandler extends AbstractAccessorAnnotationHandler {
     }
 
     @Override
-    protected Optional<ExecutableElement> findAccessorMethod(final String fieldName, final TypeMirror fieldType, final ClassSymbol classDeclaration) {
+    protected Optional<ExecutableElement> findAccessorMethod(final String fieldName,
+                                                             final TypeMirror fieldType,
+                                                             final ClassSymbol classDeclaration) {
         final var getterName = createGetterName(fieldName);
 
         return ElementFilter.methodsIn(classDeclaration.getEnclosedElements()).stream()
@@ -46,7 +48,9 @@ public class GetterHandler extends AbstractAccessorAnnotationHandler {
     }
 
     @Override
-    protected void addAccessorMethod(final VariableElement field, final long accessLevel, final ClassSymbol classSymbol) {
+    protected void addAccessorMethod(final VariableElement field,
+                                     final long accessLevel,
+                                     final ClassSymbol classSymbol) {
         final var builder = compilerContext.getElementBuilders().executableElementBuilder();
 
         final var getterName = createGetterName(field.getSimpleName());

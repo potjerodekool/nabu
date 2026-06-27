@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
+import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
-import io.github.potjerodekool.nabu.testing.InMemoryFileObject;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;

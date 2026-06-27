@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.access.StandardAccessChecker;
-import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.tools.diagnostic.DefaultDiagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.DiagnosticListener;

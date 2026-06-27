@@ -6,9 +6,9 @@ import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.ModuleElement;
 import java.util.List;
 
-public class JModuleElement extends JElement<io.github.potjerodekool.nabu.lang.model.element.ModuleElement> implements ModuleElement {
+public class JModuleElement extends JElement<io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement> implements ModuleElement {
 
-    protected JModuleElement(final io.github.potjerodekool.nabu.lang.model.element.ModuleElement original) {
+    protected JModuleElement(final io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement original) {
         super(original);
     }
 

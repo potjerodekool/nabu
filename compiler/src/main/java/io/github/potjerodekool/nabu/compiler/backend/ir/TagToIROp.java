@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.ir.instructions.IRInstruction.BinaryOp.Op;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.tree.Tag;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction.BinaryOp.Op;
 
 /**
  * Vertaalt een Nabu Tag (operator) naar een IR BinaryOp.Op.
@@ -21,10 +22,10 @@ public final class TagToIROp {
      *         directe IR-operatie hebben (compound assignments,
      *         post-increment, etc.).
      */
-    public static Op map(Tag tag) {
+    public static IRInstruction.BinaryOp.Op map(Tag tag) {
         return switch (tag) {
             // Rekenkundig
-            case ADD -> Op.ADD;
+            case ADD -> IRInstruction.BinaryOp.Op.ADD;
             case SUB -> Op.SUB;
             case MUL -> Op.MUL;
             case DIV -> Op.DIV;

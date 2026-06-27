@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.lang.spi.SourceParser;
+import io.github.potjerodekool.nabu.compiler.lang.spi.SourceParser;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
@@ -18,7 +18,6 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.function.Function;
 
 public class PluginRegistry {
 
@@ -57,14 +56,17 @@ public class PluginRegistry {
             }
 
             try (var stream = Files.list(pluginsDirectory)) {
-                stream.filter(it -> it.getFileName().endsWith(".jar"))
+                stream.filter(it -> it.getFileName().toString().endsWith(".jar"))
                         .forEach(jarFile -> {
                             logger.log(LogLevel.INFO, "Loading plugins from: " + jarFile);
 
                             try (final var fs = FileSystems.newFileSystem(jarFile, (ClassLoader) null)) {
                                 final var pluginPath = fs.getPath("plugin.xml").toUri().toURL();
                                 if (registerPlugin(pluginPath, loadedPlugins)) {
-                                    final var pluginClassLoader = new PluginClassLoader(pluginPath, getClass().getClassLoader());
+                                    //URI.create(pluginPath.toString().substring("jar:".length(), pluginPath.toString().length() - "!/plugin.xml".length())).toURL();
+                                    final var pluginRoot = jarFile.toUri().toURL();
+
+                                    final var pluginClassLoader = new PluginClassLoader(pluginRoot, getClass().getClassLoader());
                                     sharedLoader.addPluginClassLoader(pluginClassLoader);
                                 }
                             } catch (Exception ignored) {

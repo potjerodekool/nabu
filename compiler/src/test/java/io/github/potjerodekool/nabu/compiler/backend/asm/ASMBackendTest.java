@@ -1,14 +1,14 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.backend.CompileException;
-import io.github.potjerodekool.nabu.backend.CompileOptions;
-import io.github.potjerodekool.nabu.ir.CallKind;
-import io.github.potjerodekool.nabu.ir.IRBuilder;
-import io.github.potjerodekool.nabu.ir.IRModule;
-import io.github.potjerodekool.nabu.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.ir.types.IRType;
-import io.github.potjerodekool.nabu.ir.values.IRValue;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.backend.CompileException;
+import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.ir.CallKind;
+import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
+import io.github.potjerodekool.nabu.compiler.ir.IRModule;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
+import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tools.Constants;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;

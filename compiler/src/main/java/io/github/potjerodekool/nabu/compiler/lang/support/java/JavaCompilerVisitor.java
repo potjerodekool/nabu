@@ -1,13 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
-import io.github.potjerodekool.nabu.NabuParser;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.VariableArityParameter;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodDeclarator;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodHeader;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.WildcardBound;
-import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
@@ -2176,10 +2175,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                                 .build();
                     }
                 }
-                case NabuParser.TypeArgumentsContext ignored -> typeArguments.addAll(acceptList(child));
-                case NabuParser.ArgumentListContext ignored -> arguments.addAll(acceptList(child));
+                case Java20Parser.TypeArgumentsContext ignored -> typeArguments.addAll(acceptList(child));
+                case Java20Parser.ArgumentListContext ignored -> arguments.addAll(acceptList(child));
                 case null, default -> {
-                    if (child instanceof NabuParser.PNNAContext
+                    if (child instanceof Java20Parser.PNNAContext
                             && isMemberReference) {
                         lastExpression = createMemberReference(
                                 typeArguments,
@@ -2389,7 +2388,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitLambdaExpression(final Java20Parser.LambdaExpressionContext ctx) {
-        final List<VariableDeclaratorTree> parameters = acceptList(ctx.lambdaParameters());
+        final List<Tree> parameters = acceptList(ctx.lambdaParameters());
         final var body = (Tree) ctx.lambdaBody().accept(this);
         return TreeMaker.lambdaExpressionTree(
                 parameters,

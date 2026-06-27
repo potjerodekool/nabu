@@ -1,15 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl;
 
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaModuleParser;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.TodoException;
-import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 
 import java.io.IOException;
 import java.util.List;

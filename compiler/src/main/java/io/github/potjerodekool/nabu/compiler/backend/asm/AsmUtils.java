@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror;
-import io.github.potjerodekool.nabu.lang.model.element.EnumAttribute;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.EnumAttribute;
 
 public final class AsmUtils {
 

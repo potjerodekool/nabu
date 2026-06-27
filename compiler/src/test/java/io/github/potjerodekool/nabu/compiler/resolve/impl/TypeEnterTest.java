@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
+import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
+import io.github.potjerodekool.nabu.compiler.TreePrinter;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.testing.InMemoryFileObject;
-import io.github.potjerodekool.nabu.testing.TreePrinter;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;

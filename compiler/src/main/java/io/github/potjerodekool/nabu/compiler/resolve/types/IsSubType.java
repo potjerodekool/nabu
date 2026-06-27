@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
 
 import java.util.HashMap;
@@ -61,12 +61,17 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
     @Override
     public Boolean visitDeclaredType(final DeclaredType declaredType,
                                      final TypeMirror otherType) {
+
+        final var other = otherType instanceof VariableType variableType
+                ? variableType.getInterferedType()
+                : otherType;
+
         if (declaredType instanceof ErrorType
-                || otherType instanceof ErrorType) {
+                || other instanceof ErrorType) {
             return false;
         }
 
-        if (otherType instanceof DeclaredType otherDeclaredType) {
+        if (other instanceof DeclaredType otherDeclaredType) {
             final var clazz = (TypeElement) declaredType.asElement();
             final var otherClass = (TypeElement) otherDeclaredType.asElement();
 
@@ -96,7 +101,7 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                     .map(interfaceType -> (DeclaredType) interfaceType)
                     .anyMatch(interfaceType -> {
                         final var mapped = tm(declaredType, interfaceType);
-                        return mapped.accept(this, otherType);
+                        return mapped.accept(this, other);
                     });
 
             if (interfaceMatch) {
@@ -104,15 +109,15 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
             }
 
             if (clazz.getSuperclass() != null) {
-                return clazz.getSuperclass().accept(this, otherType);
+                return clazz.getSuperclass().accept(this, other);
             } else {
                 return false;
             }
-        } else if (otherType instanceof TypeVariable otherTypeVariable) {
+        } else if (other instanceof TypeVariable otherTypeVariable) {
             if (otherTypeVariable.getUpperBound() != null) {
                 return declaredType.accept(this, otherTypeVariable.getUpperBound());
             }
-        } else if (otherType instanceof WildcardType otherWildCardType) {
+        } else if (other instanceof WildcardType otherWildCardType) {
             return switch (otherWildCardType.getBoundKind()) {
                 case UNBOUND -> true;
                 case EXTENDS -> declaredType.accept(this, otherWildCardType.getExtendsBound());

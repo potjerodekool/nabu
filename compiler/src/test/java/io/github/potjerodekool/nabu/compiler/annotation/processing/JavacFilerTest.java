@@ -1,11 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing;
 
+import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.log.LoggerFactory;
-import io.github.potjerodekool.nabu.testing.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import io.github.potjerodekool.nabu.util.Elements;

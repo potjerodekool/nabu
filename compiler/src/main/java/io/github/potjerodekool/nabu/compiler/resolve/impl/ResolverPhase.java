@@ -6,6 +6,8 @@ import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.Annotati
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
+import io.github.potjerodekool.nabu.log.LogLevel;
+import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.*;
@@ -33,6 +35,7 @@ import java.util.stream.Collectors;
 
 public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
+    private static final Logger logger = Logger.getLogger(ResolverPhase.class.getName());
     private final CompilerContextImpl compilerContext;
     private final ClassElementLoader loader;
     private final Types types;

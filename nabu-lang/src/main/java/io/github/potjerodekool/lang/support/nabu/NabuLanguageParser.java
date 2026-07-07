@@ -23,7 +23,6 @@ public class NabuLanguageParser implements LanguageParser {
     @Override
     public CompilationUnit parse(final FileObject fileObject,
                                  final CompilerContext compilerContext) {
-        logger.log(LogLevel.INFO, "Parsing " + fileObject.getFileName());
 
         try (var inputStream = fileObject.openInputStream()) {
             final var compilationUnitContext = NabuCompilerParser.parse(inputStream);

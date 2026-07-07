@@ -8,7 +8,6 @@ import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.expression.*;
-import io.github.potjerodekool.nabu.tree.expression.impl.CParenthesizedExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
 
 import java.util.function.Consumer;

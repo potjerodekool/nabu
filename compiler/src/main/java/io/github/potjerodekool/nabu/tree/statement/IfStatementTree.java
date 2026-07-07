@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.tree.statement;
 
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.IfStatementTreeBuilder;
+import io.github.potjerodekool.nabu.tree.statement.impl.CIfStatementTree;
 
 /**
  * If statement.
@@ -27,4 +28,12 @@ public interface IfStatementTree extends StatementTree {
      * See {@link StatementTree#builder()}
      */
     IfStatementTreeBuilder builder();
+
+    static IfStatementTree create(final ExpressionTree expression,
+                  final StatementTree thenStatement,
+                  final StatementTree elseStatement,
+                  final int lineNumber,
+                  final int columnNumber) {
+        return new CIfStatementTree(expression, thenStatement, elseStatement, lineNumber, columnNumber);
+    }
 }

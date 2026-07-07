@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.lang.jpa.support.Join;
-import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.plugin.jpa.testing.TreeParser;
 import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;

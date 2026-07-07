@@ -1,12 +1,15 @@
 package io.github.potjerodekool.nabu.testing;
 
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.tools.FileObject;
+import io.github.potjerodekool.nabu.tools.PathFileObject;
+import io.github.potjerodekool.nabu.tree.Tree;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CodePointCharStream;
 import org.antlr.v4.runtime.Parser;
 import org.antlr.v4.runtime.tree.AbstractParseTreeVisitor;
 import org.antlr.v4.runtime.tree.ParseTree;
 
-import javax.tools.FileObject;
 import java.nio.file.Paths;
 import java.util.function.Function;
 

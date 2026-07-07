@@ -5,16 +5,15 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.resolve.method.impl.OverrideChecker;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
-import io.github.potjerodekool.nabu.util.CollectionUtils;
 import io.github.potjerodekool.nabu.util.Elements;
 import io.github.potjerodekool.nabu.util.Pair;
-import io.github.potjerodekool.nabu.util.Types;
 
 import java.io.IOException;
 import java.io.Writer;
@@ -28,12 +27,14 @@ public class ElementsImpl implements Elements {
     private final TypesImpl types;
     private final Modules modules;
     private final Map<Pair<String, String>, Optional<Symbol>> resultCache = new HashMap<>();
+    private final OverrideChecker overrideChecker;
 
     public ElementsImpl(final CompilerContextImpl compilerContext) {
         this.compilerContext = compilerContext;
         this.symbolTable = SymbolTable.getInstance(compilerContext);
         this.types = compilerContext.getTypes();
         this.modules = Modules.getInstance(compilerContext);
+        this.overrideChecker = new OverrideChecker(types);
     }
 
     @Override
@@ -81,7 +82,7 @@ public class ElementsImpl implements Elements {
     private <S extends Symbol> S unboundNameToSymbol(final String methodName,
                                                      final String name,
                                                      final Class<S> clazz) {
-        final var result = resultCache.computeIfAbsent(new Pair<>(methodName, name), p -> {
+        final var result = resultCache.computeIfAbsent(new Pair<>(methodName, name), _ -> {
             final var allModules = new HashSet<>(Modules.getInstance(compilerContext).allModules());
             final var foundSymbols = allModules.stream()
                     .map(module -> nameToSymbol(module, name, clazz))
@@ -279,15 +280,21 @@ public class ElementsImpl implements Elements {
     public boolean overrides(final ExecutableElement overrider,
                              final ExecutableElement overridden,
                              final TypeElement type) {
+
+        return overrideChecker.overrides(overrider, overridden, type);
+
+        /*
         final var overriderSymbol = (MethodSymbol) overrider;
         final var overriddenSymbol = (MethodSymbol) overridden;
+
+        hier
 
         return overrider.getSimpleName().equals(overridden.getSimpleName())
                 && overrider != overridden
                 && !overrider.isStatic()
                 && overriddenSymbol.isMemberOf((ClassSymbol) type, types)
                 && overriderSymbol.overrides(overridden, type, types, false);
-
+*/
     }
 
     @Override

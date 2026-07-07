@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.ElementBuilders;
+import io.github.potjerodekool.nabu.compiler.resolve.method.impl.CompleteMethodResolver;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
@@ -62,7 +63,8 @@ public class CompilerContextImpl implements CompilerContext {
         fileManager.initialize(pluginRegistry);
 
         this.elements = new ElementsImpl(this);
-        this.methodResolver = new MethodResolverImpl(elements, getTypes());
+        //this.methodResolver = new MethodResolverImpl(elements, getTypes());
+        this.methodResolver = new CompleteMethodResolver(elements, types);
 
         this.argumentBoxer = new ArgumentBoxerImpl(this);
 

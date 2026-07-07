@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.plugin.jpa.testing;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.spi.SourceParser;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.TypeEnter;
-import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.lang.spi.SourceParser;
 import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;

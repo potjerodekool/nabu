@@ -373,14 +373,16 @@ public abstract class Symbol implements Element {
         if (this == base) {
             return true;
         } else if (base.hasFlag(Flags.INTERFACE)) {
-            for (var t = type; t.isDeclaredType(); types.supertype(t)) {
-                if (types.interfaces(t).stream()
+            for (var t = type; t.isDeclaredType(); t = (AbstractType) types.supertype(t)) {
+                final var interfaces = types.interfaces(t);
+
+                if (interfaces.stream()
                         .anyMatch(it -> ((Symbol) it.asElement()).isSubClass(base, types))) {
                     return true;
                 }
             }
         } else {
-            for (var t = type; t.isDeclaredType(); types.supertype(t)) {
+            for (var t = type; t.isDeclaredType(); t = (AbstractType) types.supertype(t)) {
                 if (t.asElement() == base) {
                     return true;
                 }

@@ -1,10 +1,10 @@
 package io.github.potjerodekool.lang.support.nabu;
 
-import io.github.potjerodekool.nabu.lang.Flags;
-import io.github.potjerodekool.nabu.lang.helper.MethodDeclarator;
-import io.github.potjerodekool.nabu.lang.helper.MethodHeader;
-import io.github.potjerodekool.nabu.lang.helper.WildcardBound;
-import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.helper.MethodDeclarator;
+import io.github.potjerodekool.nabu.compiler.lang.helper.MethodHeader;
+import io.github.potjerodekool.nabu.compiler.lang.helper.WildcardBound;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.TodoException;
@@ -13,18 +13,12 @@ import io.github.potjerodekool.nabu.tree.builder.CatchTreeBuilder;
 import io.github.potjerodekool.nabu.tree.element.*;
 import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
-import io.github.potjerodekool.nabu.tree.element.impl.*;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.builder.*;
-import io.github.potjerodekool.nabu.tree.expression.impl.*;
-import io.github.potjerodekool.nabu.tree.impl.*;
-import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
-import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
-import io.github.potjerodekool.nabu.tree.statement.StatementTree;
-import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
+import io.github.potjerodekool.nabu.tree.statement.*;
 import io.github.potjerodekool.nabu.tree.statement.builder.TryStatementTreeBuilder;
 import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
-import io.github.potjerodekool.nabu.tree.statement.impl.*;
+//import io.github.potjerodekool.nabu.tree.statement.impl.*;
 import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.util.CollectionUtils;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -36,9 +30,9 @@ import java.io.File;
 import java.util.*;
 import java.util.stream.Stream;
 
-import static io.github.potjerodekool.nabu.lang.helper.SourceVisitor.createFunction;
-import static io.github.potjerodekool.nabu.lang.helper.SourceVisitor.processImportExpression;
-import static io.github.potjerodekool.nabu.lang.helper.CompilerVisitorHelper.*;
+import static io.github.potjerodekool.nabu.compiler.lang.helper.CompilerVisitorHelper.*;
+import static io.github.potjerodekool.nabu.compiler.lang.helper.SourceVisitor.createFunction;
+import static io.github.potjerodekool.nabu.compiler.lang.helper.SourceVisitor.processImportExpression;
 
 public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
@@ -148,7 +142,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 ? ModuleDeclaration.ModuleKind.OPEN
                 : ModuleDeclaration.ModuleKind.STRONG;
 
-        return new CModuleDeclaration(
+        return ModuleDeclaration.create(
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine(),
                 kind,
@@ -172,7 +166,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                         .sum();
                 final var moduleName = (ExpressionTree) ctx.moduleName().getFirst().accept(this);
 
-                yield new CRequiresTree(
+                yield RequiresTree.create(
                         flags,
                         moduleName,
                         lineNumber,
@@ -185,7 +179,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                         .map(moduleName -> (ExpressionTree) moduleName.accept(this))
                         .toList();
 
-                yield new CExportsTree(
+                yield ExportsTree.create(
                         packageName,
                         moduleNames,
                         lineNumber,
@@ -198,7 +192,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                         .map(moduleName -> (ExpressionTree) moduleName.accept(this))
                         .toList();
 
-                yield new COpensTree(
+                yield OpensTree.create(
                         packageName,
                         moduleNames,
                         lineNumber,
@@ -208,7 +202,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             case USES -> {
                 final var typeName = (ExpressionTree) ctx.typeName().getFirst().accept(this);
 
-                yield new CUsesTree(
+                yield UsesTree.create(
                         typeName,
                         lineNumber,
                         columnNumber
@@ -220,14 +214,14 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                         .toList();
                 final var implementations = typeNames.subList(1, typeNames.size());
 
-                yield new CProvidesTree(
+                yield ProvidesTree.create(
                         typeNames.getFirst(),
                         implementations,
                         lineNumber,
                         columnNumber
                 );
             }
-            case null -> new CErrorTree(
+            case null -> ErrorTree.create(
                     lineNumber,
                     columnNumber
             );
@@ -885,17 +879,17 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final ExpressionTree newSelector;
 
             if (selector instanceof IdentifierTree identifierTree) {
-                newSelector = new CFieldAccessExpressionTree(
+                newSelector = FieldAccessExpressionTree.create(
                         first,
                         identifierTree
                 );
             } else {
-                final var fieldAccess = (CFieldAccessExpressionTree) selector;
+                final var fieldAccess = (FieldAccessExpressionTree) selector;
                 final var selected = fieldAccess.getSelected();
 
                 if (selected instanceof IdentifierTree identifierTree) {
-                    newSelector = new CFieldAccessExpressionTree(
-                            new CFieldAccessExpressionTree(
+                    newSelector = FieldAccessExpressionTree.create(
+                            FieldAccessExpressionTree.create(
                                     first,
                                     identifierTree
                             ),
@@ -904,7 +898,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 } else if (selected instanceof MethodInvocationTree subInvocation) {
                     var expr = combineExpressions(first, subInvocation);
                     final var field = fieldAccess.getField();
-                    newSelector = new CFieldAccessExpressionTree(
+                    newSelector = FieldAccessExpressionTree.create(
                             expr,
                             field
                     );
@@ -926,21 +920,21 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     private ExpressionTree createNewSelector(final ExpressionTree first,
                                              final ExpressionTree second) {
-        CFieldAccessExpressionTree result;
+        FieldAccessExpressionTree result;
 
         if (second instanceof IdentifierTree selectorIdentifier) {
-            result = new CFieldAccessExpressionTree(
+            result = FieldAccessExpressionTree.create(
                     first,
                     selectorIdentifier
             );
         } else if (second instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
             if (fieldAccessExpressionTree.getSelected() instanceof IdentifierTree identifierTree) {
-                result = new CFieldAccessExpressionTree(
+                result = FieldAccessExpressionTree.create(
                         first,
                         identifierTree
                 );
 
-                result = new CFieldAccessExpressionTree(
+                result = FieldAccessExpressionTree.create(
                         result,
                         fieldAccessExpressionTree.getField()
                 );
@@ -952,13 +946,13 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 ExpressionTree expression = first;
 
                 for (final var expressionTree : expressions) {
-                    expression = new CFieldAccessExpressionTree(
+                    expression = FieldAccessExpressionTree.create(
                             expression,
                             (IdentifierTree) expressionTree
                     );
                 }
 
-                result = (CFieldAccessExpressionTree) expression;
+                result = (FieldAccessExpressionTree) expression;
             }
         } else {
             final var expressions = new ArrayList<ExpressionTree>();
@@ -969,7 +963,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
             for (final var expression : expressions) {
                 if (newExpression != null) {
-                    newExpression = new CFieldAccessExpressionTree(
+                    newExpression = FieldAccessExpressionTree.create(
                             newExpression,
                             (IdentifierTree) expression
                     );
@@ -977,7 +971,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     newExpression = expression;
                 }
             }
-            result = (CFieldAccessExpressionTree) newExpression;
+            result = (FieldAccessExpressionTree) newExpression;
         }
 
         return result.builder()
@@ -1316,7 +1310,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .map(variableDeclarator -> {
                     final var type = variableDeclarator.getVariableType() != null
                             ? variableDeclarator.getVariableType()
-                            : new CVariableTypeTree(-1, -1);
+                            : VariableTypeTree.create(-1, -1);
 
                     return variableDeclarator.builder()
                             .kind(Kind.LOCAL_VARIABLE)
@@ -1976,7 +1970,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final ExpressionTree methodSelector =
                 target != null
-                        ? new CFieldAccessExpressionTree(target, methodName)
+                        ? FieldAccessExpressionTree.create(target, methodName)
                         : methodName;
 
         return TreeMaker.expressionStatement(
@@ -2418,7 +2412,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         for (final var child : ctx.children) {
             if (child instanceof TerminalNode terminalNode) {
                 if ("]".equals(terminalNode.getText())) {
-                    dimensions.add(new CDimension(annotations, -1, -1));
+                    dimensions.add(Dimension.create(annotations, -1, -1));
                     annotations = new ArrayList<>();
                 }
             } else {
@@ -2961,7 +2955,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     public Object visitLabeledStatement(final NabuParser.LabeledStatementContext ctx) {
         final var identifier = ((IdentifierTree) ctx.identifier().accept(this)).getName();
         final var statement = (StatementTree) ctx.statement().accept(this);
-        return new CLabeledStatement(
+        return LabeledStatement.create(
                 identifier,
                 statement,
                 ctx.getStart().getLine(),
@@ -2973,7 +2967,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     public Object visitLabeledStatementNoShortIf(final NabuParser.LabeledStatementNoShortIfContext ctx) {
         final var identifier = ((IdentifierTree) ctx.identifier().accept(this)).getName();
         final var statement = (StatementTree) ctx.statementNoShortIf().accept(this);
-        return new CLabeledStatement(
+        return LabeledStatement.create(
                 identifier,
                 statement,
                 ctx.getStart().getLine(),
@@ -2984,7 +2978,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitBreakStatement(final NabuParser.BreakStatementContext ctx) {
         final var target = (Tree) accept(ctx.identifier());
-        return new CBreakStatement(
+        return BreakStatement.create(
                 target,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
@@ -2994,7 +2988,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitContinueStatement(final NabuParser.ContinueStatementContext ctx) {
         final var identifier = (Tree) accept(ctx.identifier());
-        return new CContinueStatement(
+        return ContinueStatement.create(
                 identifier,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
@@ -3006,7 +3000,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var block = (BlockStatementTree) ctx.block().accept(this);
 
-        return new CSynchronizedStatement(
+        return SynchronizedStatement.create(
                 expression,
                 block,
                 ctx.getStart().getLine(),
@@ -3018,7 +3012,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     public Object visitIfThenStatement(final NabuParser.IfThenStatementContext ctx) {
         final var condition = (ExpressionTree) ctx.expression().accept(this);
         final var thenStatement = (StatementTree) ctx.statement().accept(this);
-        return new CIfStatementTree(
+        return IfStatementTree.create(
                 condition,
                 thenStatement,
                 null,
@@ -3044,7 +3038,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             if (fieldAccess == null) {
                 fieldAccess = result;
             } else {
-                fieldAccess = new CFieldAccessExpressionTree(
+                fieldAccess = FieldAccessExpressionTree.create(
                         fieldAccess,
                         (IdentifierTree) result,
                         fieldAccess.getLineNumber(),
@@ -3060,7 +3054,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     public Object visitThrowStatement(final NabuParser.ThrowStatementContext ctx) {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
 
-        return new CThrowStatement(
+        return ThrowStatement.create(
                 expression,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
@@ -3076,7 +3070,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var body = (BlockStatementTree) ctx.block().accept(this);
         final var finallyBlock = (BlockStatementTree) accept(ctx.finallyBlock());
         final List<CatchTree> catches = acceptList(ctx.catches());
-        return new CTryStatementTree(
+        return TryStatementTree.create(
                 body,
                 catches,
                 finallyBlock,
@@ -3096,7 +3090,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitYieldStatement(final NabuParser.YieldStatementContext ctx) {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
-        return new CYieldStatement(
+        return YieldStatement.create(
                 expression,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
@@ -3110,7 +3104,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 ? (ExpressionTree) ctx.expression(1).accept(this)
                 : null;
 
-        return new CAssertStatement(
+        return AssertStatement.create(
                 condition,
                 detail,
                 ctx.getStart().getLine(),
@@ -3123,7 +3117,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var selector = (ExpressionTree) ctx.expression().accept(this);
         final List<CaseStatement> cases = acceptList(ctx.switchBlock());
 
-        return new CSwitchStatement(
+        return SwitchStatement.create(
                 selector,
                 cases,
                 ctx.getStart().getLine(),
@@ -3162,7 +3156,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             throw new TodoException();
         }
 
-        return new CCaseStatement(
+        return CaseStatement.create(
                 CaseStatement.CaseKind.STATEMENT,
                 labels,
                 body,
@@ -3184,7 +3178,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             body = (Tree) ctx.throwStatement().accept(this);
         }
 
-        return new CCaseStatement(
+        return CaseStatement.create(
                 CaseStatement.CaseKind.RULE,
                 labels,
                 body,
@@ -3201,14 +3195,14 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             final List<Tree> constants = acceptList(ctx.caseConstant());
             return constants.stream()
                     .map(constant -> {
-                        if (constant instanceof CPattern pattern) {
-                            return new CPatternCaseLabel(
+                        if (constant instanceof Pattern pattern) {
+                            return PatternCaseLabel.create(
                                     pattern,
                                     pattern.getLineNumber(),
                                     pattern.getColumnNumber()
                             );
                         } else {
-                            return new CConstantCaseLabel(
+                            return ConstantCaseLabel.create(
                                     (ExpressionTree) constant,
                                     ctx.getStart().getLine(),
                                     ctx.getStart().getCharPositionInLine()
@@ -3217,7 +3211,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     })
                     .toList();
         } else {
-            return List.of(new CDefaultCaseLabel(
+            return List.of(DefaultCaseLabel.create(
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             ));
@@ -3237,7 +3231,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
             throw new TodoException();
         }
 
-        return new CNewArrayExpression(
+        return NewArrayExpression.create(
                 type,
                 dimensions,
                 null,
@@ -3299,7 +3293,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     @Override
     public Object visitTypePattern(final NabuParser.TypePatternContext ctx) {
         final var variableDeclarator = (VariableDeclaratorTree) ctx.localVariableDeclaration().accept(this);
-        return new CTypePattern(
+        return TypePattern.create(
                 variableDeclarator,
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
@@ -3470,7 +3464,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
         final var dims = (List<Dimension>) ctx.dims().accept(this);
 
-        return new CArrayTypeTree(
+        return ArrayTypeTree.create(
                 componentType,
                 dims,
                 ctx.getStart().getLine(),
@@ -3766,7 +3760,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 ? MemberReference.ReferenceKind.NEW
                 : MemberReference.ReferenceKind.INVOKE;
 
-        return new CMemberReference(
+        return MemberReference.create(
                 mode,
                 identifier,
                 typeArguments,

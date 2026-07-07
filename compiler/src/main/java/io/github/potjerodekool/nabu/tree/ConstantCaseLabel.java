@@ -14,4 +14,10 @@ import io.github.potjerodekool.nabu.tree.impl.CConstantCaseLabel;
  */
 public sealed interface ConstantCaseLabel extends CaseLabel permits CConstantCaseLabel {
     ExpressionTree getExpression();
+
+    static ConstantCaseLabel create(final ExpressionTree expression,
+                                    final int lineNumber,
+                                    final int columnNumber) {
+        return new CConstantCaseLabel(expression, lineNumber, columnNumber);
+    }
 }

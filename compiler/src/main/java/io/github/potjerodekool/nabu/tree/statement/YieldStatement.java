@@ -12,4 +12,10 @@ public sealed interface YieldStatement extends StatementTree permits CYieldState
      * @return Returns the yield expression.
      */
     ExpressionTree getExpression();
+
+    static YieldStatement create(final ExpressionTree expression,
+                                 final int lineNumber,
+                                 final int columnNumber) {
+        return new CYieldStatement(expression, lineNumber, columnNumber);
+    }
 }

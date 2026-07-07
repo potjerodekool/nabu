@@ -18,4 +18,10 @@ public sealed interface ProvidesTree extends DirectiveTree permits CProvidesTree
     ExpressionTree getServiceName();
 
     List<? extends ExpressionTree> getImplementationNames();
+
+    static ProvidesTree create(final ExpressionTree serviceName,
+                               final List<ExpressionTree> implementations,
+                               final int lineNumber, final int columnNumber) {
+        return new CProvidesTree(serviceName, implementations, lineNumber, columnNumber);
+    }
 }

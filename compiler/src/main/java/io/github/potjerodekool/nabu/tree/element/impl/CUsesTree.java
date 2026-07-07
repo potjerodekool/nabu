@@ -12,7 +12,8 @@ public final class CUsesTree extends CDirective implements UsesTree {
     private final ExpressionTree serviceName;
 
     public CUsesTree(final ExpressionTree serviceName,
-                     final int lineNumber, final int columnNumber) {
+                     final int lineNumber,
+                     final int columnNumber) {
         super(lineNumber, columnNumber);
         this.serviceName = serviceName;
     }

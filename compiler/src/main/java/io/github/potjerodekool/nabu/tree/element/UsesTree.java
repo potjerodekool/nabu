@@ -15,4 +15,9 @@ public sealed interface UsesTree extends DirectiveTree permits CUsesTree {
 
     ExpressionTree getServiceName();
 
+    static UsesTree create(final ExpressionTree serviceName,
+                           final int lineNumber,
+                           final int columnNumber) {
+        return new CUsesTree(serviceName, lineNumber, columnNumber);
+    }
 }

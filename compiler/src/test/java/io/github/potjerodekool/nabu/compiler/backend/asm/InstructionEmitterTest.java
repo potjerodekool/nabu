@@ -108,6 +108,31 @@ class InstructionEmitterTest extends BackendTest {
     }
 
     @Test
+    void test() {
+        final var elements = getCompilerContext().getElements();
+        final var abstractCollection = loadClass("java.util.AbstractCollection");
+        final var list = loadClass("java.util.List");
+
+        final var abstractCollectionSizeMethod = ElementFilter.methodsIn(abstractCollection.getEnclosedElements()).stream()
+                        .filter(it -> it.getSimpleName().equals("size"))
+                                .findFirst()
+                                        .orElse(null);
+
+        final var listSizeMethod = ElementFilter.methodsIn(list.getEnclosedElements()).stream()
+                .filter(it -> it.getSimpleName().equals("size"))
+                .findFirst()
+                .orElse(null);
+
+
+        elements.overrides(
+                abstractCollectionSizeMethod,
+                listSizeMethod,
+                abstractCollection
+        );
+
+    }
+
+    @Test
     void doWhileLoop() {
         CompilationUnit compilationUnit = parse(
                 """
@@ -423,42 +448,5 @@ class InstructionEmitterTest extends BackendTest {
         return ASMTestUtils.byteCodeToText(emitter.getBytecode());
     }
 
-    @Test
-    void t() {
-        final var arrayListClass = loadClass("java.util.ArrayList");
-        final var abstractCollectionClass = loadClass("java.util.AbstractCollection");
-        final var resolver = (MethodResolverImpl) getCompilerContext().getMethodResolver();
 
-        final var arrayListSizeMethod = ElementFilter.methodsIn(arrayListClass.getEnclosedElements()).stream()
-                .filter(it -> it.getSimpleName().equals("size"))
-                        .findFirst()
-                                .orElse(null);
-
-        final var abstractCollectionSizeMethod = ElementFilter.methodsIn(abstractCollectionClass.getEnclosedElements()).stream()
-                .filter(it -> it.getSimpleName().equals("size"))
-                .findFirst()
-                .orElse(null);
-
-        final var first = new ApplicableMethod(
-                (ExecutableType) arrayListSizeMethod.asType(),
-                0,
-                0
-        );
-
-        final var overrites = resolver.overwrites(
-                new ApplicableMethod(
-                        (ExecutableType) arrayListSizeMethod.asType(),
-                        0,
-                        0
-                ),
-                List.of(first, new ApplicableMethod(
-                        (ExecutableType) abstractCollectionSizeMethod.asType(),
-                        0,
-                        0
-                ))
-        );
-
-        System.out.println(overrites);
-
-    }
 }

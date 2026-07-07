@@ -600,10 +600,16 @@ public class TypesImpl implements Types {
 
     @Override
     public TypeMirror supertype(final TypeMirror type) {
+        TypeMirror superType = null;
         if (type instanceof DeclaredType declaredType) {
-            return declaredType.asTypeElement().getSuperclass();
+            superType = declaredType.asTypeElement().getSuperclass();
         }
-        return null;
+
+        if (superType == null) {
+            return getNoType(TypeKind.NONE);
+        }
+
+        return superType;
     }
 
     private PackageSymbol createPackageElement(final String packageName) {

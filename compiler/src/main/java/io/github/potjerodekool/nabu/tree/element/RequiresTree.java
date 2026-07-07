@@ -17,4 +17,11 @@ public sealed interface RequiresTree extends DirectiveTree permits CRequiresTree
 
     ExpressionTree getModuleName();
 
+    static RequiresTree create(final long flags,
+                               final ExpressionTree moduleName,
+                               final int lineNumber,
+                               final int columnNumber) {
+        return new CRequiresTree(flags, moduleName, lineNumber, columnNumber);
+    }
+
 }

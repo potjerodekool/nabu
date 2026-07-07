@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.tree.statement;
 
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
+import io.github.potjerodekool.nabu.tree.statement.impl.CAssertStatement;
 
 /**
  * Assert statement.
@@ -19,4 +20,10 @@ public interface AssertStatement extends StatementTree {
      */
     ExpressionTree getDetail();
 
+    static AssertStatement create(final ExpressionTree condition,
+                                   final ExpressionTree detail,
+                                   final int lineNumber,
+                                   final int columnNumber) {
+        return new CAssertStatement(condition, detail, lineNumber, columnNumber);
+    }
 }

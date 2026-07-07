@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.tree.statement;
 
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.builder.SwitchStatementBuilder;
+import io.github.potjerodekool.nabu.tree.statement.impl.CSwitchStatement;
 
 import java.util.List;
 
@@ -24,4 +25,11 @@ public interface SwitchStatement extends StatementTree {
      * See {@link StatementTree#builder()}
      */
     SwitchStatementBuilder builder();
+
+    static SwitchStatement create(final ExpressionTree selector,
+                                  final List<CaseStatement> cases,
+                                  final int lineNumber,
+                                  final int columnNumber) {
+        return new CSwitchStatement(selector, cases, lineNumber, columnNumber);
+    }
 }

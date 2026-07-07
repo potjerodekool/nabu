@@ -9,4 +9,10 @@ import io.github.potjerodekool.nabu.tree.impl.CPatternCaseLabel;
  */
 public sealed interface PatternCaseLabel extends CaseLabel permits CPatternCaseLabel {
     Pattern getPattern();
+
+    static PatternCaseLabel create(final Pattern pattern,
+                                   final int lineNumber,
+                                   final int columnNumber) {
+        return new CPatternCaseLabel(pattern, lineNumber, columnNumber);
+    }
 }

@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.daemon;
 
-import com.fasterxml.jackson.core.io.DataOutputAsStream;
 import io.github.potjerodekool.nabu.compiler.NabuCompiler;
 import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;

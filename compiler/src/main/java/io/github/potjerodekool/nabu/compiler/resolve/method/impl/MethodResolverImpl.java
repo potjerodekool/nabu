@@ -537,8 +537,6 @@ public class MethodResolverImpl implements MethodResolver {
             var searchType = (DeclaredType) scope.getCurrentClass().asType();
             final var methodName = identifierTree.getName();
 
-            logger.log(LogLevel.INFO, "1 Resolving " + methodName);
-
             final boolean isConstructorCall;
 
             if (Constants.THIS.equals(methodName)) {
@@ -571,7 +569,6 @@ public class MethodResolverImpl implements MethodResolver {
         } else if (selector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
             var searchType = getTypeOf(fieldAccessExpressionTree.getSelected());
             final var methodName = fieldAccessExpressionTree.getField().getName();
-            logger.log(LogLevel.INFO, "2 Resolving " + methodName);
             final boolean isConstructorCall;
 
             if (Constants.SUPER.equals(methodName)) {

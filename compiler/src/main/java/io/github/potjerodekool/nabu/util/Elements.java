@@ -199,7 +199,7 @@ public interface Elements {
     /**
      * @param overrider An element.
      * @param overridden Another element.
-     * @param type A type element.
+     * @param type The class or interface of which the first method is a member.
      * @return Returns true if the overrider element overrides the overridden element in the given type.
      */
     boolean overrides(ExecutableElement overrider,

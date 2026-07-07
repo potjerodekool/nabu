@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
-import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.*;
 import io.github.potjerodekool.nabu.tools.CompilerContext;

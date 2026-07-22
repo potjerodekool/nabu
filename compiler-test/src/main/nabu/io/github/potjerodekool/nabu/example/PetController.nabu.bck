@@ -1,0 +1,131 @@
+package io.github.potjerodekool.nabu.example;
+
+import io.github.potjerodekool.PetDto;
+import io.github.potjerodekool.CategoryDto;
+import io.github.potjerodekool.TagDto;
+import io.github.potjerodekool.nabu.example.PetRepository;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+import java.util.ArrayList;
+import java.util.UUID;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.HashMap;
+
+@RestController
+@RequestMapping(value = {"/v1/pets"})
+public class PetController {
+
+    private pets : List<PetDto> = new ArrayList<PetDto>();
+
+        private petRepository : PetRepository;
+
+        private tagRepository: TagRepository;
+
+        public PetController(final petRepository : PetRepository) {
+            this.petRepository = petRepository;
+
+            final var tweety : Pet = new Pet();
+            tweety.setName("Tweety");
+            this.petRepository.save(tweety);
+
+            final var bird = new PetDto();
+            bird.setId(UUID.randomUUID());
+            bird.setName("Tweety");
+            pets.add(bird);
+
+            final var cat = new PetDto();
+            cat.setId(UUID.randomUUID());
+            cat.setName("Sylvester J. Pussycat Sr.");
+            pets.add(cat);
+        }
+
+        @GetMapping
+        public fun getPets(): List<PetDto> {
+            final var result = this.petRepository.findAll();
+            final var resultList = new ArrayList<PetDto>();
+
+            for (var i = 0; i < result.size(); i++) {
+                final var pet : Pet = result.get(i);
+                final var petDto = this.mapToDto(pet);
+                resultList.add(petDto);
+            }
+
+            return resultList;
+        }
+
+        private fun mapToDto(pet: Pet): PetDto {
+            final var id : UUID = pet.getId();
+            final var category: String = pet.getCategory();
+            final var name : String = pet.getName();
+
+            final var tags = new ArrayList<Tag>();
+
+            final var petDto = new PetDto();
+            petDto.setId(id);
+            petDto.setName(name);
+            return petDto;
+        }
+
+        @GetMapping(value="{id}")
+        public fun getPetById(@PathVariable id: UUID): PetDto {
+            final var petOptional : Optional<Pet> = this.petRepository.findById(id);
+
+            if (petOptional.isPresent()) {
+                final var result = new PetDto();
+                return result;
+            }
+            final var result = new PetDto();
+            return result;
+        }
+
+        @PostMapping
+        public fun createPet(@RequestBody final dto: PetDto) : void {
+        }
+
+        @GetMapping(value = {"/findByStatus"})
+        public fun findByStatus(@RequestParam(value = "status") status: List<String>): List<PetDto> {
+            return List.of();
+        }
+
+        private fun doUpdatePet(final dto: PetDto,
+                                final pet: Pet): void {
+        pet.setName(dto.getName());
+        final var tagDtos = dto.getTags();
+        final var tagIds = new HashSet<UUID>();
+
+        final var tags = this.tagRepository.findAllById(tagIds).stream()
+            .collect(Collectors.toSet());
+        pet.setTags(tags);
+    }
+
+    public fun updateThePet(final dto: PetDto): void {
+
+    }
+
+    public fun uploadImage(final id: UUID,
+                           final image: MultipartFile): void {
+        final var bytes = image.getBytes();
+        this.storeImage(bytes);
+    }
+
+    private fun storeImage(final data: byte[]): void {
+    }
+
+    private fun count(): void {
+        final var pet = new Pet();
+        final var map : Map<String, Integer> = new HashMap<String, Integer>();
+        final var status : String = pet.getStatus().name();
+        final var count = map.getOrDefault(status, 0) + 1;
+        map.put(status, count);
+    }
+}

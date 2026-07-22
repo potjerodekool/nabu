@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Potje rodekool - Nabu - Introduction</title>
+        <link rel="stylesheet" href="/nabu/style.css">
+    </head>
+    <body>
+        <div class="top"><h1><a href="https://potjerodekool.github.io">Potje rodekool</a></h1></div>
+        <div class="container">
+    <nav>
+        <ul>
+            <li><a href="/nabu/index.html">Introduction</a></li>
+            <li><a href="/nabu/compiler-plugin/index.html">Compiler plugins</a></li>
+            <li><a href="/nabu/language-support/index.html">Language support</a></li>
+            <li><a href="/nabu/dsl-support/index.html">DSL support</a></li>
+            <li><a href="/nabu/language/nabu/index.html">Nabu language</a></li>
+            <li><a href="/nabu/compiler-design/index.html">Compiler design</a></li>
+            <li><a href="/nabu/testing/index.html">Testing the compiler</a></li>
+            <li><a href="/nabu/api/compiler">Compiler Api docs</a></li>
+            <li><a href="/nabu/api/compiler-api">Compiler-api Api docs</a></li>
+        </ul>
+    </nav>
+    <main>
+        <h1>Introduction</h1>
+
+The Nabu compiler is a polyglot compiler for compiling source code into Java bytecode
+so it can be executed on the Java Virtual Machine (JVM).<br/>
+Writing and maintaining a compiler takes a lot of time and understanding.<br/>
+<br/>
+The goal of the Nabu compiler is to make this easier, and you don't have to start from scratch.<br/>
+Just provide a language parser which parses the source code and build an AST and the compiler will do the rest.<br/>
+<br/>
+The compiler is extendable via plugins.
+Compiler plugins can provide extensions for things like parsing source code to support programming languages<br/>
+so the compiler can compile source code or provide interoperability.<br/>
+<br/>
+The compiler supports Java interoperability out of the box.<br/>
+<br/>
+The compiler supports the Nabu programming language out of the box<br/>
+which can call/use Java.<br/>
+<br/>
+<br/>
+Demo application: <a href="https://github.com/potjerodekool/nabu-petstore">Nabu petstore</a>
+    </main>
+</div>
+    </body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Potje rodekool - Nabu language - Generics</title>
+        <link rel="stylesheet" href="/nabu/style.css">
+    </head>
+    <body>
+        <div class="top"><h1><a href="https://potjerodekool.github.io">Potje rodekool</a></h1></div>
+        <div class="container">
+    <nav>
+        <ul>
+            <li><a href="/nabu/index.html">Introduction</a></li>
+            <li><a href="/nabu/compiler-plugin/index.html">Compiler plugins</a></li>
+            <li><a href="/nabu/language-support/index.html">Language support</a></li>
+            <li><a href="/nabu/dsl-support/index.html">DSL support</a></li>
+            <li><a href="/nabu/language/nabu/index.html">Nabu language</a></li>
+            <li><a href="/nabu/compiler-design/index.html">Compiler design</a></li>
+            <li><a href="/nabu/testing/index.html">Testing the compiler</a></li>
+            <li><a href="/nabu/api/compiler">Compiler Api docs</a></li>
+            <li><a href="/nabu/api/compiler-api">Compiler-api Api docs</a></li>
+        </ul>
+    </nav>
+    <main>
+        <div class="container">
+    <nav>
+        <ul>
+            <li><a href="/nabu/docs/language/nabu/classes.html">Classes</a></li>
+            <li><a href="/nabu/docs/language/nabu/fields.html">Fields</a></li>
+            <li><a href="/nabu/docs/language/nabu/annotations.html">Annotations</a></li>
+            <li><a href="/nabu/docs/language/nabu/lambda-expressions.html">Lambda expressions</a></li>
+            <li><a href="/nabu/docs/language/nabu/generics.html">Generics</a></li>
+            <li><a href="/nabu/docs/language/nabu/exceptions.html">Exceptions</a></li>
+        </ul>
+    </nav>
+    <main>
+        <pre class="code">
+    <span class="keyword">public</span> <span class="keyword">class</span> Box&lt;T&gt; {
+
+    <span class="keyword">private</span> <span class="keyword">final</span> value: T;
+
+        <span class="keyword">public</span> Box(value: T) {
+            <span class="keyword">this</span>.value = value;
+        }
+
+        <span class="keyword">public</span> <span class="keyword">fun</span> getValue(): T {
+            <span class="keyword">return</span> value;
+        }
+    }
+</pre>
+    </main>
+</div>
+    </main>
+</div>
+    </body>
+</html>

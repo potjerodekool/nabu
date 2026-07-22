@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Potje rodekool - Nabu - Compiler design</title>
+        <link rel="stylesheet" href="/nabu/style.css">
+    </head>
+    <body>
+        <div class="top"><h1><a href="https://potjerodekool.github.io">Potje rodekool</a></h1></div>
+        <div class="container">
+    <nav>
+        <ul>
+            <li><a href="/nabu/index.html">Introduction</a></li>
+            <li><a href="/nabu/compiler-plugin/index.html">Compiler plugins</a></li>
+            <li><a href="/nabu/language-support/index.html">Language support</a></li>
+            <li><a href="/nabu/dsl-support/index.html">DSL support</a></li>
+            <li><a href="/nabu/language/nabu/index.html">Nabu language</a></li>
+            <li><a href="/nabu/compiler-design/index.html">Compiler design</a></li>
+            <li><a href="/nabu/testing/index.html">Testing the compiler</a></li>
+            <li><a href="/nabu/api/compiler">Compiler Api docs</a></li>
+            <li><a href="/nabu/api/compiler-api">Compiler-api Api docs</a></li>
+        </ul>
+    </nav>
+    <main>
+        <h1>Compiler design</h1>
+
+<h2>Compiler phases</h2>
+
+<img src="compiler-phases.png" alt="compiler phases"/>
+
+<h3>Parse phase</h3>
+Parse source files.
+
+<h3>Enter phase</h3>
+Enter the compilation units and add the classes to the symbol table
+so they can be resolved later if they are referenced by other classes.
+
+<h3>Resolve phase</h3>
+Resolve classes, methods, fields, etc.
+
+<h3>Transform phase</h3>
+Run the transformers (io.github.potjerodekool.nabu.compiler.transform.CodeTransformer)
+which are present on the classpath of the compiler.
+
+<h3>Check phase</h3>
+Check the compilation units for unresolved symbols(methods, fields, etc.) and types.
+
+<h3>Lambda phase</h3>
+Create methods for the lambda expressions
+
+<h3>Lower phase</h3>
+Add additional code like:
+
+<ul>
+    <li>Generate code to init fields (both in constructor and client init)</li>
+    <li>Generate code for enum and record classes</li>
+    <li>Add boxing and unboxing code</li>
+    <li>Add code to enhanced for statements</li>
+</ul>
+
+<h3>IR phase</h3>
+
+Create intermediate representations.
+
+<h3>Bytecode phase</h3>
+
+Generate bytecode for the JVM.
+    </main>
+</div>
+    </body>
+</html>

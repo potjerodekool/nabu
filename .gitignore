@@ -40,3 +40,5 @@ build/
 /compiler/src/main/antlr4/gen/
 /.idea/
 /compiler/gen/
+/nabu-lang/gen/
+/nabu-lang/src/main/antlr4/nabu/gen/

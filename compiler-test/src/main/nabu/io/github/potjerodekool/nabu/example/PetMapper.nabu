@@ -1,0 +1,22 @@
+package io.github.potjerodekool.nabu.example;
+
+import org.mapstruct.Mapper;
+import io.github.potjerodekool.PetDto;
+import io.github.potjerodekool.CategoryDto;
+
+@Mapper
+public abstract class PetMapper {
+
+    abstract fun toDto(pet : Pet): PetDto;
+
+    protected fun map(category : Category): CategoryDto  {
+        if (category == null) {
+            return null;
+        } else {
+            final var dto = new CategoryDto();
+            dto.setId(category.getId());
+            dto.setName(category.getName());
+            return dto;
+        }
+    }
+}

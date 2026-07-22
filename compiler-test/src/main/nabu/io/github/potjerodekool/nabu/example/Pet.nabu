@@ -1,0 +1,60 @@
+package io.github.potjerodekool.nabu.example;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import java.util.UUID;
+import java.util.Set;
+
+@Entity
+public class Pet {
+    @Id
+    @GeneratedValue
+    private id : UUID;
+
+    private name : String;
+
+    private status : Status;
+
+    private category : Category;
+
+    private tags: java.util.Set<Tag>;
+
+    public fun getId(): UUID {
+        return this.id;
+    }
+
+    public fun setId(id: UUID): void {
+        this.id = id;
+    }
+
+    public fun getName(): String {
+        return this.name;
+    }
+
+    public fun setName(name: String): void {
+        this.name = name;
+    }
+
+    public fun getCategory() : Category {
+        return this.category;
+    }
+
+    public fun setCategory(category: Category): void {
+        this.category = category;
+    }
+
+    public fun getTags(): Set<Tag> {
+        return this.tags;
+    }
+
+    public fun setTags(final tags: Set<Tag>): void {
+        this.tags = tags;
+    }
+
+    public fun getStatus(): Status  {
+        return this.status;
+    }
+
+}

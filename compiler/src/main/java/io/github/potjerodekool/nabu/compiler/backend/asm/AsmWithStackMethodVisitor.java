@@ -204,6 +204,13 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
                  Opcodes.ATHROW -> {
                 //Do nothing
             }
+            case Opcodes.IAND -> pop();
+            case Opcodes.LAND -> pop();
+            case Opcodes.FADD -> pop();
+            case Opcodes.IOR -> pop();
+            case Opcodes.LOR -> pop();
+            case Opcodes.IXOR -> pop();
+            case Opcodes.LXOR -> pop();
             case Opcodes.IALOAD -> push(Type.INT_TYPE);
             case Opcodes.LALOAD -> push(Type.LONG_TYPE);
             case Opcodes.FALOAD -> push(Type.FLOAT_TYPE);
@@ -214,10 +221,7 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
             case Opcodes.DUP -> push(peek());
             case Opcodes.AASTORE -> pop(3);
             case Opcodes.IFNONNULL -> push(Type.BOOLEAN_TYPE);
-            case Opcodes.POP -> pop();
-            case Opcodes.ISUB -> {
-                pop();
-            }
+            case Opcodes.POP, Opcodes.ISUB -> pop();
             default -> throw new TodoException("" + opcode);
         }
     }

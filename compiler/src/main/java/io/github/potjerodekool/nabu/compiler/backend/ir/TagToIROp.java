@@ -42,6 +42,10 @@ public final class TagToIROp {
             case AND -> Op.AND;
             case OR  -> Op.OR;
 
+            case BITAND -> Op.BITAND;
+            case BITOR -> Op.BITOR;
+            case BITXOR -> Op.BITXOR;
+
             // Compound assignments en unaire operators worden
             // door de visitor uitgevouwen, niet hier gemapt
             case ASSIGN,

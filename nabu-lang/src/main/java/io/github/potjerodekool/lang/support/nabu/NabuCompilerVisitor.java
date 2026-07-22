@@ -18,7 +18,6 @@ import io.github.potjerodekool.nabu.tree.expression.builder.*;
 import io.github.potjerodekool.nabu.tree.statement.*;
 import io.github.potjerodekool.nabu.tree.statement.builder.TryStatementTreeBuilder;
 import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
-//import io.github.potjerodekool.nabu.tree.statement.impl.*;
 import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.util.CollectionUtils;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -292,6 +291,19 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitImportDeclaration(final NabuParser.ImportDeclarationContext ctx) {
+        if (ctx.singleTypeImportDeclaration() != null) {
+            return ctx.singleTypeImportDeclaration().accept(this);
+        } else if (ctx.typeImportOnDemandDeclaration() != null) {
+            return ctx.typeImportOnDemandDeclaration().accept(this);
+        } else if (ctx.singleStaticImportDeclaration() != null) {
+            return ctx.singleStaticImportDeclaration().accept(this);
+        } else {
+            return ctx.staticImportOnDemandDeclaration().accept(this);
+        }
+    }
+
+    @Override
     public Tree visitSingleTypeImportDeclaration(final NabuParser.SingleTypeImportDeclarationContext ctx) {
         final var qualified = processImportExpression((ExpressionTree) ctx.typeName().accept(this));
         return TreeMaker.importItem(
@@ -549,6 +561,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
+    }
+
+    @Override
+    public Object visitLambdaBody(final NabuParser.LambdaBodyContext ctx) {
+        if (ctx.expression() != null) {
+            return ctx.expression().accept(this);
+        } else {
+            return ctx.block().accept(this);
+        }
     }
 
     @Override
@@ -2771,6 +2792,20 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     .variableType(type)
                     .name(identifier)
                     .build();
+        }
+    }
+
+    @Override
+    public Object visitRecordComponentModifier(final NabuParser.RecordComponentModifierContext ctx) {
+        return ctx.annotation().accept(this);
+    }
+
+    @Override
+    public Object visitRecordBodyDeclaration(final NabuParser.RecordBodyDeclarationContext ctx) {
+        if (ctx.classBodyDeclaration() != null) {
+            return ctx.classBodyDeclaration().accept(this);
+        } else {
+            return ctx.compactConstructorDeclaration().accept(this);
         }
     }
 

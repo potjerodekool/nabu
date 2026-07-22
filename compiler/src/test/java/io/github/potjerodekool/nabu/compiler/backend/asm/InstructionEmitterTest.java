@@ -27,6 +27,7 @@ import java.util.List;
 
 import static io.github.potjerodekool.nabu.compiler.backend.lower.Lower.lower;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InstructionEmitterTest extends BackendTest {
 
@@ -319,6 +320,140 @@ class InstructionEmitterTest extends BackendTest {
         final var expected = loadResource("InstructionEmitterTest/ifStatementWithNull.txt");
 
         assertEquals(expected, actual);
+    }
+
+    @Test
+    void floatAdd() {
+        final var fileObject = new InMemoryFileObject("", "Myclass.java");
+        CompilationUnit compilationUnit = parse(
+                fileObject,
+                """
+                        public class MyClass {
+                            float add(float a, float b) {
+                                return a + b;
+                            }
+                        }
+                        """,
+                Java20Parser::compilationUnit
+        );
+        compilationUnit = process(compilationUnit);
+        final var actual = compile(compilationUnit);
+        assertTrue(actual.contains("FADD"));
+    }
+
+    @Test
+    void floatReturnType() {
+        final var fileObject = new InMemoryFileObject("", "Myclass.java");
+        CompilationUnit compilationUnit = parse(
+                fileObject,
+                """
+                        public class MyClass {
+                            float getFloat() {
+                                return 1.0f;
+                            }
+                        }
+                        """,
+                Java20Parser::compilationUnit
+        );
+        compilationUnit = process(compilationUnit);
+        final var actual = compile(compilationUnit);
+        assertTrue(actual.contains("FRETURN"));
+    }
+
+    @Test
+    void intBitwiseAnd() {
+        final var fileObject = new InMemoryFileObject("", "Myclass.java");
+        CompilationUnit compilationUnit = parse(
+                fileObject,
+                """
+                        public class MyClass {
+                            int bitwiseAnd(int a, int b) {
+                                return a & b;
+                            }
+                        }
+                        """,
+                Java20Parser::compilationUnit
+        );
+        compilationUnit = process(compilationUnit);
+        final var actual = compile(compilationUnit);
+        assertTrue(actual.contains("IAND"));
+    }
+
+    @Test
+    void intBitwiseOr() {
+        final var fileObject = new InMemoryFileObject("", "Myclass.java");
+        CompilationUnit compilationUnit = parse(
+                fileObject,
+                """
+                        public class MyClass {
+                            int bitwiseOr(int a, int b) {
+                                return a | b;
+                            }
+                        }
+                        """,
+                Java20Parser::compilationUnit
+        );
+        compilationUnit = process(compilationUnit);
+        final var actual = compile(compilationUnit);
+        assertTrue(actual.contains("IOR"));
+    }
+
+    @Test
+    void intBitwiseXor() {
+        final var fileObject = new InMemoryFileObject("", "Myclass.java");
+        CompilationUnit compilationUnit = parse(
+                fileObject,
+                """
+                        public class MyClass {
+                            int bitwiseXor(int a, int b) {
+                                return a ^ b;
+                            }
+                        }
+                        """,
+                Java20Parser::compilationUnit
+        );
+        compilationUnit = process(compilationUnit);
+        final var actual = compile(compilationUnit);
+        assertTrue(actual.contains("IXOR"));
+    }
+
+    @Test
+    void longBitwiseAnd() {
+        final var fileObject = new InMemoryFileObject("", "Myclass.java");
+        CompilationUnit compilationUnit = parse(
+                fileObject,
+                """
+                        public class MyClass {
+                            long bitwiseAnd(long a, long b) {
+                                return a & b;
+                            }
+                        }
+                        """,
+                Java20Parser::compilationUnit
+        );
+        compilationUnit = process(compilationUnit);
+        final var actual = compile(compilationUnit);
+        assertTrue(actual.contains("LAND"));
+    }
+
+    @Disabled
+    @Test
+    void objectEquality() {
+        final var fileObject = new InMemoryFileObject("", "Myclass.java");
+        CompilationUnit compilationUnit = parse(
+                fileObject,
+                """
+                        public class MyClass {
+                            boolean isSame(java.lang.Integer a, java.lang.Integer b) {
+                                return a == b;
+                            }
+                        }
+                        """,
+                Java20Parser::compilationUnit
+        );
+        compilationUnit = process(compilationUnit);
+        final var actual = compile(compilationUnit);
+        assertTrue(actual.contains("IF_ACMPEQ"));
     }
 
     @Test

@@ -41,6 +41,8 @@ public class Flags {
     public static final long AUTOMATIC_MODULE = 1 << 26;
     public static final long TRANSITIVE = 1 << 27;
     public static final long COMPACT_RECORD_CONSTRUCTOR = 1 << 28;
+    public static final long SEALED = 1 << 29;
+    public static final long NONSEALED = 1 << 30;
 
     private Flags() {
     }

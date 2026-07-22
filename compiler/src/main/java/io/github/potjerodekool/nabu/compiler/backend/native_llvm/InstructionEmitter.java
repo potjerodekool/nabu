@@ -101,6 +101,7 @@ public class InstructionEmitter {
             case LTE -> LLVMBuildICmp(builder, LLVMIntSLE, left, right, name);
             case GT  -> LLVMBuildICmp(builder, LLVMIntSGT, left, right, name);
             case GTE -> LLVMBuildICmp(builder, LLVMIntSGE, left, right, name);
+            default -> throw new UnsupportedOperationException();
         };
         storeLocal(op.result(), result);
     }

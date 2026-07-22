@@ -41,7 +41,6 @@ public class ExtensionManager {
         if (this.symbolResolvers.isEmpty()) {
             this.symbolResolvers.addAll(
                     this.pluginRegistry.createExtensions(
-                            true,
                             "element-resolver",
                             ElementResolver.class,
                             compilerContext
@@ -65,7 +64,6 @@ public class ExtensionManager {
 
     public List<CodeTransformer> getCodeTransformers() {
         return this.pluginRegistry.createExtensions(
-                true,
                 "code-transformer",
                 CodeTransformer.class,
                 compilerContext

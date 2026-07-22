@@ -39,6 +39,7 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
         public enum Op {
             ADD, SUB, MUL, DIV, MOD,
             AND, OR, XOR,
+            BITAND, BITOR, BITXOR,
             EQ, NEQ, LT, LTE, GT, GTE
         }
     }

@@ -1542,17 +1542,17 @@ equalityExpression
 
 andExpression
     : equalityExpression
-    | andExpression '&' equalityExpression
+    | andExpression oper='&' equalityExpression
     ;
 
 exclusiveOrExpression
     : andExpression
-    | exclusiveOrExpression '^' andExpression
+    | exclusiveOrExpression oper='^' andExpression
     ;
 
 inclusiveOrExpression
     : exclusiveOrExpression
-    | inclusiveOrExpression '|' exclusiveOrExpression
+    | inclusiveOrExpression oper='|' exclusiveOrExpression
     ;
 
 // Paragraph 15.23

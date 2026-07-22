@@ -121,8 +121,7 @@ public class PluginRegistry {
         return this.extensionManager.getExtensions(name);
     }
 
-    public <T> List<T> createExtensions(final boolean createSingleton,
-                                        final String name,
+    public <T> List<T> createExtensions(final String name,
                                         final Class<T> extensionClass,
                                         final CompilerContext compilerContext) {
         final var extensions = this.extensionManager.getExtensions(name);
@@ -135,7 +134,6 @@ public class PluginRegistry {
                         createExtension(
                                 extension,
                                 extensionClass,
-                                createSingleton,
                                 compilerContext
                         )
                 )
@@ -144,7 +142,6 @@ public class PluginRegistry {
 
     public <T> T createExtension(final PluginExtension extension,
                                  final Class<T> extensionClass,
-                                 final boolean createSingleton,
                                  final CompilerContext compilerContext) {
         final var singleton = extension.getSingleton();
 
@@ -176,9 +173,7 @@ public class PluginRegistry {
                 }
             }
 
-            if (createSingleton) {
-                extension.setSingleton(instance);
-            }
+            extension.setSingleton(instance);
             return instance;
         } catch (Exception e) {
             throw new RuntimeException("Failed to create extension " + extensionClass.getName() + " with implementation class " + implementationClass, e);

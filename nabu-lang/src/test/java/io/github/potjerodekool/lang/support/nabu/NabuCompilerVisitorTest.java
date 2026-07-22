@@ -501,6 +501,30 @@ class NabuCompilerVisitorTest {
     }
 
     @Test
+    void lambdaBody() {
+        parseAndAssert("x + 1", NabuParser::lambdaBody);
+        parseAndAssert("""
+               {
+                   return x + 1;
+               }
+               """, NabuParser::lambdaBody);
+    }
+
+    @Test
+    void recordBodyDeclaration() {
+        parseAndAssert("""
+                fun nameLength(): int {
+                    return name.length();
+                }
+                """, NabuParser::recordBodyDeclaration);
+    }
+
+    @Test
+    void recordComponentModifier() {
+        parseAndAssert("@Deprecated", NabuParser::recordComponentModifier);
+    }
+
+    @Test
     void interfaceFunctionDeclaration() {
         parseAndAssert("""
                         abstract fun getAnnotationMirrors(): List<? extends AnnotationMirror> ;""",
@@ -564,11 +588,4 @@ class NabuCompilerVisitorTest {
                 MyClass.super::<String>test""", NabuParser::functionReference);
     }
 
-}
-
-class MyClass {
-
-    static boolean test(final String s) {
-        return true;
-    }
 }

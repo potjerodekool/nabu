@@ -43,7 +43,6 @@ public class LanguageParserManager {
                 final var languageParser = pluginRegistry.createExtension(
                         extension,
                         LanguageParser.class,
-                        true,
                         compilerContext
                 );
                 final var sourceKind = languageParser.getSourceKind();

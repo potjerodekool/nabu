@@ -32,7 +32,6 @@ public class LanguageSupportManager {
                 final var languageSupporter = pluginRegistry.createExtension(
                         extension,
                         LanguageSupport.class,
-                        true,
                         compilerContext
                 );
 

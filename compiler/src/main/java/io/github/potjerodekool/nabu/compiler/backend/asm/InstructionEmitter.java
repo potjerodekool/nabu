@@ -81,7 +81,7 @@ public class InstructionEmitter {
             case IRInstruction.Branch branchInst -> emitBranch(branchInst);
             case IRInstruction.Cast cast -> emitCast(cast);
             case IRInstruction.CondBranch condBranch -> emitCondBranch(condBranch);
-            case IRInstruction.IndirectCall ignored -> throw new TodoException("" + instr);
+            case IRInstruction.IndirectCall indirectCall -> emitIndirectCall(indirectCall);
             case IRInstruction.InstanceOf instanceOf -> emitInstanceOf(instanceOf);
             case IRInstruction.Throw throwInst -> emitThrow(throwInst);
             case IRInstruction.Pop ignored -> emitPop();
@@ -145,6 +145,30 @@ public class InstructionEmitter {
                 }
                 case MOD -> {
                     final var opcode = resolveModOpcode(binaryOp.left());
+                    mv.visitInsn(opcode);
+                }
+                case AND -> {
+                    final var opcode = resolveAndOpcode(binaryOp.left());
+                    mv.visitInsn(opcode);
+                }
+                case OR -> {
+                    final var opcode = resolveOrOpcode(binaryOp.left());
+                    mv.visitInsn(opcode);
+                }
+                case BITAND -> {
+                    final var opcode = resolveBitAddOpcode(binaryOp.left());
+                    mv.visitInsn(opcode);
+                }
+                case BITOR -> {
+                    final var opcode = resolveBitOrOpcode(binaryOp.left());
+                    mv.visitInsn(opcode);
+                }
+                case BITXOR -> {
+                    final var opcode = resolveBitXOrOpcode(binaryOp.left());
+                    mv.visitInsn(opcode);
+                }
+                case XOR -> {
+                    final var opcode = resolveXorOpcode(binaryOp.left());
                     mv.visitInsn(opcode);
                 }
                 default -> lastBinOp = binaryOp;
@@ -253,17 +277,17 @@ public class InstructionEmitter {
                     if (isNullConst(lastBinOp.right())) {
                         return Opcodes.IFNULL;
                     } else {
-                        throw new TodoException();
+                        return Opcodes.IF_ACMPEQ;
                     }
                 }
                 case NEQ -> {
                     if (isNullConst(lastBinOp.right())) {
                         return Opcodes.IFNONNULL;
                     } else {
-                        throw new TodoException();
+                        return Opcodes.IF_ACMPNE;
                     }
                 }
-                default -> throw new TodoException();
+                default -> throw new TodoException("" + lastBinOp.op());
             }
         }
         final var leftType = lastBinOp.left().type();
@@ -471,9 +495,11 @@ public class InstructionEmitter {
         return switch (type) {
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LLOAD
                     : Opcodes.ILOAD;
+            case IRType.Float floatType -> floatType.bits() == 64 ? Opcodes.DLOAD
+                    : Opcodes.FLOAD;
             case IRType.Ptr(IRType ignored, TypeMirror m) -> Opcodes.ALOAD;
             case IRType.Bool ignored -> Opcodes.ILOAD;
-            default -> throw new TodoException();
+            default -> throw new TodoException("" + type);
         };
     }
 
@@ -545,6 +571,7 @@ public class InstructionEmitter {
     private int resolveStoreOpcode(final IRType type) {
         return switch (type) {
             case IRType.Int(int bits) -> bits == 64 ? Opcodes.LSTORE : Opcodes.ISTORE;
+            case IRType.Float floatType -> floatType.bits() == 64 ? Opcodes.DSTORE : Opcodes.FSTORE;
             case IRType.Ptr ptr -> {
                 if (ptr.customType() != null) {
                     yield resolveStoreOpcode(ptr.customType());
@@ -559,6 +586,10 @@ public class InstructionEmitter {
     private int resolveStoreOpcode(final TypeMirror type) {
         return switch (type.getKind()) {
             case DECLARED, ARRAY -> Opcodes.ASTORE;
+            case BYTE, SHORT, CHAR, INT, BOOLEAN -> Opcodes.ISTORE;
+            case LONG -> Opcodes.LSTORE;
+            case FLOAT -> Opcodes.FSTORE;
+            case DOUBLE -> Opcodes.DSTORE;
             default -> throw new TodoException("" + type);
         };
     }
@@ -580,8 +611,46 @@ public class InstructionEmitter {
         return switch (type) {
             case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IADD;
             case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LADD;
+            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FADD;
+            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DADD;
             case IRType.Ptr ptr -> resolveAddOpcode(ptr.pointee());
-            default -> throw new TodoException();
+            default -> throw new TodoException("" + type);
+        };
+    }
+
+    private int resolveBitAddOpcode(final IRValue value) {
+        return resolveBitAddOpcode(value.type());
+    }
+
+    private int resolveBitAddOpcode(final IRType type) {
+        return switch (type) {
+            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IAND;
+            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LAND;
+            default -> throw new TodoException("" + type);
+        };
+    }
+
+    private int resolveBitOrOpcode(final IRValue value) {
+        return resolveBitOrOpcode(value.type());
+    }
+
+    private int resolveBitOrOpcode(final IRType type) {
+        return switch (type) {
+            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IOR;
+            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LOR;
+            default -> throw new TodoException("" + type);
+        };
+    }
+
+    private int resolveBitXOrOpcode(final IRValue value) {
+        return resolveBitXOrOpcode(value.type());
+    }
+
+    private int resolveBitXOrOpcode(final IRType type) {
+        return switch (type) {
+            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IXOR;
+            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LXOR;
+            default -> throw new TodoException("" + type);
         };
     }
 
@@ -593,8 +662,10 @@ public class InstructionEmitter {
         return switch (type) {
             case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.ISUB;
             case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LSUB;
+            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FSUB;
+            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DSUB;
             case IRType.Ptr ptr -> resolveSubOpcode(ptr.pointee());
-            default -> throw new TodoException();
+            default -> throw new TodoException("" + type);
         };
     }
 
@@ -602,7 +673,9 @@ public class InstructionEmitter {
         return switch (left.type()) {
             case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IMUL;
             case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LMUL;
-            default -> throw new TodoException();
+            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FMUL;
+            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DMUL;
+            default -> throw new TodoException("" + left.type());
         };
     }
 
@@ -610,7 +683,9 @@ public class InstructionEmitter {
         return switch (left.type()) {
             case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IDIV;
             case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LDIV;
-            default -> throw new TodoException();
+            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FDIV;
+            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DDIV;
+            default -> throw new TodoException("" + left.type());
         };
     }
 
@@ -618,7 +693,33 @@ public class InstructionEmitter {
         return switch (left.type()) {
             case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IREM;
             case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LREM;
-            default -> throw new TodoException();
+            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FREM;
+            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DREM;
+            default -> throw new TodoException("" + left.type());
+        };
+    }
+
+    private int resolveAndOpcode(final IRValue left) {
+        return switch (left.type()) {
+            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IAND;
+            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LAND;
+            default -> throw new TodoException("" + left.type());
+        };
+    }
+
+    private int resolveOrOpcode(final IRValue left) {
+        return switch (left.type()) {
+            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IOR;
+            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LOR;
+            default -> throw new TodoException("" + left.type());
+        };
+    }
+
+    private int resolveXorOpcode(final IRValue left) {
+        return switch (left.type()) {
+            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IXOR;
+            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LXOR;
+            default -> throw new TodoException("" + left.type());
         };
     }
 
@@ -662,8 +763,41 @@ public class InstructionEmitter {
     private int resolveReturnOpcode(final TypeMirror type) {
         return switch (type.getKind()) {
             case DECLARED, ARRAY -> Opcodes.ARETURN;
-            default -> throw new TodoException();
+            case BYTE, SHORT, CHAR, INT, BOOLEAN -> Opcodes.IRETURN;
+            case LONG -> Opcodes.LRETURN;
+            case FLOAT -> Opcodes.FRETURN;
+            case DOUBLE -> Opcodes.DRETURN;
+            default -> throw new TodoException("" + type);
         };
+    }
+
+    private void emitIndirectCall(final IRInstruction.IndirectCall call) {
+        emit(call.callee());
+        for (final var arg : call.args()) {
+            emit(arg);
+        }
+        final var descriptor = AsmHelper.createDescriptor(call.fnType().paramTypes(), call.fnType().returnType());
+        mv.visitMethodInsn(
+                Opcodes.INVOKEVIRTUAL,
+                "java/lang/invoke/MethodHandle",
+                "invoke",
+                descriptor,
+                false
+        );
+        final var result = call.result();
+        if (result != null) {
+            final var opcode = resolveStoreOpcode(result.type());
+            final var temp = (IRValue.Temp) result;
+            final int index;
+            if (temp.name().startsWith("%arg")) {
+                index = Integer.parseInt(temp.name().substring(4));
+            } else if (localVarManager.hasSlot(temp.name())) {
+                index = localVarManager.getSlot(temp.name());
+            } else {
+                index = Integer.parseInt(temp.name().replace("%", ""));
+            }
+            mv.visitVarInsn(opcode, index);
+        }
     }
 
     private void emit(final IRValue value) {
@@ -792,7 +926,24 @@ public class InstructionEmitter {
                 final var asmType = Type.getType(ClassUtils.getDescriptor(customType));
                 mv.visitLdcInsn(asmType);
             }
-            case null, default -> throw new TodoException();
+            case IRValue.FunctionRef(String name, IRType.Function fnType) -> {
+                final var owner = name.contains(".")
+                        ? name.substring(0, name.lastIndexOf('.')).replace('.', '/')
+                        : "java/lang/invoke/MethodHandles";
+                final var methodName = name.contains(".")
+                        ? name.substring(name.lastIndexOf('.') + 1)
+                        : name;
+                final var descriptor = AsmHelper.createDescriptor(fnType);
+                final var handle = new Handle(
+                        Opcodes.H_INVOKESTATIC,
+                        owner,
+                        methodName,
+                        descriptor,
+                        false
+                );
+                mv.visitLdcInsn(handle);
+            }
+            case null, default -> throw new TodoException("" + (value != null ? value.getClass() : "null"));
         }
     }
 

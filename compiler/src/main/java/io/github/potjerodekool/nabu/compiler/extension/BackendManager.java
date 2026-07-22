@@ -19,6 +19,6 @@ public class BackendManager {
         }
 
         final var extension = extensionOptional.get();
-        return pluginRegistry.createExtension(extension, Backend.class, true, compilerContext);
+        return pluginRegistry.createExtension(extension, Backend.class, compilerContext);
     }
 }

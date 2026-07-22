@@ -16,10 +16,7 @@ import io.github.potjerodekool.nabu.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.tree.expression.*;
-import io.github.potjerodekool.nabu.tree.expression.builder.ArrayAccessExpressionBuilder;
-import io.github.potjerodekool.nabu.tree.expression.builder.FieldAccessExpressionBuilder;
-import io.github.potjerodekool.nabu.tree.expression.builder.IntersectionTypeTreeBuilder;
-import io.github.potjerodekool.nabu.tree.expression.builder.MethodInvocationTreeBuilder;
+import io.github.potjerodekool.nabu.tree.expression.builder.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CDimension;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
@@ -499,10 +496,37 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
 
         if (ctx.uCOIT() != null) {
-            throw new TodoException();
+            expressionTree = processUCOIT((ExpressionTree) expressionTree, ctx.uCOIT());
         }
 
         return expressionTree;
+    }
+
+    private ExpressionTree processUCOIT(ExpressionTree base,
+                                        final Java20Parser.UCOITContext ctx) {
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
+        ExpressionTree result = TreeMaker.fieldAccessExpressionTree(
+                base,
+                identifier,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+
+        if (ctx.typeArguments() != null) {
+            final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
+            result = TreeMaker.typeApplyTree(
+                    result,
+                    typeArguments,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        if (ctx.uCOIT() != null) {
+            result = processUCOIT(result, ctx.uCOIT());
+        }
+
+        return result;
     }
 
     @Override
@@ -684,7 +708,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                             field
                     );
                 } else {
-                    throw new TodoException();
+                    newSelector = new CFieldAccessExpressionTree(
+                            first,
+                            (IdentifierTree) fieldAccess
+                    );
                 }
             }
 
@@ -999,9 +1026,9 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             case Java20Lexer.ABSTRACT -> Flags.ABSTRACT;
             case Java20Lexer.STATIC -> Flags.STATIC;
             case Java20Lexer.FINAL -> Flags.FINAL;
-            case Java20Lexer.SEALED -> null; //TODO
-            case Java20Lexer.NONSEALED -> null; //TODO
-            case Java20Lexer.STRICTFP -> null; //TODO
+            case Java20Lexer.SEALED -> Flags.SEALED;
+            case Java20Lexer.NONSEALED -> Flags.NONSEALED;
+            case Java20Lexer.STRICTFP -> Flags.STRICTFP;
             case Java20Lexer.Identifier -> identifier(node.getSymbol());
             default -> null;
         };
@@ -1527,6 +1554,9 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         } else if (ctx.CharacterLiteral() != null) {
             node = ctx.CharacterLiteral();
             value = ctx.CharacterLiteral().getText().charAt(1);
+        } else if (ctx.FloatingPointLiteral() != null) {
+            node = ctx.FloatingPointLiteral();
+            value = Float.parseFloat(node.getText());
         } else {
             return null;
         }
@@ -1826,7 +1856,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                     expression,
                     terminalNode.getSymbol().getLine(),
                     terminalNode.getSymbol().getCharPositionInLine()
-                    );
+            );
 
             if (pNNA == null) {
                 return parenthesizedExpression;
@@ -2292,17 +2322,39 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitIfThenElseStatementNoShortIf(final Java20Parser.IfThenElseStatementNoShortIfContext ctx) {
-        throw new TodoException();
+        final var condition = (ExpressionTree) ctx.expression().accept(this);
+        final var thenStatement = (StatementTree) ctx.statementNoShortIf(0).accept(this);
+        final var elseStatement = (StatementTree) ctx.statementNoShortIf(1).accept(this);
+
+        return new CIfStatementTree(
+                condition,
+                thenStatement,
+                elseStatement,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitForStatementNoShortIf(final Java20Parser.ForStatementNoShortIfContext ctx) {
-        throw new TodoException();
+        return ctx.basicForStatementNoShortIf().accept(this);
     }
 
     @Override
     public Object visitBasicForStatementNoShortIf(final Java20Parser.BasicForStatementNoShortIfContext ctx) {
-        throw new TodoException();
+        final List<StatementTree> forInit = acceptList(ctx.forInit());
+        final var expression = (ExpressionTree) accept(ctx.expression());
+        final List<StatementTree> forUpdate = acceptList(ctx.forUpdate());
+        final var statement = (StatementTree) ctx.statementNoShortIf().accept(this);
+
+        return TreeMaker.forStatement(
+                forInit,
+                expression,
+                forUpdate,
+                statement,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
@@ -2444,5 +2496,100 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitLambdaBody(final Java20Parser.LambdaBodyContext ctx) {
         return super.visitLambdaBody(ctx);
+    }
+
+    @Override
+    public Object visitConditionalAndExpression(final Java20Parser.ConditionalAndExpressionContext ctx) {
+        final var inclusiveOrExpression = ctx.inclusiveOrExpression().accept(this);
+
+        if (ctx.conditionalAndExpression() != null) {
+            throw new TodoException();
+        }
+
+        return inclusiveOrExpression;
+    }
+
+    @Override
+    public Object visitInclusiveOrExpression(final Java20Parser.InclusiveOrExpressionContext ctx) {
+        final var exclusiveOrExpression = (ExpressionTree) ctx.exclusiveOrExpression().accept(this);
+
+        if (ctx.inclusiveOrExpression() != null) {
+            final var inclusiveOrExpression = (ExpressionTree) ctx.inclusiveOrExpression().accept(this);
+            return new BinaryExpressionBuilder()
+                    .left(inclusiveOrExpression)
+                    .tag(Tag.fromText(ctx.oper.getText()))
+                    .right(exclusiveOrExpression)
+                    .build();
+        }
+
+        return exclusiveOrExpression;
+    }
+
+    @Override
+    public Object visitExclusiveOrExpression(final Java20Parser.ExclusiveOrExpressionContext ctx) {
+        final var andExpression = (ExpressionTree) ctx.andExpression().accept(this);
+
+        if (ctx.exclusiveOrExpression() != null) {
+            final var exclusiveOrExpression = (ExpressionTree) ctx.exclusiveOrExpression().accept(this);
+
+            return new BinaryExpressionBuilder()
+                    .left(exclusiveOrExpression)
+                    .tag(Tag.fromText(ctx.oper.getText()))
+                    .right(exclusiveOrExpression)
+                    .build();
+        }
+
+        return andExpression;
+    }
+
+    @Override
+    public Object visitAndExpression(final Java20Parser.AndExpressionContext ctx) {
+        final var equalityExpression = (ExpressionTree) ctx.equalityExpression().accept(this);
+
+        if (ctx.andExpression() != null) {
+            final var andExpression = (ExpressionTree) ctx.andExpression().accept(this);
+            return new BinaryExpressionBuilder()
+                    .left(andExpression)
+                    .tag(Tag.fromText(ctx.oper.getText()))
+                    .right(equalityExpression)
+                    .build();
+        }
+
+        return equalityExpression;
+    }
+
+    @Override
+    public Object visitShiftExpression(final Java20Parser.ShiftExpressionContext ctx) {
+        final var additiveExpression = ctx.additiveExpression().accept(this);
+
+        if (ctx.shiftExpression() != null) {
+            throw new TodoException();
+        }
+
+        return additiveExpression;
+    }
+
+    @Override
+    public Object visitMultiplicativeExpression(final Java20Parser.MultiplicativeExpressionContext ctx) {
+        final var unaryExpression = ctx.unaryExpression().accept(this);
+
+        if (ctx.multiplicativeExpression() != null) {
+            throw new TodoException();
+        }
+
+        return unaryExpression;
+    }
+
+    @Override
+    public Object visitUnaryExpressionNotPlusMinus(final Java20Parser.UnaryExpressionNotPlusMinusContext ctx) {
+        if (ctx.postfixExpression() != null) {
+            return ctx.postfixExpression().accept(this);
+        } else if (ctx.castExpression() != null) {
+            return visitCastExpression(ctx.castExpression());
+        } else if (ctx.switchExpression() != null) {
+            return visitSwitchExpression(ctx.switchExpression());
+        } else {
+            throw new TodoException();
+        }
     }
 }

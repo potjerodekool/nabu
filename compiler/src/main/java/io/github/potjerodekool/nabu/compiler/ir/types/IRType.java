@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.ir.types;
 
-import io.github.potjerodekool.nabu.type.TypeMirror;
-
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,7 +22,7 @@ public sealed interface IRType permits IRType.Array, IRType.Bool, IRType.Float, 
     }
 
     record Ptr(IRType pointee,
-               TypeMirror customType) implements IRType {
+               String jvmDescriptor) implements IRType {
 
         public Ptr(final IRType pointee) {
             this(pointee, null);

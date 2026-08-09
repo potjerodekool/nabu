@@ -10,10 +10,12 @@ import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Elements;
 import io.github.potjerodekool.nabu.util.Pair;
+import io.github.potjerodekool.nabu.util.TypePrinter;
 import io.github.potjerodekool.nabu.util.Types;
 import lombok.extern.java.Log;
 
@@ -615,8 +617,13 @@ public class CompleteMethodResolver implements MethodResolver {
             return chooseMostSpecificMethod(phase3Results, searchType).method();
         }
 
+        final var argTypes = arguments.stream()
+                .map(Tree::getType)
+                .map(TypePrinter::print)
+                .collect(Collectors.joining(",", "(", ")"));
+
         throw new MethodResolveException(
-                "No applicable method found for: " + methodName
+                "No applicable method found for: " + methodName + " " + argTypes
         );
     }
 
@@ -856,8 +863,9 @@ public class CompleteMethodResolver implements MethodResolver {
                 }
             }
 
-            if (!paramType.isPrimitiveType() && !argType.isPrimitiveType()) {
-                specificity += getClassDepth((DeclaredType) paramType);
+            if (!paramType.isPrimitiveType() && !argType.isPrimitiveType()
+                    && paramType instanceof DeclaredType declaredParamType) {
+                specificity += getClassDepth(declaredParamType);
             }
         }
 
@@ -871,7 +879,8 @@ public class CompleteMethodResolver implements MethodResolver {
         DeclaredType current = clazz;
         while (current != null && current != objectType) {
             depth++;
-            current = (DeclaredType) current.asTypeElement().getSuperclass();
+            final var superclass = current.asTypeElement().getSuperclass();
+            current = superclass instanceof DeclaredType dt ? dt : null;
         }
         return depth;
     }

@@ -29,6 +29,7 @@ public final class TagToIROp {
             case SUB -> Op.SUB;
             case MUL -> Op.MUL;
             case DIV -> Op.DIV;
+            case MOD -> Op.MOD;
 
             // Vergelijkingen
             case EQ  -> Op.EQ;
@@ -46,16 +47,17 @@ public final class TagToIROp {
             case BITOR -> Op.BITOR;
             case BITXOR -> Op.BITXOR;
 
-            // Compound assignments en unaire operators worden
-            // door de visitor uitgevouwen, niet hier gemapt
+            // Compound assignments, unaire operators, shifts
+            // worden door de visitor uitgevouwen of zijn nog niet geïmplementeerd
             case ASSIGN,
                  ADD_ASSIGN, MUL_ASSIGN, DIV_ASSIGN,
                  AND_ASSIGN, OR_ASSIGN, XOR_ASSIGN,
                  MOD_ASSIGN, LSHIFT_ASSIGN, RSHIFT_ASSIGN, URSHIFT_ASSIGN,
-                 POST_INC, POST_DEC, NOT ->
+                 POST_INC, POST_DEC, NOT, BITNOT,
+                 LSHIFT, RSHIFT, URSHIFT ->
                     throw new UnsupportedOperationException(
                             "Tag " + tag + " is geen directe binaire IR-operatie — "
-                                    + "uitvouwen in de visitor");
+                                    + "uitvouwen in de visitor of nog niet geïmplementeerd");
         };
     }
 

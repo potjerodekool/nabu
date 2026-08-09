@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeMirror;
@@ -106,11 +105,12 @@ public abstract class JElement<S extends io.github.potjerodekool.nabu.compiler.l
 
     @Override
     public <A extends Annotation> A getAnnotation(final Class<A> annotationType) {
-        throw new TodoException();
+        return null;
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <A extends Annotation> A[] getAnnotationsByType(final Class<A> annotationType) {
-        throw new TodoException();
+        return (A[]) new Annotation[0];
     }
 }

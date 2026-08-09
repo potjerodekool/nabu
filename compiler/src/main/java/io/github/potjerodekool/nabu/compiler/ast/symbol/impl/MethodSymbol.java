@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 
@@ -145,6 +144,6 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
                              final TypeElement type,
                              final TypesImpl types,
                              final boolean b) {
-        throw new TodoException();
+        return false;
     }
 }

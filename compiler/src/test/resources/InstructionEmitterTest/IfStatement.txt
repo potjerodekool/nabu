@@ -6,7 +6,7 @@ public class MyClass {
 
   // access flags 0x1
   public compareToFive(I)I
-    // parameter  number
+    // parameter final  number
    L0
     LINENUMBER 3 L0
     ILOAD 1

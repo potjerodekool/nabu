@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 public final class AccessChecker {
 
@@ -51,7 +50,7 @@ public final class AccessChecker {
             return isAccessibleDefaultAccess(element, callerModule, caller);
         }
 
-        throw new TodoException();
+        return false;
     }
 
     private static boolean isAccessiblePublic(final TypeElement element,

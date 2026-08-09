@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.type;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
@@ -44,17 +43,19 @@ public abstract class JAbstractType<T extends io.github.potjerodekool.nabu.type.
 
     @Override
     public List<? extends AnnotationMirror> getAnnotationMirrors() {
-        throw new TodoException();
+        return List.of();
     }
 
     @Override
     public <A extends Annotation> A getAnnotation(final Class<A> annotationType) {
-        throw new TodoException();
+        return null;
     }
 
     @Override
     public <A extends Annotation> A[] getAnnotationsByType(final Class<A> annotationType) {
-        throw new TodoException();
+        @SuppressWarnings("unchecked")
+        final var empty = (A[]) new java.lang.annotation.Annotation[0];
+        return empty;
     }
 
 }

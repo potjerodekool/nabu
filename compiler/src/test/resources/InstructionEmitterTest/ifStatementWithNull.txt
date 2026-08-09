@@ -6,7 +6,7 @@ public class MyClass {
 
   // access flags 0x1
   public isNull(Ljava/lang/Integer;)Z
-    // parameter  i
+    // parameter final  i
    L0
     LINENUMBER 3 L0
     ALOAD 1

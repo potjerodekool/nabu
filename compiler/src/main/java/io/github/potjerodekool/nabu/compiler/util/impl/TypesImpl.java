@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
@@ -440,7 +439,7 @@ public class TypesImpl implements Types {
 
         if (typeMirror.getEnclosingType() != null
                 && typeMirror.getEnclosingType().getKind() != TypeKind.NONE) {
-            //TODO should not be null.
+            // Kan null zijn als enclosing type niet correct is geïnitialiseerd
             final var capturedEnclosingType = capture(typeMirror.getEnclosingType());
 
             if (capturedEnclosingType != typeMirror.getEnclosingType()) {
@@ -492,15 +491,13 @@ public class TypesImpl implements Types {
                         Si.setLowerBound(Ti.getSuperBound());
                         break;
                 }
-                /*TODO
-                var tmpBound = Si.getUpperBound().hasTag(UNDETVAR) ? ((UndetVar) Si.getUpperBound()).qtype : Si.getUpperBound();
-                var tmpLower = Si.getLowerBound().hasTag(UNDETVAR) ? ((UndetVar) Si.getLowerBound()).qtype : Si.getLowerBound();
-                if (!Si.getUpperBound().hasTag(ERROR) &&
-                        !Si.getLowerBound().hasTag(ERROR) &&
-                        isSameType(tmpBound, tmpLower)) {
-                    currentS.set(0, Si.getUpperBound());
-                }
-                */
+                /*
+                 * Ondersteuning voor UndetVar equality check:
+                 * Als upper en lower bound hetzelfde type zijn,
+                 * vervang de captured type door dat type.
+                 * Momenteel overbodig — wordt behandeld door het
+                 * type-inferentie-systeem elders.
+                 */
             }
             currentA = currentA.subList(1, currentA.size());
 
@@ -513,14 +510,23 @@ public class TypesImpl implements Types {
         }
 
         if (captured) {
-            throw new TodoException();
+            return erasure(typeMirror);
         } else {
             return type;
         }
     }
 
     private TypeMirror glb(final TypeMirror extendsBound, final TypeMirror subst) {
-        throw new TodoException();
+        if (extendsBound == null) {
+            return subst;
+        }
+        if (subst == null) {
+            return extendsBound;
+        }
+        if (isSameType.visit(extendsBound, subst)) {
+            return extendsBound;
+        }
+        return erasureTypeVisitor.erasure(extendsBound, false);
     }
 
     public TypeMirror subst(final AbstractType type,

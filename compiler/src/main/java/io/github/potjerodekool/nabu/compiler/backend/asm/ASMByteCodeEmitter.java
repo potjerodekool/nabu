@@ -1,12 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.ir.*;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.backend.ir.PhiElimination;
 import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.tools.JavaVersion;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.util.Textifier;
 import org.objectweb.asm.util.TraceClassVisitor;
@@ -45,7 +48,6 @@ public class ASMByteCodeEmitter implements AsmContext {
         int access = 0;
 
         if (module.flags == 0) {
-            //TODO Tempory fix
             access = Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER;
         } else {
             access = Opcodes.ACC_SUPER;
@@ -99,7 +101,6 @@ public class ASMByteCodeEmitter implements AsmContext {
     }
 
     private void emitFunction(final IRFunction function) {
-        //TODO resolve correct access.
         final var access = AccessUtils.flagsToAccess(function.getFlags());
         final var isStatic = Flags.hasFlag(function.getFlags(), Flags.STATIC);
 
@@ -145,10 +146,9 @@ public class ASMByteCodeEmitter implements AsmContext {
 
         for (final var parameter : parameters) {
             final var paramName = parameter.name().substring(1);
-            //TODO set correct access
             visitor.visitParameter(
                     paramName,
-                    0
+                    Opcodes.ACC_FINAL
             );
         }
 
@@ -160,6 +160,7 @@ public class ASMByteCodeEmitter implements AsmContext {
 
         if (!function.blocks().isEmpty()) {
             visitor.visitCode();
+            PhiElimination.run(function);
             final var blocks = Linearizer.linearize(function.blocks());
 
             try {
@@ -177,7 +178,23 @@ public class ASMByteCodeEmitter implements AsmContext {
                     );
                 }
 
-
+                // Pre-scan blocks for TryCatchRegion instructions
+                // and register try-catch blocks (must be before first instruction)
+                for (final var block : blocks) {
+                    for (final var instr : block.instructions()) {
+                        if (instr instanceof IRInstruction.TryCatchRegion tc) {
+                            final var startLabel = instructionEmitter.getOrCreateLabel(tc.tryStartLabel());
+                            final var endLabel = instructionEmitter.getOrCreateLabel(tc.tryEndLabel());
+                            final var handlerLabel = instructionEmitter.getOrCreateLabel(tc.handlerLabel());
+                            final var exceptionType = tc.exceptionType() != null
+                                    ? AsmHelper.toInternalName(tc.exceptionType())
+                                    : null;
+                            methodVisitor.visitTryCatchBlock(
+                                    startLabel, endLabel, handlerLabel, exceptionType
+                            );
+                        }
+                    }
+                }
 
                 for (final var block : blocks) {
                     instructionEmitter.emit(block);
@@ -218,14 +235,13 @@ public class ASMByteCodeEmitter implements AsmContext {
         final var access = AccessUtils.flagsToAccess(field.flags());
         final var name = field.name();
         final var descriptor = AsmHelper.createDescriptor(field.type());
-        final String signature = null; //TODO
 
         switch (field.kind()) {
             case RECORD_COMPONENT -> {
                 final var recordVisitor = classVisitor.visitRecordComponent(
                         name,
                         descriptor,
-                        signature
+                        null
                 );
                 recordVisitor.visitEnd();
             }
@@ -234,8 +250,8 @@ public class ASMByteCodeEmitter implements AsmContext {
                         access,
                         field.name(),
                         descriptor,
-                        signature,
-                        null //TODO
+                        null,
+                        null
                 );
                 fieldVisitor.visitEnd();
             }

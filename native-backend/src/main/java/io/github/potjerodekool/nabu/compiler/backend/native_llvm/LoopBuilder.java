@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend;
+package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.llvm.LLVM.*;

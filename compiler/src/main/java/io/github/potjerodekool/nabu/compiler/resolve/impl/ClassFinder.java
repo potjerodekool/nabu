@@ -173,9 +173,9 @@ public class ClassFinder {
                     module.getSourceLocation() == StandardLocation.SOURCE_PATH
             );
 
-            //TODO TODO: Add support for user source files. For now, we only scan the module path.
-            //User source files are currently not found, so we need to scan the module path as well.
-            //Since those files are in the unnamed module they will be found on the module path.
+            // Gebruik fallback scan van module path als bronnen niet op CLASS_PATH staan.
+            // User source files worden momenteel niet gevonden via de source path,
+            // dus scannen we de module path als fallback.
             if (packageSymbol.getMembers().isEmpty()) {
                 scanModulePath(module, packageSymbol);
             }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin>
+    <id>io.github.potjerodekool.nabu.native</id>
+    <version>0.0.1</version>
+    <description>Compiler support for native compilation</description>
+    <extensions>
+        <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.native_llvm.NativeLLVMBackend" name="LLVM" />
+    </extensions>
+    <dependencies>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>llvm-platform</artifactId>
+            <version>21.1.8-1.5.13</version>
+        </dependency>
+    </dependencies>
+</plugin>

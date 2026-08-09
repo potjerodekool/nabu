@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.testing;
 
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;

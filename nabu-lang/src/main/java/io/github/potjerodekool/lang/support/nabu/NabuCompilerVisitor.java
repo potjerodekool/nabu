@@ -7,7 +7,6 @@ import io.github.potjerodekool.nabu.compiler.lang.helper.WildcardBound;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.builder.CatchTreeBuilder;
 import io.github.potjerodekool.nabu.tree.element.*;
@@ -701,7 +700,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 if (i == lastIndex) {
                     result = (Tree) childResult;
                 } else {
-                    throw new TodoException();
+                    throw new IllegalStateException("Non-expression result at non-terminal index " + i + " of " + lastIndex);
                 }
             }
         }
@@ -923,8 +922,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                             expr,
                             field
                     );
+                } else if (selected instanceof FieldAccessExpressionTree fieldAccessTree) {
+                    var expr = combineExpressions(first, fieldAccessTree);
+                    final var field = fieldAccess.getField();
+                    newSelector = FieldAccessExpressionTree.create(
+                            expr,
+                            field
+                    );
                 } else {
-                    throw new TodoException();
+                    throw new IllegalStateException("Unexpected selector type: " + selected.getClass().getName());
                 }
             }
 
@@ -3188,7 +3194,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         if (blockStatements.size() == 1) {
             body = blockStatements.getFirst();
         } else {
-            throw new TodoException();
+            body = TreeMaker.blockStatement(
+                    blockStatements,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
         }
 
         return CaseStatement.create(
@@ -3259,11 +3269,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 ? (ExpressionTree) ctx.primitiveType().accept(this)
                 : (ExpressionTree) ctx.classType().accept(this);
 
-        final List<ExpressionTree> dimensions = acceptList(ctx.dimExprs());
+        final List<ExpressionTree> dimensions = new ArrayList<>(acceptList(ctx.dimExprs()));
         final List<ExpressionTree> dims = acceptList(ctx.dims());
 
-        if (!dims.isEmpty()) {
-            throw new TodoException();
+        for (int i = 0; i < dims.size(); i++) {
+            dimensions.add(null);
         }
 
         return NewArrayExpression.create(
@@ -3289,7 +3299,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .toList();
 
         if (!annotations.isEmpty()) {
-            throw new TodoException();
+            throw new UnsupportedOperationException("Annotated dimensions are not yet supported");
         }
 
         return ctx.expression().accept(this);

@@ -7,6 +7,7 @@ import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.backend.ir.IrGeneratingVisitor;
 import io.github.potjerodekool.nabu.compiler.backend.ir.Optimizer;
+import io.github.potjerodekool.nabu.compiler.backend.ir.SsaBuilder;
 import io.github.potjerodekool.nabu.compiler.extension.BackendManager;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.impl.AnnotatePhase;
@@ -91,6 +92,13 @@ public class NabuCompiler implements Compiler {
 
             for (var module : modules) {
                 try {
+                    // Type-inferentie vóór SSA
+                    for (final var fn : module.functions()) {
+                        if (!fn.isExternal()) {
+                            new io.github.potjerodekool.nabu.compiler.backend.ir.optimize.TypeInference().run(fn);
+                        }
+                    }
+                    SsaBuilder.run(module);
                     final var optimizedModule = Optimizer.optimize(module);
                     codeBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
                 } catch (CompileException e) {

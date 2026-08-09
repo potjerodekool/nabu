@@ -7,9 +7,6 @@ import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
-import io.github.potjerodekool.nabu.tools.TodoException;
-import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Pair;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
@@ -85,6 +82,21 @@ public class InstructionEmitter {
             case IRInstruction.InstanceOf instanceOf -> emitInstanceOf(instanceOf);
             case IRInstruction.Throw throwInst -> emitThrow(throwInst);
             case IRInstruction.Pop ignored -> emitPop();
+            case IRInstruction.HeapAlloc heapAlloc -> emitHeapAlloc(heapAlloc);
+            case IRInstruction.ArrayLoad arrayLoad -> emitArrayLoad(arrayLoad);
+            case IRInstruction.Phi phi -> {
+                throw new IllegalStateException(
+                    "Phi-instructie moet geëlimineerd zijn vóór bytecode-emissie. " +
+                    "Voer PhiElimination.run() uit op de functie.");
+            }
+            case IRInstruction.Move move -> emitMove(move);
+            case IRInstruction.ArrayLength arrayLength -> emitArrayLength(arrayLength);
+            case IRInstruction.MonitorEnter monitorEnter -> emitMonitorEnter(monitorEnter);
+            case IRInstruction.MonitorExit monitorExit -> emitMonitorExit(monitorExit);
+            case IRInstruction.TryCatchRegion tryCatch -> {
+                // TryCatchRegion is metadata — nothing to emit at bytecode level
+                // The ASMByteCodeEmitter handles this via visitTryCatchBlock
+            }
         }
     }
 
@@ -104,6 +116,26 @@ public class InstructionEmitter {
 
     private void emitPop() {
         mv.visitInsn(Opcodes.POP);
+    }
+
+    private void emitMove(final IRInstruction.Move move) {
+        // Move: laad de bronwaarde, sla op in het doel-local-variable
+        emit(move.value());
+    }
+
+    private void emitArrayLength(final IRInstruction.ArrayLength arrayLength) {
+        emit(arrayLength.array());
+        mv.visitInsn(Opcodes.ARRAYLENGTH);
+    }
+
+    private void emitMonitorEnter(final IRInstruction.MonitorEnter monitorEnter) {
+        emit(monitorEnter.object());
+        mv.visitInsn(Opcodes.MONITORENTER);
+    }
+
+    private void emitMonitorExit(final IRInstruction.MonitorExit monitorExit) {
+        emit(monitorExit.object());
+        mv.visitInsn(Opcodes.MONITOREXIT);
     }
 
     private void emitReturn(final IRInstruction.Return returnInst) {
@@ -192,6 +224,13 @@ public class InstructionEmitter {
                 "makeConcatWithConstants",
                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
                 false);
+
+        if (binaryOp.left() instanceof IRValue.Temp) {
+            emit(binaryOp.left());
+        }
+        if (binaryOp.right() instanceof IRValue.Temp) {
+            emit(binaryOp.right());
+        }
 
         mv.visitInvokeDynamicInsn(
                 "makeConcatWithConstants",
@@ -287,48 +326,97 @@ public class InstructionEmitter {
                         return Opcodes.IF_ACMPNE;
                     }
                 }
-                default -> throw new TodoException("" + lastBinOp.op());
+                default -> throw new UnsupportedOperationException("Unsupported comparison op: " + lastBinOp.op());
             }
         }
         final var leftType = lastBinOp.left().type();
 
         return switch (lastBinOp.op()) {
-            case LT -> leftType instanceof IRType.Int(int bits) && bits == 64
+            case LT -> leftType instanceof IRType.Int intBits && intBits.bits() == 64
                     ? Opcodes.IFLT
                     : Opcodes.IF_ICMPLT;
-            case LTE -> leftType instanceof IRType.Int(int bits) && bits == 64
+            case LTE -> leftType instanceof IRType.Int intBits && intBits.bits() == 64
                     ? Opcodes.IFLE
                     : Opcodes.IF_ICMPLE;
-            case EQ -> leftType instanceof IRType.Int(int bits) && bits == 64
+            case EQ -> leftType instanceof IRType.Int intBits && intBits.bits() == 64
                     ? Opcodes.IFEQ
                     : Opcodes.IF_ICMPEQ;
-            case GTE -> leftType instanceof IRType.Int(int bits) && bits == 64
+            case GTE -> leftType instanceof IRType.Int intBits && intBits.bits() == 64
                     ? Opcodes.IFGE
                     : Opcodes.IF_ICMPGE;
-            case GT -> leftType instanceof IRType.Int(int bits) && bits == 64
+            case GT -> leftType instanceof IRType.Int intBits && intBits.bits() == 64
                     ? Opcodes.IFGT
                     : Opcodes.IF_ICMPGT;
-            default -> throw new TodoException("" + lastBinOp.op());
+            case NEQ -> leftType instanceof IRType.Int intBits && intBits.bits() == 64
+                    ? Opcodes.IFNE
+                    : Opcodes.IF_ICMPNE;
+            default -> throw new UnsupportedOperationException("Unsupported comparison op: " + lastBinOp.op());
         };
     }
 
     private void emitCondBranch(final IRInstruction.CondBranch condBranch) {
-        final var opcode = resolveJumpOpcode();
         final var label = findOrCreateLabel(condBranch.trueLabel());
 
         if (lastBinOp != null) {
             final var leftType = lastBinOp.left().type();
-            if (leftType instanceof IRType.Int(int bits) && bits == 64) {
-                mv.visitInsn(Opcodes.LCMP);
-            }
-        }
 
-        mv.visitJumpInsn(opcode, label);
+            if (leftType instanceof IRType.Float floatType) {
+                emit(lastBinOp.left());
+                emit(lastBinOp.right());
+                final var cmpOpcode = floatType.bits() == 64
+                        ? Opcodes.DCMPL : Opcodes.FCMPL;
+                mv.visitInsn(cmpOpcode);
+                final var opcode = resolveFloatJumpOpcode(lastBinOp.op());
+                mv.visitJumpInsn(opcode, label);
+            } else if (leftType instanceof IRType.Int intType && intType.bits() == 64) {
+                emit(lastBinOp.left());
+                emit(lastBinOp.right());
+                mv.visitInsn(Opcodes.LCMP);
+                final var opcode = resolveJumpOpcode();
+                mv.visitJumpInsn(opcode, label);
+            } else {
+                final var opcode = resolveJumpOpcode();
+                if (lastBinOp != null) {
+                    final var lt = lastBinOp.left().type();
+                    if (lt instanceof IRType.Int intType && intType.bits() == 64) {
+                        mv.visitInsn(Opcodes.LCMP);
+                    }
+                }
+                mv.visitJumpInsn(opcode, label);
+            }
+        } else {
+            final var opcode = Opcodes.IFNE;
+            mv.visitJumpInsn(opcode, label);
+        }
         lastBinOp = null;
+    }
+
+    private int resolveFloatJumpOpcode(final IRInstruction.BinaryOp.Op op) {
+        return switch (op) {
+            case EQ -> Opcodes.IFEQ;
+            case NEQ -> Opcodes.IFNE;
+            case LT -> Opcodes.IFLT;
+            case LTE -> Opcodes.IFLE;
+            case GT -> Opcodes.IFGT;
+            case GTE -> Opcodes.IFGE;
+            default -> throw new UnsupportedOperationException("Unsupported float comparison: " + op);
+        };
     }
 
     private Label findOrCreateLabel(final String name) {
         return this.labels.computeIfAbsent(name, k -> new Label());
+    }
+
+    /**
+     * Geeft een Label terug voor het gegeven blok-label (bestaand of nieuw).
+     * Wordt gebruikt door ASMByteCodeEmitter voor try-catch registratie.
+     */
+    public Label getOrCreateLabel(final String blockLabel) {
+        var name = blockLabel;
+        if (name.startsWith("%")) {
+            name = name.substring(1);
+        }
+        return findOrCreateLabel(name);
     }
 
     private void emitBranch(final IRInstruction.Branch branchInst) {
@@ -355,18 +443,10 @@ public class InstructionEmitter {
 
     private void emitFunctionCall(final IRInstruction.Call call) {
         final var opcode = resolveInvokeOpcode(call.callKind());
-        final String descriptor;
-
-        if (call.methodType() != null) {
-            descriptor = AsmHelper.createDescriptor(
-                    call.methodType()
-            );
-        } else {
-            descriptor = AsmHelper.createDescriptor(
-                    call.paramTypes(),
-                    call.returnType()
-            );
-        }
+        final String descriptor = AsmHelper.createDescriptor(
+                call.paramTypes(),
+                call.returnType()
+        );
 
         var functionName = call.function();
         final var sepIndex = functionName.lastIndexOf("_");
@@ -376,8 +456,6 @@ public class InstructionEmitter {
 
         if (isConstructorCall(call)) {
             functionName = "<init>";
-            mv.visitTypeInsn(Opcodes.NEW, owner);
-            mv.visitInsn(Opcodes.DUP);
         }
 
         call.args().forEach(this::emit);
@@ -414,7 +492,7 @@ public class InstructionEmitter {
             final var fieldName = classAndFieldName[1];
 
             //TODO check static or not.
-            final var opcode = Opcodes.GETSTATIC;
+            final var opcode = named.isStatic() ? Opcodes.GETSTATIC : Opcodes.GETFIELD;
             final var owner = AsmHelper.toInternalName(className);
 
             final var descriptor = AsmHelper.createDescriptor(loadInst.type());
@@ -443,7 +521,7 @@ public class InstructionEmitter {
 
             mv.visitVarInsn(opcode, index);
         } else {
-            throw new TodoException("" + loadInst);
+            throw new UnsupportedOperationException("Unexpected load target: " + loadInst);
         }
 
         final var result = (IRValue.Temp) loadInst.result();
@@ -493,13 +571,18 @@ public class InstructionEmitter {
 
     private int resolveLoadOpcode(final IRType type) {
         return switch (type) {
-            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LLOAD
-                    : Opcodes.ILOAD;
+            case IRType.Int intType -> switch (intType.bits()) {
+                case 8, 16, 32 -> Opcodes.ILOAD;
+                case 64 -> Opcodes.LLOAD;
+                default -> Opcodes.ILOAD;
+            };
             case IRType.Float floatType -> floatType.bits() == 64 ? Opcodes.DLOAD
                     : Opcodes.FLOAD;
-            case IRType.Ptr(IRType ignored, TypeMirror m) -> Opcodes.ALOAD;
+            case IRType.Ptr ignored -> Opcodes.ALOAD;
             case IRType.Bool ignored -> Opcodes.ILOAD;
-            default -> throw new TodoException("" + type);
+            case IRType.Void ignored -> Opcodes.NOP;
+            case IRType.Array ignored -> Opcodes.ALOAD;
+            default -> throw new UnsupportedOperationException("Unsupported load type: " + type);
         };
     }
 
@@ -564,33 +647,70 @@ public class InstructionEmitter {
         localVarManager.setStackValue(allocaArray.result());
     }
 
+    private void emitHeapAlloc(final IRInstruction.HeapAlloc heapAlloc) {
+        final var internalName = AsmHelper.toInternalName(heapAlloc.allocType());
+        mv.visitTypeInsn(Opcodes.NEW, internalName);
+        mv.visitInsn(Opcodes.DUP);
+        localVarManager.setStackValue(heapAlloc.result());
+    }
+
+    private void emitArrayLoad(final IRInstruction.ArrayLoad arrayLoad) {
+        emit(arrayLoad.array());
+        emit(arrayLoad.index());
+        final var opcode = resolveArrayLoadOpcode(arrayLoad.elemType());
+        mv.visitInsn(opcode);
+        localVarManager.setStackValue(arrayLoad.result());
+    }
+
+    private int resolveArrayLoadOpcode(final IRType elemType) {
+        return switch (elemType) {
+            case IRType.Int t -> switch (t.bits()) {
+                case 8 -> Opcodes.BALOAD;
+                case 16 -> Opcodes.SALOAD;
+                case 32 -> Opcodes.IALOAD;
+                case 64 -> Opcodes.LALOAD;
+                default -> Opcodes.IALOAD;
+            };
+            case IRType.Float t -> t.bits() == 32 ? Opcodes.FALOAD : Opcodes.DALOAD;
+            case IRType.Bool ignored -> Opcodes.BALOAD;
+            case IRType.Ptr ignored -> Opcodes.AALOAD;
+            default -> Opcodes.AALOAD;
+        };
+    }
+
     private int resolveStoreOpcode(final IRValue value) {
         return resolveStoreOpcode(value.type());
     }
 
     private int resolveStoreOpcode(final IRType type) {
         return switch (type) {
-            case IRType.Int(int bits) -> bits == 64 ? Opcodes.LSTORE : Opcodes.ISTORE;
+            case IRType.Int(int bits) -> switch (bits) {
+                case 8, 16, 32 -> Opcodes.ISTORE;
+                case 64 -> Opcodes.LSTORE;
+                default -> Opcodes.ISTORE;
+            };
             case IRType.Float floatType -> floatType.bits() == 64 ? Opcodes.DSTORE : Opcodes.FSTORE;
             case IRType.Ptr ptr -> {
-                if (ptr.customType() != null) {
-                    yield resolveStoreOpcode(ptr.customType());
+                if (ptr.jvmDescriptor() != null) {
+                    yield resolveStoreOpcodeFromDescriptor(ptr.jvmDescriptor());
                 }
                 yield resolveStoreOpcode(ptr.pointee());
             }
             case IRType.Bool ignored -> Opcodes.ISTORE;
-            default -> throw new TodoException("" + type);
+            case IRType.Array ignored -> Opcodes.ASTORE;
+            case IRType.Void ignored -> Opcodes.NOP;
+            default -> throw new UnsupportedOperationException("Unsupported store type: " + type);
         };
     }
 
-    private int resolveStoreOpcode(final TypeMirror type) {
-        return switch (type.getKind()) {
-            case DECLARED, ARRAY -> Opcodes.ASTORE;
-            case BYTE, SHORT, CHAR, INT, BOOLEAN -> Opcodes.ISTORE;
-            case LONG -> Opcodes.LSTORE;
-            case FLOAT -> Opcodes.FSTORE;
-            case DOUBLE -> Opcodes.DSTORE;
-            default -> throw new TodoException("" + type);
+    private int resolveStoreOpcodeFromDescriptor(final String descriptor) {
+        return switch (descriptor.charAt(0)) {
+            case 'L', '[' -> Opcodes.ASTORE;
+            case 'B', 'S', 'C', 'I', 'Z' -> Opcodes.ISTORE;
+            case 'J' -> Opcodes.LSTORE;
+            case 'F' -> Opcodes.FSTORE;
+            case 'D' -> Opcodes.DSTORE;
+            default -> throw new UnsupportedOperationException("Unknown descriptor: " + descriptor);
         };
     }
 
@@ -609,12 +729,10 @@ public class InstructionEmitter {
 
     private int resolveAddOpcode(final IRType type) {
         return switch (type) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IADD;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LADD;
-            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FADD;
-            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DADD;
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LADD : Opcodes.IADD;
+            case IRType.Float floatType -> floatType.bits() == 32 ? Opcodes.FADD : Opcodes.DADD;
             case IRType.Ptr ptr -> resolveAddOpcode(ptr.pointee());
-            default -> throw new TodoException("" + type);
+            default -> throw new UnsupportedOperationException("Unsupported add type: " + type);
         };
     }
 
@@ -624,9 +742,8 @@ public class InstructionEmitter {
 
     private int resolveBitAddOpcode(final IRType type) {
         return switch (type) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IAND;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LAND;
-            default -> throw new TodoException("" + type);
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LAND : Opcodes.IAND;
+            default -> throw new UnsupportedOperationException("Unsupported bitand type: " + type);
         };
     }
 
@@ -636,9 +753,8 @@ public class InstructionEmitter {
 
     private int resolveBitOrOpcode(final IRType type) {
         return switch (type) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IOR;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LOR;
-            default -> throw new TodoException("" + type);
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LOR : Opcodes.IOR;
+            default -> throw new UnsupportedOperationException("Unsupported bitor type: " + type);
         };
     }
 
@@ -648,9 +764,8 @@ public class InstructionEmitter {
 
     private int resolveBitXOrOpcode(final IRType type) {
         return switch (type) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IXOR;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LXOR;
-            default -> throw new TodoException("" + type);
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LXOR : Opcodes.IXOR;
+            default -> throw new UnsupportedOperationException("Unsupported bitxor type: " + type);
         };
     }
 
@@ -660,66 +775,55 @@ public class InstructionEmitter {
 
     private int resolveSubOpcode(final IRType type) {
         return switch (type) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.ISUB;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LSUB;
-            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FSUB;
-            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DSUB;
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LSUB : Opcodes.ISUB;
+            case IRType.Float floatType -> floatType.bits() == 32 ? Opcodes.FSUB : Opcodes.DSUB;
             case IRType.Ptr ptr -> resolveSubOpcode(ptr.pointee());
-            default -> throw new TodoException("" + type);
+            default -> throw new UnsupportedOperationException("Unsupported sub type: " + type);
         };
     }
 
     private int resolveMUlOpcode(final IRValue left) {
         return switch (left.type()) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IMUL;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LMUL;
-            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FMUL;
-            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DMUL;
-            default -> throw new TodoException("" + left.type());
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LMUL : Opcodes.IMUL;
+            case IRType.Float floatType -> floatType.bits() == 32 ? Opcodes.FMUL : Opcodes.DMUL;
+            default -> throw new UnsupportedOperationException("Unsupported mul type: " + left.type());
         };
     }
 
     private int resolveDivOpcode(final IRValue left) {
         return switch (left.type()) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IDIV;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LDIV;
-            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FDIV;
-            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DDIV;
-            default -> throw new TodoException("" + left.type());
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LDIV : Opcodes.IDIV;
+            case IRType.Float floatType -> floatType.bits() == 32 ? Opcodes.FDIV : Opcodes.DDIV;
+            default -> throw new UnsupportedOperationException("Unsupported div type: " + left.type());
         };
     }
 
     private int resolveModOpcode(final IRValue left) {
         return switch (left.type()) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IREM;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LREM;
-            case IRType.Float floatType when floatType.bits() == 32 -> Opcodes.FREM;
-            case IRType.Float floatType when floatType.bits() == 64 -> Opcodes.DREM;
-            default -> throw new TodoException("" + left.type());
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LREM : Opcodes.IREM;
+            case IRType.Float floatType -> floatType.bits() == 32 ? Opcodes.FREM : Opcodes.DREM;
+            default -> throw new UnsupportedOperationException("Unsupported mod type: " + left.type());
         };
     }
 
     private int resolveAndOpcode(final IRValue left) {
         return switch (left.type()) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IAND;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LAND;
-            default -> throw new TodoException("" + left.type());
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LAND : Opcodes.IAND;
+            default -> throw new UnsupportedOperationException("Unsupported and type: " + left.type());
         };
     }
 
     private int resolveOrOpcode(final IRValue left) {
         return switch (left.type()) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IOR;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LOR;
-            default -> throw new TodoException("" + left.type());
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LOR : Opcodes.IOR;
+            default -> throw new UnsupportedOperationException("Unsupported or type: " + left.type());
         };
     }
 
     private int resolveXorOpcode(final IRValue left) {
         return switch (left.type()) {
-            case IRType.Int intTye when intTye.bits() == 32 -> Opcodes.IXOR;
-            case IRType.Int intTye when intTye.bits() == 64 -> Opcodes.LXOR;
-            default -> throw new TodoException("" + left.type());
+            case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LXOR : Opcodes.IXOR;
+            default -> throw new UnsupportedOperationException("Unsupported xor type: " + left.type());
         };
     }
 
@@ -740,7 +844,7 @@ public class InstructionEmitter {
             return resolveReturnOpcode(named.type());
         }
 
-        throw new TodoException();
+        throw new UnsupportedOperationException("Cannot resolve return opcode for: " + value.getClass().getSimpleName());
     }
 
     private int resolveReturnOpcode(final IRType type) {
@@ -748,26 +852,28 @@ public class InstructionEmitter {
             case IRType.Float floatType -> floatType.bits() == 32 ? Opcodes.FRETURN : Opcodes.DRETURN;
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LRETURN
                     : Opcodes.IRETURN;
-            case IRType.Ptr(IRType pointTee, TypeMirror m) -> {
-                if (m != null) {
-                    yield resolveReturnOpcode(m);
+            case IRType.Ptr ptr -> {
+                final var desc = ptr.jvmDescriptor();
+                if (desc != null) {
+                    yield resolveReturnOpcodeFromDescriptor(desc);
                 }
-
-                yield resolveReturnOpcode(pointTee);
+                yield resolveReturnOpcode(ptr.pointee());
             }
             case IRType.Bool ignored -> Opcodes.IRETURN;
-            default -> throw new TodoException();
+            case IRType.Void ignored -> Opcodes.RETURN;
+            case IRType.Array ignored -> Opcodes.ARETURN;
+            default -> throw new UnsupportedOperationException("Unsupported return type: " + type);
         };
     }
 
-    private int resolveReturnOpcode(final TypeMirror type) {
-        return switch (type.getKind()) {
-            case DECLARED, ARRAY -> Opcodes.ARETURN;
-            case BYTE, SHORT, CHAR, INT, BOOLEAN -> Opcodes.IRETURN;
-            case LONG -> Opcodes.LRETURN;
-            case FLOAT -> Opcodes.FRETURN;
-            case DOUBLE -> Opcodes.DRETURN;
-            default -> throw new TodoException("" + type);
+    private int resolveReturnOpcodeFromDescriptor(final String descriptor) {
+        return switch (descriptor.charAt(0)) {
+            case 'L', '[' -> Opcodes.ARETURN;
+            case 'B', 'S', 'C', 'I', 'Z' -> Opcodes.IRETURN;
+            case 'J' -> Opcodes.LRETURN;
+            case 'F' -> Opcodes.FRETURN;
+            case 'D' -> Opcodes.DRETURN;
+            default -> throw new UnsupportedOperationException("Unknown return descriptor: " + descriptor);
         };
     }
 
@@ -880,7 +986,7 @@ public class InstructionEmitter {
                 final var opcode = resolveLoadOpcode(type);
 
                 if (index == -1) {
-                    throw new TodoException();
+                    throw new IllegalStateException("Invalid local variable index for " + name);
                 }
 
                 mv.visitVarInsn(opcode, index);
@@ -922,8 +1028,8 @@ public class InstructionEmitter {
                 //IGNORE
             }
             case IRValue.ConstClass(IRType.Ptr type) -> {
-                final var customType = type.customType();
-                final var asmType = Type.getType(ClassUtils.getDescriptor(customType));
+                final var descriptor = type.jvmDescriptor();
+                final var asmType = Type.getType(descriptor);
                 mv.visitLdcInsn(asmType);
             }
             case IRValue.FunctionRef(String name, IRType.Function fnType) -> {
@@ -943,7 +1049,7 @@ public class InstructionEmitter {
                 );
                 mv.visitLdcInsn(handle);
             }
-            case null, default -> throw new TodoException("" + (value != null ? value.getClass() : "null"));
+            case null, default -> throw new IllegalStateException("Unexpected IRValue: " + (value != null ? value.getClass().getSimpleName() : "null"));
         }
     }
 
@@ -964,12 +1070,11 @@ public class InstructionEmitter {
             }
 
             final var paramDescriptor = AsmHelper.createDescriptor(temp.type());
-            final String signature = null; //TODO
 
             mv.visitLocalVariable(
                     paramName,
                     paramDescriptor,
-                    signature,
+                    null,
                     parameterStart,
                     parameterEnd,
                     index

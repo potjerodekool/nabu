@@ -51,5 +51,39 @@ class IsSubTypeTest extends AbstractCompilerTest {
                 new CTypeVariable("E", null, numberClass.asType(), null))
         );
     }
+
+    @Test
+    void typeVariableSubtypeOfUpperBound() {
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(null, Constants.OBJECT).asType();
+        final var numberClass = (ClassSymbol) getCompilerContext().getClassElementLoader().loadClass(null, "java.lang.Number");
+        numberClass.complete();
+        final var typeVar = new CTypeVariable("T", null, numberClass.asType(), null);
+
+        assertTrue(isSubType.visitTypeVariable(typeVar, objectType));
+        assertTrue(isSubType.visitTypeVariable(typeVar, numberClass.asType()));
+    }
+
+    @Test
+    void typeVariableWithLowerBoundSubtypeOfWildcard() {
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(null, Constants.OBJECT).asType();
+        final var numberClass = (ClassSymbol) getCompilerContext().getClassElementLoader().loadClass(null, "java.lang.Number");
+        numberClass.complete();
+        final var integerClass = (ClassSymbol) getCompilerContext().getClassElementLoader().loadClass(null, "java.lang.Integer");
+        integerClass.complete();
+
+        final var typeVar = new CTypeVariable("T", null, null, integerClass.asType());
+        final var wildcardExtends = new CWildcardType(numberClass.asType(), BoundKind.EXTENDS, null);
+
+        assertTrue(isSubType.visitTypeVariable(typeVar, wildcardExtends));
+    }
+
+    @Test
+    void typeVariableEqualityWithWildcard() {
+        final var objectType = getCompilerContext().getClassElementLoader().loadClass(null, Constants.OBJECT).asType();
+        final var typeVar = new CTypeVariable("T", null, objectType, null);
+        final var wildcardUnbound = new CWildcardType(null, BoundKind.UNBOUND, null);
+
+        assertTrue(isSubType.visitTypeVariable(typeVar, wildcardUnbound));
+    }
 }
 

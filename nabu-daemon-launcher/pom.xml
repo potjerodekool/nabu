@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.potjerodekool</groupId>
+        <artifactId>nabu-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>nabu-daemon-launcher</artifactId>
+
+    <properties>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!--  These pin the exact bytedeco native artifacts the launcher will
+                     fetch at runtime. Bump them here when upgrading LLVM/JavaCPP.  -->
+        <llvm.version>17.0.6-1.5.10</llvm.version>
+        <javacpp.version>1.5.10</javacpp.version>
+        <!--  Fully qualified name of the real daemon entry point, loaded via
+                     reflection once the native classifier jar is on the classpath.  -->
+        <daemon.main.class>io.github.potjerodekool.nabu.compiler.daemon.CompilerDaemon</daemon.main.class>
+        <launcher.main.class>nl.evert.nabu.launcher.Launcher</launcher.main.class>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>${launcher.main.class}</mainClass>
+                        </manifest>
+                        <manifestEntries>
+                            <Nabu-Llvm-Version>${llvm.version}</Nabu-Llvm-Version>
+                            <Nabu-Javacpp-Version>${javacpp.version}</Nabu-Javacpp-Version>
+                            <Nabu-Daemon-Main-Class>${daemon.main.class}</Nabu-Daemon-Main-Class>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

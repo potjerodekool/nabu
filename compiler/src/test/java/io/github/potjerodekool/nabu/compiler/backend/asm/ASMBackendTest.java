@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.backend.ir.TypeMirrorToIRType;
 import io.github.potjerodekool.nabu.compiler.ir.CallKind;
 import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
 import io.github.potjerodekool.nabu.compiler.ir.IRModule;
@@ -11,6 +12,7 @@ import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tools.Constants;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.URL;
@@ -21,7 +23,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@Disabled
+@Disabled("Non-static method tests need 'this' parameter — re-enable after IRBuilder auto-injects 'this' for instance methods")
 class ASMBackendTest extends AbstractCompilerTest {
 
     @TempDir
@@ -320,8 +322,8 @@ class ASMBackendTest extends AbstractCompilerTest {
     void cast() throws Exception {
         final var loader = getCompilerContext().getClassElementLoader();
         final var javaBase = getCompilerContext().getModules().getJavaBase();
-        final var objectType = new IRType.Ptr(IRType.I8,loader.loadClass(javaBase, Constants.OBJECT).asType());
-        final var integerType = new IRType.Ptr(IRType.I8,loader.loadClass(javaBase, Constants.INTEGER).asType());
+        final var objectType = new IRType.Ptr(IRType.I8, TypeMirrorToIRType.toJvmDescriptor(loader.loadClass(javaBase, Constants.OBJECT).asType()));
+        final var integerType = new IRType.Ptr(IRType.I8, TypeMirrorToIRType.toJvmDescriptor(loader.loadClass(javaBase, Constants.INTEGER).asType()));
 
         builder.beginFunction("cast", integerType, List.of(new IRValue.Named("value", objectType)), true);
 

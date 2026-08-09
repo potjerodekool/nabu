@@ -6,7 +6,7 @@ public class MyClass {
 
   // access flags 0x1
   public doWhileLoop(I)I
-    // parameter  number
+    // parameter final  number
    L0
     LINENUMBER 3 L0
     LINENUMBER 4 L0

@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20ParserVisitor;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -39,7 +38,7 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
 
     @Override
     public Object visit(final ParseTree tree) {
-        throw new TodoException();
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -54,7 +53,7 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
 
     @Override
     public Object visitErrorNode(final ErrorNode node) {
-        throw new TodoException();
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -72,7 +71,7 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
         if (ctx.Identifier() != null) {
             return ctx.Identifier().accept(this);
         } else {
-            throw new TodoException();
+            throw new UnsupportedOperationException("Non-identifier type not supported in test parser");
         }
     }
 

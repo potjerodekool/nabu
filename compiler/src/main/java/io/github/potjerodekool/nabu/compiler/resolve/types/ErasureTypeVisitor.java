@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;
@@ -64,14 +63,12 @@ public class ErasureTypeVisitor implements TypeVisitor<TypeMirror, Boolean> {
 
     @Override
     public TypeMirror visitWildcardType(final WildcardType wildcardType, final Boolean recurse) {
-        final TypeMirror erased = erasure(wildUpperBound(wildcardType), recurse);
-
         if (wildcardType.getExtendsBound() != null) {
             return wildcardType.getExtendsBound().accept(this, recurse);
         } else if (wildcardType.getSuperBound() != null) {
             return wildcardType.getSuperBound().accept(this, recurse);
         } else {
-            throw new TodoException();
+            return symbolTable.getObjectType();
         }
     }
 
@@ -105,7 +102,7 @@ public class ErasureTypeVisitor implements TypeVisitor<TypeMirror, Boolean> {
         } else if (typeVariable.getLowerBound() != null) {
             return typeVariable.getLowerBound().accept(this, recurse);
         } else {
-            throw new TodoException();
+            return symbolTable.getObjectType();
         }
     }
 

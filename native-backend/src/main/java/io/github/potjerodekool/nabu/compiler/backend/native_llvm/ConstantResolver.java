@@ -9,6 +9,7 @@ import org.bytedeco.llvm.LLVM.LLVMTypeRef;
 import org.bytedeco.llvm.LLVM.LLVMValueRef;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.bytedeco.llvm.global.LLVM.*;
@@ -73,9 +74,28 @@ public class ConstantResolver {
             case IRValue.ConstString c ->
                 resolveString(c.value(), IRGlobal.Linkage.PRIVATE);
 
+            case IRValue.ConstClass c ->
+                // ConstClass wordt een pointer naar een string met de klassenaam
+                resolveString(c.type().toString(), IRGlobal.Linkage.PRIVATE);
+
+            case IRValue.Values v ->
+                // Meerdere waarden: retourneer de laatste waarde
+                resolveLastValue(v.values());
+
             default -> throw new IllegalArgumentException(
                 "Geen constante: " + value.getClass().getSimpleName());
         };
+    }
+
+    /**
+     * Resolveert meerdere waarden en retourneert de laatste.
+     */
+    private LLVMValueRef resolveLastValue(List<IRValue> values) {
+        LLVMValueRef last = null;
+        for (IRValue v : values) {
+            last = resolve(v);
+        }
+        return last;
     }
 
     /**

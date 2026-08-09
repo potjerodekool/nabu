@@ -1,10 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -42,15 +39,10 @@ class AsmHelperTest {
 
     @Test
     void testToInternalName() {
-        final var integerClass = new ClassSymbol(
-                0, "Integer",
-                new PackageSymbol(new PackageSymbol(null, "java"), "lang")
-        );
-
         final var actual = AsmHelper.toInternalName(
                 new IRType.Ptr(
                         IRType.I8,
-                        new CClassType(null, integerClass, List.of())
+                        "Ljava/lang/Integer;"
                 )
         );
 

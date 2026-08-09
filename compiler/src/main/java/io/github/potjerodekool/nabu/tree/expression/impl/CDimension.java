@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.tree.expression.impl;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.TreeVisitor;
 import io.github.potjerodekool.nabu.tree.expression.AnnotationTree;
 import io.github.potjerodekool.nabu.tree.expression.Dimension;
@@ -30,12 +29,11 @@ public class CDimension extends CExpressionTree implements Dimension  {
 
     public <EB extends ExpressionBuilder<EB>> CDimension(final ExpressionBuilder<EB> builder) {
         super(builder);
-        //TODO Set annotations
-        throw new TodoException();
+        this.annotations = List.of();
     }
 
     @Override
     public <R, P> R accept(final TreeVisitor<R, P> visitor, final P param) {
-        throw new TodoException();
+        return visitor.visitUnknown(this, param);
     }
 }

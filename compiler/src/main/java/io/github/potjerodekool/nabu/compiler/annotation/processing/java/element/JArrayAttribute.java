@@ -1,8 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
-import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.Attribute;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.AnnotationValueVisitor;

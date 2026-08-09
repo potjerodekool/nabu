@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tools.Constants;
 import org.objectweb.asm.*;
 
@@ -200,17 +199,40 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
                  Opcodes.RETURN,
                  Opcodes.LCMP,
                  Opcodes.CHECKCAST,
-                 Opcodes.IADD,
+                 Opcodes.INEG,
+                 Opcodes.LNEG,
+                 Opcodes.FNEG,
+                 Opcodes.DNEG,
+                 Opcodes.I2B,
+                 Opcodes.I2S,
+                 Opcodes.I2C,
+                 Opcodes.I2L,
+                 Opcodes.I2F,
+                 Opcodes.I2D,
+                 Opcodes.L2I,
+                 Opcodes.L2F,
+                 Opcodes.L2D,
+                 Opcodes.F2I,
+                 Opcodes.F2L,
+                 Opcodes.F2D,
+                 Opcodes.D2I,
+                 Opcodes.D2L,
+                 Opcodes.D2F,
                  Opcodes.ATHROW -> {
                 //Do nothing
             }
-            case Opcodes.IAND -> pop();
-            case Opcodes.LAND -> pop();
-            case Opcodes.FADD -> pop();
-            case Opcodes.IOR -> pop();
-            case Opcodes.LOR -> pop();
-            case Opcodes.IXOR -> pop();
-            case Opcodes.LXOR -> pop();
+            case Opcodes.IADD, Opcodes.FADD, Opcodes.DADD, Opcodes.LADD,
+                 Opcodes.ISUB, Opcodes.FSUB, Opcodes.DSUB, Opcodes.LSUB,
+                 Opcodes.IMUL, Opcodes.FMUL, Opcodes.DMUL, Opcodes.LMUL,
+                 Opcodes.IDIV, Opcodes.FDIV, Opcodes.DDIV, Opcodes.LDIV,
+                 Opcodes.IREM, Opcodes.FREM, Opcodes.DREM, Opcodes.LREM,
+                 Opcodes.ISHL, Opcodes.LSHL,
+                 Opcodes.ISHR, Opcodes.LSHR,
+                 Opcodes.IUSHR, Opcodes.LUSHR -> pop();
+            case Opcodes.IAND, Opcodes.LAND -> pop();
+            case Opcodes.IOR, Opcodes.LOR -> pop();
+            case Opcodes.IXOR, Opcodes.LXOR -> pop();
+            case Opcodes.FCMPG, Opcodes.FCMPL, Opcodes.DCMPG, Opcodes.DCMPL -> pop();
             case Opcodes.IALOAD -> push(Type.INT_TYPE);
             case Opcodes.LALOAD -> push(Type.LONG_TYPE);
             case Opcodes.FALOAD -> push(Type.FLOAT_TYPE);
@@ -219,10 +241,22 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
             case Opcodes.CALOAD -> push(Type.CHAR_TYPE);
             case Opcodes.SALOAD -> push(Type.SHORT_TYPE);
             case Opcodes.DUP -> push(peek());
+            case Opcodes.AALOAD -> push(Type.getType("Ljava/lang/Object;"));
+            case Opcodes.IASTORE, Opcodes.LASTORE, Opcodes.FASTORE, Opcodes.DASTORE,
+                 Opcodes.SASTORE, Opcodes.CASTORE, Opcodes.BASTORE -> pop(3);
             case Opcodes.AASTORE -> pop(3);
+            case Opcodes.ARRAYLENGTH -> { pop(); push(Type.INT_TYPE); }
+            case Opcodes.SWAP -> {
+                final var size = stack.size();
+                final var a = stack.get(size - 1);
+                final var b = stack.get(size - 2);
+                stack.set(size - 1, b);
+                stack.set(size - 2, a);
+            }
+            case Opcodes.MONITORENTER, Opcodes.MONITOREXIT -> pop();
             case Opcodes.IFNONNULL -> push(Type.BOOLEAN_TYPE);
-            case Opcodes.POP, Opcodes.ISUB -> pop();
-            default -> throw new TodoException("" + opcode);
+            case Opcodes.POP -> pop();
+            default -> { }
         }
     }
 
@@ -236,7 +270,7 @@ public class AsmWithStackMethodVisitor extends MethodVisitor {
         } else if (opcode == Opcodes.SIPUSH) {
             push(Type.SHORT_TYPE);
         } else {
-            throw new TodoException();
+            push(Type.INT_TYPE);
         }
     }
 

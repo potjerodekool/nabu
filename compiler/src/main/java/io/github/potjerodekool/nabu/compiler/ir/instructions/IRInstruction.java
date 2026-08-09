@@ -2,13 +2,14 @@ package io.github.potjerodekool.nabu.compiler.ir.instructions;
 
 import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
 import io.github.potjerodekool.nabu.compiler.ir.CallKind;
+import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 
 import java.util.List;
 import java.util.Objects;
 
-public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw {
+public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion {
 
     /** Resultaat van de instructie; null als de instructie void is. */
     IRValue result();
@@ -70,6 +71,20 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
 
     }
 
+    record ArrayLoad(
+            IRValue result,
+            IRValue array,
+            IRValue index,
+            IRType elemType,
+            SourceLocation location
+    ) implements IRInstruction {}
+
+    record ArrayLength(
+            IRValue result,
+            IRValue array,
+            SourceLocation location
+    ) implements IRInstruction {}
+
     record Store(
             IRValue ptr,
             IRValue value,
@@ -77,6 +92,12 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
     ) implements IRInstruction {
         public IRValue result() { return null; }
     }
+
+    record HeapAlloc(
+            IRValue result,
+            IRType allocType,
+            SourceLocation location
+    ) implements IRInstruction {}
 
     // -------------------------------------------------------
     // Aanroepen
@@ -89,8 +110,7 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
             IRValue result,
             String         function,
             List<IRValue>  args,
-            SourceLocation location,
-            io.github.potjerodekool.nabu.type.ExecutableType methodType) implements IRInstruction {}
+            SourceLocation location) implements IRInstruction {}
 
     record IndirectCall(
             IRValue result,
@@ -144,6 +164,16 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
                       SourceLocation location) implements IRInstruction {
     }
 
+    record MonitorEnter(IRValue object,
+                        SourceLocation location) implements IRInstruction {
+        public IRValue result() { return null; }
+    }
+
+    record MonitorExit(IRValue object,
+                       SourceLocation location) implements IRInstruction {
+        public IRValue result() { return null; }
+    }
+
     record Throw(IRValue result,
                  IRType type,
                  SourceLocation location) implements IRInstruction {
@@ -153,5 +183,77 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
     record Pop(IRValue result,
                SourceLocation location) implements IRInstruction {
 
+    }
+
+    // -------------------------------------------------------
+    // SSA Move (voor SSA renaming)
+    // -------------------------------------------------------
+
+    /**
+     * SSA move-instructie: kopieert een waarde naar een nieuw SSA-register.
+     * Wordt gebruikt bij SSA-construction om loads te vervangen door
+     * directe SSA-waarde-referenties.
+     *
+     * @param result het nieuwe SSA-register
+     * @param value  de bronwaarde
+     */
+    record Move(
+            IRValue result,
+            IRValue value,
+            SourceLocation location
+    ) implements IRInstruction {}
+
+    // -------------------------------------------------------
+    // SSA Phi-functie
+    // -------------------------------------------------------
+
+    /**
+     * SSA phi-instructie: kiest de waarde op basis van het voorafgaande blok.
+     * Moet het eerste instrument zijn in een basisblok.
+     *
+     * @param result         het SSA-register dat de samengevoegde waarde ontvangt
+     * @param incomingValues lijst van (waarde, bronblok) paren — een per predecessor
+     */
+    record Phi(
+            IRValue result,
+            List<Incoming> incomingValues,
+            SourceLocation location
+    ) implements IRInstruction {
+
+        public record Incoming(IRValue value, IRBasicBlock fromBlock) {
+            public Incoming {
+                Objects.requireNonNull(value, "value");
+                Objects.requireNonNull(fromBlock, "fromBlock");
+            }
+        }
+
+        public Phi {
+            Objects.requireNonNull(result, "result");
+            Objects.requireNonNull(incomingValues, "incomingValues");
+            Objects.requireNonNull(location, "location");
+        }
+    }
+
+    // -------------------------------------------------------
+    // Exception handling
+    // -------------------------------------------------------
+
+    /**
+     * Markeert een catch-blok met informatie over het bijhorende try-bereik.
+     * Wordt aan het begin van elk catch-blok geplaatst.
+     *
+     * @param tryStartLabel label van het eerste blok van de try-body
+     * @param tryEndLabel   label van het laatste blok van de try-body (exclusief)
+     * @param handlerLabel  label van dit catch-blok
+     * @param exceptionType interne naam van het exception-type (null = vang alles)
+     */
+    record TryCatchRegion(
+            String tryStartLabel,
+            String tryEndLabel,
+            String handlerLabel,
+            String exceptionType,
+            SourceLocation location
+    ) implements IRInstruction {
+        public IRValue result() { return null; }
     }
 }

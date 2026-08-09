@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.Tree;
@@ -183,7 +182,7 @@ public class TreeWalker extends AbstractTreeVisitor<Object, Consumer<Tree
     @Override
     public Object visitUnknown(final Tree tree,
                                final Consumer<Tree> consumer) {
-        throw new TodoException();
+        throw new UnsupportedOperationException("Unsupported tree type: " + tree.getClass().getName());
     }
 
     @Override

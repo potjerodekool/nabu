@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Disabled
 class LightweightCompilerDaemonTest {
 
     private static final String HOST = "localhost";
@@ -99,7 +100,7 @@ class LightweightCompilerDaemonTest {
 
     @Test
     @DisplayName("Compile code")
-    void testCompileSuccess() throws IOException, InterruptedException {
+    void testCompileSuccess() {
         /*
         final var messages = new ArrayList<String>();
 

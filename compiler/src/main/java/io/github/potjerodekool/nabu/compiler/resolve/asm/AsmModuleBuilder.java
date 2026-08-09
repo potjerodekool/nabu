@@ -33,7 +33,8 @@ public class AsmModuleBuilder extends ModuleVisitor {
 
     @Override
     public void visitMainClass(final String mainClass) {
-        //TODO
+        // Main class info wordt momenteel niet gebruikt in de resolver.
+        // Kan worden toegevoegd aan ModuleSymbol als dat nodig is.
     }
 
     @Override

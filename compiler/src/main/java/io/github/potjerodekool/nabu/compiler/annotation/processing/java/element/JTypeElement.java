@@ -1,9 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.log.LogLevel;
-import io.github.potjerodekool.nabu.log.Logger;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeMirror;
@@ -12,7 +9,6 @@ import java.util.List;
 
 public class JTypeElement extends JElement<io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement> implements javax.lang.model.element.TypeElement {
 
-    private final Logger logger = Logger.getLogger(getClass().getName());
     private List<? extends TypeMirror> interfaces;
     private final NestingKind nestingKind;
     private List<TypeParameterElement> typeParameterElements;
@@ -24,14 +20,13 @@ public class JTypeElement extends JElement<io.github.potjerodekool.nabu.compiler
 
     @Override
     public <A extends Annotation> A getAnnotation(final Class<A> annotationType) {
-        logger.log(LogLevel.ERROR, "getAnnotation");
-        throw new TodoException();
+        return null;
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <A extends Annotation> A[] getAnnotationsByType(final Class<A> annotationType) {
-        logger.log(LogLevel.ERROR, "getAnnotationsByType");
-        throw new TodoException();
+        return (A[]) new Annotation[0];
     }
 
     @Override

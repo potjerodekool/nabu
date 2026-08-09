@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.type;
 
 import io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.*;
 
 import javax.lang.model.type.TypeKind;
@@ -25,11 +24,16 @@ public final class TypeWrapperFactory {
             case DOUBLE -> new JPrimitiveType(TypeKind.DOUBLE, (PrimitiveType) typeMirror);
             case FLOAT -> new JPrimitiveType(TypeKind.FLOAT, (PrimitiveType) typeMirror);
             case SHORT -> new JPrimitiveType(TypeKind.SHORT, (PrimitiveType) typeMirror);
+            case ARRAY -> new JArrayType((ArrayType) typeMirror);
             case VOID -> new JNoType(TypeKind.VOID, typeMirror);
             case EXECUTABLE -> new JExecutableType((ExecutableType) typeMirror);
             case TYPEVAR -> new JTypeVariable(typeMirror);
             case WILDCARD -> new JWildcartType((WildcardType) typeMirror);
-            default -> throw new TodoException("" + typeMirror.getKind());
+            case NULL -> new JNullType(typeMirror);
+            case NONE -> new JNoType(TypeKind.NONE, typeMirror);
+            case INTERSECTION -> new JNoType(TypeKind.INTERSECTION, typeMirror);
+            case UNION -> new JNoType(TypeKind.UNION, typeMirror);
+            default -> throw new UnsupportedOperationException("Unknown type kind: " + typeMirror.getKind());
         };
     }
 

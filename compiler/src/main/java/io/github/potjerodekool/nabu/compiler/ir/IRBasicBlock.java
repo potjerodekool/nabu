@@ -33,6 +33,10 @@ public class IRBasicBlock {
         instructions.add(instr);
     }
 
+    public void add(int index, IRInstruction instr) {
+        instructions.add(index, instr);
+    }
+
     public boolean isTerminated() {
         if (instructions.isEmpty()) return false;
         IRInstruction last = instructions.getLast();
@@ -67,6 +71,33 @@ public class IRBasicBlock {
             return null;
         }
         return instructions.getLast();
+    }
+
+    /**
+     * Voeg een instructie toe vlak voor de terminator van dit blok.
+     * Gebruikt voor phi-eliminatie: het invoegen van moves aan het einde
+     * van predecessor-blokken.
+     */
+    public void insertBeforeTerminator(IRInstruction instr) {
+        if (instructions.isEmpty() || !isTerminated()) {
+            add(instr);
+        } else {
+            instructions.add(instructions.size() - 1, instr);
+        }
+    }
+
+    /**
+     * Verwijder een instructie uit dit blok (voor phi-eliminatie).
+     */
+    public boolean removeInstruction(IRInstruction instr) {
+        return instructions.remove(instr);
+    }
+
+    /**
+     * Vervang een instructie op een specifieke index.
+     */
+    public void setInstruction(int index, IRInstruction instr) {
+        instructions.set(index, instr);
     }
 
     public BlockType getBlockType() {

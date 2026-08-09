@@ -2,12 +2,10 @@ package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeParameterElement;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.type.TypeMirror;
-import java.lang.annotation.Annotation;
 import java.util.List;
 
 public class JTypeParameterElement extends JElement<TypeParameterElement> implements javax.lang.model.element.TypeParameterElement {

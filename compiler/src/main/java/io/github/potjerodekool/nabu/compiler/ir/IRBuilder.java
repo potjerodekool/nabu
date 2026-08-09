@@ -5,9 +5,6 @@ import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.tools.TodoException;
-import io.github.potjerodekool.nabu.type.ExecutableType;
-import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.*;
 
@@ -99,9 +96,10 @@ public class IRBuilder {
     }
 
     /**
-     TODO
-     @deprecated Use beginFunction with flags instead
+     * Maakt een nieuwe functie aan.
+     * @deprecated Gebruik {@link #beginFunction(String, IRType, List, long)} met flags in plaats van isStatic.
      */
+    @Deprecated
     public IRFunction beginFunction(final String name,
                                     final IRType returnType,
                                     final List<IRValue> params,
@@ -215,14 +213,12 @@ public class IRBuilder {
     public IRValue emitLoad(IRType type,
                             IRValue ptr) {
         final IRType pointee;
-        pointee = ptr.type();
-        /*
+
         if (ptr.type() instanceof IRType.Ptr ptrType) {
             pointee = ptrType.pointee();
         } else {
             pointee = ptr.type();
         }
-        */
 
         var result = fresh(pointee);
         emit(new IRInstruction.Load(result, type, ptr, currentLocation));
@@ -238,24 +234,8 @@ public class IRBuilder {
                             final IRType returnType,
                             final List<IRType> paramTypes,
                             final List<IRValue> args) {
-        return emitCall(
-                callKind,
-                fnName,
-                returnType,
-                paramTypes,
-                args,
-                null
-        );
-    }
-
-    public IRValue emitCall(final CallKind callKind,
-                            final String fnName,
-                            final IRType returnType,
-                            final List<IRType> paramTypes,
-                            final List<IRValue> args,
-                            final ExecutableType methodType) {
         IRValue result = returnType == IRType.VOID ? null : fresh(returnType);
-        emit(new IRInstruction.Call(callKind, returnType, paramTypes, result, fnName, args, currentLocation, methodType));
+        emit(new IRInstruction.Call(callKind, returnType, paramTypes, result, fnName, args, currentLocation));
         return result;
     }
 
@@ -308,6 +288,43 @@ public class IRBuilder {
                 type,
                 currentLocation
         ));
+    }
+
+    // -------------------------------------------------------
+    // SSA Phi-functie
+    // -------------------------------------------------------
+
+    /**
+     * Emit een phi-instructie in het huidige blok.
+     * Phi moet het eerste instrument zijn in een blok (SSA vereiste).
+     *
+     * @param type     het type van de phi (en dus het resultaat)
+     * @param incoming lijst van (waarde, bronblok) paren
+     * @return het SSA-register dat de samengevoegde waarde ontvangt
+     */
+    public IRValue emitPhi(final IRType type,
+                           final List<IRInstruction.Phi.Incoming> incoming) {
+        var result = fresh(type);
+        emit(new IRInstruction.Phi(result, incoming, currentLocation));
+        return result;
+    }
+
+    // -------------------------------------------------------
+    // SSA Move (voor SSA renaming)
+    // -------------------------------------------------------
+
+    /**
+     * Emit een move-instructie: kopieert een waarde naar een nieuw SSA-register.
+     * Wordt gebruikt bij SSA-construction om loads te vervangen.
+     *
+     * @param type  het type van het resultaat
+     * @param value de bronwaarde
+     * @return het nieuwe SSA-register
+     */
+    public IRValue emitMove(final IRType type, final IRValue value) {
+        var result = fresh(type);
+        emit(new IRInstruction.Move(result, value, currentLocation));
+        return result;
     }
 
     // -------------------------------------------------------
@@ -367,10 +384,10 @@ public class IRBuilder {
     }
 
     public IRValue constString(String value,
-                               final TypeMirror typeMirror) {
+                               final String jvmDescriptor) {
         String globalName = ".str." + stringCounter++;
         module.addGlobal(IRGlobal.stringLiteral(globalName, value));
-        return new IRValue.Named("@" + globalName, new IRType.Ptr(IRType.I8, typeMirror));
+        return new IRValue.Named("@" + globalName, new IRType.Ptr(IRType.I8, jvmDescriptor));
     }
 
     // -------------------------------------------------------
@@ -468,11 +485,37 @@ public class IRBuilder {
     }
 
     public IRValue emitHeapAlloc(final String newObj, final IRType objectType) {
-        return IRValue.ptr(objectType);
+        var ptr = new IRValue.Temp("%" + newObj + ".ptr", new IRType.Ptr(objectType));
+        emit(new IRInstruction.HeapAlloc(ptr, objectType, currentLocation));
+        return ptr;
     }
 
+    public IRValue emitArrayLoad(final IRValue array, final IRValue index, final IRType elemType) {
+        var result = fresh(elemType);
+        emit(new IRInstruction.ArrayLoad(result, array, index, elemType, currentLocation));
+        return result;
+    }
+
+    public IRValue emitArrayLength(final IRValue array) {
+        var result = fresh(IRType.I32);
+        emit(new IRInstruction.ArrayLength(result, array, currentLocation));
+        return result;
+    }
+
+    public void emitMonitorEnter(final IRValue object) {
+        emit(new IRInstruction.MonitorEnter(object, currentLocation));
+    }
+
+    public void emitMonitorExit(final IRValue object) {
+        emit(new IRInstruction.MonitorExit(object, currentLocation));
+    }
+
+    /**
+     * @deprecated Gebruik emitArrayLoad voor array-toegang.
+     */
+    @Deprecated
     public IRValue emitGEP(final IRValue array, final IRType pointee, final IRValue index) {
-        throw new TodoException();
+        return emitArrayLoad(array, index, pointee);
     }
 
     public IRValue emitPop() {

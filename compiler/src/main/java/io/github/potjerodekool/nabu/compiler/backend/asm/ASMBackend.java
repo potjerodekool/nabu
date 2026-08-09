@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.backend.Backend;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.ir.IRModule;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.ClassNode;
@@ -56,7 +55,7 @@ public class ASMBackend implements Backend {
             throw new CompileException("Error while writing bytecode.", e);
         } catch (final Exception e) {
             final var text = byteCodeToText(bytecode);
-            throw new TodoException("Invalid bytecode generated");
+            throw new RuntimeException("Invalid bytecode generated");
         }
     }
 

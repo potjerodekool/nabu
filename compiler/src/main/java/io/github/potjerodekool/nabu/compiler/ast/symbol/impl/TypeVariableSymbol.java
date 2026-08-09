@@ -42,6 +42,10 @@ public class TypeVariableSymbol extends TypeSymbol implements TypeParameterEleme
         final var typeVariable = (TypeVariable) asType();
         final var upperBound = typeVariable.getUpperBound();
 
+        if (upperBound == null) {
+            return List.of();
+        }
+
         if (!upperBound.isCompound()) {
             return List.of(upperBound);
         } else {

@@ -9,4 +9,5 @@ public interface IRVisitor<T> {
     //T visitLabel(Label label);
     T visitFunctionCall(IRInstruction.Call call);
     T visitReturn(IRInstruction.Return ret);
+    T visitPhi(IRInstruction.Phi phi);
 }

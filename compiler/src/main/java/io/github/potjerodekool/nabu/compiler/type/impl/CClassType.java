@@ -120,8 +120,8 @@ public class CClassType extends AbstractType implements DeclaredType {
             allParameters = new ArrayList<>();
 
             if (getEnclosingType() != null && getEnclosingType().getKind() != TypeKind.NONE) {
-                //TODO should not be null.
-                allParameters.addAll(getEnclosingType().getAllParameters());
+            // Kan null zijn als enclosing type niet correct is geïnitialiseerd
+            allParameters.addAll(getEnclosingType().getAllParameters());
             }
 
             allParameters.addAll(getTypeArguments());

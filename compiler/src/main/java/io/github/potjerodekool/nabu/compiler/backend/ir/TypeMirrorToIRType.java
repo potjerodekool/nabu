@@ -48,7 +48,7 @@ public final class TypeMirrorToIRType {
             case ARRAY -> {
                 if (type instanceof ArrayType arrayType) {
                     IRType elementType = map(arrayType.getComponentType());
-                    yield new IRType.Ptr(elementType, arrayType);
+                    yield new IRType.Ptr(elementType, toJvmDescriptor(arrayType));
                 }
                 yield new IRType.Ptr(IRType.I8);
             }
@@ -57,8 +57,7 @@ public final class TypeMirrorToIRType {
             // Gedeclareerde types (klassen, interfaces, enums, records)
             // Na type-erasure: opaque pointer
             // -------------------------------------------------------
-            case DECLARED -> //yield new IRType.CustomType(type);
-                    new IRType.Ptr(IRType.I8, type);
+            case DECLARED -> new IRType.Ptr(IRType.I8, toJvmDescriptor(type));
 
             // -------------------------------------------------------
             // Type-variabelen en wildcards — na erasure: Object = Ptr(I8)
@@ -119,5 +118,36 @@ public final class TypeMirrorToIRType {
         if (type == null) return false;
         return !type.getKind().isPrimitive()
                 && type.getKind() != TypeKind.VOID;
+    }
+
+    /**
+     * Converteert een TypeMirror naar een JVM type descriptor string.
+     * Bijv. "Ljava/lang/String;", "[Ljava/lang/String;", "I", etc.
+     */
+    public static String toJvmDescriptor(TypeMirror type) {
+        if (type == null) return null;
+        return switch (type.getKind()) {
+            case BYTE -> "B";
+            case SHORT -> "S";
+            case CHAR -> "C";
+            case INT -> "I";
+            case LONG -> "J";
+            case FLOAT -> "F";
+            case DOUBLE -> "D";
+            case BOOLEAN -> "Z";
+            case VOID -> "V";
+            case DECLARED -> {
+                final var className = type.asTypeElement().getQualifiedName();
+                yield "L" + className.replace('.', '/') + ";";
+            }
+            case ARRAY -> {
+                if (type instanceof ArrayType arrayType) {
+                    final var componentDesc = toJvmDescriptor(arrayType.getComponentType());
+                    yield "[" + componentDesc;
+                }
+                yield "[Ljava/lang/Object;";
+            }
+            default -> null;
+        };
     }
 }

@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.ASMTestUtils;
+import io.github.potjerodekool.nabu.compiler.backend.ir.TypeMirrorToIRType;
 import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
 import io.github.potjerodekool.nabu.compiler.ir.IRField;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
@@ -30,22 +31,23 @@ class ASMByteCodeEmitterTest extends AbstractCompilerTest {
         final var flags = Flags.PUBLIC + Flags.FINAL + Flags.RECORD;
 
         final var irBuilder = new IRBuilder(flags, "MyClass");
-        irBuilder.superType(new IRType.Ptr(IRType.I8,recordType));
+        irBuilder.superType(new IRType.Ptr(IRType.I8, TypeMirrorToIRType.toJvmDescriptor(recordType)));
 
         final var stringType = loadClass(Constants.STRING).asType();
+        final var stringDesc = TypeMirrorToIRType.toJvmDescriptor(stringType);
 
-        irBuilder.field(IRField.recordComponent("id", new IRType.Ptr(IRType.I8, stringType)));
-        irBuilder.field((IRField.recordComponent("name", new IRType.Ptr(IRType.I8, stringType))));
+        irBuilder.field(IRField.recordComponent("id", new IRType.Ptr(IRType.I8, stringDesc)));
+        irBuilder.field((IRField.recordComponent("name", new IRType.Ptr(IRType.I8, stringDesc))));
 
         irBuilder.field(IRField.field(
                 Flags.PRIVATE +  Flags.FINAL,
-                "id", new IRType.Ptr(IRType.I8, stringType),
+                "id", new IRType.Ptr(IRType.I8, stringDesc),
                 null
         ));
 
         irBuilder.field(IRField.field(
                 Flags.PRIVATE + Flags.FINAL,
-                "name", new IRType.Ptr(IRType.I8,stringType),
+                "name", new IRType.Ptr(IRType.I8, stringDesc),
                 null
         ));
 

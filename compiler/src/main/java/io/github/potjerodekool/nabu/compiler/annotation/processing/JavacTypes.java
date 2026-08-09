@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.JAbstractType;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.JPrimitiveType;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
@@ -139,7 +138,12 @@ public class JavacTypes implements Types {
     @Override
     public WildcardType getWildcardType(final TypeMirror extendsBound,
                                         final TypeMirror superBound) {
-        throw new TodoException();
+        return (WildcardType) TypeWrapperFactory.wrap(
+                nabuTypes.getWildcardType(
+                        TypeWrapperFactory.unwrap(extendsBound),
+                        TypeWrapperFactory.unwrap(superBound)
+                )
+        );
     }
 
     @Override

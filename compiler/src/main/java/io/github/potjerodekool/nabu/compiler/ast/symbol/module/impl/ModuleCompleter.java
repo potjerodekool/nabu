@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaModuleParser;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
@@ -103,7 +102,11 @@ class ModuleCompleter implements Completer {
     }
 
     private void setupAutomaticModule(final ModuleSymbol module) {
-        throw new TodoException();
+        module.setDirectives(List.of());
+        module.setExports(List.of());
+        module.setProvides(List.of());
+        module.setRequires(List.of());
+        module.setUses(List.of());
     }
 
     private void initErrModule(final ModuleSymbol moduleSymbol) {

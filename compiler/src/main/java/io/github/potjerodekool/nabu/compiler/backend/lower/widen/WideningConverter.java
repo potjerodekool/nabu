@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
 import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.backend.lower.ExpressionConverter;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
@@ -72,15 +71,19 @@ public class WideningConverter implements ExpressionConverter {
                     }
                 } else if (primitiveKind == TypeKind.INT) {
                     if (otherPrimitiveKind == TypeKind.LONG) {
-                        throw new TodoException();
+                        return expressionTree;
                     }
                 } else if (primitiveKind == TypeKind.SHORT) {
                     if (otherPrimitiveKind == TypeKind.INT) {
                         return expressionTree;
                     }
+                } else if (primitiveKind == TypeKind.FLOAT) {
+                    if (otherPrimitiveKind == TypeKind.DOUBLE) {
+                        return expressionTree;
+                    }
+                } else if (primitiveKind == TypeKind.DOUBLE) {
+                    return expressionTree;
                 }
-
-                throw new TodoException();
             }
         }
 
@@ -136,7 +139,9 @@ public class WideningConverter implements ExpressionConverter {
             final Object newLiteral;
 
             if (literal instanceof Number numberLiteral) {
-                if (targetType == TypeKind.SHORT) {
+                if (targetType == TypeKind.BYTE) {
+                    newLiteral = numberLiteral.byteValue();
+                } else if (targetType == TypeKind.SHORT) {
                     newLiteral = numberLiteral.shortValue();
                 } else if (targetType == TypeKind.INT) {
                     newLiteral = numberLiteral.intValue();
@@ -147,12 +152,14 @@ public class WideningConverter implements ExpressionConverter {
                 } else if (targetType == TypeKind.DOUBLE) {
                     newLiteral = numberLiteral.doubleValue();
                 } else {
-                    throw new TodoException();
+                    return expressionTree;
                 }
             } else {
                 final Integer intLiteral = Integer.valueOf((char) literal);
 
-                if (targetType == TypeKind.INT) {
+                if (targetType == TypeKind.BYTE) {
+                    newLiteral = intLiteral.byteValue();
+                } else if (targetType == TypeKind.INT) {
                     newLiteral = intLiteral;
                 } else if (targetType == TypeKind.LONG) {
                     newLiteral = intLiteral.longValue();
@@ -161,7 +168,7 @@ public class WideningConverter implements ExpressionConverter {
                 } else if (targetType == TypeKind.DOUBLE) {
                     newLiteral = (double) intLiteral;
                 } else {
-                    throw new TodoException();
+                    return expressionTree;
                 }
             }
 

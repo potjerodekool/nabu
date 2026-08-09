@@ -3,13 +3,6 @@
     <id>io.github.potjerodekool.nabu.lang</id>
     <version>0.0.1</version>
     <description>Compiler support for Nabu language</description>
-    <extension-points>
-        <extension-point id="language-support" schema="language-support.xsd">
-        </extension-point>
-        <extension-point id="language-parse">
-
-        </extension-point>
-    </extension-points>
     <extensions>
         <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.java.JavaLanguageSupport"/>
         <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.kotlin.KotlinLanguageSupport"/>

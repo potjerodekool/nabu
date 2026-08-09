@@ -314,8 +314,9 @@ public class NabuCFileManager implements FileManager {
                 : null;
     }
 
-    /*
-     * TODO support other source extensions.
+    /**
+     * Resoloveert een FileObject op basis van locatie en classnaam.
+     * Ondersteunt .class (binair) en .java / .nabu (bron) extensies.
      */
     @Override
     public FileObject getFileObject(final Location location, final String className) {
@@ -329,6 +330,14 @@ public class NabuCFileManager implements FileManager {
                 subPath = path.resolve(className + ".class");
                 kind = FileObject.CLASS_KIND;
             } else {
+                // Probeer .nabu eerst, dan .java
+                final var nabuPath = path.resolve(className + ".nabu");
+                if (Files.exists(nabuPath)) {
+                    return new PathFileObject(
+                            new FileObject.Kind(".nabu", true),
+                            nabuPath
+                    );
+                }
                 subPath = path.resolve(className + ".java");
                 kind = new FileObject.Kind(".java", true);
             }

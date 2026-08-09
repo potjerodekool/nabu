@@ -10,7 +10,6 @@ import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20ParserBaseVisitor;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
@@ -131,7 +130,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
         if (ctx.typeParameters() != null) {
-            throw new TodoException();
+            throw new UnsupportedOperationException("Generic methods not supported in test parser");
         }
 
         final List<Object> annotations;
@@ -148,7 +147,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
         final var method = (MethodSymbol) ctx.methodDeclarator().accept(this);
 
         if (ctx.throwsT() != null) {
-            throw new TodoException();
+            throw new UnsupportedOperationException("Throws clause not supported in test parser");
         }
 
         method.setReturnType(result);
@@ -163,7 +162,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
             case Java20Lexer.STATIC -> Flags.STATIC;
             case Java20Lexer.FINAL -> Flags.FINAL;
             case Java20Lexer.Identifier -> node.getText();
-            default -> throw new TodoException("" + node.getSymbol().getType());
+            default -> throw new UnsupportedOperationException("Unsupported token type: " + node.getSymbol().getType());
         };
     }
 

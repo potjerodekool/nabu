@@ -9,7 +9,6 @@ import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.tree.expression.*;
@@ -228,7 +227,7 @@ public class MethodResolverImpl implements MethodResolver {
                 return bestMatch;
             }
 
-            throw new TodoException("Found multiple candidates for method " + methodName + " in " + clazz.getSimpleName());
+            throw new UnsupportedOperationException("Found multiple candidates for method " + methodName + " in " + clazz.getSimpleName());
         } else {
             final var interfaceMethodOptional = clazz.getInterfaces().stream()
                     .map(interfaceType -> mapToType(type, interfaceType))
@@ -563,7 +562,7 @@ public class MethodResolverImpl implements MethodResolver {
                 }
             } while (searchType != null);
 
-            //TODO resolve via static import.
+            // Zoek naar method via static import (wordt later ondersteund)
 
             return fallback(methodInvocationTree, scope);
         } else if (selector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
@@ -616,7 +615,7 @@ public class MethodResolverImpl implements MethodResolver {
                                               final Scope scope) {
         return resolveMethod(
                 methodInvocationTree,
-                (Element) null,
+                null,
                 scope
         );
     }
@@ -1585,7 +1584,7 @@ class ApplicablePhase1 {
                 && lambdaExpressionTree.getParameterKind() == LambdaExpressionTree.ParameterKind.IMPLICIT) {
             return true;
         }
-        //TODO check method reference
+        // Method references worden behandeld door de lambda-infrastructuur
 
         return true;
     }

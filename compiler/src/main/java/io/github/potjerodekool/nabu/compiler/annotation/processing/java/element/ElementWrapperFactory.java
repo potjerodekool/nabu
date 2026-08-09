@@ -1,10 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
+import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
@@ -27,7 +28,7 @@ public final class ElementWrapperFactory {
             case ModuleElement moduleElement -> new JModuleElement(moduleElement);
             default -> {
                 LOGGER.log(LogLevel.ERROR, "can't wrap " + original.getClass().getName());
-                throw new TodoException(original.getClass().getName());
+                yield null;
             }
         };
     }
@@ -43,12 +44,22 @@ public final class ElementWrapperFactory {
             default -> {
                 final var name = original.getClass().getName();
                 LOGGER.log(LogLevel.ERROR, "can't wrap " + name);
-                throw new TodoException();
+                yield null;
             }
         };
     }
 
     public static io.github.potjerodekool.nabu.compiler.lang.model.element.Element unwrap(final Element element) {
         return ((JElement<?>) element).getOriginal();
+    }
+
+    public static io.github.potjerodekool.nabu.compiler.lang.model.element.Element toNabuElement(final Element element) {
+        return switch (element) {
+            case javax.lang.model.element.ExecutableElement executableElement -> new MethodSymbolBuilderImpl()
+                    .kind(ElementKind.METHOD)
+                    .simpleName(executableElement.getSimpleName().toString())
+                    .build();
+            default -> throw new UnsupportedOperationException("Cannot convert " + element.getKind() + " to nabu element");
+        };
     }
 }

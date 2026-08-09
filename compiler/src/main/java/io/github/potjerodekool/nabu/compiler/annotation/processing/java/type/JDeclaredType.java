@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.type;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.QualifiedNameable;
 import javax.lang.model.type.DeclaredType;
@@ -41,7 +40,11 @@ public class JDeclaredType extends JAbstractType<io.github.potjerodekool.nabu.ty
 
     @Override
     public TypeMirror getEnclosingType() {
-        throw new TodoException();
+        final var enclosingType = getOriginal().getEnclosingType();
+        if (enclosingType == null) {
+            return new JNoType(TypeKind.NONE, null);
+        }
+        return TypeWrapperFactory.wrap(enclosingType);
     }
 
     @Override

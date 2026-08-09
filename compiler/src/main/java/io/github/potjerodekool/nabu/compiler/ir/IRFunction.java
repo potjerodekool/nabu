@@ -33,13 +33,6 @@ public class IRFunction {
                       final SourceLocation location,
                       final long flags,
                       final boolean isConstructor) {
-
-        if (flags == 0) {
-            //TODO Should have some flags set like access flags.
-            //Add check and throw exeption here.
-            System.err.println("Warning: Function " + name + " has no flags.");
-        }
-
         this.name = name;
         this.returnType = returnType;
         this.params = List.copyOf(params);

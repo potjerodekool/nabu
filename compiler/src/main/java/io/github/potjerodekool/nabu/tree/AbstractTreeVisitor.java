@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.tree;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.element.*;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.statement.*;
@@ -90,7 +89,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
                We could add that via extension points so a language plugin can implement
                extensions to support those tree types.
              */
-            default -> throw new TodoException(tree.getClass().getName()); //TODO add missing cases.
+            default -> throw new UnsupportedOperationException("Unsupported tree type: " + tree.getClass().getName());
         };
     }
 

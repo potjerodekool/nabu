@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.ir;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.ir.*;
+import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction.BinaryOp.Op;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
@@ -11,8 +12,8 @@ import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.*;
+import io.github.potjerodekool.nabu.tree.element.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
@@ -25,8 +26,7 @@ import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * Vertaalt de Nabu AST naar een IRModule.
@@ -51,6 +51,25 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     // Naam van de klasse die nu verwerkt wordt (voor this-verwijzingen)
     private String currentClassName;
 
+    // Teller voor unieke lambda-functienamen
+    private int lambdaCounter = 0;
+
+    // Loop-context stack voor break/continue
+    private final Deque<IRBasicBlock> breakTargets = new ArrayDeque<>();
+    private final Deque<IRBasicBlock> continueTargets = new ArrayDeque<>();
+
+    // Gelabelde break/continue doelen
+    private final Map<String, IRBasicBlock> labeledBreakTargets = new LinkedHashMap<>();
+    private final Map<String, IRBasicBlock> labeledContinueTargets = new LinkedHashMap<>();
+
+    // Labels die wachten op een continue target (gevuld door de volgende lus)
+    private final Deque<String> pendingLabels = new ArrayDeque<>();
+
+    // Try-catch ranges die verzameld worden voor de ASM-backends
+    private final List<TryCatchRange> tryCatchRanges = new ArrayList<>();
+
+    public record TryCatchRange(String tryStart, String tryEnd, String handler, String exceptionType) {}
+
     // -------------------------------------------------------
     // Resultaat
     // -------------------------------------------------------
@@ -59,15 +78,17 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         return module;
     }
 
+    public List<TryCatchRange> getTryCatchRanges() {
+        return Collections.unmodifiableList(tryCatchRanges);
+    }
+
     // -------------------------------------------------------
     // Fallback
     // -------------------------------------------------------
 
     @Override
     public IRValue visitUnknown(Tree tree, IRBuilder param) {
-        // Onbekende nodes stilzwijgend overslaan
-        throw new TodoException();
-        //return null;
+        return null;
     }
 
     // -------------------------------------------------------
@@ -178,7 +199,8 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         boolean isStatic = methodSymbol.isStatic();
         if (!isStatic) {
             final var thisTypeMirror = methodSymbol.getEnclosingElement().asType();
-            params.addFirst(new IRValue.Temp("%this", new IRType.Ptr(IRType.I8, thisTypeMirror)));
+            final var thisDescriptor = TypeMirrorToIRType.toJvmDescriptor(thisTypeMirror);
+            params.addFirst(new IRValue.Temp("%this", new IRType.Ptr(IRType.I8, thisDescriptor)));
         }
 
         // Functienaam: klasse + methode (JVM-stijl intern)
@@ -363,6 +385,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRBasicBlock bodyBlk = builder.beginBlock("while.body");
         IRBasicBlock exitBlk = builder.beginBlock("while.exit");
 
+        breakTargets.push(exitBlk);
+        continueTargets.push(condBlk);
+        registerLabeledContinueTargets(condBlk);
+
         builder.setCurrentBlock(entryBlk);
         builder.emitBranch(condBlk);
 
@@ -377,6 +403,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (!builder.currentBlockTerminated())
             builder.emitBranch(condBlk);
 
+        breakTargets.pop();
+        continueTargets.pop();
+
         builder.setCurrentBlock(exitBlk);
         return null;
     }
@@ -388,6 +417,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRBasicBlock bodyBlk = builder.beginBlock("dowhile.body");
         IRBasicBlock condBlk = builder.beginBlock("dowhile.cond");
         IRBasicBlock exitBlk = builder.beginBlock("dowhile.exit");
+
+        breakTargets.push(exitBlk);
+        continueTargets.push(condBlk);
+        registerLabeledContinueTargets(condBlk);
 
         builder.setCurrentBlock(entryBlk);
         builder.emitBranch(bodyBlk);
@@ -403,6 +436,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRValue cond = acceptTree(doWhileStatement.getCondition(), builder);
         builder.emitCondBranch(cond, bodyBlk, exitBlk);
 
+        breakTargets.pop();
+        continueTargets.pop();
+
         builder.setCurrentBlock(exitBlk);
         return null;
     }
@@ -415,6 +451,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRBasicBlock bodyBlk = builder.beginBlock("for.body");
         IRBasicBlock updateBlk = builder.beginBlock("for.update");
         IRBasicBlock exitBlk = builder.beginBlock("for.exit");
+
+        breakTargets.push(exitBlk);
+        continueTargets.push(updateBlk);
+        registerLabeledContinueTargets(updateBlk);
 
         // Init in entry-blok
         builder.setCurrentBlock(entryBlk);
@@ -448,6 +488,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         builder.emitBranch(condBlk);
 
         scope.popScope();
+
+        breakTargets.pop();
+        continueTargets.pop();
+
         builder.setCurrentBlock(exitBlk);
         return null;
     }
@@ -470,7 +514,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             case BYTE -> builder.constInt(((Byte) value).longValue(), 8);
             case SHORT -> builder.constInt(((Short) value).longValue(), 16);
             case CHAR -> builder.constInt(((Character) value), 16);
-            case STRING -> builder.constString((String) value, literal.getType());
+            case STRING -> builder.constString((String) value, TypeMirrorToIRType.toJvmDescriptor(literal.getType()));
             case NULL -> IRValue.nullPtr(IRType.I8);
             case CLASS -> IRValue.nullPtr(IRType.I8); // class-literal als opaque ptr
         };
@@ -556,7 +600,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             var local = scope.lookup("this");
             if (local.isPresent()) {
                 IRValue ptr = local.get();
-                if (ptr.type() instanceof IRType.Ptr ptrType && ptrType.customType() == null) {
+                if (ptr.type() instanceof IRType.Ptr ptrType && ptrType.jvmDescriptor() == null) {
                     return builder.emitLoad(ptr);
                 }
             } else {
@@ -568,9 +612,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         var local = scope.lookup(name);
         if (local.isPresent()) {
             IRValue ptr = local.get();
-            // Parameters zijn directe waarden (geen pointer), locals zijn pointers
             if (ptr.type() instanceof IRType.Ptr ptrType) {
-                return builder.emitLoad(ptr);
+                if (ptrType.jvmDescriptor() == null) {
+                    return builder.emitLoad(ptr);
+                }
+                return ptr;
             } else if (ptr instanceof IRValue.Temp temp) {
                 return builder.emitLoad(temp);
             }
@@ -637,8 +683,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             return builder.emitLoad(TypeMirrorToIRType.map(field.getSymbol().asType()), globalPtr);
         } else if (fieldSymbol == null) {
             final var type = field.getType();
+            final var descriptor = TypeMirrorToIRType.toJvmDescriptor(type);
             return new IRValue.ConstClass(
-                    new IRType.Ptr(IRType.I8, type)
+                    new IRType.Ptr(IRType.I8, descriptor)
             );
         }
 
@@ -714,10 +761,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         return switch (callKind) {
             case STATIC, VIRTUAL, INTERFACE ->
-                    builder.emitCall(callKind, fullName, returnType, paramTypes, args, methodType);
+                    builder.emitCall(callKind, fullName, returnType, paramTypes, args);
             case SPECIAL ->
                 // Constructor of super — gebruik ook emitCall
-                    builder.emitCall(callKind, fullName, returnType, paramTypes, args, methodType);
+                    builder.emitCall(callKind, fullName, returnType, paramTypes, args);
         };
     }
 
@@ -797,10 +844,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRValue array = acceptTree(arrayAccess.getExpression(), builder);
         IRValue index = acceptTree(arrayAccess.getIndex(), builder);
 
-        // GEP op de array-pointer
         if (array != null && array.type() instanceof IRType.Ptr ptrType) {
-            IRValue elemPtr = builder.emitGEP(array, ptrType.pointee(), index);
-            return builder.emitLoad(elemPtr);
+            IRType elemType = ptrType.pointee();
+            return builder.emitArrayLoad(array, index, elemType);
         }
         return null;
     }
@@ -875,16 +921,16 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
      */
     private IRValue emitFieldLoad(IRValue obj, Element fieldSymbol) {
         final var ownerType = TypeMirrorToIRType.map(fieldSymbol.getEnclosingElement().asType());
+        final var fieldIndex = computeFieldIndex(fieldSymbol);
 
-        // TODO: veldindex bepalen via TypeElement.getEnclosedElements()
         return new IRValue.Values(
                 obj,
                 new IRValue.Named(
                         fieldSymbol.getSimpleName(),
                         TypeMirrorToIRType.map(fieldSymbol.asType()),
                         ownerType,
-                        fieldSymbol.isStatic()
-
+                        fieldSymbol.isStatic(),
+                        fieldIndex
                 )
         );
     }
@@ -896,9 +942,8 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                                 final Element fieldSymbol,
                                 final IdentifierTree field,
                                 final IRValue value) {
-        // TODO: veldindex bepalen en GEP emitteren
-
         String globalName = field.getName();
+        final var fieldIndex = computeFieldIndex(fieldSymbol);
 
         if (builder.find(globalName) == null) {
             IRValue globalPtr = builder.lookup(globalName);
@@ -906,6 +951,22 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 builder.emitStore(globalPtr, value);
             }
         }
+    }
+
+    private int computeFieldIndex(final Element fieldSymbol) {
+        final var ownerElement = fieldSymbol.getEnclosingElement();
+        if (ownerElement instanceof TypeElement typeElement) {
+            int index = 0;
+            for (final var enclosed : typeElement.getEnclosedElements()) {
+                if (enclosed.getKind().isField()) {
+                    if (enclosed.getSimpleName().equals(fieldSymbol.getSimpleName())) {
+                        return index;
+                    }
+                    index++;
+                }
+            }
+        }
+        return -1;
     }
 
     @Override
@@ -918,16 +979,23 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitNewArray(final NewArrayExpression newArrayExpression, final IRBuilder param) {
         final var arrayType = newArrayExpression.getType();
         final IRType objectType = TypeMirrorToIRType.map(arrayType);
-        final var dimensions = newArrayExpression.getDimensions().stream()
-                .map(dimension -> (LiteralExpressionTree) dimension)
-                .toList();
+        final var dimensions = newArrayExpression.getDimensions();
 
-        if (dimensions.size() != 1) {
-            throw new TodoException();
+        if (dimensions.isEmpty()) {
+            return builder.emitAllocaArray(0, objectType);
         }
 
-        final var size = (int) dimensions.getFirst().getLiteral();
-        return builder.emitAllocaArray(size, objectType);
+        final var firstDim = dimensions.getFirst();
+        IRValue size = acceptTree(firstDim, builder);
+
+        if (size == null && firstDim instanceof LiteralExpressionTree lit) {
+            size = IRValue.ofI32(((Number) lit.getLiteral()).intValue());
+        }
+
+        return builder.emitAllocaArray(
+                size instanceof IRValue.ConstInt ci ? (int) ci.value() : 0,
+                objectType
+        );
     }
 
     @Override
@@ -951,4 +1019,701 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         return acceptTree(parenthesizedExpression.getExpression(), param);
     }
 
+    // -------------------------------------------------------
+    // Break / Continue
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitBreakStatement(final BreakStatement breakStatement, final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                breakStatement.getLineNumber(),
+                breakStatement.getColumnNumber()
+        );
+
+        final var target = breakStatement.getTarget();
+        IRBasicBlock targetBlock;
+
+        if (target == null) {
+            if (breakTargets.isEmpty()) {
+                throw new RuntimeException(new CompileException("'break' buiten een lus of switch"));
+            }
+            targetBlock = breakTargets.peek();
+        } else {
+            String labelName = resolveLabelTarget(target);
+            targetBlock = labeledBreakTargets.get(labelName);
+            if (targetBlock == null) {
+                throw new RuntimeException(new CompileException("Onbekend label voor break: " + labelName));
+            }
+        }
+
+        builder.emitBranch(targetBlock);
+        return null;
+    }
+
+    @Override
+    public IRValue visitContinueStatement(final ContinueStatement continueStatement, final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                continueStatement.getLineNumber(),
+                continueStatement.getColumnNumber()
+        );
+
+        final var target = continueStatement.getTarget();
+        IRBasicBlock targetBlock;
+
+        if (target == null) {
+            if (continueTargets.isEmpty()) {
+                throw new RuntimeException(new CompileException("'continue' buiten een lus"));
+            }
+            targetBlock = continueTargets.peek();
+        } else {
+            String labelName = resolveLabelTarget(target);
+            targetBlock = labeledContinueTargets.get(labelName);
+            if (targetBlock == null) {
+                throw new RuntimeException(new CompileException("Onbekend label voor continue: " + labelName));
+            }
+        }
+
+        builder.emitBranch(targetBlock);
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Enhanced for
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitEnhancedForStatement(final EnhancedForStatementTree enhancedFor,
+                                              final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                enhancedFor.getLineNumber(),
+                enhancedFor.getColumnNumber()
+        );
+
+        // Uitvouwen naar een gewone for-lus:
+        //   var __arr = <collection>;
+        //   for (int __i = 0; __i < __arr.length; __i++) {
+        //       var <var> = __arr[__i];
+        //       <body>
+        //   }
+
+        IRValue collection = acceptTree(enhancedFor.getExpression(), builder);
+        if (collection == null) return null;
+
+        IRBasicBlock entryBlk = builder.currentBlock();
+        IRBasicBlock condBlk = builder.beginBlock("efor.cond");
+        IRBasicBlock bodyBlk = builder.beginBlock("efor.body");
+        IRBasicBlock updateBlk = builder.beginBlock("efor.update");
+        IRBasicBlock exitBlk = builder.beginBlock("efor.exit");
+
+        breakTargets.push(exitBlk);
+        continueTargets.push(updateBlk);
+        registerLabeledContinueTargets(updateBlk);
+
+        // Array-variabele alloceren
+        IRType collectionType = collection.type();
+        IRValue arrayPtr;
+        if (collectionType instanceof IRType.Ptr ptrType) {
+            arrayPtr = builder.emitAlloca("__arr", ptrType);
+            builder.emitStore(arrayPtr, collection);
+        } else {
+            arrayPtr = builder.emitAlloca("__arr", collectionType);
+            builder.emitStore(arrayPtr, collection);
+        }
+
+        // Index-variabele
+        IRValue indexPtr = builder.emitAlloca("__i", IRType.I32);
+        builder.emitStore(indexPtr, IRValue.ofI32(0));
+
+        builder.emitBranch(condBlk);
+
+        // Conditie: __i < __arr.length
+        builder.setCurrentBlock(condBlk);
+        IRValue indexVal = builder.emitLoad(indexPtr);
+        IRValue arrayVal = builder.emitLoad(arrayPtr);
+        IRValue lengthVal = builder.emitArrayLength(arrayVal);
+
+        IRValue cond = builder.emitBinaryOp(Op.LT, indexVal, lengthVal);
+        builder.emitCondBranch(cond, bodyBlk, exitBlk);
+
+        // Body
+        builder.setCurrentBlock(bodyBlk);
+        scope.pushScope();
+
+        // Variabele laden
+        VariableDeclaratorTree localVar = enhancedFor.getLocalVariable();
+        TypeMirror varType = localVar.getVariableType().getType();
+        IRType irVarType = TypeMirrorToIRType.map(varType);
+        String varName = localVar.getName().getName();
+
+        IRValue elemPtr = builder.emitAlloca(varName, irVarType);
+        IRValue bodyArrayVal = builder.emitLoad(arrayPtr);
+        IRValue elemVal = builder.emitArrayLoad(bodyArrayVal, indexVal, irVarType);
+        builder.emitStore(elemPtr, elemVal);
+        scope.define(varName, elemPtr);
+
+        acceptTree(enhancedFor.getStatement(), builder);
+        scope.popScope();
+
+        if (!builder.currentBlockTerminated())
+            builder.emitBranch(updateBlk);
+
+        // Update: __i++
+        builder.setCurrentBlock(updateBlk);
+        IRValue curIdx = builder.emitLoad(indexPtr);
+        IRValue one = IRValue.ofI32(1);
+        IRValue newIdx = builder.emitBinaryOp(Op.ADD, curIdx, one);
+        builder.emitStore(indexPtr, newIdx);
+        builder.emitBranch(condBlk);
+
+        breakTargets.pop();
+        continueTargets.pop();
+
+        builder.setCurrentBlock(exitBlk);
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Switch
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitSwitchStatement(final SwitchStatement switchStatement,
+                                         final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                switchStatement.getLineNumber(),
+                switchStatement.getColumnNumber()
+        );
+
+        IRValue selector = acceptTree(switchStatement.getSelector(), builder);
+        if (selector == null) return null;
+
+        List<CaseStatement> cases = switchStatement.getCases();
+
+        // Stap 1: Maak alle blokken aan
+        IRBasicBlock entryBlk = builder.currentBlock();
+        IRBasicBlock exitBlk = builder.beginBlock("switch.exit");
+
+        breakTargets.push(exitBlk);
+
+        List<IRBasicBlock> cmpBlocks = new ArrayList<>();
+        List<IRBasicBlock> caseBodyBlocks = new ArrayList<>();
+        IRBasicBlock defaultBlock = null;
+
+        for (CaseStatement caseStmt : cases) {
+            IRBasicBlock cmpBlk = builder.beginBlock("switch.cmp");
+            cmpBlocks.add(cmpBlk);
+            IRBasicBlock caseBlk = builder.beginBlock("switch.case");
+            caseBodyBlocks.add(caseBlk);
+
+            if (caseStmt.getLabels().stream().anyMatch(l -> l instanceof DefaultCaseLabel)) {
+                defaultBlock = caseBlk;
+            }
+        }
+
+        // Stap 2: Entry blok → eerste vergelijkingsblok
+        builder.setCurrentBlock(entryBlk);
+        builder.emitBranch(cmpBlocks.get(0));
+
+        // Stap 3: Vergelijkingsblokken invullen
+        for (int i = 0; i < cases.size(); i++) {
+            CaseStatement caseStmt = cases.get(i);
+            IRBasicBlock cmpBlk = cmpBlocks.get(i);
+            IRBasicBlock caseBlk = caseBodyBlocks.get(i);
+            IRBasicBlock nextCmpBlk = (i + 1 < cases.size()) ? cmpBlocks.get(i + 1) : null;
+
+            builder.setCurrentBlock(cmpBlk);
+
+            boolean isDefault = caseStmt.getLabels().stream()
+                    .anyMatch(l -> l instanceof DefaultCaseLabel);
+
+            if (isDefault) {
+                // Default: spring altijd naar het case-blok
+                builder.emitBranch(caseBlk);
+            } else {
+                // Vergelijkingen voor elke constante label
+                IRValue match = null;
+                for (CaseLabel label : caseStmt.getLabels()) {
+                    if (label instanceof ConstantCaseLabel constLabel) {
+                        IRValue caseValue = acceptTree(constLabel.getExpression(), builder);
+                        if (caseValue != null) {
+                            IRValue eq = builder.emitBinaryOp(Op.EQ, selector, caseValue);
+                            match = (match == null)
+                                    ? eq
+                                    : builder.emitBinaryOp(Op.OR, match, eq);
+                        }
+                    }
+                }
+
+                if (match != null) {
+                    builder.emitCondBranch(match, caseBlk,
+                            nextCmpBlk != null ? nextCmpBlk : (defaultBlock != null ? defaultBlock : exitBlk));
+                } else {
+                    builder.emitBranch(nextCmpBlk != null ? nextCmpBlk :
+                            (defaultBlock != null ? defaultBlock : exitBlk));
+                }
+            }
+        }
+
+        // Stap 4: Case-body blokken invullen
+        for (int i = 0; i < cases.size(); i++) {
+            CaseStatement caseStmt = cases.get(i);
+            IRBasicBlock caseBlk = caseBodyBlocks.get(i);
+            builder.setCurrentBlock(caseBlk);
+
+            Tree body = caseStmt.getBody();
+            if (body instanceof BlockStatementTree block) {
+                acceptTree(block, builder);
+            } else if (body != null) {
+                acceptTree(body, builder);
+            }
+
+            // Fall-through: als het blok niet beëindigd is
+            if (!builder.currentBlockTerminated()) {
+                if (caseStmt.getCaseKind() == CaseStatement.CaseKind.RULE) {
+                    // Rule-cases vallen niet door
+                    builder.emitBranch(exitBlk);
+                } else if (i + 1 < cases.size()) {
+                    // Statement-case: val door naar het volgende case-blok
+                    builder.emitBranch(caseBodyBlocks.get(i + 1));
+                } else {
+                    builder.emitBranch(exitBlk);
+                }
+            }
+        }
+
+        breakTargets.pop();
+        builder.setCurrentBlock(exitBlk);
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Assert
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitAssertStatement(final AssertStatement assertStatement,
+                                         final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                assertStatement.getLineNumber(),
+                assertStatement.getColumnNumber()
+        );
+
+        // Uitvouwen naar: if (!condition) throw new AssertionError(detail)
+
+        IRBasicBlock entryBlk = builder.currentBlock();
+        IRBasicBlock passBlk = builder.beginBlock("assert.pass");
+        IRBasicBlock failBlk = builder.beginBlock("assert.fail");
+        IRBasicBlock mergeBlk = builder.beginBlock("assert.merge");
+
+        IRValue cond = acceptTree(assertStatement.getCondition(), builder);
+        builder.emitCondBranch(cond, passBlk, failBlk);
+
+        // Fail: gooi AssertionError
+        builder.setCurrentBlock(failBlk);
+        builder.emitThrow(new IRType.Ptr(IRType.I8, "Ljava/lang/AssertionError;"));
+        if (!builder.currentBlockTerminated()) {
+            builder.emitBranch(mergeBlk);
+        }
+
+        // Pass
+        builder.setCurrentBlock(passBlk);
+        builder.emitBranch(mergeBlk);
+
+        builder.setCurrentBlock(mergeBlk);
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Yield
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitYieldStatement(final YieldStatement yieldStatement,
+                                        final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                yieldStatement.getLineNumber(),
+                yieldStatement.getColumnNumber()
+        );
+
+        ExpressionTree expr = yieldStatement.getExpression();
+        if (expr == null) {
+            builder.emitReturn(null);
+        } else {
+            IRValue value = acceptTree(expr, builder);
+            builder.emitReturn(value);
+        }
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Labeled statement
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitLabeledStatement(final LabeledStatement labeledStatement,
+                                          final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                labeledStatement.getLineNumber(),
+                labeledStatement.getColumnNumber()
+        );
+
+        String label = labeledStatement.getLabel();
+
+        // We kunnen geen forward-reference maken naar blokken die nog niet bestaan.
+        // Los dit op door een placeholder te registreren die later wordt opgelost.
+        IRBasicBlock breakPlaceholder = builder.beginBlock("label." + label + ".break");
+        labeledBreakTargets.put(label, breakPlaceholder);
+
+        // Markeer als pending label zodat de volgende lus de continue target kan instellen
+        pendingLabels.push(label);
+
+        StatementTree body = labeledStatement.getStatement();
+        acceptTree(body, builder);
+
+        // Verwijder het pending label als de lus het niet heeft opgepakt
+        pendingLabels.remove(label);
+        labeledBreakTargets.remove(label);
+        labeledContinueTargets.remove(label);
+
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Synchronized
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitSynchronizedStatement(final SynchronizedStatement synchronizedStatement,
+                                               final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                synchronizedStatement.getLineNumber(),
+                synchronizedStatement.getColumnNumber()
+        );
+
+        // Uitvouwen naar: monitorenter(__lock); <body>; monitorexit(__lock);
+
+        IRValue lockObj = acceptTree(synchronizedStatement.getExpression(), builder);
+        if (lockObj == null) return null;
+
+        // monitorenter
+        builder.emitMonitorEnter(lockObj);
+
+        // Body
+        acceptTree(synchronizedStatement.getBody(), builder);
+
+        // monitorexit
+        builder.emitMonitorExit(lockObj);
+
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Try-catch-finally
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitTryStatement(final TryStatementTree tryStatement,
+                                      final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                tryStatement.getLineNumber(),
+                tryStatement.getColumnNumber()
+        );
+
+        boolean hasFinally = tryStatement.getFinalizer() != null;
+
+        IRBasicBlock prevBlk = builder.currentBlock();
+        IRBasicBlock tryStartBlk = builder.beginBlock("try.body");
+        IRBasicBlock tryEndBlk = builder.beginBlock("try.end");
+
+        // Branch vanuit het huidige blok naar de try-body
+        if (prevBlk != null && !prevBlk.isTerminated()) {
+            builder.setCurrentBlock(prevBlk);
+            builder.emitBranch(tryStartBlk);
+        }
+
+        // Try body
+        builder.setCurrentBlock(tryStartBlk);
+        acceptTree(tryStatement.getBody(), builder);
+        if (!builder.currentBlockTerminated()) {
+            if (hasFinally) {
+                builder.emitBranch(tryEndBlk);
+            } else {
+                builder.emitBranch(tryEndBlk);
+            }
+        }
+
+        // Catch handlers
+        List<CatchTree> catchers = tryStatement.getCatchers();
+        for (int i = 0; i < catchers.size(); i++) {
+            CatchTree catcher = catchers.get(i);
+            IRBasicBlock handlerBlk = builder.beginBlock("try.catch." + i);
+
+            // TryCatchRegion metadata
+            String exType = null;
+            VariableDeclaratorTree catchVar = catcher.getVariable();
+            if (catchVar != null && catchVar.getVariableType() != null) {
+                TypeMirror exTypeMirror = catchVar.getVariableType().getType();
+                if (exTypeMirror != null) {
+                    exType = exTypeMirror.getClassName();
+                }
+            }
+
+            tryCatchRanges.add(new TryCatchRange(
+                    tryStartBlk.label(),
+                    tryEndBlk.label(),
+                    handlerBlk.label(),
+                    exType
+            ));
+
+            // Emit TryCatchRegion instruction at start of handler block
+            builder.setCurrentBlock(handlerBlk);
+            handlerBlk.add(0, new IRInstruction.TryCatchRegion(
+                    tryStartBlk.label(),
+                    tryEndBlk.label(),
+                    handlerBlk.label(),
+                    exType,
+                    builder.currentLocation()
+            ));
+
+            // Catch body
+            scope.pushScope();
+            acceptTree(catcher.getVariable(), builder);
+            acceptTree(catcher.getBody(), builder);
+            scope.popScope();
+
+            if (!builder.currentBlockTerminated()) {
+                builder.emitBranch(tryEndBlk);
+            }
+        }
+
+        builder.setCurrentBlock(tryEndBlk);
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Lambda
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitLambdaExpression(final LambdaExpressionTree lambdaExpression,
+                                         final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                lambdaExpression.getLineNumber(),
+                lambdaExpression.getColumnNumber()
+        );
+
+        ExecutableType methodType = lambdaExpression.getLambdaMethodType();
+        if (methodType == null) return null;
+
+        // Bepaal return-type van de lambda
+        IRType returnType = TypeMirrorToIRType.mapReturnType(methodType.getReturnType());
+
+        // Bepaal parameter-types
+        List<IRValue> lambdaParams = new ArrayList<>();
+        for (int i = 0; i < lambdaExpression.getVariables().size(); i++) {
+            Tree var = lambdaExpression.getVariables().get(i);
+            if (var instanceof VariableDeclaratorTree vdt) {
+                TypeMirror paramType = vdt.getVariableType().getType();
+                IRType irParamType = TypeMirrorToIRType.map(paramType);
+                lambdaParams.add(new IRValue.Temp("%lambda.arg" + i, irParamType));
+            }
+        }
+
+        // Unieke naam voor de lambda-functie
+        String lambdaName = currentClassName + "_lambda$" + lambdaCounter++;
+
+        // Sla huidige blok op
+        IRBasicBlock savedCurrentBlock = builder.currentBlock();
+
+        // Begin een nieuwe functie voor de lambda
+        builder.beginFunction(lambdaName, returnType, lambdaParams, 0, false);
+
+        // Registreer parameters in scope
+        scope.pushScope();
+        for (IRValue p : lambdaParams) {
+            String pname = IRValue.nameOf(p);
+            if (pname.startsWith("%")) pname = pname.substring(1);
+            scope.define(pname, p);
+        }
+
+        // Bezoek de body
+        acceptTree(lambdaExpression.getBody(), builder);
+
+        // Impliciete void-return
+        if (!builder.currentBlockTerminated()) {
+            if (returnType == IRType.VOID) {
+                builder.emitReturn(null);
+            }
+        }
+
+        scope.popScope();
+        builder.endFunction();
+
+        // Herstel het originele blok
+        builder.setCurrentBlock(savedCurrentBlock);
+
+        // Retourneer een functiereferentie
+        List<IRType> paramTypes = lambdaParams.stream()
+                .map(IRValue::type)
+                .toList();
+        IRType.Function fnType = new IRType.Function(returnType, paramTypes);
+        return builder.functionRef(lambdaName, fnType);
+    }
+
+    // -------------------------------------------------------
+    // Member reference
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitMemberReference(final MemberReference memberReference,
+                                        final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                memberReference.getLineNumber(),
+                memberReference.getColumnNumber()
+        );
+
+        // Member references worden vertaald naar een functiereferentie
+        // Bijv. Foo::bar → een verwijzing naar de methode Foo_bar
+
+        ExpressionTree expr = memberReference.getExpression();
+        String name = memberReference.getName();
+
+        // Bepaal de owner-klasse
+        String ownerName = "";
+        if (expr != null) {
+            TypeMirror exprType = expr.getType();
+            if (exprType != null) {
+                ownerName = exprType.getClassName();
+            }
+        }
+
+        String qualifiedName = ownerName.replace('.', '_') + "_" + name;
+
+        // Zoek het methodetype op
+        TypeMirror refType = memberReference.getType();
+        if (refType instanceof ExecutableType execType) {
+            IRType returnType = TypeMirrorToIRType.mapReturnType(execType.getReturnType());
+            List<IRType> paramTypes = execType.getParameterTypes().stream()
+                    .map(TypeMirrorToIRType::map)
+                    .toList();
+            IRType.Function fnType = new IRType.Function(returnType, paramTypes);
+            return builder.functionRef(qualifiedName, fnType);
+        }
+
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Annotation (runtime — geen IR-waarde)
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitAnnotation(final AnnotationTree annotationTree,
+                                   final IRBuilder param) {
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Wildcard (type-level, geen runtime-waarde)
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitWildCardExpression(final WildcardExpressionTree wildCardExpression,
+                                           final IRBuilder param) {
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Type pattern (instanceof + binding)
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitTypePattern(final TypePattern typePattern,
+                                    final IRBuilder param) {
+        // Type patterns worden al behandeld door visitInstanceOfExpression
+        // en visitSwitchStatement. Hier is de pattern zelf — geen runtime-waarde.
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Pattern case label (switch met patronen)
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitPatternCaseLabel(final PatternCaseLabel patternCaseLabel,
+                                         final IRBuilder param) {
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Module directives (geen runtime-IR)
+    // -------------------------------------------------------
+
+    @Override
+    public IRValue visitModuleDeclaration(final ModuleDeclaration moduleDeclaration,
+                                          final IRBuilder param) {
+        return null;
+    }
+
+    @Override
+    public IRValue visitRequires(final RequiresTree requiresTree,
+                                 final IRBuilder param) {
+        return null;
+    }
+
+    @Override
+    public IRValue visitExports(final ExportsTree exportsTree,
+                                final IRBuilder param) {
+        return null;
+    }
+
+    @Override
+    public IRValue visitOpens(final OpensTree opensTree,
+                              final IRBuilder param) {
+        return null;
+    }
+
+    @Override
+    public IRValue visitUses(final UsesTree usesTree,
+                             final IRBuilder param) {
+        return null;
+    }
+
+    @Override
+    public IRValue visitProvides(final ProvidesTree providesTree,
+                                 final IRBuilder param) {
+        return null;
+    }
+
+    // -------------------------------------------------------
+    // Hulpmethoden
+    // -------------------------------------------------------
+
+    private String resolveLabelTarget(final Tree target) {
+        if (target instanceof IdentifierTree id) {
+            return id.getName();
+        }
+        return target.toString();
+    }
+
+    /**
+     * Registreert het huidige blok als continue target voor een pending label.
+     * Wordt aangeroepen door lus-bezoekers (while, do-while, for, enhanced-for).
+     */
+    private void registerLabeledContinueTargets(final IRBasicBlock continueBlock) {
+        for (String label : pendingLabels) {
+            labeledContinueTargets.put(label, continueBlock);
+        }
+    }
 }

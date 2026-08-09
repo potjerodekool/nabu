@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.backend.lower.widen;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
 import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
 import io.github.potjerodekool.nabu.type.PrimitiveType;
@@ -58,7 +57,7 @@ class WideningConverterTest extends AbstractCompilerTest {
             case Long ignored -> types.getPrimitiveType(TypeKind.LONG);
             case Float ignored -> types.getPrimitiveType(TypeKind.FLOAT);
             case Double ignored -> types.getPrimitiveType(TypeKind.DOUBLE);
-            default -> throw new TodoException();
+            default -> throw new UnsupportedOperationException("Unsupported literal type: " + literal.getClass());
         };
     }
 

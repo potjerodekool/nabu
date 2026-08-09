@@ -52,7 +52,7 @@ public class NativeLLVMBackend implements Backend {
 
         Path exe = replaceExtension(outputObj,
                 triple.contains("windows") ? ".exe" : "");
-        Linker.link(outputObj, exe, triple);
+        Linker.link(outputObj, exe, triple, opts.gcStrategy());
     }
 
     /**
@@ -135,8 +135,8 @@ public class NativeLLVMBackend implements Backend {
     // -------------------------------------------------------
 
     private void optimize(LLVMModuleRef mod,
-                           LLVMTargetMachineRef machine,
-                           CompileOptions.OptLevel level) throws CompileException {
+                          LLVMTargetMachineRef machine,
+                          CompileOptions.OptLevel level) throws CompileException {
         String pipeline = switch (level) {
             case NONE       -> "mem2reg";
             case DEFAULT    -> "default<O2>";
@@ -164,9 +164,9 @@ public class NativeLLVMBackend implements Backend {
     // -------------------------------------------------------
 
     private void emitObjectFile(LLVMModuleRef mod,
-                                 LLVMTargetMachineRef machine,
-                                 Path output,
-                                 BytePointer err) throws CompileException {
+                                LLVMTargetMachineRef machine,
+                                Path output,
+                                BytePointer err) throws CompileException {
         if (LLVMTargetMachineEmitToFile(machine, mod,
                 new BytePointer(output.toString()), LLVMObjectFile, err) != 0)
             throw new CompileException("Codegen mislukt: " + err.getString());

@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;
 
@@ -50,7 +49,8 @@ class TypeArgApplyer implements ElementVisitor<TypeMirror, Map<String, TypeMirro
 
     @Override
     public TypeMirror visitTypeParameter(final TypeParameterElement typeParameterElement, final Map<String, TypeMirror> map) {
-        throw new TodoException();
+        final var name = typeParameterElement.getSimpleName().toString();
+        return map.getOrDefault(name, typeParameterElement.asType());
     }
 
     @Override

@@ -82,7 +82,7 @@ public class ElementsImpl implements Elements {
     private <S extends Symbol> S unboundNameToSymbol(final String methodName,
                                                      final String name,
                                                      final Class<S> clazz) {
-        final var result = resultCache.computeIfAbsent(new Pair<>(methodName, name), _ -> {
+        final var result = resultCache.computeIfAbsent(new Pair<>(methodName, name), ignore -> {
             final var allModules = new HashSet<>(Modules.getInstance(compilerContext).allModules());
             final var foundSymbols = allModules.stream()
                     .map(module -> nameToSymbol(module, name, clazz))

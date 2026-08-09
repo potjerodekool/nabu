@@ -18,6 +18,21 @@ public class Optimizer {
     }
 
     public static IRFunction optimize(IRFunction irFunction) {
+        // Stap 1: Verwijder onnodige branches (bestaande logica)
+        irFunction = removeRedundantBranches(irFunction);
+
+        // Stap 2: Voer optimalisatiepijplijn uit
+        irFunction = io.github.potjerodekool.nabu.compiler.backend.ir.optimize
+                .OptimizationPipeline.defaultPipeline()
+                .run(irFunction);
+
+        return irFunction;
+    }
+
+    /**
+     * Verwijder branches die naar het volgende blok wijzen (redundante goto).
+     */
+    private static IRFunction removeRedundantBranches(IRFunction irFunction) {
         final var newBlocks = new ArrayList<IRBasicBlock>();
 
         String previousLabel = null;

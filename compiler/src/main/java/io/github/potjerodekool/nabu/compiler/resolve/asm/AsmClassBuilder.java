@@ -6,9 +6,7 @@ import io.github.potjerodekool.nabu.compiler.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 
@@ -236,7 +234,8 @@ class AsmClassBuilder extends ClassVisitor {
                                                  final TypePath typePath,
                                                  final String descriptor,
                                                  final boolean visible) {
-        //TODO typeRef and typePath
+        // typeRef en typePath worden genegeerd voorlopig;
+        // annotations worden momenteel niet gebonden aan specifieke targets.
         return AsmAnnotationBuilder.createBuilder(
                 api,
                 descriptor,

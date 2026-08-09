@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
+import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -23,14 +24,16 @@ public class Linker {
 
     public static void link(Path objectFile,
                              Path executable,
-                             String targetTriple) throws CompileException {
-        link(List.of(objectFile), executable, targetTriple);
+                             String targetTriple,
+                             CompileOptions.GcStrategy gcStrategy) throws CompileException {
+        link(List.of(objectFile), executable, targetTriple, gcStrategy);
     }
 
     public static void link(List<Path> objectFiles,
                              Path       executable,
-                             String     targetTriple) throws CompileException {
-        List<String> cmd = buildCommand(objectFiles, executable, targetTriple);
+                             String     targetTriple,
+                             CompileOptions.GcStrategy gcStrategy) throws CompileException {
+        List<String> cmd = buildCommand(objectFiles, executable, targetTriple, gcStrategy);
         try {
             Process process = new ProcessBuilder(cmd)
                     .redirectErrorStream(true)
@@ -51,17 +54,17 @@ public class Linker {
 
     private static List<String> buildCommand(List<Path> objects,
                                               Path exe,
-                                              String triple) {
+                                              String triple,
+                                              CompileOptions.GcStrategy gcStrategy) {
         List<String> cmd = new ArrayList<>();
         if (triple != null && triple.contains("windows")) {
             cmd.add("clang");
             cmd.add("-target"); cmd.add(triple);
             cmd.add("-o"); cmd.add(exe.toString());
-            // Verplicht op Windows: subsystem declareren
             cmd.add("-Wl,/subsystem:console");
-            // Koppel de MSVC C-runtime
             cmd.add("-lmsvcrt");
             objects.forEach(o -> cmd.add(o.toString()));
+            addGcLibraries(cmd, gcStrategy);
             /*
             cmd.add("link.exe");
             cmd.add("/OUT:" + exe);
@@ -73,12 +76,22 @@ public class Linker {
             cmd.add("clang");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
+            addGcLibraries(cmd, gcStrategy);
         } else {
             cmd.add("gcc");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
+            addGcLibraries(cmd, gcStrategy);
         }
         return cmd;
+    }
+
+    private static void addGcLibraries(List<String> cmd,
+                                        CompileOptions.GcStrategy gcStrategy) {
+        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
+            cmd.add("-lgc");
+            cmd.add("-lpthread");
+        }
     }
 
     /**

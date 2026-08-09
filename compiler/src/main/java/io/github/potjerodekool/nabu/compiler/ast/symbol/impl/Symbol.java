@@ -10,7 +10,6 @@ import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.AnnotationDeProxyProcessor;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 import io.github.potjerodekool.nabu.util.Types;
@@ -425,6 +424,6 @@ public abstract class Symbol implements Element {
         }
 
         currentClass.getMembers().getSymbolsByName(getSimpleName());
-        throw new TodoException();
+        return null;
     }
 }

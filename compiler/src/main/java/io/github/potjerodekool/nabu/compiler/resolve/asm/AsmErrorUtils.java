@@ -11,9 +11,9 @@ public final class AsmErrorUtils {
     }
 
     /**
-     * TODO Temporary fix, {@link io.github.potjerodekool.nabu.resolve.ClassElementLoader#loadClass(io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement, String)}
-     * should return a ErrorSymbol if class wasn't found.
-     * After that is fixed this method should be deleted.
+     * Retourneert het gegeven TypeElement, of een ErrorSymbol als het null is.
+     * Dit is een tijdelijke oplossing totdat ClassElementLoader.loadClass()
+     * standaard een ErrorSymbol retourneert bij het niet vinden van een klasse.
      */
     public static TypeElement typeOrError(final TypeElement typeElement) {
         return Objects.requireNonNullElseGet(typeElement, () -> new ErrorSymbol("error"));

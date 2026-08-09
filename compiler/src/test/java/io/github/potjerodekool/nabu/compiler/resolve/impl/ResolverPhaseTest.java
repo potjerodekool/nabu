@@ -13,7 +13,6 @@ import java.io.IOException;
 
 class ResolverPhaseTest extends NabuCompilerTest {
 
-    @Disabled
     @Test
     void visitLambdaExpression() throws IOException {
         var cu = (CompilationUnit) parse(
@@ -40,7 +39,6 @@ class ResolverPhaseTest extends NabuCompilerTest {
         System.out.println(cu);
     }
 
-    @Disabled
     @Test
     void visitMethodInvocationWithLambdaExpression() throws IOException {
         // list.forEach((Integer value) -> {

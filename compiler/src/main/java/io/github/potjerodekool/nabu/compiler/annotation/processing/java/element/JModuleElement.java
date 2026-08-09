@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
-
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.ModuleElement;
 import java.util.List;
@@ -24,7 +22,7 @@ public class JModuleElement extends JElement<io.github.potjerodekool.nabu.compil
 
     @Override
     public List<? extends Directive> getDirectives() {
-        throw new TodoException();
+        return List.of();
     }
 
     @Override

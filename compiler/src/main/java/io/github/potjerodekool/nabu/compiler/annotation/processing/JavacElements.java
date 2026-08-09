@@ -2,10 +2,11 @@ package io.github.potjerodekool.nabu.compiler.annotation.processing;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.JElement;
+import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.JName;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.JPackageElement;
+import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ToNabuMapper;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.*;
 import javax.lang.model.element.AnnotationMirror;
@@ -15,6 +16,7 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
+import java.io.IOException;
 import java.io.Writer;
 import java.util.HashMap;
 import java.util.List;
@@ -84,22 +86,27 @@ public class JavacElements implements Elements {
 
     @Override
     public Map<? extends ExecutableElement, ? extends AnnotationValue> getElementValuesWithDefaults(final AnnotationMirror a) {
-        throw new TodoException();
+        @SuppressWarnings("unchecked")
+        final var result = (Map<? extends ExecutableElement, ? extends AnnotationValue>) (Map<?, ?>) nabuElements.getElementValuesWithDefaults(ToNabuMapper.accept(a));
+        return result;
     }
 
     @Override
     public String getDocComment(final Element e) {
-        throw new TodoException();
+        return nabuElements.getDocComment(ElementWrapperFactory.unwrap(e));
     }
 
     @Override
     public boolean isDeprecated(final Element e) {
-        throw new TodoException();
+        return nabuElements.isDeprecated(ElementWrapperFactory.unwrap(e));
     }
 
     @Override
     public Name getBinaryName(final TypeElement type) {
-        throw new TodoException();
+        final var binaryName = nabuElements.getBinaryName(
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+        );
+        return new JName(binaryName);
     }
 
     @Override
@@ -116,7 +123,11 @@ public class JavacElements implements Elements {
 
     @Override
     public List<? extends Element> getAllMembers(final TypeElement type) {
-        throw new TodoException();
+        return nabuElements.getAllMembers(
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+        ).stream()
+                .map(ElementWrapperFactory::wrap)
+                .toList();
     }
 
     @Override
@@ -137,7 +148,7 @@ public class JavacElements implements Elements {
                              final ExecutableElement overridden,
                              final TypeElement type) {
         return nabuElements.overrides(
-                (io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
+                (io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overrider),
                 (io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
                 (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
         );
@@ -145,17 +156,30 @@ public class JavacElements implements Elements {
 
     @Override
     public String getConstantExpression(final Object value) {
-        throw new TodoException();
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof String s) {
+            return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        }
+        return value.toString();
     }
 
     @Override
     public void printElements(final Writer w, final Element... elements) {
-        throw new TodoException();
+        try {
+            for (final var element : elements) {
+                w.write(element.toString());
+                w.write(System.lineSeparator());
+            }
+        } catch (final IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public Name getName(final CharSequence cs) {
-        throw new TodoException();
+        return new JName(cs.toString());
     }
 
     @Override

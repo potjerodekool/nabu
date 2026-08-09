@@ -1,6 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;
 
@@ -26,7 +25,7 @@ public class SimpleTypeMapApplier implements TypeVisitor<TypeMirror, Void> {
 
     @Override
     public TypeMirror visitUnknownType(final TypeMirror typeMirror, final Void param) {
-        throw new TodoException("" + typeMirror);
+        return typeMirror;
     }
 
     @Override

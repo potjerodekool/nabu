@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm.signature;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableClassType;
@@ -44,7 +43,7 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     @Override
     public void visitFormalTypeParameter(final String name) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     @Override
@@ -84,12 +83,12 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     @Override
     public void visitBaseType(final char descriptor) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     @Override
     public void visitTypeVariable(final String name) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     @Override
@@ -99,17 +98,17 @@ public abstract class AbstractVisitor extends SignatureVisitor {
 
     @Override
     public void visitClassType(final String name) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     @Override
     public void visitInnerClassType(final String name) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     @Override
     public void visitTypeArgument() {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     @Override
@@ -118,58 +117,57 @@ public abstract class AbstractVisitor extends SignatureVisitor {
     }
 
     protected MutableType getType() {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected void setType(final MutableType type) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected void addTypeArgument(final MutableType type) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected MutableType getSuperType() {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected void setSuperType(final MutableType type) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected void addInterfaceType(final MutableClassType type) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected MutableType getReturnType() {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected void setReturnType(final MutableType returnType) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected void addParameterType(final MutableType type) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected void addExceptionType(final MutableType exceptionType) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     public MutableType getLastParameterType() {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     public void replaceLastParameterType(final MutableType type) {
-        throw new TodoException(getClass().getName());
+        throw new UnsupportedOperationException("Not supported in " + getClass().getSimpleName());
     }
 
     protected MutableClassType createMutableClass(final TypeSymbol typeElement) {
         final var enclosingType = typeElement.asType().getEnclosingType();
 
         if (enclosingType == null || enclosingType.getKind() == TypeKind.NONE) {
-            //TODO should not be null.
             return new MutableClassType(typeElement);
         } else {
             final var mutableEnclosingType = createMutableClass((ClassSymbol) enclosingType.asTypeElement());

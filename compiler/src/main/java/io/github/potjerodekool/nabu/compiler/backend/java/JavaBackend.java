@@ -7,9 +7,9 @@ import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.classfile.ClassFile;
-import java.lang.constant.ClassDesc;
-import java.lang.constant.MethodTypeDesc;
+//import java.lang.classfile.ClassFile;
+//import java.lang.constant.ClassDesc;
+//import java.lang.constant.MethodTypeDesc;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -24,6 +24,7 @@ public class JavaBackend implements Backend {
         final byte[] classBytes;
 
         if (helloWorld) {
+            /*
             classBytes = ClassFile.of().build(ClassDesc.of("HelloWorld"), classBuilder -> {
                 classBuilder.withMethod("main",
                         MethodTypeDesc.ofDescriptor("([Ljava/lang/String;)V"),
@@ -38,14 +39,16 @@ public class JavaBackend implements Backend {
                                 code.return_();
                             });
                         });
-            });
+            });*/
         } else {
-
+/*
             classBytes = ClassFile.of().build(ClassDesc.of(module.name), classBuilder -> {
 
             });
+            */
         }
 
+        /*
         try {
             final var classFileName = module.name.replace('.', File.separatorChar) + ".class";
             final var path = output.resolve(classFileName);
@@ -53,6 +56,7 @@ public class JavaBackend implements Backend {
         } catch (IOException e) {
             throw new CompileException("", e);
         }
+        */
 
     }
 }

@@ -9,7 +9,6 @@ import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.FileManager;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.util.Elements;
 import io.github.potjerodekool.nabu.util.Pair;
 
@@ -155,7 +154,19 @@ public class JavacFiler implements Filer {
             );
         }
 
-        throw new TodoException();
+        final var moduleName = moduleAndPkgString.substring(0, moduleSeparator);
+        final var rest = moduleAndPkgString.substring(moduleSeparator + 1);
+        final var separatorIndex = rest.lastIndexOf('.');
+        final var packageName = separatorIndex != -1
+                ? rest.substring(0, separatorIndex)
+                : rest;
+        final var module = symbolTable.getModule(moduleName);
+
+        if (module == null) {
+            throw new FilerException(String.format("Module %s does not exist.", moduleName));
+        }
+
+        return new LocationModuleAnName(location, module, packageName);
     }
 
     @Override

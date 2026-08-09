@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing;
 
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.util.Pair;
 
 import javax.annotation.processing.Messager;
@@ -77,7 +76,7 @@ public class JavacProcessingEnvironment implements ProcessingEnvironment {
 
     @Override
     public Locale getLocale() {
-        throw new TodoException();
+        return Locale.getDefault();
     }
 
     public void round(final Set<TypeElement> rootElements,

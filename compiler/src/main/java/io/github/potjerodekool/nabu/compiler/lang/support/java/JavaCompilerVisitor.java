@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
 import io.github.potjerodekool.nabu.compiler.frontend.parser.VariableArityParameter;
 import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodDeclarator;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodHeader;
@@ -1963,7 +1962,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 if (i == lastIndex) {
                     result = (Tree) childResult;
                 } else {
-                    throw new TodoException();
+                    throw new IllegalStateException("Unexpected non-expression result in relational expression at index " + i + " of " + lastIndex);
                 }
             }
         }
@@ -2500,10 +2499,15 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitConditionalAndExpression(final Java20Parser.ConditionalAndExpressionContext ctx) {
-        final var inclusiveOrExpression = ctx.inclusiveOrExpression().accept(this);
+        final var inclusiveOrExpression = (ExpressionTree) ctx.inclusiveOrExpression().accept(this);
 
         if (ctx.conditionalAndExpression() != null) {
-            throw new TodoException();
+            final var conditionalAndExpression = (ExpressionTree) ctx.conditionalAndExpression().accept(this);
+            return new BinaryExpressionBuilder()
+                    .left(conditionalAndExpression)
+                    .tag(Tag.AND)
+                    .right(inclusiveOrExpression)
+                    .build();
         }
 
         return inclusiveOrExpression;
@@ -2560,24 +2564,85 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitShiftExpression(final Java20Parser.ShiftExpressionContext ctx) {
-        final var additiveExpression = ctx.additiveExpression().accept(this);
+        final var children = ctx.children;
+        ExpressionTree lastExpression = null;
+        String operatorText = null;
 
-        if (ctx.shiftExpression() != null) {
-            throw new TodoException();
+        for (var i = 0; i < children.size(); i++) {
+            final var child = children.get(i);
+
+            if (child instanceof TerminalNode terminalNode) {
+                final var text = terminalNode.getText();
+                if (operatorText == null) {
+                    operatorText = text;
+                } else {
+                    operatorText = operatorText + text;
+                }
+                continue;
+            }
+
+            var childResult = child.accept(this);
+
+            if (operatorText != null) {
+                final var tag = switch (operatorText) {
+                    case "<<" -> Tag.LSHIFT;
+                    case ">>" -> Tag.RSHIFT;
+                    case ">>>" -> Tag.URSHIFT;
+                    default -> Tag.fromText(operatorText);
+                };
+                childResult = TreeMaker.binaryExpressionTree(
+                        lastExpression,
+                        tag,
+                        (ExpressionTree) childResult,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                );
+                operatorText = null;
+            }
+
+            lastExpression = (ExpressionTree) childResult;
         }
 
-        return additiveExpression;
+        return lastExpression;
     }
 
     @Override
     public Object visitMultiplicativeExpression(final Java20Parser.MultiplicativeExpressionContext ctx) {
-        final var unaryExpression = ctx.unaryExpression().accept(this);
+        final var children = ctx.children;
+        ExpressionTree lastExpression = null;
+        String operatorText = null;
 
-        if (ctx.multiplicativeExpression() != null) {
-            throw new TodoException();
+        for (var i = 0; i < children.size(); i++) {
+            final var child = children.get(i);
+
+            if (child instanceof TerminalNode terminalNode) {
+                operatorText = terminalNode.getText();
+                continue;
+            }
+
+            var childResult = child.accept(this);
+
+            if (operatorText != null) {
+                final var tag = switch (operatorText) {
+                    case "*" -> Tag.MUL;
+                    case "/" -> Tag.DIV;
+                    case "%" -> Tag.MOD;
+                    default -> Tag.fromText(operatorText);
+                };
+                childResult = TreeMaker.binaryExpressionTree(
+                        lastExpression,
+                        tag,
+                        (ExpressionTree) childResult,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                );
+                operatorText = null;
+            }
+
+            lastExpression = (ExpressionTree) childResult;
         }
 
-        return unaryExpression;
+        return lastExpression;
     }
 
     @Override
@@ -2588,8 +2653,23 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             return visitCastExpression(ctx.castExpression());
         } else if (ctx.switchExpression() != null) {
             return visitSwitchExpression(ctx.switchExpression());
-        } else {
-            throw new TodoException();
+        } else if (ctx.children.size() >= 2) {
+            final var operatorNode = ctx.children.get(0);
+            if (operatorNode instanceof TerminalNode terminalNode) {
+                final var tag = switch (terminalNode.getText()) {
+                    case "~" -> Tag.BITNOT;
+                    case "!" -> Tag.NOT;
+                    default -> throw new IllegalArgumentException("Unknown unary operator: " + terminalNode.getText());
+                };
+                final var expression = (ExpressionTree) ctx.unaryExpression().accept(this);
+                return TreeMaker.unaryExpressionTree(
+                        tag,
+                        expression,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                );
+            }
         }
+        throw new IllegalStateException("Unexpected unaryExpressionNotPlusMinus: " + ctx.getText());
     }
 }

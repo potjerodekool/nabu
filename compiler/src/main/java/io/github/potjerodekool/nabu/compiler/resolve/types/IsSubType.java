@@ -268,7 +268,6 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                 return typeVariable.getLowerBound().accept(this, declaredType);
             }
         } else if (otherType instanceof WildcardType wildcardType) {
-            //TODO add tests
             isSubType = switch (wildcardType.getBoundKind()) {
                 case UNBOUND -> true;
                 case EXTENDS -> {

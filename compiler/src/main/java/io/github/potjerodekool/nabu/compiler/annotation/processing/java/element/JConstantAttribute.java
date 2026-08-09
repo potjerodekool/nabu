@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ConstantAttribute;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import javax.lang.model.element.AnnotationValueVisitor;
@@ -34,7 +33,8 @@ public class JConstantAttribute extends JAttribute {
             case Short shortValue -> v.visitShort(shortValue, p);
             case String stringValue -> v.visitString(stringValue, p);
             case TypeMirror typeValue -> v.visitType(TypeWrapperFactory.wrap(typeValue), p);
-            default -> throw new TodoException();
+            case Long longValue -> v.visitLong(longValue, p);
+            default -> throw new UnsupportedOperationException("Unsupported constant type: " + value.getClass().getSimpleName());
         };
     }
 }

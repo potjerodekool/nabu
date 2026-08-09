@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.type.*;
 
 import java.io.BufferedWriter;
@@ -38,7 +37,8 @@ public class ElementPrinter implements ElementVisitor<Object, Object>,
 
     @Override
     public Object visitUnknown(final Element e, final Object o) {
-        throw new TodoException();
+        print(e.toString());
+        return null;
     }
 
     @Override
@@ -201,7 +201,8 @@ public class ElementPrinter implements ElementVisitor<Object, Object>,
 
     @Override
     public Object visitUnknownType(final TypeMirror typeMirror, final Object param) {
-        throw new TodoException(typeMirror.toString());
+        print(typeMirror.toString());
+        return null;
     }
 
 

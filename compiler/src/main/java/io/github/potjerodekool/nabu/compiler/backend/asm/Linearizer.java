@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
 import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import java.util.*;
 
@@ -64,8 +63,13 @@ public final class Linearizer {
         if (value instanceof IRValue.Temp) {
             return value;
         }
-
-        throw new TodoException();
+        if (value instanceof IRValue.ConstBool constBool) {
+            return IRValue.ofBool(!constBool.value());
+        }
+        if (value instanceof IRValue.Named) {
+            return value;
+        }
+        throw new UnsupportedOperationException("Cannot invert IRValue: " + value.getClass().getSimpleName());
     }
 
     private static IRInstruction.BinaryOp invert(final IRInstruction.BinaryOp binaryOp) {
@@ -76,7 +80,10 @@ public final class Linearizer {
             case GTE -> IRInstruction.BinaryOp.Op.LT;
             case GT -> IRInstruction.BinaryOp.Op.LTE;
             case NEQ -> IRInstruction.BinaryOp.Op.EQ;
-            default -> throw new TodoException();
+            case AND -> IRInstruction.BinaryOp.Op.OR;
+            case OR -> IRInstruction.BinaryOp.Op.AND;
+            case XOR -> IRInstruction.BinaryOp.Op.XOR;
+            default -> throw new UnsupportedOperationException("Cannot invert op: " + binaryOp.op());
         };
 
         return new IRInstruction.BinaryOp(binaryOp.result(), newOp, binaryOp.left(), binaryOp.right(), binaryOp.location());

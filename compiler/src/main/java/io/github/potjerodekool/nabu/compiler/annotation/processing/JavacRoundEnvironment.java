@@ -1,7 +1,5 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing;
 
-import io.github.potjerodekool.nabu.tools.TodoException;
-
 import javax.annotation.processing.RoundEnvironment;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.Name;
@@ -28,7 +26,7 @@ public class JavacRoundEnvironment implements RoundEnvironment {
 
     @Override
     public boolean errorRaised() {
-        throw new TodoException();
+        return false;
     }
 
     @Override
@@ -54,6 +52,10 @@ public class JavacRoundEnvironment implements RoundEnvironment {
 
     @Override
     public Set<? extends Element> getElementsAnnotatedWith(final Class<? extends Annotation> a) {
-        throw new TodoException();
+        final var annotationName = a.getName();
+        return rootElements.stream()
+                .filter(rootElement -> rootElement.getAnnotationMirrors().stream()
+                        .anyMatch(mirror -> mirror.getAnnotationType().toString().equals(annotationName)))
+                .collect(Collectors.toSet());
     }
 }

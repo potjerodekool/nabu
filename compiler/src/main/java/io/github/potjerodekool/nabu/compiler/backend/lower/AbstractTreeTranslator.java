@@ -306,13 +306,26 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
     @Override
     public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression,
                                           final P param) {
-        return visitUnknown(instanceOfExpression, param);
+        final var expression = (ExpressionTree) acceptTree(instanceOfExpression.getExpression(), param);
+        return TreeMaker.instanceOfExpression(
+                expression,
+                instanceOfExpression.getTypeExpression(),
+                instanceOfExpression.getLineNumber(),
+                instanceOfExpression.getColumnNumber()
+        );
     }
 
     @Override
     public Tree visitNewClass(final NewClassExpression newClassExpression,
                               final P param) {
-        return visitUnknown(newClassExpression, param);
+        final var name = (ExpressionTree) acceptTree(newClassExpression.getName(), param);
+        final var arguments = newClassExpression.getArguments().stream()
+                .map(it -> (ExpressionTree) acceptTree(it, param))
+                .toList();
+        return newClassExpression.builder()
+                .name(name)
+                .arguments(arguments)
+                .build();
     }
 
     @Override

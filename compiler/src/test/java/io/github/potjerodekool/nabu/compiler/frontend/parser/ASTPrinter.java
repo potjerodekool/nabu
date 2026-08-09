@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser;
 
 import io.github.potjerodekool.nabu.compiler.IndentPrinter;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
@@ -40,7 +39,7 @@ public final class ASTPrinter {
             case FieldAccessExpressionTree fieldAccessExpressionTree -> printFieldAccessExpressionTree(fieldAccessExpressionTree);
             case ParenthesizedExpression p -> printParenthesizedExpression(p);
             case LiteralExpressionTree l -> printLiteralExpressionTree(l);
-            default -> throw new TodoException("" + tree);
+            default -> throw new UnsupportedOperationException("Unsupported tree type: " + tree);
         }
     }
 

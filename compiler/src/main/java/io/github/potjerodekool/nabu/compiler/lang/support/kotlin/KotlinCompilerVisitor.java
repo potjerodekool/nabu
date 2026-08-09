@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.kotlin;
 
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.tree.Tree;
@@ -30,7 +29,7 @@ public class KotlinCompilerVisitor extends KotlinParserBaseVisitor<Object> {
 
     @Override
     public Object visitChildren(final RuleNode node) {
-        throw new TodoException(node.getClass().getName());
+        throw new UnsupportedOperationException("visitChildren not implemented for " + node.getClass().getSimpleName());
     }
 
     @Override
@@ -157,10 +156,10 @@ public class KotlinCompilerVisitor extends KotlinParserBaseVisitor<Object> {
     private void failOnNonNullOrEmpty(final Object o) {
         if (o instanceof Collection<?> collection) {
             if (!collection.isEmpty()) {
-                throw new TodoException();
+                throw new IllegalStateException("Expected empty or null collection, got: " + collection);
             }
         } else if (o != null) {
-            throw new TodoException();
+            throw new IllegalStateException("Expected null, got: " + o);
         }
     }
 

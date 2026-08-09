@@ -28,11 +28,16 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstClass, I
     record Named(String name,
                  IRType type,
                  IRType ownerType,
-                 boolean isStatic) implements IRValue {
+                 boolean isStatic,
+                 int fieldIndex) implements IRValue {
+
+        public Named(String name, IRType type, IRType ownerType, boolean isStatic) {
+            this(name, type, ownerType, isStatic, -1);
+        }
 
         public Named(String name,
                      IRType type) {
-            this(name, type, null, false);
+            this(name, type, null, false, -1);
         }
     }
 

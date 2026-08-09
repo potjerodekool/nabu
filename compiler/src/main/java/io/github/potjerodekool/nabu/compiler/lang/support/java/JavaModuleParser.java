@@ -5,7 +5,6 @@ import io.github.potjerodekool.nabu.compiler.lang.model.element.Directive;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -84,7 +83,7 @@ public class JavaModuleParser extends Java20ParserBaseVisitor<Object> {
         if (ctx.Identifier() != null) {
             return ctx.Identifier().getText();
         } else {
-            throw new TodoException();
+            return ctx.getText();
         }
     }
 
@@ -97,7 +96,7 @@ public class JavaModuleParser extends Java20ParserBaseVisitor<Object> {
         } else if ("static".equals(text)) {
             return Directive.RequiresFlag.STATIC_PHASE;
         } else {
-            throw new TodoException();
+            throw new UnsupportedOperationException("Unknown requires modifier: " + text);
         }
     }
 }

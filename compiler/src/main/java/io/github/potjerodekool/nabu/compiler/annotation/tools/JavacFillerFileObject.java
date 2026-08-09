@@ -1,7 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.tools;
 
 import io.github.potjerodekool.nabu.tools.FileObject;
-import io.github.potjerodekool.nabu.tools.TodoException;
 
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.NestingKind;
@@ -23,12 +22,18 @@ public class JavacFillerFileObject implements JavaFileObject {
 
     @Override
     public Kind getKind() {
-        throw new TodoException();
+        final var nabuKind = fileObject.getKind();
+        if (nabuKind.isSource()) {
+            return Kind.SOURCE;
+        } else {
+            return Kind.CLASS;
+        }
     }
 
     @Override
     public boolean isNameCompatible(final String simpleName, final Kind kind) {
-        throw new TodoException();
+        final var fileName = fileObject.getFileName();
+        return fileName != null && fileName.contains(simpleName);
     }
 
     @Override
@@ -38,22 +43,26 @@ public class JavacFillerFileObject implements JavaFileObject {
 
     @Override
     public Modifier getAccessLevel() {
-        throw new TodoException();
+        return null;
     }
 
     @Override
     public URI toUri() {
-        throw new TodoException();
+        final var fileName = fileObject.getFileName();
+        if (fileName != null) {
+            return URI.create("file:///" + fileName);
+        }
+        return URI.create("string:///generated");
     }
 
     @Override
     public String getName() {
-        throw new TodoException();
+        return fileObject.getFileName();
     }
 
     @Override
     public InputStream openInputStream() throws IOException {
-        throw new TodoException();
+        return fileObject.openInputStream();
     }
 
     @Override
@@ -68,7 +77,15 @@ public class JavacFillerFileObject implements JavaFileObject {
 
     @Override
     public CharSequence getCharContent(final boolean ignoreEncodingErrors) throws IOException {
-        throw new TodoException();
+        try (final var reader = fileObject.openReader(ignoreEncodingErrors)) {
+            final var sb = new StringBuilder();
+            final var buffer = new char[4096];
+            int len;
+            while ((len = reader.read(buffer)) != -1) {
+                sb.append(buffer, 0, len);
+            }
+            return sb.toString();
+        }
     }
 
     @Override
@@ -121,6 +138,6 @@ class FilerWriter extends FilterWriter {
     @Override
     public void close() throws IOException {
         super.close();
-        this.onCloseCallback.accept(fileObject.getFileName());
+        onCloseCallback.accept(fileObject.getFileName());
     }
 }

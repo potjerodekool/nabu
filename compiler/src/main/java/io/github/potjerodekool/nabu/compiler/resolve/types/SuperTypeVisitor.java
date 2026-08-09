@@ -33,8 +33,8 @@ public class SuperTypeVisitor extends UnaryVisitor<AbstractType> {
                 supertype = (AbstractType) ((CClassType) classType.asTypeElement().asType()).getSupertypeField();
 
                 if (supertype == null) {
-                    //TODO Fix somewhere else that super type fields is set.
-                    //After that this code can be deleted.
+                    // Interface super type is mogelijk nog niet gezet door de resolver.
+                    // Fallback naar Object als veilige default.
                     final var objectType = types.getObjectType();
                     supertype = (AbstractType) objectType;
                     classType.setSupertypeField((CClassType) objectType);

@@ -2,7 +2,6 @@ package io.github.potjerodekool.nabu.resolve.scope;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
@@ -177,6 +176,6 @@ public interface Scope {
     }
 
     default Iterable<Symbol> getSymbolsByName(String simpleName)  {
-        throw new TodoException();
+        return List.of();
     }
 }

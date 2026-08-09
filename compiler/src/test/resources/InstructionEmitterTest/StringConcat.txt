@@ -6,7 +6,7 @@ public class MyClass {
 
   // access flags 0x1
   public hello(Ljava/lang/String;)Ljava/lang/String;
-    // parameter  name
+    // parameter final  name
    L0
     LINENUMBER 3 L0
     ALOAD 1

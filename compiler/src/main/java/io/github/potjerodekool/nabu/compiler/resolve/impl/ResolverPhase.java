@@ -12,7 +12,6 @@ import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.*;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
-import io.github.potjerodekool.nabu.tools.TodoException;
 import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
@@ -225,7 +224,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var symbol = (VariableSymbol) variableDeclaratorStatement.getName().getSymbol();
 
         if (symbol != null) {
-            //TODO remove non null check. When annotation can't be resolved, it should be an error type.
+            // Filter null-annotaties (optredend bij niet-resolvebare annotaties)
             final var annotations = variableDeclaratorStatement.getAnnotations().stream()
                     .map(annotation -> (CompoundAttribute)
                             acceptTree(annotation, scope))
@@ -240,9 +239,9 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
     private void lambdaCheck(final Tree value, final TypeMirror variableType) {
         if (value instanceof LambdaExpressionTree lambdaExpressionTree) {
-            final var typeElement = variableType.asTypeElement();
+            final var typeElement = variableType != null ? variableType.asTypeElement() : null;
 
-            if (!typeElement.isFunctionalInterface()) {
+            if (typeElement == null || !typeElement.isFunctionalInterface()) {
                 return;
             }
 
@@ -401,9 +400,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitLambdaExpression(final LambdaExpressionTree lambdaExpression,
                                         final Scope scope) {
 
+        final var lambdaMethodType = lambdaExpression.getLambdaMethodType();
+
         if (lambdaExpression.getParameterKind() == LambdaExpressionTree.ParameterKind.EXPLICIT) {
-            lambdaExpression.getVariables().forEach(variable -> acceptTree(variable, scope));
-            acceptTree(lambdaExpression.getBody(), scope);
+            if (lambdaMethodType == null) {
+                lambdaExpression.getVariables().forEach(variable -> acceptTree(variable, scope));
+                acceptTree(lambdaExpression.getBody(), scope);
+            }
             defaultAnswer(lambdaExpression, scope);
 
             final var parameterTypes = lambdaExpression.getVariables().stream()
@@ -422,7 +425,8 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             );
             lambdaExpression.setType(partialType);
         } else {
-            //TODO tempory fix
+            // Lambda zonder target type — maak een ongedetermineerd type aan
+            // dat tijdens type-inferentie wordt opgelost.
             final var partialType = new UndetVarType(
                     new CMethodType(
                             null,
@@ -435,8 +439,6 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             );
             lambdaExpression.setType(partialType);
         }
-
-        final var lambdaMethodType = lambdaExpression.getLambdaMethodType();
 
         if (lambdaMethodType != null) {
             final var lambdaParameterTypes = lambdaMethodType.getParameterTypes();
@@ -454,6 +456,14 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
                 if (variable instanceof IdentifierTree) {
                     variable.setType(lambdaParameterType);
+                } else if (variable instanceof VariableDeclaratorTree varDecl) {
+                    if (varDecl.getVariableType() instanceof VariableTypeTree vtt
+                            && lambdaParameterType != null) {
+                        vtt.setType(lambdaParameterType);
+                        varDecl.setType(lambdaParameterType);
+                    } else if (lambdaParameterType != null) {
+                        varDecl.setType(lambdaParameterType);
+                    }
                 }
             }
 
@@ -479,7 +489,20 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             );
             lambdaExpression.setType(partialType);
             lambdaExpression.getVariables().forEach(variable -> {
-                acceptTree(variable, scope);
+                if (variable instanceof IdentifierTree identifier) {
+                    if (identifier.getSymbol() == null) {
+                        final var paramType = identifier.getType();
+                        final var symbol = new VariableSymbolBuilderImpl()
+                                .kind(ElementKind.PARAMETER)
+                                .simpleName(identifier.getName())
+                                .type(paramType != null ? paramType : types.getUnknownType())
+                                .build();
+                        identifier.setSymbol(symbol);
+                        scope.define(symbol);
+                    }
+                } else {
+                    acceptTree(variable, scope);
+                }
             });
             acceptTree(lambdaExpression.getBody(), scope);
         }
@@ -761,6 +784,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             final var method = scope.getCurrentMethod();
             final var type = method.getReturnType();
             lambdaExpression.setType(type);
+            lambdaCheck(lambdaExpression, type);
+        }
+
+        if (expression instanceof MemberReference memberReference) {
+            final var method = scope.getCurrentMethod();
+            final var type = method.getReturnType();
+            memberReference.setType(type);
         }
 
         return super.visitReturnStatement(returnStatement, scope);
@@ -854,6 +884,41 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     }
 
     @Override
+    public Object visitMemberReference(final MemberReference memberReference,
+                                       final Scope scope) {
+        final var expression = memberReference.getExpression();
+
+        if (expression != null) {
+            acceptTree(expression, scope);
+        }
+
+        final var expressionType = expression != null ? compilerContext.getTreeUtils().typeOf(expression) : null;
+        final var methodName = memberReference.getName();
+
+        if (expressionType instanceof DeclaredType declaredType) {
+            final var typeElement = declaredType.asTypeElement();
+            final var methods = ElementFilter.methodsIn(typeElement.getEnclosedElements())
+                    .stream()
+                    .filter(method -> method.getSimpleName().contentEquals(methodName))
+                    .toList();
+
+            if (!methods.isEmpty()) {
+                final var method = methods.getFirst();
+                final var executableType = (ExecutableType) types.asMemberOf(declaredType, method);
+                memberReference.setType(executableType);
+            } else {
+                memberReference.setType(types.getErrorType(methodName));
+            }
+        } else if (expressionType != null) {
+            memberReference.setType(expressionType);
+        } else {
+            memberReference.setType(types.getErrorType(methodName));
+        }
+
+        return defaultAnswer(memberReference, scope);
+    }
+
+    @Override
     public Object visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final Scope scope) {
         final var switchScope = (SwitchScope) scope;
         final var selectorElement = switchScope.getSelectorElement();
@@ -937,15 +1002,14 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 return new CClassAttribute(type);
             }
         }
-
-        throw new TodoException();
+        return null;
     }
 
     private AnnotationValue createAnnotationValue(final ExpressionTree expressionTree) {
         if (expressionTree instanceof LiteralExpressionTree literalExpressionTree) {
             return AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
         }
-        throw new TodoException();
+        return null;
     }
 
     @Override

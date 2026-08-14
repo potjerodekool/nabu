@@ -45,6 +45,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     private IRBuilder builder;
     private IRModule module;
+    private final List<IRModule> modules = new ArrayList<>();
 
     private final ScopeTracker scope = new ScopeTracker();
 
@@ -75,7 +76,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     // -------------------------------------------------------
 
     public IRModule getModule() {
-        return module;
+        return modules.isEmpty() ? null : modules.get(0);
+    }
+
+    public List<IRModule> getModules() {
+        return Collections.unmodifiableList(modules);
     }
 
     public List<TryCatchRange> getTryCatchRanges() {
@@ -102,29 +107,45 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 ? compilationUnit.getFileObject().getFileName()
                 : "<onbekend>";
 
-
-        final var clazz = compilationUnit.getClasses().stream()
+        compilationUnit.getClasses().stream()
                 .filter(it -> it.getNestingKind() == NestingKind.TOP_LEVEL)
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException(new CompileException("No toplevel class")));
-
-        String moduleName = clazz.getClassSymbol().getQualifiedName();
-
-        builder = new IRBuilder(moduleName);
-        module = builder.build();
 
         // Bronbestand registreren voor debuginfo
         int lastSlash = fileName.lastIndexOf('/');
         String dir = lastSlash >= 0 ? fileName.substring(0, lastSlash) : ".";
         String file = lastSlash >= 0 ? fileName.substring(lastSlash + 1) : fileName;
-        module.setSourceFile(file, dir);
 
-        // Traverseer alle klassen
+        // Elke top-level class krijgt een eigen IRModule.
+        // Voorheen werd de hele CU in één module geëmit waardoor methodes en
+        // constructors van meerdere classes in de eerste class terechtkwamen.
         for (ClassDeclaration cls : compilationUnit.getClasses()) {
+            resetClassState();
+
+            final var moduleName = cls.getClassSymbol().getQualifiedName();
+            builder = new IRBuilder(moduleName);
+            module = builder.build();
+            module.setSourceFile(file, dir);
+
             acceptTree(cls, builder);
+
+            modules.add(module);
         }
 
         return null;
+    }
+
+    private void resetClassState() {
+        currentClassName = null;
+        lambdaCounter = 0;
+        scope.reset();
+        breakTargets.clear();
+        continueTargets.clear();
+        labeledBreakTargets.clear();
+        labeledContinueTargets.clear();
+        pendingLabels.clear();
+        tryCatchRanges.clear();
     }
 
     // -------------------------------------------------------
@@ -677,7 +698,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             // Declareer als extern als nog niet aanwezig
             IRType fieldType = TypeMirrorToIRType.map(
                     fieldSymbol.asType());
-            builder.declareExternalGlobal(globalName, fieldType);
+            builder.declareExternalGlobal(globalName, fieldType, fieldSymbol.isStatic());
             IRValue globalPtr = builder.lookup(globalName);
 
             return builder.emitLoad(TypeMirrorToIRType.map(field.getSymbol().asType()), globalPtr);

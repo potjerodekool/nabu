@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.backend.asm2.Asm2Backend;
 import io.github.potjerodekool.nabu.compiler.backend.ir.TypeMirrorToIRType;
 import io.github.potjerodekool.nabu.compiler.ir.CallKind;
 import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
@@ -11,8 +12,11 @@ import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tools.Constants;
-import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.URL;
@@ -23,7 +27,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@Disabled("Non-static method tests need 'this' parameter — re-enable after IRBuilder auto-injects 'this' for instance methods")
 class ASMBackendTest extends AbstractCompilerTest {
 
     @TempDir
@@ -77,7 +80,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(4)
     void constDoubleReturn() throws Exception {
-        builder.beginFunction("getPi", IRType.F64, List.of(), false);
+        builder.beginFunction("getPi", IRType.F64, List.of(), true);
         builder.emitReturn(builder.constFloat(3.14159));
         builder.endFunction();
 
@@ -94,7 +97,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(5)
     void constFloat32Return() throws Exception {
-        builder.beginFunction("getE", new IRType.Float(32), List.of(), false);
+        builder.beginFunction("getE", new IRType.Float(32), List.of(), true);
         builder.emitReturn(IRValue.ofF32(2.718f));
         builder.endFunction();
 
@@ -111,7 +114,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(6)
     void constBoolTrue() throws Exception {
-        builder.beginFunction("isTrue", IRType.BOOL, List.of(), false);
+        builder.beginFunction("isTrue", IRType.BOOL, List.of(), true);
         builder.emitReturn(builder.constBool(true));
         builder.endFunction();
         final var module = buildAndGet();
@@ -127,7 +130,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(7)
     void constBoolFalse() throws Exception {
-        builder.beginFunction("isFalse", IRType.BOOL, List.of(), false);
+        builder.beginFunction("isFalse", IRType.BOOL, List.of(), true);
         builder.emitReturn(builder.constBool(false));
         builder.endFunction();
 
@@ -144,7 +147,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(8)
     void constNullPtr() throws Exception {
-        builder.beginFunction("getNull", new IRType.Ptr(IRType.I32), List.of(), false);
+        builder.beginFunction("getNull", new IRType.Ptr(IRType.I32), List.of(), true);
         builder.emitReturn(IRValue.nullPtr(IRType.I32));
         builder.endFunction();
 
@@ -181,11 +184,9 @@ class ASMBackendTest extends AbstractCompilerTest {
         var putsType = IRType.fn(IRType.I32, new IRType.Ptr(IRType.I8));
         builder.declareExternalFunction("puts", putsType);
 
-        System.out.println("Hello, World!");
-
         builder.beginFunction("main", IRType.I32, List.of(), true);
         IRValue msg = builder.constString("Hello, World!");
-        builder.emitCall(CallKind.VIRTUAL,"puts", IRType.I32, List.of(), List.of(msg));
+        builder.emitCall(CallKind.STATIC, "puts", IRType.I32, List.of(msg.type()), List.of(msg));
         builder.emitReturn(builder.constInt(0));
         builder.endFunction();
 
@@ -194,7 +195,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(11)
     void binaryOpAdd() throws Exception {
-        builder.beginFunction("add", IRType.I32, List.of(), false);
+        builder.beginFunction("add", IRType.I32, List.of(), true);
         var result = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.ADD,
                 builder.constInt(3), builder.constInt(4));
         builder.emitReturn(result);
@@ -213,7 +214,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(12)
     void binaryOpSubMulDiv() throws Exception {
-        builder.beginFunction("calc", IRType.I32, List.of(), false);
+        builder.beginFunction("calc", IRType.I32, List.of(), true);
         var a   = builder.constInt(10);
         var b   = builder.constInt(3);
         var sub = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.SUB, a, b);
@@ -235,7 +236,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(13)
     void binaryOpMod() throws Exception {
-        builder.beginFunction("mod", IRType.I32, List.of(), false);
+        builder.beginFunction("mod", IRType.I32, List.of(), true);
         var result = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.MOD,
                 builder.constInt(10), builder.constInt(3));
         builder.emitReturn(result);
@@ -254,7 +255,7 @@ class ASMBackendTest extends AbstractCompilerTest {
 
     @Test @Order(14)
     void binaryOpComparisons() throws Exception {
-        builder.beginFunction("cmp", IRType.BOOL, List.of(), false);
+        builder.beginFunction("cmp", IRType.BOOL, List.of(), true);
         var a  = builder.constInt(5);
         var b  = builder.constInt(10);
         var eq  = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ,  a, b);
@@ -297,13 +298,13 @@ class ASMBackendTest extends AbstractCompilerTest {
     @Test @Order(16)
     void internalFunctionCall() throws Exception {
         // fn helper() -> i32 { return 7; }
-        builder.beginFunction("helper", IRType.I32, List.of(), false);
+        builder.beginFunction("helper", IRType.I32, List.of(), true);
         builder.emitReturn(builder.constInt(7));
         builder.endFunction();
 
         // fn main() -> i32 { return helper(); }
         builder.beginFunction("main", IRType.I32, List.of(), true);
-        var res = builder.emitCall(CallKind.VIRTUAL,"helper", IRType.I32, List.of(), List.of());
+        var res = builder.emitCall(CallKind.STATIC,"helper", IRType.I32, List.of(), List.of());
         builder.emitReturn(res);
         builder.endFunction();
 
@@ -349,8 +350,9 @@ class ASMBackendTest extends AbstractCompilerTest {
     private Path compileDefault(final IRModule module) throws CompileException {
         final var classFileName = module.name + ".class";
         Path out = tempDir.resolve(classFileName);
-        new ASMBackend()
-                .compile(module, CompileOptions.defaults(), out);
+        Path directory = out.getParent();
+        new Asm2Backend()
+                .compile(module, CompileOptions.defaults(), directory);
 
         return out;
     }

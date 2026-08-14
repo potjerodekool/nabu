@@ -15,10 +15,15 @@ public class LightweightCompilerDaemon {
     private static final Logger LOGGER = Logger.getLogger(LightweightCompilerDaemon.class.getName());
     private static final int PORT = 9876;
     private static final int MAX_CONNECTIONS = 10;
+    private static final long IDLE_TIMEOUT_MS = Long.getLong(
+            "nabu.daemon.idleTimeoutMs",
+            TimeUnit.MINUTES.toMillis(30)
+    );
 
     private final ExecutorService executorService;
     private ServerSocket serverSocket;
     private volatile boolean running = true;
+    private volatile long lastActivity = System.currentTimeMillis();
 
     public LightweightCompilerDaemon() {
         this.executorService = Executors.newFixedThreadPool(MAX_CONNECTIONS);
@@ -50,9 +55,12 @@ public class LightweightCompilerDaemon {
         LOGGER.info("║  Status: RUNNING                               ║");
         LOGGER.info("╚════════════════════════════════════════════════╝");
 
+        startIdleWatcher();
+
         while (running) {
             try {
                 Socket clientSocket = serverSocket.accept();
+                lastActivity = System.currentTimeMillis();
                 LOGGER.info("New connection of: " + clientSocket.getInetAddress());
                 executorService.execute(new ClientHandler(this, clientSocket));
             } catch (SocketException e) {
@@ -61,6 +69,26 @@ public class LightweightCompilerDaemon {
                 }
             }
         }
+    }
+
+    private void startIdleWatcher() {
+        final var watcher = new Thread(() -> {
+            while (running) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (System.currentTimeMillis() - lastActivity > IDLE_TIMEOUT_MS) {
+                    LOGGER.info("No activity for " + IDLE_TIMEOUT_MS + " ms, shutting down daemon");
+                    stop();
+                    System.exit(0);
+                }
+            }
+        }, "nabu-daemon-idle-watcher");
+        watcher.setDaemon(true);
+        watcher.start();
     }
 
     public void stop() {

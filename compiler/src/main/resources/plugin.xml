@@ -6,7 +6,10 @@
     <extensions>
         <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.java.JavaLanguageSupport"/>
         <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.kotlin.KotlinLanguageSupport"/>
+        <!--
         <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.asm.ASMBackend" name="ASM" />
+        -->
+        <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.asm2.Asm2Backend" name="ASM" />
         <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.java.JavaBackend" name="JAVA" />
     </extensions>
 </plugin>

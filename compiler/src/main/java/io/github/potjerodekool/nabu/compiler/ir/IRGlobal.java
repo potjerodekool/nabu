@@ -34,8 +34,10 @@ public record IRGlobal(
         return new IRGlobal(name, type, init, Linkage.INTERNAL, false, null, false);
     }
 
-    public static IRGlobal external(String name, IRType type) {
-        return new IRGlobal(name, type, null, Linkage.EXTERNAL, false, null, false);
+    public static IRGlobal external(final String name,
+                                    final IRType type,
+                                    final boolean isStatic) {
+        return new IRGlobal(name, type, null, Linkage.EXTERNAL, false, null, isStatic);
     }
 
     public static IRGlobal stringLiteral(String name, String value) {

@@ -24,15 +24,13 @@ public class ASMBackend implements Backend {
     public void compile(final IRModule module,
                         final CompileOptions opts,
                         final Path output) throws CompileException {
-        final Path outputFile;
-
-        if (Files.isDirectory(output)) {
-            final var classFileName = module.name.replace('.', File.separatorChar) + ".class";
-            outputFile = output.resolve(classFileName);
-        } else {
-            outputFile = output;
+        try {
+            Files.createDirectories(output);
+        } catch (IOException e) {
+            throw new CompileException("Failed to create directory", e);
         }
 
+        final var outputFile = output.resolve(module.name.replace('.', File.separatorChar) + ".class");
         final var parentDir = outputFile.getParent();
 
         if (!Files.exists(parentDir)) {

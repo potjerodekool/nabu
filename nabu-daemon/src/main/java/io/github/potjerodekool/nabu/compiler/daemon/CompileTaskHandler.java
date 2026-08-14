@@ -61,9 +61,9 @@ public class CompileTaskHandler implements TaskHandler {
     private Map<String, String> readCompileOptions(final DataInputStream in) throws IOException {
         final var options = new HashMap<String, String>();
 
-        String option;
-
-        while ((option = readUTF(in)) != null) {
+        final var count = in.readInt();
+        for (var i = 0; i < count; i++) {
+            final var option = in.readUTF();
             final var sep = option.indexOf(' ');
             final var key = option.substring(0, sep);
             final var value = option.substring(sep + 1);
@@ -162,14 +162,6 @@ public class CompileTaskHandler implements TaskHandler {
         out.writeInt(data.length);
         out.write(data);
         out.flush();
-    }
-
-    private String readUTF(final DataInputStream inputStream) throws IOException {
-        if (inputStream.available() > 0) {
-            return inputStream.readUTF();
-        } else {
-            return null;
-        }
     }
 
     private void writeField(final DataOutputStream out,

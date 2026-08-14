@@ -352,9 +352,17 @@ public class IRBuilder {
         return new IRValue.Named("@" + name, new IRType.Ptr(type));
     }
 
-    public IRValue declareExternalGlobal(String name, IRType type) {
-        module.addGlobal(IRGlobal.external(name, type));
-        return new IRValue.Named("@" + name, new IRType.Ptr(type));
+    public IRValue declareExternalGlobal(final String name,
+                                         final IRType type,
+                                         final boolean isStatic) {
+        module.addGlobal(IRGlobal.external(name, type, isStatic));
+        return new IRValue.Named(
+                "@" + name,
+                new IRType.Ptr(type),
+                null,
+                isStatic,
+                -1
+        );
     }
 
     // -------------------------------------------------------
@@ -441,7 +449,12 @@ public class IRBuilder {
         // Zoek in globals
         IRGlobal global = module.globals().get(name);
         if (global != null) {
-            return new IRValue.Named("@" + name, global.ptrType());
+            return new IRValue.Named(
+                    "@" + name,
+                    global.ptrType(),
+                    null,
+                    global.isStatic()
+            );
         }
 
         return null;

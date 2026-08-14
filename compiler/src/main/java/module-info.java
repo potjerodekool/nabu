@@ -40,19 +40,6 @@ module io.github.potjerodekool.nabu.compiler {
     requires lombok;
     requires jdk.compiler;
 
-    opens io.github.potjerodekool.nabu.compiler.annotation.processing.java.element to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.annotation.processing to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.backend.asm to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.backend.ir to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.backend.lower to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.backend.lower.widen to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.frontend.parser to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.lang.support.java to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.resolve.impl to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.resolve.method.impl to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.resolve.types to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler.util.impl to org.junit.platform.commons;
-    opens io.github.potjerodekool.nabu.compiler to org.junit.platform.commons;
     exports io.github.potjerodekool.nabu.compiler.ir.values;
     exports io.github.potjerodekool.nabu.compiler.ir;
     exports io.github.potjerodekool.nabu.compiler.ir.types;

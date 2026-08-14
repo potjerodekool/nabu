@@ -16,7 +16,7 @@
     <url>https://github.com/potjerodekool/nabu</url>
 
     <properties>
-        <org.mapstruct.version>1.6.3</org.mapstruct.version>
+        <org.mapstruct.version>1.7.0.Beta2</org.mapstruct.version>
     </properties>
 
     <dependencies>

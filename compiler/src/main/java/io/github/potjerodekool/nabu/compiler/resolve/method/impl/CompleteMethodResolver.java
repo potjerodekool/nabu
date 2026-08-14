@@ -921,12 +921,20 @@ public class CompleteMethodResolver implements MethodResolver {
             return false;
         }
 
-        final var boxedClass = types.boxedClass((PrimitiveType) source);
+        final var boxedClass = types.boxedClass((PrimitiveType) asPrimitiveType(source));
         final var boxedType = boxedClass.asType();
 
         // JLS 5.1.7 boxing + JLS 5.1.5 widening reference conversion:
         // the boxed type must be assignable to the target type.
         return types.isAssignable(boxedType, target);
+    }
+
+    private TypeMirror asPrimitiveType(final TypeMirror type) {
+        if (type instanceof VariableType variableType) {
+            return variableType.getInterferedType();
+        } else {
+            return type;
+        }
     }
 
     private ApplicableMethod chooseMostSpecificMethod(

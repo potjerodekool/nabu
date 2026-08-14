@@ -28,15 +28,19 @@ public final class Linearizer {
                     IRValue condition, String trueLabel, String falseLabel,
                     SourceLocation location
             )) {
-                if (!visited.contains(trueLabel) && !visited.contains(falseLabel)) {
-                    //invert condition
-                    final var previousInstruction = newInstructions.getLast();
+            if (!visited.contains(trueLabel) && !visited.contains(falseLabel)) {
+                //Invert condition zodat de false-tak kan "doorvallen".
+                //Alleen correct als de vergelijkingsinstructie direct
+                //ervoor staat; anders worden de labels gewisseld zonder
+                //dat de conditie is geïnverteerd (inconsistent IR).
+                final var previousInstruction = newInstructions.isEmpty()
+                        ? null
+                        : newInstructions.getLast();
 
-                    if (previousInstruction instanceof IRInstruction.BinaryOp binaryOp) {
-                        final var newBinop = invert(binaryOp);
-                        newInstructions.removeLast();
-                        newInstructions.add(newBinop);
-                    }
+                if (previousInstruction instanceof IRInstruction.BinaryOp binaryOp) {
+                    final var newBinop = invert(binaryOp);
+                    newInstructions.removeLast();
+                    newInstructions.add(newBinop);
 
                     final var invertedCondition = invert(condition);
                     final var newCondBranch = new IRInstruction.CondBranch(
@@ -47,6 +51,11 @@ public final class Linearizer {
                     );
                     newInstructions.add(newCondBranch);
                 } else {
+                    // Conditie kan niet consistent geïnverteerd worden:
+                    // behoud de oorspronkelijke true/false-volgorde.
+                    newInstructions.add(instruction);
+                }
+            } else {
                     newInstructions.add(instruction);
                 }
             } else {

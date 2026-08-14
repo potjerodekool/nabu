@@ -566,7 +566,10 @@ public class InstructionEmitter {
             localVariable = localVarManager.getVar(name);
         }
 
-        return resolveLoadOpcode(localVariable.type());
+        final var type = value.type();
+
+        //return resolveLoadOpcode(localVariable.type());
+        return resolveLoadOpcode(type);
     }
 
     private int resolveLoadOpcode(final IRType type) {
@@ -578,7 +581,13 @@ public class InstructionEmitter {
             };
             case IRType.Float floatType -> floatType.bits() == 64 ? Opcodes.DLOAD
                     : Opcodes.FLOAD;
-            case IRType.Ptr ignored -> Opcodes.ALOAD;
+            case IRType.Ptr ptr -> {
+                if (ptr.jvmDescriptor() != null) {
+                    yield Opcodes.ALOAD;
+                }
+
+                yield resolveLoadOpcode(ptr.pointee());
+            }
             case IRType.Bool ignored -> Opcodes.ILOAD;
             case IRType.Void ignored -> Opcodes.NOP;
             case IRType.Array ignored -> Opcodes.ALOAD;

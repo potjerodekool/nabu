@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.ir.values;
 
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
+import io.github.potjerodekool.nabu.tools.TodoException;
 
 import java.util.List;
 
@@ -23,6 +24,7 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstClass, I
     // -------------------------------------------------------
 
     record Temp(String name, IRType type) implements IRValue {
+
     }
 
     record Named(String name,

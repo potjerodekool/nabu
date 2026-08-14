@@ -99,13 +99,7 @@ public class PetController {
 
         private fun doUpdatePet(final dto: PetDto,
                                 final pet: Pet): void {
-        pet.setName(dto.getName());
-        final var tagDtos = dto.getTags();
-        final var tagIds = new HashSet<UUID>();
 
-        final var tags = this.tagRepository.findAllById(tagIds).stream()
-            .collect(Collectors.toSet());
-        pet.setTags(tags);
     }
 
     public fun updateThePet(final dto: PetDto): void {

@@ -162,7 +162,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} --add-opens io.github.potjerodekool.nabu.compiler/io.github.potjerodekool.nabu.compiler.backend.asm2=org.junit.platform.commons</argLine>
+                    <useModulePath>false</useModulePath>
                 </configuration>
             </plugin>
         </plugins>

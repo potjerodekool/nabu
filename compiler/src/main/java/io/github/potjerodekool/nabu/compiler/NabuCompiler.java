@@ -74,6 +74,14 @@ public class NabuCompiler implements Compiler {
     private int generateCode(final CompilerContextImpl compilerContext,
                              final List<CompilationUnit> compilationUnits,
                              final CompilerOptions compilerOptions) throws CompileException {
+        compilerDiagnosticListener.report(
+                new DefaultDiagnostic(
+                        Diagnostic.Kind.NOTE,
+                        "generateCode",
+                        null
+                )
+        );
+
         final var backend = getBackendName(compilerOptions);
 
         final var codeBackend = BackendManager.createBackend(
@@ -82,13 +90,33 @@ public class NabuCompiler implements Compiler {
                 compilerContext
         );
 
+        compilerDiagnosticListener.report(
+                new DefaultDiagnostic(
+                        Diagnostic.Kind.NOTE,
+                        "Using backend " + codeBackend.getClass().getName(),
+                        null
+                )
+        );
+
+        compilerDiagnosticListener.report(
+                new DefaultDiagnostic(
+                        Diagnostic.Kind.NOTE,
+                        "Output directory " + targetDirectory.toString(),
+                        null
+                )
+        );
+
+        report("CU Count " + compilationUnits.size());
+
         if (codeBackend != null) {
             final var modules = compilationUnits.stream()
-                    .map(cu -> {
+                    .flatMap(cu -> {
                         final IrGeneratingVisitor visitor = new IrGeneratingVisitor();
                         visitor.acceptTree(cu, null);
-                        return visitor.getModule();
+                        return visitor.getModules().stream();
                     }).toList();
+
+            report("modules Count " + modules.size());
 
             for (var module : modules) {
                 try {
@@ -102,18 +130,30 @@ public class NabuCompiler implements Compiler {
                     final var optimizedModule = Optimizer.optimize(module);
                     codeBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
                 } catch (CompileException e) {
+                    report(e.getMessage());
                     return -1;
                 }
             }
+            report("No errors during generate code");
             return 0;
         } else {
             return -1;
         }
     }
 
+    private void report(final String message) {
+        compilerDiagnosticListener.report(
+                new DefaultDiagnostic(
+                        Diagnostic.Kind.NOTE,
+                        message,
+                        null
+                )
+        );
+    }
+
     private String getBackendName(final CompilerOptions compilerOptions) {
         return compilerOptions.getOption(CompilerOption.BACKEND)
-                .orElse("ASM");
+                .orElse("ASM2");
     }
 
 

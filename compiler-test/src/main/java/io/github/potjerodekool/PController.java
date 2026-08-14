@@ -3,27 +3,35 @@ package io.github.potjerodekool;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 public class PController {
 
-    public void uploadImage(final UUID id,
-                            final MultipartFile image) throws IOException {
-        final var bytes = (byte[]) image.getBytes();
-        this.storeImage(bytes);
+    private PetRepository petRepository;
+
+    public List<PetDto> getPets() {
+        final var result = this.petRepository.findAll();
+        final var resultList = new ArrayList<PetDto>();
+
+        new HashSet<String>();
+
+        for (var i = 0; i < result.size(); i++) {
+            final var pet = (Pet) result.get(i);
+            final var petDto = this.mapToDto(pet);
+            resultList.add(petDto);
+        }
+
+        return resultList;
     }
 
-    private void storeImage(final byte[] bytes) {
 
-    }
+    private PetDto mapToDto(Pet pet) {
+        final var id = pet.getId();
+        final var name = pet.getName();
 
-    private void count() {
-        final var pet = new Pet();
-        final var map = (Map<String, Integer>) new HashMap<String, Integer>();
-        final var status = pet.getStatus().name();
-        final var count = map.getOrDefault(status, 0) + 1;
-        map.put(status, count);
+        final var petDto = new PetDto();
+        petDto.setId(id);
+        petDto.setName(name);
+        return petDto;
     }
 }

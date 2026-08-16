@@ -19,33 +19,49 @@ public class MyClass {
     LINENUMBER 8 L1
    FRAME FULL [MyClass I I I] []
     ILOAD 2
+    ISTORE 4
     ILOAD 1
+    ISTORE 5
+    ILOAD 4
+    ILOAD 5
     IADD
+    ISTORE 6
+    ILOAD 6
     ISTORE 2
     ILOAD 3
+    ISTORE 7
+    ILOAD 7
     ICONST_1
     ISUB
+    ISTORE 8
+    ILOAD 8
     ISTORE 3
    L2
     LINENUMBER 9 L2
     ILOAD 3
+    ISTORE 9
+    ILOAD 9
     ICONST_0
     IF_ICMPGT L1
+    GOTO L3
    L3
     LINENUMBER 11 L3
+   FRAME FULL [MyClass I I I I I I I I I] []
     ILOAD 2
+    ISTORE 10
+    ILOAD 10
     IRETURN
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0
     LOCALVARIABLE number I L0 L4 1
     MAXSTACK = 2
-    MAXLOCALS = 4
+    MAXLOCALS = 11
 
   // access flags 0x1
   public <init>()V
    L0
     ALOAD 0
-    INVOKESPECIAL java/lang/Object.super ()V
+    INVOKESPECIAL java/lang/Object.<init> ()V
     RETURN
    L1
     LOCALVARIABLE this LMyClass; L0 L1 0

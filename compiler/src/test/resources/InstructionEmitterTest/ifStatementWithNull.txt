@@ -11,8 +11,10 @@ public class MyClass {
     LINENUMBER 3 L0
     ALOAD 1
     IFNONNULL L1
+    GOTO L2
    L2
     LINENUMBER 4 L2
+   FRAME FULL [MyClass java/lang/Integer] []
     ICONST_1
     IRETURN
    L1
@@ -30,7 +32,7 @@ public class MyClass {
   public <init>()V
    L0
     ALOAD 0
-    INVOKESPECIAL java/lang/Object.super ()V
+    INVOKESPECIAL java/lang/Object.<init> ()V
     RETURN
    L1
     LOCALVARIABLE this LMyClass; L0 L1 0

@@ -530,7 +530,7 @@ class InstructionEmitterTest extends BackendTest {
 
     private String compile(final Function function) {
 
-        final var emitter = new ASMByteCodeEmitter();
+        final var emitter = new AsmByteCodeEmitter();
 
         final var clazz = TreeMaker.classDeclaration(
                 Kind.CLASS,
@@ -563,7 +563,7 @@ class InstructionEmitterTest extends BackendTest {
 
     private String compile(final CompilationUnit compilationUnit) {
 
-        final var emitter = new ASMByteCodeEmitter();
+        final var emitter = new AsmByteCodeEmitter();
         final var fileObject = new InMemoryFileObject("", "MyClass.java");
 
         final var visitor = new IrGeneratingVisitor();

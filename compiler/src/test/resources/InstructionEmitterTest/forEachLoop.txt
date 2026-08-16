@@ -41,7 +41,7 @@ public class MyClass {
   public <init>()V
    L0
     ALOAD 0
-    INVOKESPECIAL java/lang/Object.super ()V
+    INVOKESPECIAL java/lang/Object.<init> ()V
     RETURN
    L1
     LOCALVARIABLE this LMyClass; L0 L1 0

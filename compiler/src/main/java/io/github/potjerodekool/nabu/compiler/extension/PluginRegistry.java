@@ -34,8 +34,8 @@ public class PluginRegistry {
 
         final var loadedPlugins = new HashSet<String>();
 
-        loadPluginsFromUserDirectory(loadedPlugins);
         loadPluginsFromClassPath(loadedPlugins);
+        loadPluginsFromUserDirectory(loadedPlugins);
     }
 
     private void loadPluginsFromUserDirectory(final HashSet<String> loadedPlugins) {

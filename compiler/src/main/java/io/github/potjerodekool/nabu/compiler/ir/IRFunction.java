@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.ir;
 import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.CompoundAttribute;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,6 +19,9 @@ public class IRFunction {
     private boolean external = false;
     private final long flags;
     private final boolean isConstructor;
+    private final List<CompoundAttribute> annotations = new ArrayList<>();
+    private List<List<CompoundAttribute>> parameterAnnotations = List.of();
+    private String genericSignature;
 
     public IRFunction(final String name,
                       final IRType returnType,
@@ -44,6 +48,9 @@ public class IRFunction {
     public IRFunction withBlocks(final List<IRBasicBlock> blocks) {
         final var newFunction = new IRFunction(name, returnType, params, location, flags, isConstructor);
         blocks.forEach(newFunction::addBlock);
+        newFunction.setAnnotations(this.annotations);
+        newFunction.setParameterAnnotations(this.parameterAnnotations);
+        newFunction.genericSignature = this.genericSignature;
         return newFunction;
     }
 
@@ -85,6 +92,30 @@ public class IRFunction {
 
     public boolean isExternal() {
         return external;
+    }
+
+    public void setAnnotations(final List<CompoundAttribute> annotations) {
+        this.annotations.addAll(annotations);
+    }
+
+    public List<CompoundAttribute> annotations() {
+        return Collections.unmodifiableList(annotations);
+    }
+
+    public void setParameterAnnotations(final List<List<CompoundAttribute>> parameterAnnotations) {
+        this.parameterAnnotations = List.copyOf(parameterAnnotations);
+    }
+
+    public List<List<CompoundAttribute>> parameterAnnotations() {
+        return parameterAnnotations;
+    }
+
+    public void setGenericSignature(String genericSignature) {
+        this.genericSignature = genericSignature;
+    }
+
+    public String genericSignature() {
+        return genericSignature;
     }
 
     @Override

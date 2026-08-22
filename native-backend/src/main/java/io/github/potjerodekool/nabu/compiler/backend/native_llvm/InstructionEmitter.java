@@ -327,6 +327,13 @@ public class InstructionEmitter {
     // -------------------------------------------------------
 
     private void emitCall(IRInstruction.Call call) {
+        // Super-constructor-aanroep (super()/this.super()): java.lang.Object
+        // heeft geen native state om te initialiseren in deze backend.
+        // Zolang er geen inheritance/veld-inheritance is, is de super-call een no-op.
+        if (call.function().endsWith("_super")) {
+            return;
+        }
+
         LLVMValueRef fn = globalValueMap.get("@" + call.function());
         if (fn == null)
             throw new IllegalStateException(

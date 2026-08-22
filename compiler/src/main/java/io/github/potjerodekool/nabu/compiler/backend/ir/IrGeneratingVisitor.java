@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
+import io.github.potjerodekool.nabu.compiler.backend.asm.JvmSignatureBuilder;
 import io.github.potjerodekool.nabu.compiler.ir.*;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction.BinaryOp.Op;
@@ -10,8 +11,11 @@ import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.CompoundAttribute;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
@@ -123,8 +127,13 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         for (ClassDeclaration cls : compilationUnit.getClasses()) {
             resetClassState();
 
-            final var moduleName = cls.getClassSymbol().getQualifiedName();
-            builder = new IRBuilder(moduleName);
+            final var classSymbol = cls.getClassSymbol();
+            final var moduleName = classSymbol.getQualifiedName();
+            long classFlags = Flags.parse(classSymbol.getModifiers());
+            if (classSymbol.getKind().isInterface()) {
+                classFlags |= Flags.INTERFACE;
+            }
+            builder = new IRBuilder(classFlags, moduleName);
             module = builder.build();
             module.setSourceFile(file, dir);
 
@@ -156,6 +165,36 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitClass(ClassDeclaration classDeclaration,
                               IRBuilder param) {
         currentClassName = classDeclaration.getSimpleName();
+
+        final var classSymbol = classDeclaration.getClassSymbol();
+        if (classSymbol != null) {
+            final var annotationMirrors = classSymbol.getAnnotationMirrors();
+            module.setAnnotations(annotationMirrors.stream()
+                    .filter(a -> a instanceof CompoundAttribute)
+                    .map(a -> (CompoundAttribute) a)
+                    .toList());
+
+            // Set super type and interfaces with full generic info
+            final var superMirror = classSymbol.getSuperclass();
+            if (superMirror != null
+                    && superMirror.getKind() != TypeKind.NONE
+                    && !isJavaLangObject(superMirror)) {
+                builder.superType(TypeMirrorToIRType.map(superMirror));
+            }
+
+            final var ifaces = classSymbol.getInterfaces();
+            if (ifaces != null && !ifaces.isEmpty()) {
+                builder.interfaces(ifaces.stream()
+                        .map(TypeMirrorToIRType::map)
+                        .toList());
+            }
+
+            // Generate class-level generic signature
+            final var classSignature = JvmSignatureBuilder.buildClassSignature(classSymbol);
+            if (classSignature != null) {
+                module.setGenericSignature(classSignature);
+            }
+        }
 
         if (classDeclaration.getKind() == Kind.RECORD) {
             final var compactConstructorOptional = TreeFilter.constructorsIn(classDeclaration.getEnclosedElements()).stream()
@@ -234,7 +273,42 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         // Begin functie
         scope.reset();
-        builder.beginFunction(fnName, returnType, params, flags, methodSymbol.getKind() ==  ElementKind.CONSTRUCTOR);
+        final var irFunction = builder.beginFunction(fnName, returnType, params, flags, methodSymbol.getKind() ==  ElementKind.CONSTRUCTOR);
+
+        // Annotations overnemen van symbol naar IRFunction
+        final var annotationMirrors = methodSymbol.getAnnotationMirrors();
+        irFunction.setAnnotations(annotationMirrors.stream()
+                .filter(a -> a instanceof CompoundAttribute)
+                .map(a -> (CompoundAttribute) a)
+                .toList());
+
+        // Parameter-annotations overnemen
+        final var paramAnnotations = new ArrayList<List<CompoundAttribute>>();
+        if (!isStatic) {
+            paramAnnotations.add(List.of()); // 'this' heeft geen annotations
+        }
+        for (VariableElement p : methodSymbol.getParameters()) {
+            final var pa = p.getAnnotationMirrors().stream()
+                    .filter(a -> a instanceof CompoundAttribute)
+                    .map(a -> (CompoundAttribute) a)
+                    .toList();
+            paramAnnotations.add(pa);
+        }
+        irFunction.setParameterAnnotations(paramAnnotations);
+
+        // Method-level generic signature
+        final var typeParamElements = methodSymbol.getTypeParameters();
+        final var paramTypeMirrors = methodSymbol.getParameters().stream()
+                .map(VariableElement::asType)
+                .toList();
+        final var methodSig = JvmSignatureBuilder.buildMethodSignature(
+                typeParamElements.toArray(new TypeParameterElement[0]),
+                methodSymbol.getReturnType(),
+                paramTypeMirrors
+        );
+        if (methodSig != null) {
+            irFunction.setGenericSignature(methodSig);
+        }
 
         // Parameters registreren in scope
         scope.pushScope();
@@ -337,6 +411,29 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             final var ownerType = TypeMirrorToIRType.map(owner);
 
             builder.declareGlobal(name, irType, initValue, ownerType, symbol.isStatic());
+
+            long fieldFlags = Flags.PRIVATE;
+            if (symbol.isStatic()) {
+                fieldFlags |= Flags.STATIC;
+            }
+            final var irField = IRField.field(
+                    fieldFlags,
+                    name,
+                    irType,
+                    null
+            );
+            final var fieldAnnotations = symbol.getAnnotationMirrors().stream()
+                    .filter(a -> a instanceof CompoundAttribute)
+                    .map(a -> (CompoundAttribute) a)
+                    .toList();
+            irField.setAnnotations(fieldAnnotations);
+
+            final var fieldSignature = JvmSignatureBuilder.buildFieldSignature(typeMirror);
+            if (fieldSignature != null) {
+                irField.setGenericSignature(fieldSignature);
+            }
+
+            module.emitField(irField);
         }
 
         return null;
@@ -769,8 +866,21 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             scope.lookup("this").ifPresent(args::add);
         }
 
-        for (ExpressionTree arg : invocation.getArguments()) {
+        for (int i = 0; i < invocation.getArguments().size(); i++) {
+            ExpressionTree arg = invocation.getArguments().get(i);
             IRValue argVal = acceptTree(arg, builder);
+
+            if (argVal instanceof IRValue.FunctionRef fnRef
+                    && i < methodType.getParameterTypes().size()) {
+                final var paramType = methodType.getParameterTypes().get(i);
+                if (paramType instanceof io.github.potjerodekool.nabu.type.DeclaredType dt) {
+                    final var classElement = (TypeElement) dt.asElement();
+                    if (classElement.isFunctionalInterface()) {
+                        argVal = wrapWithSamConversion(fnRef, classElement, dt);
+                    }
+                }
+            }
+
             if (argVal != null) args.add(argVal);
         }
 
@@ -963,15 +1073,17 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                                 final Element fieldSymbol,
                                 final IdentifierTree field,
                                 final IRValue value) {
-        String globalName = field.getName();
+        final var ownerType = TypeMirrorToIRType.map(fieldSymbol.getEnclosingElement().asType());
         final var fieldIndex = computeFieldIndex(fieldSymbol);
 
-        if (builder.find(globalName) == null) {
-            IRValue globalPtr = builder.lookup(globalName);
-            if (globalPtr != null) {
-                builder.emitStore(globalPtr, value);
-            }
-        }
+        final var named = new IRValue.Named(
+                fieldSymbol.getSimpleName(),
+                TypeMirrorToIRType.map(fieldSymbol.asType()),
+                ownerType,
+                fieldSymbol.isStatic(),
+                fieldIndex
+        );
+        builder.emitStore(new IRValue.Values(obj, named), value);
     }
 
     private int computeFieldIndex(final Element fieldSymbol) {
@@ -993,7 +1105,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     @Override
     public IRValue visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final IRBuilder param) {
         final var value = acceptTree(instanceOfExpression.getExpression(), param);
-        return builder.emitInstanceOf(value);
+        return builder.emitInstanceOf(value, TypeMirrorToIRType.map(instanceOfExpression.getTypeExpression().getType()));
     }
 
     @Override
@@ -1536,59 +1648,78 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         ExecutableType methodType = lambdaExpression.getLambdaMethodType();
         if (methodType == null) return null;
 
-        // Bepaal return-type van de lambda
+        // LambdaToMethod heeft al een static method + Function aangemaakt
+        // voor deze lambda. We verwijzen daar naar ipv een duplicaat te maken.
+        final var methodSymbol = methodType.getMethodSymbol();
+        final String lambdaMethodName = methodSymbol.getSimpleName();
+        final String fnName = currentClassName + "_" + lambdaMethodName;
+
         IRType returnType = TypeMirrorToIRType.mapReturnType(methodType.getReturnType());
-
-        // Bepaal parameter-types
-        List<IRValue> lambdaParams = new ArrayList<>();
-        for (int i = 0; i < lambdaExpression.getVariables().size(); i++) {
-            Tree var = lambdaExpression.getVariables().get(i);
-            if (var instanceof VariableDeclaratorTree vdt) {
-                TypeMirror paramType = vdt.getVariableType().getType();
-                IRType irParamType = TypeMirrorToIRType.map(paramType);
-                lambdaParams.add(new IRValue.Temp("%lambda.arg" + i, irParamType));
-            }
-        }
-
-        // Unieke naam voor de lambda-functie
-        String lambdaName = currentClassName + "_lambda$" + lambdaCounter++;
-
-        // Sla huidige blok op
-        IRBasicBlock savedCurrentBlock = builder.currentBlock();
-
-        // Begin een nieuwe functie voor de lambda
-        builder.beginFunction(lambdaName, returnType, lambdaParams, 0, false);
-
-        // Registreer parameters in scope
-        scope.pushScope();
-        for (IRValue p : lambdaParams) {
-            String pname = IRValue.nameOf(p);
-            if (pname.startsWith("%")) pname = pname.substring(1);
-            scope.define(pname, p);
-        }
-
-        // Bezoek de body
-        acceptTree(lambdaExpression.getBody(), builder);
-
-        // Impliciete void-return
-        if (!builder.currentBlockTerminated()) {
-            if (returnType == IRType.VOID) {
-                builder.emitReturn(null);
-            }
-        }
-
-        scope.popScope();
-        builder.endFunction();
-
-        // Herstel het originele blok
-        builder.setCurrentBlock(savedCurrentBlock);
-
-        // Retourneer een functiereferentie
-        List<IRType> paramTypes = lambdaParams.stream()
-                .map(IRValue::type)
+        List<IRType> paramTypes = methodType.getParameterTypes().stream()
+                .map(TypeMirrorToIRType::map)
                 .toList();
         IRType.Function fnType = new IRType.Function(returnType, paramTypes);
-        return builder.functionRef(lambdaName, fnType);
+
+        final var allParamNames = methodSymbol.getParameters().stream()
+                .map(p -> p.getSimpleName().toString())
+                .toList();
+
+        return new IRValue.FunctionRef(fnName, fnType, null, null, null, null, allParamNames);
+    }
+
+    private IRValue.FunctionRef wrapWithSamConversion(final IRValue.FunctionRef fnRef,
+                                                      final TypeElement functionalInterface,
+                                                      final io.github.potjerodekool.nabu.type.DeclaredType paramType) {
+        final var samMethod = (ExecutableElement) functionalInterface.findFunctionalMethod();
+        if (samMethod == null) return fnRef;
+
+        final var samDescriptor = TypeMirrorToIRType.toJvmDescriptor(samMethod.asType());
+        final var samParamCount = samMethod.getParameters().size();
+
+        final var instantiatedDescriptor = createInstantiatedSamDescriptor(samMethod, paramType);
+        final var samMethodName = samMethod.getSimpleName().toString();
+
+        final var capturedVarCount = fnRef.fnType().paramTypes().size() - samParamCount;
+        final var capturedVarNames = new ArrayList<String>();
+        final var sourceNames = fnRef.capturedVarNames();
+        for (int i = 0; i < capturedVarCount; i++) {
+            if (sourceNames != null && i < sourceNames.size()) {
+                capturedVarNames.add(sourceNames.get(i));
+            } else {
+                capturedVarNames.add("%" + i);
+            }
+        }
+
+        final var interfaceInternalName = "L" + functionalInterface.getQualifiedName().replace('.', '/') + ";";
+
+        return new IRValue.FunctionRef(
+                fnRef.name(),
+                fnRef.fnType(),
+                new IRType.Ptr(IRType.I8, interfaceInternalName),
+                samMethodName,
+                samDescriptor,
+                instantiatedDescriptor,
+                capturedVarNames
+        );
+    }
+
+    private String createInstantiatedSamDescriptor(final ExecutableElement samMethod,
+                                                   final io.github.potjerodekool.nabu.type.DeclaredType paramType) {
+        final var sb = new StringBuilder("(");
+        final var typeArgs = paramType.getTypeArguments();
+
+        for (int i = 0; i < samMethod.getParameters().size(); i++) {
+            final var paramType2 = samMethod.getParameters().get(i).asType();
+            if (paramType2 instanceof io.github.potjerodekool.nabu.type.TypeVariable tv) {
+                final var bounds = tv.getUpperBound();
+                sb.append(TypeMirrorToIRType.toJvmDescriptor(bounds));
+            } else {
+                sb.append(TypeMirrorToIRType.toJvmDescriptor(paramType2));
+            }
+        }
+        sb.append(")");
+        sb.append(TypeMirrorToIRType.toJvmDescriptor(samMethod.getReturnType()));
+        return sb.toString();
     }
 
     // -------------------------------------------------------
@@ -1736,5 +1867,14 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         for (String label : pendingLabels) {
             labeledContinueTargets.put(label, continueBlock);
         }
+    }
+
+    private boolean isJavaLangObject(TypeMirror type) {
+        if (type instanceof io.github.potjerodekool.nabu.type.DeclaredType declared) {
+            if (declared.asElement() instanceof TypeElement te) {
+                return "java.lang.Object".equals(te.getQualifiedName());
+            }
+        }
+        return false;
     }
 }

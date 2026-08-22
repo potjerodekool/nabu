@@ -64,12 +64,14 @@ public class SimpleTypeMapApplier implements TypeVisitor<TypeMirror, Void> {
 
     @Override
     public TypeMirror visitMethodType(final ExecutableType methodType, final Void param) {
-        final var returnType = methodType.getReturnType().accept(this, param);
+        final var returnType = methodType.getReturnType() != null
+                ? methodType.getReturnType().accept(this, param)
+                : null;
         final var parameterTypes = methodType.getParameterTypes().stream()
-                .map(paramType -> paramType.accept(this, param))
+                .map(paramType -> paramType != null ? paramType.accept(this, param) : null)
                 .toList();
         final var thrownTypes = methodType.getThrownTypes().stream()
-                .map(thrownType -> thrownType.accept(this, param))
+                .map(thrownType -> thrownType != null ? thrownType.accept(this, param) : null)
                 .toList();
 
         return types.getExecutableType(

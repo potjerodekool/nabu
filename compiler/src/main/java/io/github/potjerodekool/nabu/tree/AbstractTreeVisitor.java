@@ -224,8 +224,6 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     public R visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final P param) {
         acceptTree(variableDeclaratorStatement.getName(), param);
 
-        acceptTree(variableDeclaratorStatement.getName(), param);
-
         if (variableDeclaratorStatement.getValue() != null) {
             acceptTree(
                     variableDeclaratorStatement.getValue(),
@@ -233,7 +231,9 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             );
         }
 
-        acceptTree(variableDeclaratorStatement.getVariableType(), param);
+        if (variableDeclaratorStatement.getVariableType() != null) {
+            acceptTree(variableDeclaratorStatement.getVariableType(), param);
+        }
 
         variableDeclaratorStatement.getAnnotations().forEach(a ->
                 acceptTree(a, param));

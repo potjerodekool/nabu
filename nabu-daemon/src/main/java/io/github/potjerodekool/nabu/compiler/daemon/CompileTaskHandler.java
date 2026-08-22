@@ -29,6 +29,7 @@ public class CompileTaskHandler implements TaskHandler {
 
         configureClassPath(compilerOptionsBuilder, optionsMap);
         configureSourceRoots(compilerOptionsBuilder, optionsMap);
+        configureBackend(compilerOptionsBuilder, optionsMap);
 
         final var outputDirectory = optionsMap.getOrDefault(CompilerOption.CLASS_OUTPUT.optionName(), "out");
 
@@ -104,6 +105,14 @@ public class CompileTaskHandler implements TaskHandler {
 
         if (!sourcePath.isEmpty()) {
             compilerOptionsBuilder.option(CompilerOption.SOURCE_PATH, sourcePath);
+        }
+    }
+
+    private void configureBackend(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder,
+                                  final Map<String, String> optionsMap) {
+        final var backend = optionsMap.get(CompilerOption.BACKEND.optionName());
+        if (backend != null) {
+            compilerOptionsBuilder.option(CompilerOption.BACKEND, backend);
         }
     }
 

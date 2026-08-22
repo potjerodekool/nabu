@@ -36,7 +36,7 @@ public final class ASMTestUtils {
         final var reader = new ClassReader(bytecode);
         reader.accept(visitor, ClassReader.EXPAND_FRAMES);
 
-        return textifier.getText().stream()
+        final var raw = textifier.getText().stream()
                 .map(it -> {
                     if (it instanceof List<?> list) {
                         return list.stream()
@@ -46,5 +46,15 @@ public final class ASMTestUtils {
                     return it.toString();
                 })
                 .collect(Collectors.joining());
+
+        final var sb = new StringBuilder();
+        for (final var line : raw.lines().toList()) {
+            if (line.trim().startsWith("// signature ")
+                    || line.trim().startsWith("// declaration: ")) {
+                continue;
+            }
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
     }
 }

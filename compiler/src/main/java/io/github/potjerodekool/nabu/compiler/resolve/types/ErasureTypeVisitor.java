@@ -42,7 +42,9 @@ public class ErasureTypeVisitor implements TypeVisitor<TypeMirror, Boolean> {
                 .map(at -> at.accept(this, null))
                 .toList();
 
-        final var returnType = methodType.getReturnType().accept(this, null);
+        final var returnType = methodType.getReturnType() != null
+                ? methodType.getReturnType().accept(this, null)
+                : null;
         final var thrownTypes = methodType.getThrownTypes().stream()
                 .map(tt -> tt.accept(this, null))
                 .toList();

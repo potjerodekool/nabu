@@ -72,7 +72,11 @@ abstract class AbstractTypePrinter implements TypeVisitor<Object, Object> {
             printList(typeVariables, param);
             print("> ");
         }
-        methodType.getReturnType().accept(this, param);
+        if (methodType.getReturnType() != null) {
+            methodType.getReturnType().accept(this, param);
+        } else {
+            print("void");
+        }
         print(" ");
         final var argumentTypes = methodType.getParameterTypes();
         print(methodName);
@@ -100,11 +104,19 @@ abstract class AbstractTypePrinter implements TypeVisitor<Object, Object> {
         final var lastIndex = types.size() - 1;
 
         for (int i = 0; i < lastIndex; i++) {
-            types.get(i).accept(this, param);
+            if (types.get(i) != null) {
+                types.get(i).accept(this, param);
+            } else {
+                print("null");
+            }
             print(sep);
         }
 
-        types.get(lastIndex).accept(this, param);
+        if (types.get(lastIndex) != null) {
+            types.get(lastIndex).accept(this, param);
+        } else {
+            print("null");
+        }
     }
 
     private void printList(final List<? extends TypeMirror> types,

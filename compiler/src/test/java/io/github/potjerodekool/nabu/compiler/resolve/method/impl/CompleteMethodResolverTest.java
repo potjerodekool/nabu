@@ -29,7 +29,8 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     private CompleteMethodResolver createResolver() {
         return new CompleteMethodResolver(
                 getCompilerContext().getElements(),
-                getCompilerContext().getTypes()
+                getCompilerContext().getTypes(),
+                getCompilerContext().getTreeUtils()
         );
     }
 
@@ -377,6 +378,101 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
                 integerClass.asType(),
                 types.getPrimitiveType(TypeKind.INT)
         ));
+    }
+
+    @Test
+    void resolveAddOnCollectionOfStrings() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode("list.add(\"hello\")", Java20Parser::expression);
+        final var collectionType = parseType("java.util.Collection<java.lang.String>");
+
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(collectionType);
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        invocation.getArguments().getFirst().setType(
+                parseType("java.lang.String")
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "Expected to resolve add(String) on Collection<String>");
+    }
+
+    @Test
+    void collectMethodsFindsInheritedMethods() throws IOException {
+        final DeclaredType collectionType = parseType("java.util.Collection<java.lang.String>");
+        final var methodCollection = new ArrayList<ExecutableType>();
+        createResolver().collectMethods(collectionType, methodCollection, false);
+
+        final var addMethods = methodCollection.stream()
+                .filter(it -> "add".equals(it.getMethodSymbol().getSimpleName()))
+                .toList();
+
+        assertFalse(addMethods.isEmpty(), "Expected to find add() method in Collection<String> hierarchy");
+        assertEquals(1, addMethods.size(), "Expected exactly one add method");
+
+        final var addMethod = addMethods.getFirst();
+        final var paramTypes = addMethod.getParameterTypes();
+        assertEquals(1, paramTypes.size());
+        assertEquals("java.lang.String", TypePrinter.print(paramTypes.getFirst()));
+    }
+
+    @Test
+    void isAssignableVariableTypeToTypeVariable() {
+        final var types = getCompilerContext().getTypes();
+        final var stringClass = loadClass("java.lang.String");
+
+        final var stringType = stringClass.asType();
+        final var typeVariable = types.getTypeVariable("T", stringType, null);
+
+        assertTrue(types.isAssignable(stringType, (TypeMirror) typeVariable),
+                "String should be assignable to T where T has upper bound String");
+    }
+
+    @Test
+    void isAssignableToTypeVariableWithIndirectUpperBound() {
+        final var types = getCompilerContext().getTypes();
+        final var stringClass = loadClass("java.lang.String");
+        final var objectClass = loadClass("java.lang.Object");
+
+        final var stringType = stringClass.asType();
+        final var objectType = objectClass.asType();
+
+        final var tVar = types.getTypeVariable("T", objectType, null);
+        final var sVar = types.getTypeVariable("S", tVar, null);
+
+        assertTrue(types.isAssignable(stringType, (TypeMirror) sVar),
+                "String should be assignable to S where S extends T and T extends Object");
+    }
+
+    @Test
+    void resolveMethodWithMethodTypeVariableAsParam() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode("list.add(\"hello\")", Java20Parser::expression);
+        final DeclaredType listOfStringType = parseType("java.util.ArrayList<java.lang.String>");
+
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(listOfStringType);
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        invocation.getArguments().getFirst().setType(
+                parseType("java.lang.String")
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "Expected to resolve add(String) on ArrayList<String>");
     }
 
     @Test

@@ -73,7 +73,6 @@
         <module>nabu-daemon</module>
         <module>nabu-client</module>
         <module>tools</module>
-        <module>nabu-daemon-launcher</module>
         <module>native-backend</module>
     </modules>
 

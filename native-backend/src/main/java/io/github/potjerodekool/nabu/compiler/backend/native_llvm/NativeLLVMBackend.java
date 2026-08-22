@@ -7,6 +7,7 @@ import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.llvm.LLVM.*;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.bytedeco.llvm.global.LLVM.*;
@@ -39,7 +40,8 @@ public class NativeLLVMBackend implements Backend {
     public void compile(IRModule module,
                         CompileOptions opts,
                         Path outputObj) throws CompileException {
-        compileToObject(module, opts, outputObj);
+        Path outFile = resolveOutputFile(module, outputObj);
+        compileToObject(module, opts, outFile);
 
         // Alleen linken als er een main-functie aanwezig is
         boolean hasMain = module.functions().stream()
@@ -50,9 +52,9 @@ public class NativeLLVMBackend implements Backend {
                 ? opts.targetTriple()
                 : LLVMGetDefaultTargetTriple().getString();
 
-        Path exe = replaceExtension(outputObj,
+        Path exe = replaceExtension(outFile,
                 triple.contains("windows") ? ".exe" : "");
-        Linker.link(outputObj, exe, triple, opts.gcStrategy());
+        Linker.link(outFile, exe, triple, opts.gcStrategy());
     }
 
     /**
@@ -175,6 +177,32 @@ public class NativeLLVMBackend implements Backend {
     // -------------------------------------------------------
     // Hulp
     // -------------------------------------------------------
+
+    /**
+     * Normaliseert het output-pad. Backends ontvangen een output-directory
+     * (net als de ASM-backend); hier wordt daar een object-bestand in
+     * aangemaakt op basis van de module-naam. Een expliciet bestandspad
+     * (zoals in tests) wordt ongewijzigd gebruikt.
+     */
+    private static Path resolveOutputFile(IRModule module, Path output) {
+        if (output == null) {
+            return Path.of(module.name + ".o");
+        }
+        if (Files.isDirectory(output)) {
+            return output.resolve(module.name + ".o");
+        }
+        if (Files.exists(output)) {
+            return output;
+        }
+        // Bestaat het pad nog niet: als het eindigt op een directory-separator
+        // of geen extensie heeft en de module een naam heeft, dan een directory.
+        final var name = output.getFileName() != null
+                ? output.getFileName().toString() : "";
+        if (name.isEmpty() || name.indexOf('.') < 0) {
+            return output.resolve(module.name + ".o");
+        }
+        return output;
+    }
 
     private static Path replaceExtension(Path path, String newExt) {
         String name = path.getFileName().toString();

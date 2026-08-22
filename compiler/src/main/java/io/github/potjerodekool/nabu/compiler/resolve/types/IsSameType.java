@@ -79,7 +79,12 @@ public class IsSameType extends BooleanResultVisitor {
                 }
             }
 
-            return methodType.getReturnType().accept(this, otherMethodType.getReturnType());
+            final var thisReturn = methodType.getReturnType();
+            final var otherReturn = otherMethodType.getReturnType();
+            if (thisReturn == null) {
+                return otherReturn == null;
+            }
+            return thisReturn.accept(this, otherReturn);
         }
 
         return false;

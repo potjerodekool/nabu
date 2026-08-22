@@ -103,9 +103,19 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstClass, I
     // Functiereferentie
     // -------------------------------------------------------
 
-    record FunctionRef(String name, IRType.Function fnType) implements IRValue {
+    record FunctionRef(String name, IRType.Function fnType, IRType targetInterface,
+                       String samMethodName, String samDescriptor, String instantiatedDescriptor,
+                       List<String> capturedVarNames) implements IRValue {
+        public FunctionRef(String name, IRType.Function fnType) {
+            this(name, fnType, null, null, null, null, null);
+        }
+
         public IRType type() {
-            return fnType.ptr();
+            return targetInterface != null ? targetInterface : fnType.ptr();
+        }
+
+        public boolean needsSamConversion() {
+            return targetInterface != null;
         }
     }
 
@@ -155,5 +165,9 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstClass, I
 
     static IRValue fnRef(String name, IRType.Function t) {
         return new FunctionRef(name, t);
+    }
+
+    static IRValue fnRef(String name, IRType.Function t, IRType targetInterface) {
+        return new FunctionRef(name, t, targetInterface, null, null, null, null);
     }
 }

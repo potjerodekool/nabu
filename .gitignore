@@ -42,3 +42,6 @@ build/
 /compiler/gen/
 /nabu-lang/gen/
 /nabu-lang/src/main/antlr4/nabu/gen/
+**/.codewhale/*
+!**/.codewhale/constitution.json
+.deepseek/

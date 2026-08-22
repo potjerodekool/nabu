@@ -271,12 +271,12 @@ public class IRBuilder {
         return result;
     }
 
-    public IRValue emitInstanceOf(final IRValue source) {
-        final var result = IRValue.ofBool(true);
+    public IRValue emitInstanceOf(final IRValue source, final IRType targetType) {
+        final var result = fresh(IRType.BOOL);
         emit(new IRInstruction.InstanceOf(
                 result,
                 source,
-                new IRType.Bool(),
+                targetType,
                 currentLocation
         ));
         return result;
@@ -498,7 +498,7 @@ public class IRBuilder {
     }
 
     public IRValue emitHeapAlloc(final String newObj, final IRType objectType) {
-        var ptr = new IRValue.Temp("%" + newObj + ".ptr", new IRType.Ptr(objectType));
+        var ptr = new IRValue.Temp("%" + newObj + "." + tempCounter++ + ".ptr", new IRType.Ptr(objectType));
         emit(new IRInstruction.HeapAlloc(ptr, objectType, currentLocation));
         return ptr;
     }

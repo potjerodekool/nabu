@@ -1,7 +1,7 @@
 // class version 61.0 (61)
 // RECORD
 // access flags 0x10031
-public final class MyClass extends Ljava/lang/Record; {
+public final class MyClass extends java/lang/Record {
 
   // compiled from: <onbekend>
   RECORDCOMPONENT   Ljava/lang/String; id

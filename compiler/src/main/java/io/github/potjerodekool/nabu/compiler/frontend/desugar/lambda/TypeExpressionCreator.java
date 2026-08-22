@@ -15,6 +15,11 @@ public class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object
     }
 
     @Override
+    public ExpressionTree visitNoType(final NoType noType, final Object param) {
+        return TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.VOID, -1, -1);
+    }
+
+    @Override
     public ExpressionTree visitDeclaredType(final DeclaredType declaredType, final Object param) {
         final var clazz = (TypeElement) declaredType.asElement();
         final var paramTypes = declaredType.getTypeArguments() != null

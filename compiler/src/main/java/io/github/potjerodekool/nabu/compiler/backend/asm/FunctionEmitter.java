@@ -366,11 +366,12 @@ public class FunctionEmitter {
                 );
             }
         } else if (store.ptr() instanceof IRValue.Values values) {
-            // Instantieveld: eerst de receiver, dan de waarde.
-            values.values().forEach(this::emitValue);
+            // Emit only the receiver chain (all elements except the last Named field metadata).
+            // The Named is used only for PUTFIELD's field name/descriptor.
+            final var named = (IRValue.Named) values.values().getLast();
+            values.values().subList(0, values.values().size() - 1).forEach(this::emitValue);
             emitValue(store.value());
 
-            final var named = (IRValue.Named) values.values().getLast();
             mv.visitFieldInsn(
                     Opcodes.PUTFIELD,
                     AsmHelper.toInternalName(named.ownerType()),
@@ -700,12 +701,19 @@ public class FunctionEmitter {
         final var leftType = binaryOp.left().type();
         final var right = binaryOp.right();
 
+        if (right instanceof IRValue.ConstNull) {
+            return switch (binaryOp.op()) {
+                case EQ -> Opcodes.IFNULL;
+                case NEQ -> Opcodes.IFNONNULL;
+                default -> throw new UnsupportedOperationException(
+                        "Unsupported null comparison op: " + binaryOp.op());
+            };
+        }
+
         if (isReferenceType(leftType)) {
             return switch (binaryOp.op()) {
-                case EQ -> right instanceof IRValue.ConstNull
-                        ? Opcodes.IFNULL : Opcodes.IF_ACMPEQ;
-                case NEQ -> right instanceof IRValue.ConstNull
-                        ? Opcodes.IFNONNULL : Opcodes.IF_ACMPNE;
+                case EQ -> Opcodes.IF_ACMPEQ;
+                case NEQ -> Opcodes.IF_ACMPNE;
                 default -> throw new UnsupportedOperationException(
                         "Unsupported comparison op: " + binaryOp.op());
             };
@@ -778,7 +786,9 @@ public class FunctionEmitter {
             }
             case IRValue.Named named -> emitNamed(named);
             case IRValue.Values(List<IRValue> values) -> values.forEach(this::emitValue);
-            case IRValue.FunctionRef(String name, IRType.Function fnType) -> emitFunctionRef(name, fnType);
+            case IRValue.FunctionRef(String name, IRType.Function fnType, IRType targetInterface,
+                                     String samMethodName, String samDesc, String instDesc,
+                                     java.util.List<String> capturedNames) -> emitFunctionRef(name, fnType, targetInterface, capturedNames);
             case null, default -> throw new IllegalStateException(
                     "Unexpected IRValue: " + (value != null ? value.getClass().getSimpleName() : "null"));
         }
@@ -863,7 +873,9 @@ public class FunctionEmitter {
     }
 
     private void emitFunctionRef(final String name,
-                                 final IRType.Function fnType) {
+                                 final IRType.Function fnType,
+                                 final IRType targetInterface,
+                                 final java.util.List<String> capturedNames) {
         final var owner = name.contains(".")
                 ? name.substring(0, name.lastIndexOf('.')).replace('.', '/')
                 : "java/lang/invoke/MethodHandles";
@@ -878,7 +890,94 @@ public class FunctionEmitter {
                 descriptor,
                 false
         );
-        mv.visitLdcInsn(handle);
+
+        if (targetInterface instanceof IRType.Ptr ptr && ptr.jvmDescriptor() != null) {
+            emitSamConversion(handle, fnType, ptr.jvmDescriptor(), capturedNames);
+        } else {
+            mv.visitLdcInsn(handle);
+        }
+    }
+
+    private void emitSamConversion(final Handle implHandle,
+                                   final IRType.Function fnType,
+                                   final String interfaceDescriptor,
+                                   final java.util.List<String> capturedNames) {
+        final var functionalInterface = Type.getType(interfaceDescriptor);
+        final var samMethod = findSamMethod(functionalInterface);
+        if (samMethod == null) {
+            mv.visitLdcInsn(implHandle);
+            return;
+        }
+
+        final var samMethodName = samMethod.getName();
+        final var erasedSamDescriptor = Type.getMethodDescriptor(samMethod);
+
+        final var samParamCount = Type.getArgumentTypes(erasedSamDescriptor).length;
+        final var capturedVarCount = fnType.paramTypes().size() - samParamCount;
+
+        final var samMethodType = Type.getMethodType(erasedSamDescriptor);
+        final var instantiatedDescriptor = AsmHelper.createDescriptor(
+                fnType.paramTypes().subList(capturedVarCount, fnType.paramTypes().size()),
+                fnType.returnType()
+        );
+        final var instantiatedMethodType = Type.getMethodType(instantiatedDescriptor);
+
+        final var bsmHandle = new Handle(
+                Opcodes.H_INVOKESTATIC,
+                "java/lang/invoke/LambdaMetafactory",
+                "metafactory",
+                "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/CallSite;",
+                false
+        );
+
+        final var capturedVarTypes = fnType.paramTypes().subList(0, capturedVarCount);
+        final var dynamicArgTypes = capturedVarTypes.stream()
+                .map(t -> Type.getType(AsmHelper.createDescriptor(t)))
+                .toArray(Type[]::new);
+        final var dynamicType = Type.getMethodType(
+                functionalInterface,
+                dynamicArgTypes
+        );
+
+        for (int i = 0; i < capturedVarCount; i++) {
+            final String capturedName;
+            if (capturedNames != null && i < capturedNames.size()) {
+                capturedName = capturedNames.get(i);
+            } else {
+                capturedName = "%" + i;
+            }
+            final var slot = slots.slotOf(capturedName, capturedVarTypes.get(i));
+            final var loadOpcode = resolveLoadOpcode(capturedVarTypes.get(i));
+            mv.visitVarInsn(loadOpcode, slot);
+        }
+
+        mv.visitInvokeDynamicInsn(
+                samMethodName,
+                dynamicType.getDescriptor(),
+                bsmHandle,
+                samMethodType,
+                implHandle,
+                instantiatedMethodType
+        );
+    }
+
+    private java.lang.reflect.Method findSamMethod(final Type functionalInterface) {
+        try {
+            final var clazz = Class.forName(
+                    functionalInterface.getClassName(), false,
+                    Thread.currentThread().getContextClassLoader());
+            for (final var m : clazz.getMethods()) {
+                if (m.isDefault() || java.lang.reflect.Modifier.isStatic(m.getModifiers()) || m.getDeclaringClass() == Object.class) {
+                    continue;
+                }
+                if (java.lang.reflect.Modifier.isAbstract(m.getModifiers())) {
+                    return m;
+                }
+            }
+        } catch (final ClassNotFoundException e) {
+            // Fallback: assume Consumer.accept, Predicate.test etc.
+        }
+        return null;
     }
 
     // -------------------------------------------------------

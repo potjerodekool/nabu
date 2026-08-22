@@ -1,7 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
+import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -37,9 +40,14 @@ public final class AsmHelper {
                 if (desc != null) {
                     yield descriptorToInternalName(desc);
                 }
-                if (ptr.pointee() instanceof IRType.Int(int bits) && bits == 8) {
-                    yield "java/lang/String";
-                } else if (ptr.pointee() instanceof IRType.Function) {
+                if (ptr.pointee() instanceof IRType.Int intType) {
+                    if (intType.bits() == 8) {
+                        yield "java/lang/String";
+                    } else {
+                        yield "java/lang/Object";
+                    }
+                }
+                if (ptr.pointee() instanceof IRType.Function) {
                     yield "java/lang/invoke/MethodHandle";
                 } else {
                     yield "java/lang/Object";
@@ -81,7 +89,10 @@ public final class AsmHelper {
                 if (ptr.pointee() instanceof IRType.Function) {
                     yield "Ljava/lang/invoke/MethodHandle;";
                 }
-                yield "Ljava/lang/String;";
+                if (ptr.pointee() instanceof IRType.Ptr) {
+                    yield "Ljava/lang/String;";
+                }
+                yield "Ljava/lang/Object;";
             }
             case IRType.Array arrayType -> "[" + createDescriptor(arrayType.elem());
             case IRType.Function ignored -> "Ljava/lang/invoke/MethodHandle;";
@@ -107,5 +118,19 @@ public final class AsmHelper {
 
     public static String toInternalName(final String className) {
         return className.replace('.', '/');
+    }
+
+    /**
+     * Converteert een TypeMirror naar een JVM-descriptor.
+     * Gebruikt voor annotaties e.d.
+     */
+    public static String createDescriptor(final TypeMirror type) {
+        if (type instanceof DeclaredType declared) {
+            final var element = declared.asElement();
+            if (element instanceof TypeElement typeElement) {
+                return "L" + toInternalName(typeElement.getQualifiedName()) + ";";
+            }
+        }
+        return "Ljava/lang/Object;";
     }
 }

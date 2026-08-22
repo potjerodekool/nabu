@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend.asm2;
+package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 

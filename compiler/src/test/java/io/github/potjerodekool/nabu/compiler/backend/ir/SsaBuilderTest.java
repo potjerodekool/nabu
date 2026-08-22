@@ -2,11 +2,10 @@ package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
-import io.github.potjerodekool.nabu.compiler.backend.asm2.Asm2Backend;
+import io.github.potjerodekool.nabu.compiler.backend.asm.AsmBackend;
 import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
 import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
@@ -342,7 +341,7 @@ class SsaBuilderTest {
         final var code = InstructionPrinter.print(function.blocks());
         System.out.println(code);
 
-        final var backend = new Asm2Backend();
+        final var backend = new AsmBackend();
         final var output = Paths.get("C:\\projects\\nabu\\compiler\\test-out");
 
         if (!Files.exists(output)) {

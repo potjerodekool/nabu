@@ -281,10 +281,16 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
     @Override
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement, final Scope scope) {
-        final var type = variableDeclaratorStatement.getVariableType().getType();
+        final var variableType = variableDeclaratorStatement.getVariableType();
+
+        if (variableType == null) {
+            return null;
+        }
+
+        final var type = variableType.getType();
 
         if (isNullOrErrorType(type)) {
-            reportFailedToResolveType(variableDeclaratorStatement.getVariableType(), scope);
+            reportFailedToResolveType(variableType, scope);
         }
 
         if (variableDeclaratorStatement.getValue() != null) {

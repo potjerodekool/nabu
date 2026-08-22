@@ -20,7 +20,6 @@ import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.ArgumentBoxerImpl;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolGenerator;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.TypeEnter;
-import io.github.potjerodekool.nabu.compiler.resolve.method.impl.MethodResolverImpl;
 import io.github.potjerodekool.nabu.compiler.util.impl.ElementsImpl;
 import io.github.potjerodekool.nabu.tree.TreeUtils;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -45,6 +44,7 @@ public class CompilerContextImpl implements CompilerContext {
     private final PluginRegistry pluginRegistry;
     private final Modules modules;
     private TypesImpl types;
+    private TreeUtils treeUtils;
 
     private final Map<Key<?>, Object> data = new HashMap<>();
     private final Map<Class<?>, Key<?>> keyTable = new HashMap<>();
@@ -64,7 +64,7 @@ public class CompilerContextImpl implements CompilerContext {
 
         this.elements = new ElementsImpl(this);
         //this.methodResolver = new MethodResolverImpl(elements, getTypes());
-        this.methodResolver = new CompleteMethodResolver(elements, types);
+        this.methodResolver = new CompleteMethodResolver(elements, types, getTreeUtils());
 
         this.argumentBoxer = new ArgumentBoxerImpl(this);
 
@@ -198,7 +198,11 @@ public class CompilerContextImpl implements CompilerContext {
 
     @Override
     public TreeUtils getTreeUtils() {
-        return new TreeUtils(getTypes());
+        if (treeUtils == null) {
+            this.treeUtils = new TreeUtils(getTypes());
+        }
+
+        return treeUtils;
     }
 
     public PluginRegistry getPluginRegistry() {

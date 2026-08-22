@@ -112,6 +112,19 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
                 )
                 .build();
 
+        final var currentFunction = scope.getCurrentFunctionDeclaration();
+        final var enclosingMethodSymbol = (MethodSymbol) currentFunction.getMethodSymbol();
+        if (enclosingMethodSymbol != null && !enclosingMethodSymbol.isStatic()) {
+            final var thisType = classSymbol.asType();
+            final var thisParameter = new VariableSymbolBuilderImpl()
+                    .kind(ElementKind.PARAMETER)
+                    .simpleName("this")
+                    .type(thisType)
+                    .enclosingElement(method)
+                    .build();
+            method.addParameter(thisParameter);
+        }
+
         addParameters(scope, method);
 
         lambdaExpression.setLambdaMethodType(method.asType());

@@ -279,7 +279,7 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                         yield false;
                     }
                 }
-                case SUPER -> typeVariable.getUpperBound().accept(this, wildcardType.getBound());
+                case SUPER -> wildcardType.getBound().accept(this, typeVariable.getUpperBound());
             };
         }
         return isSubType;

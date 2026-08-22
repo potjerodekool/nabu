@@ -1,7 +1,5 @@
-package io.github.potjerodekool.nabu.compiler.backend.asm2;
+package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.compiler.backend.asm.AsmHelper;
-import io.github.potjerodekool.nabu.compiler.backend.asm.Linearizer;
 import io.github.potjerodekool.nabu.compiler.backend.ir.PhiElimination;
 import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.compiler.ir.IRField;
@@ -11,11 +9,12 @@ import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
 import io.github.potjerodekool.nabu.tools.JavaVersion;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Opcodes;
+import io.github.potjerodekool.nabu.type.DeclaredType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import org.objectweb.asm.*;
 import org.objectweb.asm.util.TraceClassVisitor;
 
 import java.io.PrintWriter;
@@ -23,6 +22,7 @@ import java.io.StringWriter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 
 /**
  * Emitteert een heel {@link IRModule} naar een Java-klassebestand.
@@ -32,17 +32,26 @@ import java.util.Map;
  * daarna geordend door {@link Linearizer} en vervolgens emissie via
  * {@link FunctionEmitter} met een per-functie {@link SlotAllocator}.
  */
-public class Asm2ByteCodeEmitter {
+public class AsmByteCodeEmitter {
 
     private final ClassWriter cw;
     private final ClassVisitor classVisitor;
     private final Map<String, IRGlobal> globalMap = new HashMap<>();
     private String ownerInternalName;
 
-    public Asm2ByteCodeEmitter() {
+    public AsmByteCodeEmitter() {
         cw = new ClassWriter(
                 ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES
-        );
+        ) {
+            @Override
+            protected String getCommonSuperClass(final String type1, final String type2) {
+                try {
+                    return super.getCommonSuperClass(type1, type2);
+                } catch (final RuntimeException e) {
+                    return "java/lang/Object";
+                }
+            }
+        };
         this.classVisitor = new TraceClassVisitor(
                 cw,
                 new PrintWriter(new StringWriter())
@@ -59,16 +68,23 @@ public class Asm2ByteCodeEmitter {
         if (module.flags == 0) {
             access = Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER;
         } else {
-            access = Opcodes.ACC_SUPER;
+            if (Flags.hasFlag(module.flags, Flags.INTERFACE)) {
+                access = Opcodes.ACC_PUBLIC + Opcodes.ACC_ABSTRACT + Opcodes.ACC_INTERFACE;
+            } else {
+                access = Opcodes.ACC_SUPER;
 
-            if (Flags.hasFlag(module.flags, Flags.PUBLIC)) {
-                access += Opcodes.ACC_PUBLIC;
-            }
-            if (Flags.hasFlag(module.flags, Flags.FINAL)) {
-                access += Opcodes.ACC_FINAL;
-            }
-            if (Flags.hasFlag(module.flags, Flags.RECORD)) {
-                access += Opcodes.ACC_RECORD;
+                if (Flags.hasFlag(module.flags, Flags.PUBLIC)) {
+                    access += Opcodes.ACC_PUBLIC;
+                }
+                if (Flags.hasFlag(module.flags, Flags.FINAL)) {
+                    access += Opcodes.ACC_FINAL;
+                }
+                if (Flags.hasFlag(module.flags, Flags.ABSTRACT)) {
+                    access += Opcodes.ACC_ABSTRACT;
+                }
+                if (Flags.hasFlag(module.flags, Flags.RECORD)) {
+                    access += Opcodes.ACC_RECORD;
+                }
             }
         }
 
@@ -83,13 +99,13 @@ public class Asm2ByteCodeEmitter {
         final var access = resolveModuleAccess(module);
         final var internalName = AsmHelper.toInternalName(module.name);
         this.ownerInternalName = internalName;
-        final String signature = null;
+        final String signature = module.genericSignature();
         final var superName = module.superType() != null
-                ? AsmHelper.createDescriptor(module.superType())
+                ? AsmHelper.toInternalName(module.superType())
                 : "java/lang/Object";
 
         final var interfaces = module.interfaces().stream()
-                .map(AsmHelper::createDescriptor)
+                .map(AsmHelper::toInternalName)
                 .toArray(String[]::new);
 
         final var fileName = module.sourceFile();
@@ -97,13 +113,20 @@ public class Asm2ByteCodeEmitter {
         classVisitor.visit(classVersion, access, internalName, signature, superName, interfaces);
         classVisitor.visitSource(fileName, null);
 
+        emitAnnotations(module.annotations(), classVisitor::visitAnnotation);
+
         module.fields().forEach(this::emitField);
 
         for (final var function : module.functions()) {
             emitFunction(function);
         }
 
-        classVisitor.visitEnd();
+        try {
+            classVisitor.visitEnd();
+        } catch (final Exception e) {
+            System.err.println("[AsmByteCodeEmitter] Error finalizing class: " + module.name);
+            throw e;
+        }
     }
 
     private void emitGlobal(final String name,
@@ -148,9 +171,30 @@ public class Asm2ByteCodeEmitter {
                 access,
                 name,
                 descriptor,
-                null,
+                function.genericSignature(),
                 null
         );
+
+        emitAnnotations(function.annotations(), methodVisitor::visitAnnotation);
+
+        // Parameter-annotations emit
+        final var paramAnns = function.parameterAnnotations();
+        int annOffset = isStatic ? 0 : 1;
+        for (int i = 0; i < params.size(); i++) {
+            if (annOffset + i < paramAnns.size()) {
+                final var paramAnnList = paramAnns.get(annOffset + i);
+                for (final var ann : paramAnnList) {
+                    final var annType = ann.getAnnotationType();
+                    if (annType == null) continue;
+                    final var desc = AsmHelper.createDescriptor(annType);
+                    final var av = methodVisitor.visitParameterAnnotation(i, desc, true);
+                    if (av != null) {
+                        emitAnnotationValues(av, ann);
+                        av.visitEnd();
+                    }
+                }
+            }
+        }
 
         for (final var parameter : params) {
             if (parameter instanceof IRValue.Temp temp) {
@@ -202,12 +246,13 @@ public class Asm2ByteCodeEmitter {
                 }
                 emitter.visitLabel("END");
                 emitter.visitLocalVariables(function, function.blocks().getFirst().label());
+
+                methodVisitor.visitMaxs(-1, -1);
             } catch (final Exception e) {
-                blocks.forEach(Asm2ByteCodeEmitter::printBlock);
+                System.err.println("[AsmByteCodeEmitter] Error in function: " + function.name);
+                blocks.forEach(AsmByteCodeEmitter::printBlock);
                 throw e;
             }
-
-            methodVisitor.visitMaxs(-1, -1);
             methodVisitor.visitEnd();
         } else {
             methodVisitor.visitEnd();
@@ -246,7 +291,7 @@ public class Asm2ByteCodeEmitter {
                 final var recordVisitor = classVisitor.visitRecordComponent(
                         name,
                         descriptor,
-                        null
+                        field.genericSignature()
                 );
                 recordVisitor.visitEnd();
             }
@@ -255,16 +300,94 @@ public class Asm2ByteCodeEmitter {
                         access,
                         field.name(),
                         descriptor,
-                        null,
+                        field.genericSignature(),
                         null
                 );
+                emitAnnotations(field.annotations(), fieldVisitor::visitAnnotation);
                 fieldVisitor.visitEnd();
             }
         }
     }
 
+    private void emitAnnotations(final List<CompoundAttribute> annotations,
+                                 final BiFunction<String, Boolean, AnnotationVisitor> visitorFactory) {
+        for (final var annotation : annotations) {
+            final var annotationType = annotation.getAnnotationType();
+            if (annotationType == null) continue;
+
+            final var descriptor = AsmHelper.createDescriptor(annotationType);
+            final var av = visitorFactory.apply(descriptor, true);
+            if (av == null) continue;
+
+            emitAnnotationValues(av, annotation);
+            av.visitEnd();
+        }
+    }
+
+    private void emitAnnotationValues(final AnnotationVisitor av,
+                                      final CompoundAttribute annotation) {
+        for (final var entry : annotation.getElementValues().entrySet()) {
+            final var methodName = entry.getKey().getSimpleName().toString();
+            final var value = entry.getValue();
+            emitAnnotationValue(av, methodName, value);
+        }
+    }
+
+    private void emitAnnotationValue(final AnnotationVisitor av,
+                                     final String name,
+                                     final AnnotationValue value) {
+        if (value instanceof ConstantAttribute constant) {
+            final var raw = constant.getValue();
+            if (raw instanceof Boolean b) av.visit(name, b);
+            else if (raw instanceof Byte b) av.visit(name, b);
+            else if (raw instanceof Character c) av.visit(name, c);
+            else if (raw instanceof Double d) av.visit(name, d);
+            else if (raw instanceof Float f) av.visit(name, f);
+            else if (raw instanceof Integer i) av.visit(name, i);
+            else if (raw instanceof Long l) av.visit(name, l);
+            else if (raw instanceof Short s) av.visit(name, s);
+            else if (raw instanceof String s) av.visit(name, s);
+        } else if (value instanceof EnumAttribute enumAttr) {
+            final var varElement = enumAttr.getValue();
+            final var enumType = (DeclaredType) enumAttr.getType();
+            final var enumDesc = AsmHelper.createDescriptor(enumType);
+            av.visitEnum(name, enumDesc, varElement.getSimpleName().toString());
+        } else if (value instanceof CompoundAttribute nested) {
+            final var nestedType = nested.getAnnotationType();
+            if (nestedType != null) {
+                final var nestedDesc = AsmHelper.createDescriptor(nestedType);
+                final var nav = av.visitAnnotation(name, nestedDesc);
+                if (nav != null) {
+                    emitAnnotationValues(nav, nested);
+                    nav.visitEnd();
+                }
+            }
+        } else if (value instanceof ArrayAttribute arrayAttr) {
+            final var aav = av.visitArray(name);
+            if (aav != null) {
+                for (final var elem : arrayAttr.getValue()) {
+                    emitAnnotationValue(aav, null, elem);
+                }
+                aav.visitEnd();
+            }
+        } else if (value instanceof ClassAttribute classAttr) {
+            final var typeMirror = classAttr.getValue();
+            if (typeMirror instanceof DeclaredType dt
+                    && "java.lang.Class".equals(((TypeElement) dt.asElement()).getQualifiedName())
+                    && !dt.getTypeArguments().isEmpty()) {
+                final var typeArg = dt.getTypeArguments().get(0);
+                final var typeDesc = AsmHelper.createDescriptor(typeArg);
+                av.visit(name, Type.getType(typeDesc));
+            } else if (typeMirror instanceof TypeMirror tm) {
+                final var typeDesc = AsmHelper.createDescriptor(tm);
+                av.visit(name, Type.getType(typeDesc));
+            }
+        }
+    }
+
     private static void printBlock(final IRBasicBlock block) {
-        block.instructions().forEach(System.out::println);
+        System.out.println("  Block(" + block.label() + ") [" + block.getBlockType() + "]:");
+        block.instructions().forEach(instr -> System.out.println("    " + instr));
     }
 
     public byte[] getBytecode() {

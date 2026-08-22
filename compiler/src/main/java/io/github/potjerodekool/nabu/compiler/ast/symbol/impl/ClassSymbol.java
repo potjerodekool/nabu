@@ -240,6 +240,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
 
     @Override
     public TypeMirror getSuperclass() {
+        complete();
         return superclass;
     }
 

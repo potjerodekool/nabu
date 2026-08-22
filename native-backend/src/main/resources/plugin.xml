@@ -6,10 +6,29 @@
     <extensions>
         <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.native_llvm.NativeLLVMBackend" name="LLVM" />
     </extensions>
+    <!--
+      Bij info alleen: de jar wordt gebundeld met maven-shade-plugin.
+      De classes van bytedeco zitten al in de plugin-jar zelf.
+    -->
     <dependencies>
         <dependency>
             <groupId>org.bytedeco</groupId>
-            <artifactId>llvm-platform</artifactId>
+            <artifactId>javacpp</artifactId>
+            <version>1.5.13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>llvm</artifactId>
+            <version>21.1.8-1.5.13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp-windows-x86_64</artifactId>
+            <version>1.5.13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>llvm-windows-x86_64</artifactId>
             <version>21.1.8-1.5.13</version>
         </dependency>
     </dependencies>

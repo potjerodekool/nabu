@@ -15,6 +15,8 @@ public class Pet {
 
     private name : String;
 
+    private status: Status
+
     private category : Category;
 
     private tags: java.util.Set<Tag>;
@@ -51,4 +53,7 @@ public class Pet {
         this.tags = tags;
     }
 
+    public fun getStatus() : Status {
+        return status;
+    }
 }

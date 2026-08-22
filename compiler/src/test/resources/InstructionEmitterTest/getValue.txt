@@ -4,6 +4,9 @@ public class MyClass {
 
   // compiled from: Myclass.java
 
+  // access flags 0x2
+  private I number
+
   // access flags 0x1
   public getValue()I
    L0

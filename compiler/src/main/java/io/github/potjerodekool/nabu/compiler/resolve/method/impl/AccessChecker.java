@@ -29,6 +29,12 @@ public final class AccessChecker {
         } else if (element.isProtected()) {
             if (isSameModule(element.getModuleElement(), caller.getModuleElement())) {
                 return element.getPackageElement().equals(caller.getPackageElement());
+            } else if (element instanceof ExecutableElement executableElement) {
+                final var ownerClass = (TypeElement) executableElement.getEnclosingElement();
+
+                if (isSubclass(caller, ownerClass)) {
+                    return true;
+                }
             }
         } else if (element.isDefaultAccess()) {
             if (isSameModule(element.getModuleElement(), caller.getModuleElement())) {
@@ -36,6 +42,24 @@ public final class AccessChecker {
             }
         } else if (element.isPrivate()) {
             return element.getEnclosingElement() == caller;
+        }
+
+        return false;
+    }
+
+    private static boolean isSubclass(final Element caller, final TypeElement ownerClass) {
+        if (caller instanceof ExecutableElement executableElement) {
+            final var callerClass = executableElement.getEnclosingElement();
+            return isSubclass(callerClass, ownerClass);
+        } else if (caller instanceof TypeElement callerClass) {
+            if (callerClass.getQualifiedName().equals(ownerClass.getQualifiedName())) {
+                return true;
+            } else {
+                final var superClass = callerClass.getSuperclass();
+                if (superClass != null) {
+                    return isSubclass(superClass.asTypeElement(), ownerClass);
+                }
+            }
         }
 
         return false;

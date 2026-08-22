@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend.asm2;
+package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
@@ -394,6 +394,37 @@ class Asm2PipelineTest {
         });
     }
 
+    // -------------------------------------------------------
+    // Super-constructor-aanroep (regressie: java.lang.Object_super werd als
+    // invokespecial Object.super geëmitteerd, i.p.v. invokespecial Object.<init>)
+    // -------------------------------------------------------
+
+    @Test
+    void superCallEmitsInit() throws Exception {
+        final var objectType = new IRType.Ptr(IRType.I8, "Ljava/lang/Object;");
+        final var thisParam = new IRValue.Temp("this", objectType);
+
+        builder.beginFunction("ctor", IRType.VOID, List.of(thisParam), 0L, true);
+        builder.emitCall(
+                CallKind.SPECIAL,
+                "java.lang.Object_super",
+                IRType.VOID,
+                List.of(),
+                List.of(thisParam)
+        );
+        builder.endFunction();
+
+        final var module = builder.build();
+        final var classFileName = compileDefault(module);
+
+        loadClass(classFileName, module, clazz -> {
+            final var ctor = clazz.getDeclaredConstructor();
+            ctor.trySetAccessible();
+            final var instance = ctor.newInstance();
+            assertEquals(clazz, instance.getClass());
+        });
+    }
+
     private IRModule optimize(final IRModule module) {
         SsaBuilder.run(module);
         return Optimizer.optimize(module);
@@ -401,7 +432,7 @@ class Asm2PipelineTest {
     private Path compileDefault(final IRModule module) throws CompileException {
         final var classFileName = tempDir.resolve(module.name + ".class");
         final var directory = classFileName.getParent();
-        new Asm2Backend()
+        new AsmBackend()
                 .compile(module, CompileOptions.defaults(), directory);
 
         return classFileName;

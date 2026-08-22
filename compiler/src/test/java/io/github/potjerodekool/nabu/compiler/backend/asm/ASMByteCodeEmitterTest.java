@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,7 +26,7 @@ class ASMByteCodeEmitterTest extends AbstractCompilerTest {
                 "java/lang/Record"
         ).asType();
 
-        final var emitter = new ASMByteCodeEmitter();
+        final var emitter = new AsmByteCodeEmitter();
         final var flags = Flags.PUBLIC + Flags.FINAL + Flags.RECORD;
 
         final var irBuilder = new IRBuilder(flags, "MyClass");

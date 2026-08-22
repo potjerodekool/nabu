@@ -31,7 +31,9 @@ class TypeArgApplyer implements ElementVisitor<TypeMirror, Map<String, TypeMirro
     public TypeMirror visitExecutable(final ExecutableElement methodSymbol,
                                       final Map<String, TypeMirror> typeArgMap) {
         final var methodType = (ExecutableType) methodSymbol.asType();
-        final var returnType = methodType.getReturnType().accept(this, typeArgMap);
+        final var returnType = methodType.getReturnType() != null
+                ? methodType.getReturnType().accept(this, typeArgMap)
+                : null;
         final var argumentTypes = methodType.getParameterTypes().stream()
                 .map(it -> it.accept(this, typeArgMap))
                 .toList();

@@ -282,6 +282,29 @@ class NativeLLVMBackendTest {
     }
 
     // -------------------------------------------------------
+    // Super-constructor-aanroep (regressie: java.lang.Object_super
+    // bestond niet in de module → "Onbekende functie")
+    // -------------------------------------------------------
+
+    @Test @Order(31)
+    void superCallIsNoOp() throws Exception {
+        final var objectType = new IRType.Ptr(IRType.I8, "Ljava/lang/Object;");
+        final var thisParam = new IRValue.Temp("this", objectType);
+
+        builder.beginFunction("Hello_init", IRType.VOID, List.of(thisParam), 0L, true);
+        builder.emitCall(
+                CallKind.SPECIAL,
+                "java.lang.Object_super",
+                IRType.VOID,
+                List.of(),
+                List.of(thisParam)
+        );
+        builder.endFunction();
+
+        compileDefault(buildAndGet());
+    }
+
+    // -------------------------------------------------------
     // Externe functie-aanroep (puts)
     // -------------------------------------------------------
 
@@ -623,6 +646,21 @@ class NativeLLVMBackendTest {
         Path ll = tempDir.resolve("out.ll");
         assertTrue(ll.toFile().exists(), ".ll bestand niet aangemaakt");
         assertTrue(ll.toFile().length() > 0, ".ll bestand is leeg");
+    }
+
+    @Test @Order(32)
+    void compileToDirectory() throws Exception {
+        builder.beginFunction("main", IRType.I32, List.of(), false);
+        builder.emitReturn(builder.constInt(0));
+        builder.endFunction();
+
+        final var outDir = tempDir.resolve("classes");
+        java.nio.file.Files.createDirectories(outDir);
+        new NativeLLVMBackend().compile(buildAndGet(),
+                CompileOptions.defaults(), outDir);
+
+        assertTrue(outDir.resolve("test.o").toFile().exists(),
+                "Object file in directory niet aangemaakt");
     }
 
     @Test

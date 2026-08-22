@@ -403,8 +403,12 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var lambdaMethodType = lambdaExpression.getLambdaMethodType();
 
         if (lambdaExpression.getParameterKind() == LambdaExpressionTree.ParameterKind.EXPLICIT) {
-            if (lambdaMethodType == null) {
-                lambdaExpression.getVariables().forEach(variable -> acceptTree(variable, scope));
+            final var variables = lambdaExpression.getVariables();
+            final var allParamsTyped = variables.stream()
+                    .allMatch(v -> v instanceof VariableDeclaratorTree vd
+                            && vd.getVariableType() != null);
+            if (lambdaMethodType == null && allParamsTyped) {
+                variables.forEach(variable -> acceptTree(variable, scope));
                 acceptTree(lambdaExpression.getBody(), scope);
             }
             defaultAnswer(lambdaExpression, scope);
@@ -449,7 +453,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 final TypeMirror lambdaParameterType;
 
                 if (variableIndex < lambdaParameterTypes.size()) {
-                    lambdaParameterType = lambdaParameterTypes.get(variableIndex);
+                    lambdaParameterType = captureLambdaParamType(lambdaParameterTypes.get(variableIndex));
                 } else {
                     lambdaParameterType = null;
                 }
@@ -522,9 +526,60 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         final var lambdaScope = new LocalScope(scope);
         final var variables = lambdaExpression.getVariables();
+        final var lambdaParameterTypes = member.getParameterTypes();
 
         lambdaExpression.setLambdaMethodType(member);
-        variables.forEach(variable -> acceptTree(variable, lambdaScope));
+
+        for (var variableIndex = 0; variableIndex < variables.size(); variableIndex++) {
+            final var variable = variables.get(variableIndex);
+            final TypeMirror lambdaParameterType;
+
+            if (variableIndex < lambdaParameterTypes.size()) {
+                lambdaParameterType = captureLambdaParamType(lambdaParameterTypes.get(variableIndex));
+            } else {
+                lambdaParameterType = null;
+            }
+
+            if (variable instanceof IdentifierTree identifier) {
+                identifier.setType(lambdaParameterType);
+            } else if (variable instanceof VariableDeclaratorTree varDecl) {
+                if (varDecl.getVariableType() instanceof VariableTypeTree vtt
+                        && lambdaParameterType != null) {
+                    vtt.setType(lambdaParameterType);
+                    varDecl.setType(lambdaParameterType);
+                } else if (lambdaParameterType != null) {
+                    varDecl.setType(lambdaParameterType);
+                }
+            }
+        }
+
+        final var parameterTypes = variables.stream()
+                .map(variable -> {
+                    var variableType = variable.getType();
+                    if (variableType == null || variableType.isError()) {
+                        variableType = types.getUnknownType();
+                    }
+                    return variableType;
+                }).toList();
+
+        lambdaExpression.setType(parameterType);
+
+        variables.forEach(variable -> {
+            if (variable instanceof IdentifierTree identifier) {
+                if (identifier.getSymbol() == null) {
+                    final var paramType = identifier.getType();
+                    final var symbol = new VariableSymbolBuilderImpl()
+                            .kind(ElementKind.PARAMETER)
+                            .simpleName(identifier.getName())
+                            .type(paramType != null ? paramType : types.getUnknownType())
+                            .build();
+                    identifier.setSymbol(symbol);
+                    lambdaScope.define(symbol);
+                }
+            } else {
+                acceptTree(variable, lambdaScope);
+            }
+        });
 
         acceptTree(lambdaExpression.getBody(), lambdaScope);
     }
@@ -802,20 +857,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var methodSelector = methodInvocation.getMethodSelector();
         acceptTree(methodSelector, scope);
 
-        final var list = new ArrayList<String>();
-        list.forEach( (String value) -> {
-
-        });
-
         methodInvocation.getArguments().forEach(arg -> acceptTree(arg, scope));
         methodInvocation.getTypeArguments().forEach(typeArgument ->
                 acceptTree(typeArgument, scope));
 
         final var resolvedMetho0dTypeOptional = methodResolver.resolveMethod(methodInvocation, scope);
-
-        if (resolvedMetho0dTypeOptional.isEmpty()) {
-            methodResolver.resolveMethod(methodInvocation, scope);
-        }
 
         resolvedMetho0dTypeOptional.ifPresent(resolvedMethodType -> {
             methodSelector.setType(resolvedMethodType.getOwner().asType());
@@ -1016,5 +1062,16 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitNewArray(final NewArrayExpression newArrayExpression, final Scope param) {
         final var result = super.visitNewArray(newArrayExpression, param);
         return result;
+    }
+
+    private TypeMirror captureLambdaParamType(final TypeMirror type) {
+        if (type instanceof WildcardType wildcardType) {
+            final var bound = wildcardType.getBound();
+            if (bound != null) {
+                return bound;
+            }
+            return types.getObjectType();
+        }
+        return type;
     }
 }

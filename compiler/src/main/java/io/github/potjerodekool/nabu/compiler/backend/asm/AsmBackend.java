@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend.asm2;
+package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.backend.Backend;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  * JVM-local-variable-slots worden geadresseerd (zie {@link SlotAllocator}),
  * zodat SSA/phi-getransformeerde namen correct worden afgehandeld.
  */
-public class Asm2Backend implements Backend {
+public class AsmBackend implements Backend {
 
     @Override
     public void compile(final IRModule module,
@@ -49,7 +49,7 @@ public class Asm2Backend implements Backend {
             }
         }
 
-        final var emitter = new Asm2ByteCodeEmitter();
+        final var emitter = new AsmByteCodeEmitter();
         emitter.emit(module);
         final var bytecode = emitter.getBytecode();
 

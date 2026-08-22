@@ -4,20 +4,18 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CUnknownType;
-import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.tools.Constants;
-import io.github.potjerodekool.nabu.tree.Tree;
+import io.github.potjerodekool.nabu.tree.TreeUtils;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Elements;
 import io.github.potjerodekool.nabu.util.Pair;
 import io.github.potjerodekool.nabu.util.TypePrinter;
 import io.github.potjerodekool.nabu.util.Types;
-import lombok.extern.java.Log;
 
 import java.util.*;
 import java.util.function.Predicate;
@@ -27,12 +25,16 @@ public class CompleteMethodResolver implements MethodResolver {
 
     private final Elements elements;
     private final Types types;
+    private final TreeUtils treeUtils;
     private final OverrideChecker overrideChecker;
     private final Logger logger = Logger.getLogger(CompleteMethodResolver.class.getName());
 
-    public CompleteMethodResolver(final Elements elements, final Types types) {
+    public CompleteMethodResolver(final Elements elements,
+                                  final Types types,
+                                  final TreeUtils treeUtils) {
         this.elements = elements;
         this.types = types;
+        this.treeUtils = treeUtils;
         this.overrideChecker = new OverrideChecker(types);
     }
 
@@ -323,7 +325,9 @@ public class CompleteMethodResolver implements MethodResolver {
         fillTypeMap(methodType.getParameterTypes(), argTypes, typeMapFiller);
 
         final var parameterTypes = applyTypes(methodType.getParameterTypes(), typeMapApplier);
-        final var returnType = methodType.getReturnType().accept(typeMapApplier, null);
+        final var returnType = methodType.getReturnType() != null
+                ? methodType.getReturnType().accept(typeMapApplier, null)
+                : null;
         final var thrownTypes = methodType.getThrownTypes().stream()
                 .map(thrownType -> thrownType.accept(typeMapApplier, null))
                 .toList();
@@ -572,7 +576,7 @@ public class CompleteMethodResolver implements MethodResolver {
 
     private Optional<ExecutableType> fallback(final MethodInvocationTree methodInvocationTree,
                                               final Scope scope) {
-        return resolveMethod(methodInvocationTree, (Element) null, scope);
+        return resolveMethod(methodInvocationTree, null, scope);
     }
 
     private String resolveMethodName(final MethodInvocationTree methodInvocationTree) {
@@ -604,27 +608,34 @@ public class CompleteMethodResolver implements MethodResolver {
 
         final var phase1Results = phase1StrictInvocation(candidates, arguments);
         if (!phase1Results.isEmpty()) {
-            return chooseMostSpecificMethod(phase1Results, searchType).method();
+            return inferMethodTypeParameters(
+                    chooseMostSpecificMethod(phase1Results, searchType).method(),
+                    arguments
+            );
         }
 
         final var phase2Results = phase2LooseInvocation(candidates, arguments);
         if (!phase2Results.isEmpty()) {
-            return chooseMostSpecificMethod(phase2Results, searchType).method();
+            return inferMethodTypeParameters(
+                    chooseMostSpecificMethod(phase2Results, searchType).method(),
+                    arguments
+            );
         }
 
         final var phase3Results = phase3VariableArity(candidates, arguments);
         if (!phase3Results.isEmpty()) {
-            return chooseMostSpecificMethod(phase3Results, searchType).method();
+            return inferMethodTypeParameters(
+                    chooseMostSpecificMethod(phase3Results, searchType).method(),
+                    arguments
+            );
         }
 
         final var argTypes = arguments.stream()
-                .map(Tree::getType)
+                .map(treeUtils::typeOf)
                 .map(TypePrinter::print)
                 .collect(Collectors.joining(",", "(", ")"));
 
-        throw new MethodResolveException(
-                "No applicable method found for: " + methodName + " " + argTypes
-        );
+        return null;
     }
 
     public List<ExecutableType> getPotentiallyApplicableMethods(final MethodInvocationTree methodInvocation,
@@ -821,8 +832,147 @@ public class CompleteMethodResolver implements MethodResolver {
     }
 
     private boolean isImplicitlyTypedLambda(final ExpressionTree expressionTree) {
-        return expressionTree instanceof LambdaExpressionTree lambdaExpressionTree
-                && lambdaExpressionTree.getParameterKind() == LambdaExpressionTree.ParameterKind.IMPLICIT;
+        if (!(expressionTree instanceof LambdaExpressionTree lambdaExpressionTree)) {
+            return false;
+        }
+        if (lambdaExpressionTree.getParameterKind() == LambdaExpressionTree.ParameterKind.IMPLICIT) {
+            return true;
+        }
+        return lambdaExpressionTree.getVariables().stream()
+                .allMatch(v -> v.getType() == null || v.getType().isError());
+    }
+
+    private ExecutableType inferMethodTypeParameters(final ExecutableType method,
+                                                     final List<ExpressionTree> arguments) {
+        final var methodTypeVars = method.getTypeVariables();
+        if (methodTypeVars.isEmpty()) {
+            return method;
+        }
+
+        final var paramTypes = method.getParameterTypes();
+        var argTypes = arguments.stream()
+                .map(this::resolveType)
+                .toList();
+
+        final var argInferenceMap = new java.util.HashMap<String, TypeMirror>();
+        for (int i = 0; i < Math.min(paramTypes.size(), argTypes.size()); i++) {
+            collectArgumentInferences(paramTypes.get(i), argTypes.get(i), argInferenceMap);
+        }
+
+        if (!argInferenceMap.isEmpty()) {
+            argTypes = argTypes.stream()
+                    .map(at -> substituteTypeVariables(at, argInferenceMap))
+                    .toList();
+        }
+
+        final var methodInferenceMap = new java.util.HashMap<String, TypeMirror>();
+        for (int i = 0; i < Math.min(paramTypes.size(), argTypes.size()); i++) {
+            collectInferences(paramTypes.get(i), argTypes.get(i), methodInferenceMap, methodTypeVars);
+        }
+
+        final var allInferenceMap = new java.util.HashMap<String, TypeMirror>();
+        allInferenceMap.putAll(argInferenceMap);
+        allInferenceMap.putAll(methodInferenceMap);
+
+        if (allInferenceMap.isEmpty()) {
+            return method;
+        }
+
+        final var returnType = substituteTypeVariables(method.getReturnType(), allInferenceMap);
+        final var newParamTypes = paramTypes.stream()
+                .map(pt -> substituteTypeVariables(pt, allInferenceMap))
+                .toList();
+        final var newThrownTypes = method.getThrownTypes().stream()
+                .map(tt -> substituteTypeVariables(tt, allInferenceMap))
+                .toList();
+
+        return types.getExecutableType(
+                method.getMethodSymbol(),
+                method.getTypeVariables(),
+                returnType,
+                newParamTypes,
+                newThrownTypes
+        );
+    }
+
+    private void collectArgumentInferences(final TypeMirror paramType,
+                                           final TypeMirror argType,
+                                           final java.util.HashMap<String, TypeMirror> inferenceMap) {
+        if (paramType instanceof WildcardType wt && argType instanceof TypeVariable argTv) {
+            if (wt.getBound() != null) {
+                inferenceMap.putIfAbsent(argTv.asElement().getSimpleName().toString(), wt.getBound());
+            }
+        } else if (paramType instanceof WildcardType wt && argType instanceof DeclaredType argDeclared) {
+            final var paramBound = wt.getBound();
+            if (paramBound instanceof DeclaredType paramBoundDeclared) {
+                if (paramBoundDeclared.asTypeElement().getQualifiedName()
+                        .equals(argDeclared.asTypeElement().getQualifiedName())) {
+                    final var paramArgs = paramBoundDeclared.getTypeArguments();
+                    final var argArgs = argDeclared.getTypeArguments();
+                    for (int i = 0; i < Math.min(paramArgs.size(), argArgs.size()); i++) {
+                        collectArgumentInferences(paramArgs.get(i), argArgs.get(i), inferenceMap);
+                    }
+                }
+            }
+        } else if (paramType instanceof DeclaredType paramDeclared
+                && argType instanceof DeclaredType argDeclared) {
+            if (paramDeclared.asTypeElement().getQualifiedName()
+                    .equals(argDeclared.asTypeElement().getQualifiedName())) {
+                final var paramArgs = paramDeclared.getTypeArguments();
+                final var argArgs = argDeclared.getTypeArguments();
+                for (int i = 0; i < Math.min(paramArgs.size(), argArgs.size()); i++) {
+                    collectArgumentInferences(paramArgs.get(i), argArgs.get(i), inferenceMap);
+                }
+            }
+        }
+    }
+
+    private void collectInferences(final TypeMirror paramType,
+                                   final TypeMirror argType,
+                                   final java.util.HashMap<String, TypeMirror> inferenceMap,
+                                   final java.util.List<? extends TypeVariable> methodTypeVars) {
+        if (paramType instanceof WildcardType wt && argType instanceof TypeVariable argTv) {
+            if (wt.getBound() != null) {
+                inferenceMap.putIfAbsent(argTv.asElement().getSimpleName().toString(), wt.getBound());
+            }
+        } else if (paramType instanceof TypeVariable paramTv) {
+            if (methodTypeVars.stream().anyMatch(mtv -> mtv.asElement().getSimpleName().toString().equals(paramTv.asElement().getSimpleName().toString()))) {
+                if (!(argType instanceof TypeVariable)) {
+                    inferenceMap.putIfAbsent(paramTv.asElement().getSimpleName().toString(), argType);
+                }
+            }
+        } else if (paramType instanceof DeclaredType paramDeclared
+                && argType instanceof DeclaredType argDeclared) {
+            if (paramDeclared.asTypeElement().getQualifiedName()
+                    .equals(argDeclared.asTypeElement().getQualifiedName())) {
+                final var paramArgs = paramDeclared.getTypeArguments();
+                final var argArgs = argDeclared.getTypeArguments();
+                for (int i = 0; i < Math.min(paramArgs.size(), argArgs.size()); i++) {
+                    collectInferences(paramArgs.get(i), argArgs.get(i), inferenceMap, methodTypeVars);
+                }
+            }
+        }
+    }
+
+    private TypeMirror substituteTypeVariables(final TypeMirror type,
+                                               final java.util.Map<String, TypeMirror> map) {
+        if (type instanceof TypeVariable tv) {
+            final var replacement = map.get(tv.asElement().getSimpleName().toString());
+            return replacement != null ? replacement : type;
+        } else if (type instanceof DeclaredType declaredType) {
+            final var typeArgs = declaredType.getTypeArguments();
+            if (typeArgs.isEmpty()) {
+                return type;
+            }
+            final var newTypeArgs = typeArgs.stream()
+                    .map(ta -> substituteTypeVariables(ta, map))
+                    .toList();
+            return types.getDeclaredType(
+                    (TypeElement) declaredType.asTypeElement(),
+                    newTypeArgs.toArray(new TypeMirror[0])
+            );
+        }
+        return type;
     }
 
     private boolean isStrictlyCompatible(final TypeMirror sourceType, final TypeMirror targetType) {
@@ -941,7 +1091,7 @@ public class CompleteMethodResolver implements MethodResolver {
             final List<ApplicableMethod> applicableMethods,
             final DeclaredType searchType) {
         if (applicableMethods.isEmpty()) {
-            throw new MethodResolveException("No applicable methods found");
+            return null;
         }
 
         if (applicableMethods.size() == 1) {
@@ -983,8 +1133,7 @@ public class CompleteMethodResolver implements MethodResolver {
             }
 
             if (first.specificity() == second.specificity()) {
-                throw new MethodResolveException(
-                        "Ambiguous method invocation: " + first.method() + " vs " + second.method());
+                return null;
             }
         }
 

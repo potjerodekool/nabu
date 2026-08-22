@@ -54,11 +54,11 @@ public class PetController {
             final var result = this.petRepository.findAll();
             final var resultList = new ArrayList<PetDto>();
 
-            for (var i = 0; i < result.size(); i++) {
-                final var pet : Pet = result.get(i);
-                final var petDto = this.mapToDto(pet);
-                resultList.add(petDto);
-            }
+             for (var i = 0; i < result.size(); i++) {
+                  final var pet : Pet = result.get(i);
+                  final var petDto = this.mapToDto(pet);
+                  resultList.add(petDto);
+             }
 
             return resultList;
         }
@@ -99,13 +99,7 @@ public class PetController {
 
         private fun doUpdatePet(final dto: PetDto,
                                 final pet: Pet): void {
-        pet.setName(dto.getName());
-        final var tagDtos = dto.getTags();
-        final var tagIds = new HashSet<UUID>();
 
-        final var tags = this.tagRepository.findAllById(tagIds).stream()
-            .collect(Collectors.toSet());
-        pet.setTags(tags);
     }
 
     public fun updateThePet(final dto: PetDto): void {

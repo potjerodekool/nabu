@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
-import io.github.potjerodekool.nabu.compiler.backend.asm2.Asm2Backend;
 import io.github.potjerodekool.nabu.compiler.backend.ir.TypeMirrorToIRType;
 import io.github.potjerodekool.nabu.compiler.ir.CallKind;
 import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
@@ -351,7 +350,7 @@ class ASMBackendTest extends AbstractCompilerTest {
         final var classFileName = module.name + ".class";
         Path out = tempDir.resolve(classFileName);
         Path directory = out.getParent();
-        new Asm2Backend()
+        new AsmBackend()
                 .compile(module, CompileOptions.defaults(), directory);
 
         return out;

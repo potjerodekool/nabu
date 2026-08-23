@@ -1231,6 +1231,7 @@ public class FunctionEmitter {
                                     final String startLabelName) {
         final var start = getOrCreateLabel(startLabelName);
         final var end = getOrCreateLabel("END");
+        final var allocaVersions = function.allocaVersions();
 
         for (final var param : function.params) {
             if (param instanceof IRValue.Temp temp) {
@@ -1247,6 +1248,29 @@ public class FunctionEmitter {
                         index
                 );
             }
+        }
+
+        for (final var localVar : function.localVariables()) {
+            final var tempName = localVar.allocaTemp().name();
+
+            // Probeer eerst het alloca-temp zelf (overleeft als het nog gebruikt wordt)
+            final var slotName = slots.hasSlot(tempName)
+                    ? tempName
+                    : allocaVersions.get(tempName);
+
+            if (slotName == null || !slots.hasSlot(slotName)) continue;
+
+            final var index = slots.getSlot(slotName);
+            final var descriptor = AsmHelper.createDescriptor(localVar.type());
+
+            mv.visitLocalVariable(
+                    localVar.sourceName(),
+                    descriptor,
+                    null,
+                    start,
+                    end,
+                    index
+            );
         }
     }
 }

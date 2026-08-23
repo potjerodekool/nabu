@@ -19,6 +19,7 @@ import org.objectweb.asm.util.TraceClassVisitor;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,7 +109,10 @@ public class AsmByteCodeEmitter {
                 .map(AsmHelper::toInternalName)
                 .toArray(String[]::new);
 
-        final var fileName = module.sourceFile();
+        final var rawSourceFile = module.sourceFile();
+        final var fileName = rawSourceFile.contains("/") || rawSourceFile.contains("\\")
+                ? Path.of(rawSourceFile).getFileName().toString()
+                : rawSourceFile;
 
         classVisitor.visit(classVersion, access, internalName, signature, superName, interfaces);
         classVisitor.visitSource(fileName, null);

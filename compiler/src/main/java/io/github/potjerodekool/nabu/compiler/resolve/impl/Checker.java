@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.access.StandardAccessChecker;
 import io.github.potjerodekool.nabu.tools.diagnostic.DefaultDiagnostic;
@@ -14,7 +15,10 @@ import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CVariableTypeTree;
+import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
+import io.github.potjerodekool.nabu.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.tree.statement.ThrowStatement;
+import io.github.potjerodekool.nabu.tree.statement.TryStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.ErrorType;
@@ -324,9 +328,77 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
     @Override
     public Object visitNewClass(final NewClassExpression newClassExpression, final Scope scope) {
+        if (newClassExpression.getClassDeclaration() != null) {
+            reportUnsupportedConstruct("Anonymous class bodies", newClassExpression, scope);
+        }
+
         acceptTree(newClassExpression.getName(), scope);
+
+        newClassExpression.getArguments().forEach(argument ->
+                acceptTree(argument, scope));
+
         return null;
     }
+
+    @Override
+    public Object visitSwitchStatement(final SwitchStatement switchStatement,
+                                       final Scope scope) {
+        final var selector = switchStatement.getSelector();
+        final var selectorType = selector.getType();
+
+        if (selectorType instanceof DeclaredType declaredType
+                && declaredType.asTypeElement() != null
+                && Constants.STRING.equals(declaredType.asTypeElement().getQualifiedName())) {
+            reportUnsupportedConstruct("Switching on a String value", switchStatement, scope);
+        }
+
+        for (final var caseStatement : switchStatement.getCases()) {
+            final var hasPatternLabel = caseStatement.getLabels().stream()
+                    .anyMatch(label -> label instanceof PatternCaseLabel);
+
+            if (hasPatternLabel) {
+                reportUnsupportedConstruct("Pattern matching in switch", caseStatement, scope);
+            }
+        }
+
+        return super.visitSwitchStatement(switchStatement, scope);
+    }
+
+    @Override
+    public Object visitTryStatement(final TryStatementTree tryStatement,
+                                    final Scope scope) {
+        if (tryStatement.getFinalizer() != null) {
+            reportUnsupportedConstruct("finally blocks", tryStatement, scope);
+        }
+
+        if (!tryStatement.getResources().isEmpty()) {
+            reportUnsupportedConstruct("try-with-resources", tryStatement, scope);
+        }
+
+        acceptTree(tryStatement.getBody(), scope);
+
+        tryStatement.getCatchers().forEach(catcher -> {
+            acceptTree(catcher.getVariable(), scope);
+            acceptTree(catcher.getBody(), scope);
+        });
+
+        return null;
+    }
+
+    private void reportUnsupportedConstruct(final String construct,
+                                            final Tree tree,
+                                            final Scope scope) {
+        listener.report(new DefaultDiagnostic(
+                Diagnostic.Kind.ERROR,
+                String.format("%s is not yet supported %s", construct, formatLineInfo(tree)),
+                resolveFileObject(scope),
+                tree.getLineNumber(),
+                tree.getColumnNumber()
+        ));
+    }
+
+    @Override
+    public Object visitArrayType(final ArrayTypeTree arrayTypeTree,
 
     @Override
     public Object visitAnnotation(final AnnotationTree annotationTree, final Scope scope) {

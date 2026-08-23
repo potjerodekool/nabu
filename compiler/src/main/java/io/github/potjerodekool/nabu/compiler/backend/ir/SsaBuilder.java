@@ -114,7 +114,8 @@ public class SsaBuilder {
         }
 
         // Stap 6: SSA Renaming
-        rename(function, allocas, phiPlacements);
+        final var allocaVersions = rename(function, allocas, phiPlacements);
+        function.setAllocaVersions(allocaVersions);
 
         // Stap 7: Verwijder overgebleven alloca's die niet meer gebruikt worden
         removeAllocas(function, allocas);
@@ -187,7 +188,7 @@ public class SsaBuilder {
     // Stap 6: SSA Renaming
     // -------------------------------------------------------
 
-    private static void rename(IRFunction function,
+    private static Map<String, String> rename(IRFunction function,
                                 List<IRInstruction.Alloca> allocas,
                                 Map<String, List<PhiPlacement>> phiPlacements) {
         // Alloca ptr names die we bijhouden
@@ -200,13 +201,17 @@ public class SsaBuilder {
         final var currentValue = new HashMap<String, IRValue>();
         // Versie-historie per blok (voor backtracking)
         final var versionHistory = new HashMap<String, Deque<IRValue>>();
+        // Mapping van alloca ptr name → SSA versie naam (voor debuginfo)
+        final var allocaVersions = new HashMap<String, String>();
 
         // Bouw dominator boom
         final var dominators = Dominators.compute(function);
 
         // Traverseer dominator boom in preorder
         renameBlock(function.entryBlock(), function, dominators, trackedPtrNames,
-                currentValue, versionHistory, phiPlacements);
+                currentValue, versionHistory, phiPlacements, allocaVersions);
+
+        return allocaVersions;
     }
 
     private static void renameBlock(IRBasicBlock block,
@@ -215,7 +220,8 @@ public class SsaBuilder {
                                      Set<String> trackedPtrNames,
                                      Map<String, IRValue> currentValue,
                                      Map<String, Deque<IRValue>> versionHistory,
-                                     Map<String, List<PhiPlacement>> phiPlacements) {
+                                     Map<String, List<PhiPlacement>> phiPlacements,
+                                     Map<String, String> allocaVersions) {
         // Verzamel veranderingen die we moeten terugdraaien
         final var modifiedVars = new ArrayList<String>();
 
@@ -246,6 +252,9 @@ public class SsaBuilder {
                 if (ptrName != null && trackedPtrNames.contains(ptrName)) {
                     // De opgeslagen waarde wordt de huidige SSA-versie
                     pushVersion(ptrName, store.value(), currentValue, versionHistory);
+                    if (store.value() instanceof IRValue.Temp ssaTemp) {
+                        allocaVersions.put(ptrName, ssaTemp.name());
+                    }
                     modifiedVars.add(ptrName);
                     instrsToRemove.add(store);
                 }
@@ -275,7 +284,7 @@ public class SsaBuilder {
             final var child = findBlock(function, childLabel);
             if (child != null) {
                 renameBlock(child, function, dominators, trackedPtrNames,
-                        currentValue, versionHistory, phiPlacements);
+                        currentValue, versionHistory, phiPlacements, allocaVersions);
             }
         }
 

@@ -5,9 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.CompoundAttribute;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 public class IRFunction {
 
@@ -22,6 +20,26 @@ public class IRFunction {
     private final List<CompoundAttribute> annotations = new ArrayList<>();
     private List<List<CompoundAttribute>> parameterAnnotations = List.of();
     private String genericSignature;
+    private final List<LocalVar> localVariables = new ArrayList<>();
+    private Map<String, String> allocaVersions = Map.of();
+
+    public record LocalVar(String sourceName, IRType type, IRValue.Temp allocaTemp) {}
+
+    public void addLocalVariable(LocalVar localVar) {
+        localVariables.add(localVar);
+    }
+
+    public List<LocalVar> localVariables() {
+        return Collections.unmodifiableList(localVariables);
+    }
+
+    public void setAllocaVersions(Map<String, String> versions) {
+        this.allocaVersions = Map.copyOf(versions);
+    }
+
+    public Map<String, String> allocaVersions() {
+        return allocaVersions;
+    }
 
     public IRFunction(final String name,
                       final IRType returnType,
@@ -51,6 +69,8 @@ public class IRFunction {
         newFunction.setAnnotations(this.annotations);
         newFunction.setParameterAnnotations(this.parameterAnnotations);
         newFunction.genericSignature = this.genericSignature;
+        newFunction.localVariables.addAll(this.localVariables);
+        newFunction.allocaVersions = this.allocaVersions;
         return newFunction;
     }
 

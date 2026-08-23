@@ -28,7 +28,6 @@ import io.github.potjerodekool.nabu.tree.statement.*;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
-import io.github.potjerodekool.nabu.type.TypeVariable;
 
 import java.util.*;
 
@@ -395,6 +394,12 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             // Alloca voor de variabele
             IRValue ptr = builder.emitAlloca(name, irType);
             scope.define(name, ptr);
+
+            if (ptr instanceof IRValue.Temp allocaTemp) {
+                builder.currentFunction().addLocalVariable(
+                        new IRFunction.LocalVar(name, irType, allocaTemp)
+                );
+            }
 
             // Initialisator
             if (varDecl.getValue() != null) {
@@ -832,19 +837,15 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             return null;
         }
 
-        final IRType returnType;
-
-        if (methodType.getMethodSymbol().getReturnType() instanceof TypeVariable typeVariable) {
-            returnType = TypeMirrorToIRType.mapReturnType(
-                    typeVariable.getUpperBound());
-        } else {
-            returnType = TypeMirrorToIRType.mapReturnType(
-                    methodType.getReturnType());
-        }
+        // De descriptor van een aanroep moet gebaseerd zijn op de
+        // verwijderde (erased) declaratietypes van de methode — niet op de
+        // gesubstitueerde types van deze aanroep (JLS §4.6 / JVMS §4.3).
+        final IRType returnType = TypeMirrorToIRType.mapReturnType(
+                methodType.getMethodSymbol().getReturnType());
 
 
-        List<IRType> paramTypes = methodType.getParameterTypes().stream()
-                .map(TypeMirrorToIRType::map)
+        List<IRType> paramTypes = methodType.getMethodSymbol().getParameters().stream()
+                .map(p -> TypeMirrorToIRType.map(p.asType()))
                 .toList();
 
         CallKind callKind = CallKindResolver.resolve(invocation);
@@ -1282,6 +1283,13 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         String varName = localVar.getName().getName();
 
         IRValue elemPtr = builder.emitAlloca(varName, irVarType);
+
+        if (elemPtr instanceof IRValue.Temp allocaTemp) {
+            builder.currentFunction().addLocalVariable(
+                    new IRFunction.LocalVar(varName, irVarType, allocaTemp)
+            );
+        }
+
         IRValue bodyArrayVal = builder.emitLoad(arrayPtr);
         IRValue elemVal = builder.emitArrayLoad(bodyArrayVal, indexVal, irVarType);
         builder.emitStore(elemPtr, elemVal);
@@ -1652,7 +1660,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         // voor deze lambda. We verwijzen daar naar ipv een duplicaat te maken.
         final var methodSymbol = methodType.getMethodSymbol();
         final String lambdaMethodName = methodSymbol.getSimpleName();
-        final String fnName = currentClassName + "_" + lambdaMethodName;
+        final var ownerElement = methodSymbol.getEnclosingElement();
+        final String qualifiedClassName = ownerElement instanceof TypeElement typeElement
+                ? typeElement.getQualifiedName()
+                : currentClassName;
+        final String fnName = qualifiedClassName + "." + lambdaMethodName;
 
         IRType returnType = TypeMirrorToIRType.mapReturnType(methodType.getReturnType());
         List<IRType> paramTypes = methodType.getParameterTypes().stream()

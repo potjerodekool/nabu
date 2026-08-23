@@ -54,6 +54,8 @@ public class MyClass {
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0
     LOCALVARIABLE number I L0 L4 1
+    LOCALVARIABLE result I L0 L4 2
+    LOCALVARIABLE steps I L0 L4 3
     MAXSTACK = 2
     MAXLOCALS = 11
 

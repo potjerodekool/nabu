@@ -45,6 +45,10 @@ public class IRBuilder {
         return currentFunction != null;
     }
 
+    public IRFunction currentFunction() {
+        return currentFunction;
+    }
+
     // -------------------------------------------------------
     // Locatie
     // -------------------------------------------------------

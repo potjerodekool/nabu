@@ -60,9 +60,39 @@ public final class TypeMirrorToIRType {
             case DECLARED -> new IRType.Ptr(IRType.I8, toJvmDescriptor(type));
 
             // -------------------------------------------------------
-            // Type-variabelen en wildcards — na erasure: Object = Ptr(I8)
+            // Type-variabelen en wildcards — na erasure: de linkerbound
+            // (recursief), anders Object = Ptr(I8)
             // -------------------------------------------------------
-            case TYPEVAR, WILDCARD -> new IRType.Ptr(IRType.I8);
+            case TYPEVAR -> {
+                final var typeVariable = (TypeVariable) type;
+                if (typeVariable.getUpperBound() != null) {
+                    yield map(typeVariable.getUpperBound());
+                }
+                if (typeVariable.getLowerBound() != null) {
+                    yield map(typeVariable.getLowerBound());
+                }
+                yield new IRType.Ptr(IRType.I8);
+            }
+
+            case WILDCARD -> {
+                if (type instanceof WildcardType wildcardType) {
+                    if (wildcardType.getExtendsBound() != null) {
+                        yield map(wildcardType.getExtendsBound());
+                    }
+                    if (wildcardType.getSuperBound() != null) {
+                        yield map(wildcardType.getSuperBound());
+                    }
+                }
+                yield new IRType.Ptr(IRType.I8);
+            }
+
+            case INTERSECTION -> {
+                if (type instanceof IntersectionType intersectionType
+                        && !intersectionType.getBounds().isEmpty()) {
+                    yield map(intersectionType.getBounds().get(0));
+                }
+                yield new IRType.Ptr(IRType.I8);
+            }
 
             // -------------------------------------------------------
             // Null-type
@@ -88,7 +118,7 @@ public final class TypeMirrorToIRType {
             // -------------------------------------------------------
             // Overige — gebruik opaque pointer als veilige fallback
             // -------------------------------------------------------
-            case NONE, PACKAGE, MODULE, INTERSECTION, UNION, ERROR ->
+            case NONE, PACKAGE, MODULE, UNION, ERROR ->
                     new IRType.Ptr(IRType.I8);
         };
     }

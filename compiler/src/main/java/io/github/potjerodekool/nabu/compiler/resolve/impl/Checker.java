@@ -367,14 +367,6 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitTryStatement(final TryStatementTree tryStatement,
                                     final Scope scope) {
-        if (tryStatement.getFinalizer() != null) {
-            reportUnsupportedConstruct("finally blocks", tryStatement, scope);
-        }
-
-        if (!tryStatement.getResources().isEmpty()) {
-            reportUnsupportedConstruct("try-with-resources", tryStatement, scope);
-        }
-
         acceptTree(tryStatement.getBody(), scope);
 
         tryStatement.getCatchers().forEach(catcher -> {

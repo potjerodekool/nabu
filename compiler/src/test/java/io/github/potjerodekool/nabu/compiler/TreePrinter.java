@@ -966,6 +966,12 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
             acceptTree(tryStatementTree.getFinalizer(), param);
         }
 
+        if (tryStatementTree.getResources() != null && !tryStatementTree.getResources().isEmpty()) {
+            write("resources (");
+            writeList(tryStatementTree.getResources(), param, "");
+            write(")");
+        }
+
         return null;
     }
 

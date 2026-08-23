@@ -45,3 +45,4 @@ build/
 **/.codewhale/*
 !**/.codewhale/constitution.json
 .deepseek/
+.aider*

@@ -169,13 +169,13 @@ Legend: ✅ implemented · 🟡 partial (parsed/modeled but incomplete) · ❌ n
 ## 6. Roadmap (prioritised)
 
 ### P0 — Correctness guardrails
-1. Add CI: build + run all module tests on push/PR (mirror `compiler-test` harness).
-2. Emit **hard errors/warnings** for every parsed-but-unsupported construct (`finally`, try-with-resources resources, anonymous bodies, switch patterns, string switch).
-3. Clean the working tree: commit or discard WIP files (`*.bck`, `~`, scratch outputs).
+1. Add CI: build + run all module tests on push/PR (mirror `compiler-test` harness). ✅
+2. Emit **hard errors/warnings** for every parsed-but-unsupported construct (`finally`, try-with-resources resources, anonymous bodies, switch patterns, string switch). ✅
+3. Clean the working tree: commit or discard WIP files (`*.bck`, `~`, scratch outputs). ✅
 
 ### P1 — Finish the Java 17 core
-4. Implement `finally` emission (inline-duplication or JSR-free subroutine style consistent with modern javac).
-5. Desugar try-with-resources (expanded variable + `close()` + suppressed-exception handling).
+4. Implement `finally` emission (inline-duplication or JSR-free subroutine style consistent with modern javac). ✅
+5. Desugar try-with-resources (expanded variable + `close()` + suppressed-exception handling). ✅
 6. Emit `PermittedSubclasses`; add compile-time sealed-subclass/exhaustiveness validation.
 7. Emit `InnerClasses` (and later NestHost/NestMembers); implement anonymous-class lowering to synthetic classes.
 8. String-switch lowering (hashCode dispatch + equals chain, javac-compatible).

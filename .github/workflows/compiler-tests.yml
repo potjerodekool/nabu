@@ -1,0 +1,34 @@
+name: Compile and Test Compiler
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+        cache: 'maven'
+    
+    - name: Build project
+      run: |
+        mvn clean compile -pl compiler,compiler-test -am
+    
+    - name: Run tests
+      run: |
+        mvn test -pl compiler-test -Dtest="*Test" 

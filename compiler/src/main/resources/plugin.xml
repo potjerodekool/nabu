@@ -4,9 +4,11 @@
     <version>0.0.1</version>
     <description>Compiler support for Nabu language</description>
     <extensions>
-        <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.java.JavaLanguageSupport"/>
-        <language-support implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.kotlin.KotlinLanguageSupport"/>
-         <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.asm.AsmBackend" name="ASM" />
-        <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.java.JavaBackend" name="JAVA" />
+        <language-support
+                implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.java.JavaLanguageSupport"/>
+        <language-support
+                implementationClass="io.github.potjerodekool.nabu.compiler.lang.support.kotlin.KotlinLanguageSupport"/>
+        <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.asm.AsmBackend" name="ASM"/>
+        <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.java.JavaBackend" name="JAVA"/>
     </extensions>
 </plugin>

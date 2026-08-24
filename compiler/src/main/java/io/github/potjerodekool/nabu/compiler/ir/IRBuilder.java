@@ -513,6 +513,10 @@ public class IRBuilder {
         return result;
     }
 
+    public void emitArrayStore(final IRValue array, final IRValue index, final IRValue value, final IRType elemType) {
+        emit(new IRInstruction.ArrayStore(array, index, value, elemType, currentLocation));
+    }
+
     public IRValue emitArrayLength(final IRValue array) {
         var result = fresh(IRType.I32);
         emit(new IRInstruction.ArrayLength(result, array, currentLocation));

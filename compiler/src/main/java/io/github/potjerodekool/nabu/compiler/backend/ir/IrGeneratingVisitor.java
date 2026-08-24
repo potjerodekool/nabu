@@ -10,6 +10,7 @@ import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import io.github.potjerodekool.nabu.compiler.lang.Flags;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
@@ -131,6 +132,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             long classFlags = Flags.parse(classSymbol.getModifiers());
             if (classSymbol.getKind().isInterface()) {
                 classFlags |= Flags.INTERFACE;
+            }
+            if (classSymbol.getKind() == ElementKind.ENUM) {
+                // De parser zet alleen Kind.ENUM; de ACC_ENUM-vlag moet
+                // expliciet naar de IR-vlaggen vertaald worden.
+                classFlags |= Flags.ENUM;
             }
             builder = new IRBuilder(classFlags, moduleName);
             module = builder.build();
@@ -997,6 +1003,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             var ptr = scope.lookup(name);
             if (ptr.isPresent()) {
                 builder.emitStore(ptr.get(), value);
+            } else if (id.getSymbol() instanceof VariableSymbol variableSymbol
+                    && variableSymbol.isStatic()) {
+                // Statisch veld buiten de lokale scopes (bv. $VALUES uit de
+                // enum-lowering): store via het veld-symbol.
+                builder.emitStore(resolveField(variableSymbol), value);
             }
         } else if (target instanceof FieldAccessExpressionTree fieldAccess) {
             // Veld-toewijzing
@@ -1126,10 +1137,27 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             size = IRValue.ofI32(((Number) lit.getLiteral()).intValue());
         }
 
-        return builder.emitAllocaArray(
-                size instanceof IRValue.ConstInt ci ? (int) ci.value() : 0,
-                objectType
-        );
+        final int arraySize = size instanceof IRValue.ConstInt ci ? (int) ci.value() : 0;
+        final var arrayPtr = builder.emitAllocaArray(arraySize, objectType);
+
+        // Expliciete elementen (bv. new Status[]{ ON, OFF }): per element wegschrijven.
+        final var elements = newArrayExpression.getElements();
+        if (elements != null && !elements.isEmpty()) {
+            final var componentType = switch (objectType) {
+                case IRType.Ptr p -> p.pointee();
+                case IRType.Array a -> a.elem();
+                case IRType t -> t;
+            };
+
+            for (int i = 0; i < elements.size(); i++) {
+                final IRValue elemValue = acceptTree(elements.get(i), builder);
+                if (elemValue != null) {
+                    builder.emitArrayStore(arrayPtr, IRValue.ofI32(i), elemValue, componentType);
+                }
+            }
+        }
+
+        return arrayPtr;
     }
 
     @Override
@@ -1816,7 +1844,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     @Override
     public IRValue visitPatternCaseLabel(final PatternCaseLabel patternCaseLabel,
-                                         final IRBuilder param) {
+                                          final IRBuilder param) {
+        // For now just return null, pattern handling will be implemented properly in the switch generator
+        // Pattern case labels are processed as part of the switch statement generation
         return null;
     }
 

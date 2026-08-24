@@ -65,6 +65,14 @@ public class NabuCompiler implements Compiler {
             final var sourceFileKinds = allSourceKinds.toArray(FileObject.Kind[]::new);
             final var sourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
             final var compilationUnits = processFiles(sourceFiles, compilerContext);
+
+            if (compilationUnits.isEmpty()
+                    && compilerDiagnosticListener.getErrorCount() > 0) {
+                // Er zijn fouten gerapporteerd waardoor geen enkele
+                // compilatie-unit overbleef: signaal een falende build.
+                return -1;
+            }
+
             return generateCode(compilerContext, compilationUnits, fullOptions);
         } catch (final Exception e) {
             throw new RuntimeException(e);

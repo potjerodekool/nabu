@@ -115,6 +115,11 @@ public class DeadCodeElimination implements OptimizationPass {
                 increment(al.array(), useCounts);
                 increment(al.index(), useCounts);
             }
+            case IRInstruction.ArrayStore as -> {
+                increment(as.array(), useCounts);
+                increment(as.index(), useCounts);
+                increment(as.value(), useCounts);
+            }
             case IRInstruction.ArrayLength al -> {
                 increment(al.array(), useCounts);
             }

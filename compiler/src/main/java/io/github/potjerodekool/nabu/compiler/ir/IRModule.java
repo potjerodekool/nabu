@@ -11,6 +11,8 @@ public class IRModule {
     public final String name;
     private IRType superType;
     private List<IRType> interfaces;
+    private boolean sealedClass = false;
+    private List<IRType> permittedSubclasses = new ArrayList<>();
 
     private final List<IRField> fields = new ArrayList<>();
     private final List<IRFunction>       functions = new ArrayList<>();
@@ -129,10 +131,25 @@ public class IRModule {
         newModule.genericSignature = this.genericSignature;
         newModule.sourceFile = this.sourceFile;
         newModule.sourceDir = this.sourceDir;
+        newModule.sealedClass = this.sealedClass;
+        newModule.permittedSubclasses = this.permittedSubclasses != null ? List.copyOf(this.permittedSubclasses) : null;
         return newModule;
     }
 
-    @Override
-    public String toString() { return "module " + name; }
+    public boolean sealedClass() {
+        return this.sealedClass;
+    }
+
+    public void sealedClass(final boolean sealedClass) {
+        this.sealedClass = sealedClass;
+    }
+
+    public List<IRType> permittedSubclasses() {
+        return Collections.unmodifiableList(permittedSubclasses);
+    }
+
+    public void addPermittedSubclass(final IRType type) {
+        this.permittedSubclasses.add(type);
+    }
 
 }

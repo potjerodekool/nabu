@@ -452,6 +452,7 @@ class InstructionPrinter {
             case IRInstruction.AllocaArray allocaArray -> acceptAllocaArray(allocaArray);
             case IRInstruction.ArrayLength arrayLength -> acceptArrayLength(arrayLength);
             case IRInstruction.ArrayLoad arrayLoad -> acceptArrayLoad(arrayLoad);
+            case IRInstruction.ArrayStore arrayStore -> acceptArrayStore(arrayStore);
             case IRInstruction.BinaryOp binaryOp -> acceptBinaryOp(binaryOp);
             case IRInstruction.Branch branch -> acceptBranch(branch);
             case IRInstruction.Call call -> acceptCall(call);
@@ -508,6 +509,15 @@ class InstructionPrinter {
                 .append('[')
                 .append(render(arrayLoad.index()))
                 .append(']');
+    }
+
+    private void acceptArrayStore(final IRInstruction.ArrayStore arrayStore) {
+        builder.append(render(arrayStore.array()))
+                .append('[')
+                .append(render(arrayStore.index()))
+                .append(']')
+                .append(" = ")
+                .append(render(arrayStore.value()));
     }
 
     // -------------------------------------------------------

@@ -7,56 +7,67 @@ import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 
 import java.io.File;
 import java.io.IOException;
-//import java.lang.classfile.ClassFile;
-//import java.lang.constant.ClassDesc;
-//import java.lang.constant.MethodTypeDesc;
+import java.lang.classfile.ClassFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * Backend die een {@link IRModule} naar JVM-bytecode compileert met behulp
+ * van de Java 24 ClassFile API (java.lang.classfile).
+ *
+ * Geregistreerd in plugin.xml als backend "JAVA".
+ */
 public class JavaBackend implements Backend {
+
+    public static final int MINIMUM_JAVA_FEATURE_VERSION = 24;
+
+    public JavaBackend() {
+        requireJava24OrLater();
+    }
+
+    static void requireJava24OrLater() {
+        if (Runtime.version().feature() < MINIMUM_JAVA_FEATURE_VERSION) {
+            throw new UnsupportedOperationException(
+                    "JavaBackend requires Java " + MINIMUM_JAVA_FEATURE_VERSION
+                            + " or later because it uses the ClassFile API, but the current runtime is Java "
+                            + Runtime.version().feature());
+        }
+    }
+
     @Override
     public void compile(final IRModule module,
                         final CompileOptions opts,
                         final Path output) throws CompileException {
+        final var emitter = new ClassFileByteCodeEmitter();
+        final var classBytes = emitter.emit(module);
 
-        boolean helloWorld = false;
+        validate(classBytes);
 
-        final byte[] classBytes;
-
-        if (helloWorld) {
-            /*
-            classBytes = ClassFile.of().build(ClassDesc.of("HelloWorld"), classBuilder -> {
-                classBuilder.withMethod("main",
-                        MethodTypeDesc.ofDescriptor("([Ljava/lang/String;)V"),
-                        ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC,
-                        methodBuilder -> {
-                            methodBuilder.withCode(code -> {
-                                code.getstatic(ClassDesc.of("java.lang.System"), "out", ClassDesc.of("java.io.PrintStream"));
-                                code.ldc("Hello, World!");
-                                code.invokevirtual(ClassDesc.of("java.io.PrintStream"), "println", MethodTypeDesc.of(
-                                        ClassDesc.of("V"),
-                                        ClassDesc.of("java.lang.String")));
-                                code.return_();
-                            });
-                        });
-            });*/
-        } else {
-/*
-            classBytes = ClassFile.of().build(ClassDesc.of(module.name), classBuilder -> {
-
-            });
-            */
-        }
-
-        /*
         try {
-            final var classFileName = module.name.replace('.', File.separatorChar) + ".class";
-            final var path = output.resolve(classFileName);
-            Files.write(path, classBytes);
+            Files.createDirectories(output);
+            final var outputFile = output.resolve(module.name.replace('.', File.separatorChar) + ".class");
+            final var parentDir = outputFile.getParent();
+            if (parentDir != null && !Files.exists(parentDir)) {
+                Files.createDirectories(parentDir);
+            }
+            Files.write(outputFile, classBytes);
         } catch (IOException e) {
-            throw new CompileException("", e);
+            throw new CompileException("Error while writing bytecode.", e);
         }
-        */
+    }
 
+    /**
+     * Controleert dat de gegenereerde bytes een goed gevormd klassebestand
+     * vormen door ze te parsen met de ClassFile API.
+     */
+    private static void validate(final byte[] classBytes) throws CompileException {
+        try {
+            final var model = ClassFile.of().parse(classBytes);
+            if (model == null || model.thisClass() == null) {
+                throw new CompileException("Invalid bytecode generated: missing this-class");
+            }
+        } catch (final RuntimeException e) {
+            throw new CompileException("Invalid bytecode generated: " + e.getMessage(), e);
+        }
     }
 }

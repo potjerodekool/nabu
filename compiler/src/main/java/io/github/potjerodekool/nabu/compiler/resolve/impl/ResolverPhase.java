@@ -6,7 +6,6 @@ import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.Annotati
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
-import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
@@ -27,7 +26,6 @@ import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Pair;
 import io.github.potjerodekool.nabu.util.Types;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -1060,8 +1058,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
     @Override
     public Object visitNewArray(final NewArrayExpression newArrayExpression, final Scope param) {
-        final var result = super.visitNewArray(newArrayExpression, param);
-        return result;
+        return super.visitNewArray(newArrayExpression, param);
     }
 
     private TypeMirror captureLambdaParamType(final TypeMirror type) {

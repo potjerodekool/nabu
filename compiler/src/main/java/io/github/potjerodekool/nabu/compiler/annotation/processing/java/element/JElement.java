@@ -113,4 +113,20 @@ public abstract class JElement<S extends io.github.potjerodekool.nabu.compiler.l
     public <A extends Annotation> A[] getAnnotationsByType(final Class<A> annotationType) {
         return (A[]) new Annotation[0];
     }
+
+    @Override
+    public boolean equals(final Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof JElement<?> other)) {
+            return false;
+        }
+        return original.equals(other.original);
+    }
+
+    @Override
+    public int hashCode() {
+        return original.hashCode();
+    }
 }

@@ -100,12 +100,16 @@ public final class ToNabuMapper {
 
         @Override
         public TypeMirror visitUnion(final UnionType t, final Void unused) {
-            throw new UnsupportedOperationException("Union type not supported");
+            // Map union types to appropriate Nabu representation 
+            // This is needed for Java 8+ annotation processing interop
+            return TypeWrapperFactory.unwrap(t);
         }
 
         @Override
         public TypeMirror visitIntersection(final IntersectionType t, final Void unused) {
-            throw new UnsupportedOperationException("Intersection type not supported");
+            // Map intersection types to appropriate Nabu representation
+            // This is needed for Java 8+ annotation processing interop
+            return TypeWrapperFactory.unwrap(t);
         }
 
         @Override

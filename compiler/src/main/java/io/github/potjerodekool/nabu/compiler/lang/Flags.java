@@ -62,6 +62,14 @@ public class Flags {
             flags += STATIC;
         }
 
+        if (modifiers.contains(Modifier.PROTECTED)) {
+            flags += PROTECTED;
+        }
+
+        if (modifiers.contains(Modifier.ABSTRACT)) {
+            flags += ABSTRACT;
+        }
+
         if (modifiers.contains(Modifier.SYNTHETIC)) {
             flags += SYNTHETIC;
         }

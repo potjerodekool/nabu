@@ -112,6 +112,7 @@ public class FunctionEmitter {
             }
             case IRInstruction.HeapAlloc heapAlloc -> emitHeapAlloc(heapAlloc);
             case IRInstruction.ArrayLoad arrayLoad -> emitArrayLoad(arrayLoad);
+            case IRInstruction.ArrayStore arrayStore -> emitArrayStore(arrayStore);
             case IRInstruction.Phi phi -> throw new IllegalStateException(
                     "Phi-instructie moet geëlimineerd zijn vóór bytecode-emissie. " +
                     "Voer PhiElimination.run() uit op de functie.");
@@ -401,8 +402,14 @@ public class FunctionEmitter {
 
     private void emitNewArray(final IRInstruction.AllocaArray allocaArray) {
         emitValue(allocaArray.size());
-        final var internalName = AsmHelper.createDescriptor(allocaArray.allocType());
-        mv.visitTypeInsn(Opcodes.ANEWARRAY, internalName);
+        // ANEWARRAY verwacht het componenttype; allocType kan zelf al een
+        // arraytype zijn (Ptr/Array), leidt dan het component af.
+        final var componentType = switch (allocaArray.allocType()) {
+            case IRType.Array a -> a.elem();
+            case IRType.Ptr p -> p.pointee();
+            case IRType t -> t;
+        };
+        mv.visitTypeInsn(Opcodes.ANEWARRAY, AsmHelper.toInternalName(componentType));
         storeResult(allocaArray.result());
     }
 
@@ -411,6 +418,28 @@ public class FunctionEmitter {
         emitValue(arrayLoad.index());
         mv.visitInsn(resolveArrayLoadOpcode(arrayLoad.elemType()));
         storeResult(arrayLoad.result());
+    }
+
+    private void emitArrayStore(final IRInstruction.ArrayStore arrayStore) {
+        emitValue(arrayStore.array());
+        emitValue(arrayStore.index());
+        emitValue(arrayStore.value());
+        mv.visitInsn(resolveArrayStoreOpcode(arrayStore.elemType()));
+    }
+
+    private int resolveArrayStoreOpcode(final IRType elemType) {
+        return switch (elemType) {
+            case IRType.Int t -> switch (t.bits()) {
+                case 8 -> Opcodes.BASTORE;
+                case 16 -> Opcodes.SASTORE;
+                case 32 -> Opcodes.IASTORE;
+                case 64 -> Opcodes.LASTORE;
+                default -> Opcodes.IASTORE;
+            };
+            case IRType.Float t -> t.bits() == 32 ? Opcodes.FASTORE : Opcodes.DASTORE;
+            case IRType.Bool ignored -> Opcodes.BASTORE;
+            default -> Opcodes.AASTORE;
+        };
     }
 
     private void emitCast(final IRInstruction.Cast cast) {
@@ -434,8 +463,22 @@ public class FunctionEmitter {
         final var sepIndex = functionName.lastIndexOf('_');
         final String owner;
         if (sepIndex > -1) {
-            owner = AsmHelper.toInternalName(functionName.substring(0, sepIndex).replace('_', '.'));
-            functionName = functionName.substring(sepIndex + 1);
+            final var methodName = functionName.substring(sepIndex + 1);
+            final var mangledOwner = functionName.substring(0, sepIndex).replace('_', '.');
+            final var receiverType = call.args().isEmpty() ? null : call.args().getFirst().type();
+
+            if ("clone".equals(methodName)
+                    && receiverType instanceof IRType.Ptr ptr
+                    && ptr.jvmDescriptor() != null
+                    && ptr.jvmDescriptor().startsWith("[")) {
+                // Array.clone(): de MethodRef-owner is het arraytype zelf
+                // ([L...;) en niet de componentklasse (JVMS §6.5); anders
+                // keurt de verifier de bytecode af.
+                owner = AsmHelper.toInternalName(receiverType);
+            } else {
+                owner = AsmHelper.toInternalName(mangledOwner);
+            }
+            functionName = methodName;
         } else {
             // Geen 'Owner_method'-mangling: aanroep naar de eigen klasse.
             owner = ownerInternalName;
@@ -546,6 +589,10 @@ public class FunctionEmitter {
             case IRInstruction.AllocaArray a -> referencesValue(name, a.size());
             case IRInstruction.ArrayLoad a ->
                     referencesValue(name, a.array()) || referencesValue(name, a.index());
+            case IRInstruction.ArrayStore a ->
+                    referencesValue(name, a.array())
+                            || referencesValue(name, a.index())
+                            || referencesValue(name, a.value());
             case IRInstruction.ArrayLength a -> referencesValue(name, a.array());
             case IRInstruction.Store s ->
                     referencesValue(name, s.ptr()) || referencesValue(name, s.value());

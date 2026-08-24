@@ -64,7 +64,7 @@ public class AsmByteCodeEmitter {
     }
 
     private int resolveModuleAccess(final IRModule module) {
-        int access = 0;
+        int access;
 
         if (module.flags == 0) {
             access = Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER;
@@ -85,6 +85,9 @@ public class AsmByteCodeEmitter {
                 }
                 if (Flags.hasFlag(module.flags, Flags.RECORD)) {
                     access += Opcodes.ACC_RECORD;
+                }
+                if (Flags.hasFlag(module.flags, Flags.ENUM)) {
+                    access += Opcodes.ACC_ENUM;
                 }
             }
         }
@@ -116,6 +119,16 @@ public class AsmByteCodeEmitter {
 
         classVisitor.visit(classVersion, access, internalName, signature, superName, interfaces);
         classVisitor.visitSource(fileName, null);
+
+        // Emit PermittedSubclasses attribute for sealed classes
+        if (module.sealedClass()) {
+            final var permittedSubclasses = module.permittedSubclasses();
+            if (!permittedSubclasses.isEmpty()) {
+                for (final var subclass : permittedSubclasses) {
+                    classVisitor.visitPermittedSubclass(AsmHelper.toInternalName(subclass));
+                }
+            }
+        }
 
         emitAnnotations(module.annotations(), classVisitor::visitAnnotation);
 
@@ -331,7 +344,7 @@ public class AsmByteCodeEmitter {
     private void emitAnnotationValues(final AnnotationVisitor av,
                                       final CompoundAttribute annotation) {
         for (final var entry : annotation.getElementValues().entrySet()) {
-            final var methodName = entry.getKey().getSimpleName().toString();
+            final var methodName = entry.getKey().getSimpleName();
             final var value = entry.getValue();
             emitAnnotationValue(av, methodName, value);
         }
@@ -353,9 +366,9 @@ public class AsmByteCodeEmitter {
             else if (raw instanceof String s) av.visit(name, s);
         } else if (value instanceof EnumAttribute enumAttr) {
             final var varElement = enumAttr.getValue();
-            final var enumType = (DeclaredType) enumAttr.getType();
+            final var enumType = enumAttr.getType();
             final var enumDesc = AsmHelper.createDescriptor(enumType);
-            av.visitEnum(name, enumDesc, varElement.getSimpleName().toString());
+            av.visitEnum(name, enumDesc, varElement.getSimpleName());
         } else if (value instanceof CompoundAttribute nested) {
             final var nestedType = nested.getAnnotationType();
             if (nestedType != null) {
@@ -379,7 +392,7 @@ public class AsmByteCodeEmitter {
             if (typeMirror instanceof DeclaredType dt
                     && "java.lang.Class".equals(((TypeElement) dt.asElement()).getQualifiedName())
                     && !dt.getTypeArguments().isEmpty()) {
-                final var typeArg = dt.getTypeArguments().get(0);
+                final var typeArg = dt.getTypeArguments().getFirst();
                 final var typeDesc = AsmHelper.createDescriptor(typeArg);
                 av.visit(name, Type.getType(typeDesc));
             } else if (typeMirror instanceof TypeMirror tm) {

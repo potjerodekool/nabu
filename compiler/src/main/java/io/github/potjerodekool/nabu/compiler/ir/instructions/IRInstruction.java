@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
 import java.util.List;
 import java.util.Objects;
 
-public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion {
+public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.ArrayStore, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion {
 
     /** Resultaat van de instructie; null als de instructie void is. */
     IRValue result();
@@ -78,6 +78,16 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
             IRType elemType,
             SourceLocation location
     ) implements IRInstruction {}
+
+    record ArrayStore(
+            IRValue array,
+            IRValue index,
+            IRValue value,
+            IRType elemType,
+            SourceLocation location
+    ) implements IRInstruction {
+        public IRValue result() { return null; }
+    }
 
     record ArrayLength(
             IRValue result,

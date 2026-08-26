@@ -6,7 +6,7 @@ import io.github.potjerodekool.nabu.compiler.backend.ir.TypeMirrorToIRType;
 import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
 import io.github.potjerodekool.nabu.compiler.ir.IRField;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.Constants;
 import org.junit.jupiter.api.Test;
 

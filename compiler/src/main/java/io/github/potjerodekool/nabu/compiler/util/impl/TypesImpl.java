@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.type.impl.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.ClassSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
@@ -9,7 +10,6 @@ import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.MemberOfVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.types.*;
-import io.github.potjerodekool.nabu.compiler.type.impl.*;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;
 

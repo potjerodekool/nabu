@@ -29,8 +29,8 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Bytedeco classes: worden in de plugin-jar gebundeld
-             met maven-shade-plugin zodat de daemon ze kan laden. -->
+        <!-- Bytedeco classes: bundled in the plugin-jar
+             with maven-shade-plugin so the daemon can load them. -->
         <dependency>
             <groupId>org.bytedeco</groupId>
             <artifactId>javacpp</artifactId>
@@ -87,14 +87,14 @@
                         </goals>
                         <configuration>
                             <filters>
-                                <!-- compiler classes komen uit de daemon -->
+                                <!-- compiler classes are comming from the daemon -->
                                 <filter>
                                     <artifact>io.github.potjerodekool:nabu-compiler</artifact>
                                     <excludes>
                                         <exclude>**</exclude>
                                     </excludes>
                                 </filter>
-                                <!-- verwijder jar-handtekeningen -->
+                                <!-- Remove jar-signatures -->
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>

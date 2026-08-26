@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 
 import java.util.*;

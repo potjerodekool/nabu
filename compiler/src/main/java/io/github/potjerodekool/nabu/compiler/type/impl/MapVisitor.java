@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
-import io.github.potjerodekool.nabu.compiler.resolve.types.AbstractTypeVisitor;
+import io.github.potjerodekool.nabu.type.AbstractTypeVisitor;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 public class MapVisitor<S> extends AbstractTypeVisitor<AbstractType, S> {

@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.resolve.access;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 
 public final class StandardAccessChecker implements AccessChecker {
 

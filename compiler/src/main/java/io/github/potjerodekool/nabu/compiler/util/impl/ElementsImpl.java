@@ -1,10 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.resolve.method.impl.OverrideChecker;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;

@@ -1,16 +1,14 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
-import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
 import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.lang.Flags;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
 import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.net.URLClassLoader;

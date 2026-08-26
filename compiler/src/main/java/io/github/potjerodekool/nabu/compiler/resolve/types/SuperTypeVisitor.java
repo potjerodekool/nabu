@@ -6,8 +6,6 @@ import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
-import java.util.List;
-
 public class SuperTypeVisitor extends UnaryVisitor<AbstractType> {
 
     private final TypesImpl types;

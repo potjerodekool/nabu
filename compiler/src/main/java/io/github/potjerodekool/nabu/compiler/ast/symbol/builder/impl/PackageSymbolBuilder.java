@@ -1,0 +1,79 @@
+package io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl;
+
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
+import io.github.potjerodekool.nabu.lang.model.element.builder.PackageElementBuilder;
+
+public class PackageSymbolBuilder extends AbstractSymbolBuilder<PackageElementBuilder<io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol>> implements PackageElementBuilder<io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol> {
+
+    private Element enclosingElement;
+    private String simpleName;
+    private ModuleElement module;
+
+    public PackageSymbolBuilder() {
+    }
+
+    public PackageSymbolBuilder(final io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol packageSymbol) {
+        this.enclosingElement = packageSymbol.getEnclosingElement();
+        this.simpleName = packageSymbol.getSimpleName();
+    }
+
+    @Override
+    protected PackageElementBuilder<io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol> self() {
+        return this;
+    }
+
+    @Override
+    public Element getEnclosingElement() {
+        return enclosingElement;
+    }
+
+    @Override
+    public PackageSymbolBuilder enclosingElement(final Element enclosingElement) {
+        this.enclosingElement = enclosingElement;
+        return this;
+    }
+
+    @Override
+    public String getSimpleName() {
+        return simpleName;
+    }
+
+    public ModuleElement getModule() {
+        return module;
+    }
+
+    @Override
+    public PackageSymbolBuilder simpleName(final String name) {
+        this.simpleName = name;
+        return this;
+    }
+
+    @Override
+    public io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol build() {
+        return new io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol(this);
+    }
+
+    @Override
+    public PackageSymbolBuilder kind(final ElementKind elementKind) {
+        return this;
+    }
+
+    @Override
+    public PackageSymbolBuilder flags(final long flags) {
+        return this;
+    }
+
+    @Override
+    public PackageElement createUnnamed() {
+        return io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol.UNNAMED_PACKAGE;
+    }
+
+    @Override
+    public PackageSymbolBuilder module(final ModuleElement module) {
+        this.module = module;
+        return this;
+    }
+}

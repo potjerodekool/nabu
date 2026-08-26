@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.type.*;
 
 public class IsSameType extends BooleanResultVisitor {

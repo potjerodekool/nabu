@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.*;
 
 import java.io.BufferedWriter;

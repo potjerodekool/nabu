@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ElementBuildersImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.ElementBuildersImpl;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.ElementBuilders;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilders;
 import io.github.potjerodekool.nabu.compiler.resolve.method.impl.CompleteMethodResolver;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;

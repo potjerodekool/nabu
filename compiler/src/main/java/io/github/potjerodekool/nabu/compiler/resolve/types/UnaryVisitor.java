@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
+import io.github.potjerodekool.nabu.type.AbstractTypeVisitor;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 public abstract class UnaryVisitor<R> extends AbstractTypeVisitor<R, Void> {

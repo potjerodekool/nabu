@@ -1,6 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.PhiElimination;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.Linearizer;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
 import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.compiler.ir.IRField;
 import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
@@ -8,9 +11,9 @@ import io.github.potjerodekool.nabu.compiler.ir.IRGlobal;
 import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.resolve.jvm.AccessUtils;
 import io.github.potjerodekool.nabu.tools.JavaVersion;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -101,15 +104,15 @@ public class AsmByteCodeEmitter {
         final var javaVersion = JavaVersion.MINIMAL_VERSION;
         final var classVersion = javaVersion.getValue();
         final var access = resolveModuleAccess(module);
-        final var internalName = AsmHelper.toInternalName(module.name);
+        final var internalName = BytecodeHelper.toInternalName(module.name);
         this.ownerInternalName = internalName;
         final String signature = module.genericSignature();
         final var superName = module.superType() != null
-                ? AsmHelper.toInternalName(module.superType())
+                ? BytecodeHelper.toInternalName(module.superType())
                 : "java/lang/Object";
 
         final var interfaces = module.interfaces().stream()
-                .map(AsmHelper::toInternalName)
+                .map(BytecodeHelper::toInternalName)
                 .toArray(String[]::new);
 
         final var rawSourceFile = module.sourceFile();
@@ -125,7 +128,7 @@ public class AsmByteCodeEmitter {
             final var permittedSubclasses = module.permittedSubclasses();
             if (!permittedSubclasses.isEmpty()) {
                 for (final var subclass : permittedSubclasses) {
-                    classVisitor.visitPermittedSubclass(AsmHelper.toInternalName(subclass));
+                    classVisitor.visitPermittedSubclass(BytecodeHelper.toInternalName(subclass));
                 }
             }
         }
@@ -179,7 +182,7 @@ public class AsmByteCodeEmitter {
             }
         }
 
-        final var descriptor = AsmHelper.createDescriptorWithValues(
+        final var descriptor = BytecodeHelper.createDescriptorWithValues(
                 params,
                 function.returnType
         );
@@ -203,7 +206,7 @@ public class AsmByteCodeEmitter {
                 for (final var ann : paramAnnList) {
                     final var annType = ann.getAnnotationType();
                     if (annType == null) continue;
-                    final var desc = AsmHelper.createDescriptor(annType);
+                    final var desc = BytecodeHelper.createDescriptor(annType);
                     final var av = methodVisitor.visitParameterAnnotation(i, desc, true);
                     if (av != null) {
                         emitAnnotationValues(av, ann);
@@ -242,7 +245,7 @@ public class AsmByteCodeEmitter {
                         final var endLabel = emitter.getOrCreateLabel(tc.tryEndLabel());
                         final var handlerLabel = emitter.getOrCreateLabel(tc.handlerLabel());
                         final var exceptionType = tc.exceptionType() != null
-                                ? AsmHelper.toInternalName(tc.exceptionType())
+                                ? BytecodeHelper.toInternalName(tc.exceptionType())
                                 : null;
                         methodVisitor.visitTryCatchBlock(
                                 startLabel,
@@ -301,7 +304,7 @@ public class AsmByteCodeEmitter {
     private void emitField(final IRField field) {
         final var access = AccessUtils.flagsToAccess(field.flags());
         final var name = field.name();
-        final var descriptor = AsmHelper.createDescriptor(field.type());
+        final var descriptor = BytecodeHelper.createDescriptor(field.type());
 
         switch (field.kind()) {
             case RECORD_COMPONENT -> {
@@ -332,7 +335,7 @@ public class AsmByteCodeEmitter {
             final var annotationType = annotation.getAnnotationType();
             if (annotationType == null) continue;
 
-            final var descriptor = AsmHelper.createDescriptor(annotationType);
+            final var descriptor = BytecodeHelper.createDescriptor(annotationType);
             final var av = visitorFactory.apply(descriptor, true);
             if (av == null) continue;
 
@@ -367,12 +370,12 @@ public class AsmByteCodeEmitter {
         } else if (value instanceof EnumAttribute enumAttr) {
             final var varElement = enumAttr.getValue();
             final var enumType = enumAttr.getType();
-            final var enumDesc = AsmHelper.createDescriptor(enumType);
+            final var enumDesc = BytecodeHelper.createDescriptor(enumType);
             av.visitEnum(name, enumDesc, varElement.getSimpleName());
         } else if (value instanceof CompoundAttribute nested) {
             final var nestedType = nested.getAnnotationType();
             if (nestedType != null) {
-                final var nestedDesc = AsmHelper.createDescriptor(nestedType);
+                final var nestedDesc = BytecodeHelper.createDescriptor(nestedType);
                 final var nav = av.visitAnnotation(name, nestedDesc);
                 if (nav != null) {
                     emitAnnotationValues(nav, nested);
@@ -393,10 +396,10 @@ public class AsmByteCodeEmitter {
                     && "java.lang.Class".equals(((TypeElement) dt.asElement()).getQualifiedName())
                     && !dt.getTypeArguments().isEmpty()) {
                 final var typeArg = dt.getTypeArguments().getFirst();
-                final var typeDesc = AsmHelper.createDescriptor(typeArg);
+                final var typeDesc = BytecodeHelper.createDescriptor(typeArg);
                 av.visit(name, Type.getType(typeDesc));
             } else if (typeMirror instanceof TypeMirror tm) {
-                final var typeDesc = AsmHelper.createDescriptor(tm);
+                final var typeDesc = BytecodeHelper.createDescriptor(tm);
                 av.visit(name, Type.getType(typeDesc));
             }
         }

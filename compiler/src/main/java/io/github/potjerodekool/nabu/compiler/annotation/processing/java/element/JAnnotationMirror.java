@@ -8,7 +8,7 @@ import java.util.Map;
 
 public class JAnnotationMirror implements AnnotationMirror {
 
-    public JAnnotationMirror(final io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror original) {
+    public JAnnotationMirror(final io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror original) {
     }
 
     @Override

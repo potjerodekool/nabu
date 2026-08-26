@@ -1,11 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.TypeVariableSymbolBuilder;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementVisitor;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeParameterElement;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.TypeVariableSymbolBuilder;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.ElementVisitor;
+import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 import io.github.potjerodekool.nabu.util.CollectionUtils;

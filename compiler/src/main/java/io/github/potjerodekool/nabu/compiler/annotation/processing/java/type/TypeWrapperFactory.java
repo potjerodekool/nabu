@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.type;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror;
+import io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror;
 import io.github.potjerodekool.nabu.type.*;
 
 import javax.lang.model.type.TypeKind;

@@ -3,5 +3,5 @@ module io.github.potjerodekool.compiler.testing {
     requires org.antlr.antlr4.runtime;
     requires org.junit.jupiter.api;
     requires java.compiler;
-    requires io.github.potjerodekool.nabu.compiler;
+    requires io.github.potjerodekool.compiler.api;
 }

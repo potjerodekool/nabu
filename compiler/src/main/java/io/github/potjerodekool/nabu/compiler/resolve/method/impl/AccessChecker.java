@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 
 public final class AccessChecker {
 

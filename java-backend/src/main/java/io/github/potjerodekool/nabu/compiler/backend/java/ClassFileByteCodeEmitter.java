@@ -1,18 +1,17 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
 import io.github.potjerodekool.nabu.compiler.backend.ir.PhiElimination;
-import io.github.potjerodekool.nabu.compiler.resolve.asm.AccessUtils;
-import io.github.potjerodekool.nabu.compiler.backend.asm.AsmHelper;
-import io.github.potjerodekool.nabu.compiler.backend.asm.Linearizer;
-import io.github.potjerodekool.nabu.compiler.backend.asm.SlotAllocator;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.compiler.resolve.jvm.AccessUtils;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.Linearizer;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
 import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.compiler.ir.IRField;
 import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
 import io.github.potjerodekool.nabu.compiler.ir.IRGlobal;
 import io.github.potjerodekool.nabu.compiler.ir.IRModule;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.lang.Flags;
 
 import java.lang.classfile.ClassBuilder;
 import java.lang.classfile.ClassFile;
@@ -90,7 +89,7 @@ class ClassFileByteCodeEmitter {
         hasMainFunction = false;
         module.globals().forEach(this::emitGlobal);
 
-        ownerInternalName = AsmHelper.toInternalName(module.name);
+        ownerInternalName = BytecodeHelper.toInternalName(module.name);
 
         final var classBytes = ClassFile.of().build(
                 ClassDesc.ofInternalName(ownerInternalName),
@@ -107,12 +106,12 @@ class ClassFileByteCodeEmitter {
         classBuilder.withFlags(resolveModuleAccess(module));
 
         final var superName = module.superType() != null
-                ? AsmHelper.toInternalName(module.superType())
+                ? BytecodeHelper.toInternalName(module.superType())
                 : "java/lang/Object";
         classBuilder.withSuperclass(ClassDesc.ofInternalName(superName));
 
         final var interfaces = module.interfaces().stream()
-                .map(AsmHelper::toInternalName)
+                .map(BytecodeHelper::toInternalName)
                 .map(ClassDesc::ofInternalName)
                 .toList();
         if (!interfaces.isEmpty()) {
@@ -131,7 +130,7 @@ class ClassFileByteCodeEmitter {
                 AttributeFactories.permittedSubclasses(
                         classBuilder,
                         permittedSubclasses.stream()
-                                .map(AsmHelper::toInternalName)
+                                .map(BytecodeHelper::toInternalName)
                                 .toList()
                 );
             }
@@ -188,13 +187,13 @@ class ClassFileByteCodeEmitter {
     private void emitField(final ClassBuilder classBuilder,
                            final IRField field) {
         final var name = field.name();
-        final var fieldDesc = ClassDesc.ofDescriptor(AsmHelper.createDescriptor(field.type()));
+        final var fieldDesc = ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(field.type()));
 
         switch (field.kind()) {
             case RECORD_COMPONENT -> AttributeFactories.recordComponent(
                     classBuilder,
                     name,
-                    AsmHelper.createDescriptor(field.type()),
+                    BytecodeHelper.createDescriptor(field.type()),
                     field.genericSignature(),
                     field.annotations()
             );
@@ -229,7 +228,7 @@ class ClassFileByteCodeEmitter {
             params = params.size() == 1 ? List.<IRValue>of() : params.subList(1, params.size());
         }
 
-        final var descriptor = AsmHelper.createDescriptorWithValues(
+        final var descriptor = BytecodeHelper.createDescriptorWithValues(
                 params,
                 function.returnType
         );

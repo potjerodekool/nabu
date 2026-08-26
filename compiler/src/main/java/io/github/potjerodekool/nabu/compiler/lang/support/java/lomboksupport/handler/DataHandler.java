@@ -1,12 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java.lomboksupport.handler;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeKind;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 

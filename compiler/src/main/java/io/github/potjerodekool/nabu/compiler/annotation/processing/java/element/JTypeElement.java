@@ -7,13 +7,13 @@ import javax.lang.model.type.TypeMirror;
 import java.lang.annotation.Annotation;
 import java.util.List;
 
-public class JTypeElement extends JElement<io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement> implements javax.lang.model.element.TypeElement {
+public class JTypeElement extends JElement<io.github.potjerodekool.nabu.lang.model.element.TypeElement> implements javax.lang.model.element.TypeElement {
 
     private List<? extends TypeMirror> interfaces;
     private final NestingKind nestingKind;
     private List<TypeParameterElement> typeParameterElements;
 
-    protected JTypeElement(final io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement original) {
+    protected JTypeElement(final io.github.potjerodekool.nabu.lang.model.element.TypeElement original) {
         super(original);
         this.nestingKind = NestingKind.valueOf(original.getNestingKind().name());
     }

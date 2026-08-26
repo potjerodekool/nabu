@@ -1,14 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ModuleSymbolBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.Directive;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.PackageElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.TypeElementBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.ModuleSymbolBuilder;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.Directive;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.builder.TypeElementBuilder;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

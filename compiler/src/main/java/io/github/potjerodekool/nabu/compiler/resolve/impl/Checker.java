@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
@@ -15,7 +15,6 @@ import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CVariableTypeTree;
-import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
 import io.github.potjerodekool.nabu.tree.statement.SwitchStatement;
 import io.github.potjerodekool.nabu.tree.statement.ThrowStatement;
 import io.github.potjerodekool.nabu.tree.statement.TryStatementTree;

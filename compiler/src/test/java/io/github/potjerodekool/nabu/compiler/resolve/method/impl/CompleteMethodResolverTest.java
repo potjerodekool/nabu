@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;

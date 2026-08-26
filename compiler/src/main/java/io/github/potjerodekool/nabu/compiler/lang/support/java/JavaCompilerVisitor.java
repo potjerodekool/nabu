@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
 import io.github.potjerodekool.nabu.compiler.frontend.parser.VariableArityParameter;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodDeclarator;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodHeader;

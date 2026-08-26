@@ -11,11 +11,11 @@ import java.util.stream.Collectors;
 
 public class JAnnotationMirror implements AnnotationMirror {
 
-    private final io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror original;
+    private final io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror original;
     private final DeclaredType annotationType;
     private Map<ExecutableElement, AnnotationValue> elementValues;
 
-    public JAnnotationMirror(final io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror annotationMirror) {
+    public JAnnotationMirror(final io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror annotationMirror) {
         this.original = annotationMirror;
         this.annotationType = (DeclaredType) TypeWrapperFactory.wrap(annotationMirror.getAnnotationType());
     }

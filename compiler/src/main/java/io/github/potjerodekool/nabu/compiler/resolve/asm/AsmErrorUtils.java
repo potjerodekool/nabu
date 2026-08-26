@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 
 import java.util.Objects;
 

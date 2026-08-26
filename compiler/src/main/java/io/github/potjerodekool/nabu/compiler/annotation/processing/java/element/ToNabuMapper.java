@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import javax.lang.model.element.AnnotationMirror;
@@ -20,7 +20,7 @@ public final class ToNabuMapper {
     private ToNabuMapper() {
     }
 
-    public static io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror accept(final AnnotationMirror mirror) {
+    public static io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror accept(final AnnotationMirror mirror) {
         return MAPPER.accept(mirror);
     }
 
@@ -30,7 +30,7 @@ public final class ToNabuMapper {
 
     private static class Mapper implements TypeVisitor<TypeMirror, Void>, AnnotationValueVisitor<AnnotationValue, Void> {
 
-        public io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror accept(final AnnotationMirror mirror) {
+        public io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror accept(final AnnotationMirror mirror) {
             final var annotationType = (io.github.potjerodekool.nabu.type.DeclaredType) mirror.getAnnotationType().accept(this, null);
             final Map<ExecutableElement, AnnotationValue> values = mirror.getElementValues().entrySet().stream()
                     .map(it -> {

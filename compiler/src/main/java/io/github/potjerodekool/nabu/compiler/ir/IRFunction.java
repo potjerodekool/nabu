@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.ir;
 import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
 import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.CompoundAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.CompoundAttribute;
 
 import java.util.*;
 

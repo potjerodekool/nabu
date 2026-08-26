@@ -1,12 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
+import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -142,7 +142,7 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
 
     public boolean overrides(final ExecutableElement overridden,
                              final TypeElement type,
-                             final TypesImpl types,
+                             final Types types,
                              final boolean b) {
         return false;
     }

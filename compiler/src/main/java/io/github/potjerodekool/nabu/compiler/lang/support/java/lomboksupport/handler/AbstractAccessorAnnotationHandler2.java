@@ -1,11 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java.lomboksupport.handler;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ClassAttribute;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.ClassAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.LongBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.ShortBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;

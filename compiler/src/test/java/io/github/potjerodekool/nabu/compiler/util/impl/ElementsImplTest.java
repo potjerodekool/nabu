@@ -1,12 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.util.impl;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
 import io.github.potjerodekool.nabu.util.CollectionUtils;
 import org.junit.jupiter.api.Test;
-
-import java.util.ArrayList;
 
 import static org.junit.jupiter.api.Assertions.*;
 

@@ -1,14 +1,14 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
-import io.github.potjerodekool.nabu.compiler.backend.asm.AsmHelper;
-import io.github.potjerodekool.nabu.compiler.backend.asm.SlotAllocator;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
 import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationValue;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ArrayAttribute;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ClassAttribute;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.CompoundAttribute;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ConstantAttribute;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.EnumAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.AnnotationValue;
+import io.github.potjerodekool.nabu.lang.model.element.ArrayAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.ClassAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.CompoundAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.ConstantAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.EnumAttribute;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import java.lang.classfile.Annotation;
@@ -208,7 +208,7 @@ final class AttributeFactories {
             return null;
         }
 
-        final var typeDescriptor = AsmHelper.createDescriptor(annotationType);
+        final var typeDescriptor = BytecodeHelper.createDescriptor(annotationType);
         final var classDesc = ClassDesc.ofDescriptor(typeDescriptor);
 
         final var elements = new ArrayList<AnnotationElement>();
@@ -238,7 +238,7 @@ final class AttributeFactories {
             return null;
         } else if (value instanceof EnumAttribute enumAttr) {
             final var enumType = enumAttr.getType();
-            final var enumDesc = AsmHelper.createDescriptor(enumType);
+            final var enumDesc = BytecodeHelper.createDescriptor(enumType);
             final var constantName = enumAttr.getValue().getSimpleName();
             return java.lang.classfile.AnnotationValue.ofEnum(
                     ClassDesc.ofDescriptor(enumDesc),
@@ -263,7 +263,7 @@ final class AttributeFactories {
             final var typeMirror = classAttr.getValue();
             if (typeMirror instanceof TypeMirror tm) {
                 return java.lang.classfile.AnnotationValue.ofClass(
-                        ClassDesc.ofDescriptor(AsmHelper.createDescriptor(tm))
+                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(tm))
                 );
             }
             return null;

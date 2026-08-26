@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public abstract class JElement<S extends io.github.potjerodekool.nabu.compiler.lang.model.element.Element> implements Element {
+public abstract class JElement<S extends io.github.potjerodekool.nabu.lang.model.element.Element> implements Element {
 
     private final S original;
 
@@ -40,7 +40,7 @@ public abstract class JElement<S extends io.github.potjerodekool.nabu.compiler.l
 
     public Name getQualifiedName() {
         if (qualifiedName == null) {
-            if (original instanceof io.github.potjerodekool.nabu.compiler.lang.model.element.QualifiedNameable qualifiedNameable) {
+            if (original instanceof io.github.potjerodekool.nabu.lang.model.element.QualifiedNameable qualifiedNameable) {
                 qualifiedName = new JName(qualifiedNameable.getQualifiedName());
             } else {
                 qualifiedName = getSimpleName();

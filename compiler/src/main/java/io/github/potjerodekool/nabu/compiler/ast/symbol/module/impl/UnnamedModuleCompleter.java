@@ -1,7 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.*;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.CompleteException;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Completer;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 
 import java.util.HashSet;

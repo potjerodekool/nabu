@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.type.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.Element;
+import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.type.ErrorType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 

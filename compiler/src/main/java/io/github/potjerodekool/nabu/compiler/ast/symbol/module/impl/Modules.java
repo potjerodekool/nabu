@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Completer;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Completer;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tools.FileManager;

@@ -71,7 +71,7 @@ public class JavacMessager implements Messager {
         );
     }
 
-    private io.github.potjerodekool.nabu.compiler.lang.model.element.Element extractSymbol(final Element element) {
+    private io.github.potjerodekool.nabu.lang.model.element.Element extractSymbol(final Element element) {
         if (element instanceof JElement<?> symbol) {
             return symbol.getOriginal();
         } else {

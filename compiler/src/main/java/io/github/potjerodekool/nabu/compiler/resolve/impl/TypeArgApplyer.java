@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Types;

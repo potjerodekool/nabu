@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
-import io.github.potjerodekool.nabu.compiler.impl.AbstractAnnotationValueVisitor;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.compiler.resolve.AbstractAnnotationValueVisitor;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 
 import java.util.List;

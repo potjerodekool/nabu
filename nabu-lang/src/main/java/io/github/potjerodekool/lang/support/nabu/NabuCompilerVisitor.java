@@ -1,10 +1,10 @@
 package io.github.potjerodekool.lang.support.nabu;
 
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.helper.MethodDeclarator;
-import io.github.potjerodekool.nabu.compiler.lang.helper.MethodHeader;
-import io.github.potjerodekool.nabu.compiler.lang.helper.WildcardBound;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.MethodDeclarator;
+import io.github.potjerodekool.nabu.lang.MethodHeader;
+import io.github.potjerodekool.nabu.lang.WildcardBound;
+import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tree.*;
@@ -28,9 +28,9 @@ import java.io.File;
 import java.util.*;
 import java.util.stream.Stream;
 
-import static io.github.potjerodekool.nabu.compiler.lang.helper.CompilerVisitorHelper.*;
-import static io.github.potjerodekool.nabu.compiler.lang.helper.SourceVisitor.createFunction;
-import static io.github.potjerodekool.nabu.compiler.lang.helper.SourceVisitor.processImportExpression;
+import static io.github.potjerodekool.nabu.lang.CompilerVisitorHelper.*;
+import static io.github.potjerodekool.nabu.lang.SourceVisitor.createFunction;
+import static io.github.potjerodekool.nabu.lang.SourceVisitor.processImportExpression;
 
 public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 

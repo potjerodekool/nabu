@@ -1,9 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.MethodSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 
@@ -17,7 +16,7 @@ public final class ElementWrapperFactory {
     private ElementWrapperFactory() {
     }
 
-    public static Element wrap(final io.github.potjerodekool.nabu.compiler.lang.model.element.Element original) {
+    public static Element wrap(final io.github.potjerodekool.nabu.lang.model.element.Element original) {
         return switch (original) {
             case null -> null;
             case TypeElement typeElement -> new JTypeElement(typeElement);
@@ -33,7 +32,7 @@ public final class ElementWrapperFactory {
         };
     }
 
-    public static AnnotationValue wrap(final io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationValue original) {
+    public static AnnotationValue wrap(final io.github.potjerodekool.nabu.lang.model.element.AnnotationValue original) {
         return switch (original) {
             case EnumAttribute enumAttribute -> new JEnumAttribute(enumAttribute);
             case ConstantAttribute constantAttribute -> new JConstantAttribute(constantAttribute);
@@ -49,11 +48,11 @@ public final class ElementWrapperFactory {
         };
     }
 
-    public static io.github.potjerodekool.nabu.compiler.lang.model.element.Element unwrap(final Element element) {
+    public static io.github.potjerodekool.nabu.lang.model.element.Element unwrap(final Element element) {
         return ((JElement<?>) element).getOriginal();
     }
 
-    public static io.github.potjerodekool.nabu.compiler.lang.model.element.Element toNabuElement(final Element element) {
+    public static io.github.potjerodekool.nabu.lang.model.element.Element toNabuElement(final Element element) {
         return switch (element) {
             case javax.lang.model.element.ExecutableElement executableElement -> new MethodSymbolBuilderImpl()
                     .kind(ElementKind.METHOD)

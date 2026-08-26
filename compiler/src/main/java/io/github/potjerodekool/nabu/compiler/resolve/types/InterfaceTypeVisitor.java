@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
+import io.github.potjerodekool.nabu.type.AbstractTypeVisitor;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.type.TypeVariable;
 import io.github.potjerodekool.nabu.util.CollectionUtils;

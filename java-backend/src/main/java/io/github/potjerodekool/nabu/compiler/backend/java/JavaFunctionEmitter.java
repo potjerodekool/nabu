@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
-import io.github.potjerodekool.nabu.compiler.backend.asm.AsmHelper;
-import io.github.potjerodekool.nabu.compiler.backend.asm.SlotAllocator;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
 import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
 import io.github.potjerodekool.nabu.compiler.ir.CallKind;
 import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
@@ -148,7 +148,7 @@ class JavaFunctionEmitter {
                     final var endLabel = getOrCreateLabel(tc.tryEndLabel());
                     final var handlerLabel = getOrCreateLabel(tc.handlerLabel());
                     final ClassDesc exceptionType = tc.exceptionType() != null
-                            ? ClassDesc.ofInternalName(AsmHelper.toInternalName(tc.exceptionType()))
+                            ? ClassDesc.ofInternalName(BytecodeHelper.toInternalName(tc.exceptionType()))
                             : null;
                     code.exceptionCatch(startLabel, endLabel, handlerLabel, exceptionType);
                 }
@@ -172,7 +172,7 @@ class JavaFunctionEmitter {
     }
 
     private void emitThrow(final IRInstruction.Throw throwInst) {
-        final var type = AsmHelper.toInternalName(throwInst.type());
+        final var type = BytecodeHelper.toInternalName(throwInst.type());
         code.new_(ClassDesc.ofInternalName(type));
         code.dup();
         code.invokespecial(
@@ -185,7 +185,7 @@ class JavaFunctionEmitter {
 
     private void emitInstanceOf(final IRInstruction.InstanceOf instanceOf) {
         emitValue(instanceOf.source());
-        code.instanceOf(ClassDesc.ofInternalName(AsmHelper.toInternalName(instanceOf.type())));
+        code.instanceOf(ClassDesc.ofInternalName(BytecodeHelper.toInternalName(instanceOf.type())));
         storeResult(instanceOf.result());
     }
 
@@ -316,10 +316,10 @@ class JavaFunctionEmitter {
     private void generateDescriptorForStringConcat(final IRInstruction.BinaryOp binaryOp,
                                                    final StringBuilder stringBuilder) {
         if (binaryOp.left() instanceof IRValue.Temp) {
-            stringBuilder.append(AsmHelper.createDescriptor(binaryOp.left().type()));
+            stringBuilder.append(BytecodeHelper.createDescriptor(binaryOp.left().type()));
         }
         if (binaryOp.right() instanceof IRValue.Temp) {
-            stringBuilder.append(AsmHelper.createDescriptor(binaryOp.right().type()));
+            stringBuilder.append(BytecodeHelper.createDescriptor(binaryOp.right().type()));
         }
     }
 
@@ -353,13 +353,13 @@ class JavaFunctionEmitter {
                 code.getstatic(
                         ClassDesc.ofInternalName(resolveOwnerName(named, global)),
                         resolveFieldName(named, global),
-                        ClassDesc.ofDescriptor(AsmHelper.createDescriptor(load.result().type()))
+                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(load.result().type()))
                 );
             } else {
                 code.getfield(
-                        ClassDesc.ofInternalName(AsmHelper.toInternalName(named.ownerType())),
+                        ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
                         named.name(),
-                        ClassDesc.ofDescriptor(AsmHelper.createDescriptor(load.type()))
+                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(load.type()))
                 );
             }
         } else if (ptr instanceof IRValue.Temp temp) {
@@ -384,14 +384,14 @@ class JavaFunctionEmitter {
                 code.putstatic(
                         ClassDesc.ofInternalName(resolveOwnerName(named, global)),
                         resolveFieldName(named, global),
-                        ClassDesc.ofDescriptor(AsmHelper.createDescriptor(
+                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(
                                 global != null ? global.type() : named.type()))
                 );
             } else {
                 code.putfield(
-                        ClassDesc.ofInternalName(AsmHelper.toInternalName(named.ownerType())),
+                        ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
                         named.name(),
-                        ClassDesc.ofDescriptor(AsmHelper.createDescriptor(named.type()))
+                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(named.type()))
                 );
             }
         } else if (store.ptr() instanceof IRValue.Values values) {
@@ -403,9 +403,9 @@ class JavaFunctionEmitter {
             emitValue(store.value());
 
             code.putfield(
-                    ClassDesc.ofInternalName(AsmHelper.toInternalName(named.ownerType())),
+                    ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
                     named.name(),
-                    ClassDesc.ofDescriptor(AsmHelper.createDescriptor(named.type()))
+                    ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(named.type()))
             );
         } else if (store.ptr() instanceof IRValue.Temp temp) {
             emitValue(store.value());
@@ -433,7 +433,7 @@ class JavaFunctionEmitter {
             case IRType.Ptr p -> p.pointee();
             case IRType t -> t;
         };
-        code.anewarray(toClassDesc(AsmHelper.toInternalName(componentType)));
+        code.anewarray(toClassDesc(BytecodeHelper.toInternalName(componentType)));
         storeResult(allocaArray.result());
     }
 
@@ -461,7 +461,7 @@ class JavaFunctionEmitter {
 
     private void emitCast(final IRInstruction.Cast cast) {
         emitValue(cast.source());
-        code.checkcast(toClassDesc(AsmHelper.toInternalName(cast.targetType())));
+        code.checkcast(toClassDesc(BytecodeHelper.toInternalName(cast.targetType())));
         storeResult(cast.result());
     }
 
@@ -471,7 +471,7 @@ class JavaFunctionEmitter {
 
     private void emitCall(final IRInstruction.Call call) {
         final var opcode = resolveInvokeKind(call.callKind());
-        final var descriptor = AsmHelper.createDescriptor(
+        final var descriptor = BytecodeHelper.createDescriptor(
                 call.paramTypes(),
                 call.returnType()
         );
@@ -491,9 +491,9 @@ class JavaFunctionEmitter {
                 // Array.clone(): de MethodRef-owner is het arraytype zelf
                 // ([L...;) en niet de componentklasse (JVMS §6.5); anders
                 // keurt de verifier de bytecode af.
-                owner = AsmHelper.toInternalName(receiverType);
+                owner = BytecodeHelper.toInternalName(receiverType);
             } else {
-                owner = AsmHelper.toInternalName(mangledOwner);
+                owner = BytecodeHelper.toInternalName(mangledOwner);
             }
             functionName = methodName;
         } else {
@@ -679,7 +679,7 @@ class JavaFunctionEmitter {
         for (final var arg : call.args()) {
             emitValue(arg);
         }
-        final var descriptor = AsmHelper.createDescriptor(
+        final var descriptor = BytecodeHelper.createDescriptor(
                 call.fnType().paramTypes(),
                 call.fnType().returnType()
         );
@@ -931,13 +931,13 @@ class JavaFunctionEmitter {
             code.getstatic(
                     ClassDesc.ofInternalName(resolveOwnerName(named, global)),
                     resolveFieldName(named, global),
-                    ClassDesc.ofDescriptor(AsmHelper.createDescriptor(named.type()))
+                    ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(named.type()))
             );
         } else {
             code.getfield(
-                    ClassDesc.ofInternalName(AsmHelper.toInternalName(named.ownerType())),
+                    ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
                     named.name(),
-                    ClassDesc.ofDescriptor(AsmHelper.createDescriptor(named.type()))
+                    ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(named.type()))
             );
         }
     }
@@ -952,7 +952,7 @@ class JavaFunctionEmitter {
         final var methodName = name.contains(".")
                 ? name.substring(name.lastIndexOf('.') + 1)
                 : name;
-        final var descriptor = AsmHelper.createDescriptor(fnType.paramTypes(), fnType.returnType());
+        final var descriptor = BytecodeHelper.createDescriptor(fnType.paramTypes(), fnType.returnType());
         final var handle = methodHandleDesc(
                 DirectMethodHandleDesc.Kind.STATIC,
                 owner,
@@ -985,7 +985,7 @@ class JavaFunctionEmitter {
         final var capturedVarCount = fnType.paramTypes().size() - samParamCount;
 
         final var samMethodType = samMethod.methodType();
-        final var instantiatedDescriptor = AsmHelper.createDescriptor(
+        final var instantiatedDescriptor = BytecodeHelper.createDescriptor(
                 fnType.paramTypes().subList(capturedVarCount, fnType.paramTypes().size()),
                 fnType.returnType()
         );
@@ -1018,7 +1018,7 @@ class JavaFunctionEmitter {
                         MethodTypeDesc.of(
                                 functionalInterface,
                                 capturedVarTypes.stream()
-                                        .map(t -> toClassDesc(AsmHelper.createDescriptor(t)))
+                                        .map(t -> toClassDesc(BytecodeHelper.createDescriptor(t)))
                                         .toArray(ClassDesc[]::new)
                         ),
                         samMethodType,
@@ -1091,10 +1091,10 @@ class JavaFunctionEmitter {
     private String resolveOwnerName(final IRValue.Named named,
                                     final IRGlobal global) {
         if (global != null && global.ownerType() != null) {
-            return AsmHelper.toInternalName(global.ownerType());
+            return BytecodeHelper.toInternalName(global.ownerType());
         }
         if (named.ownerType() != null) {
-            return AsmHelper.toInternalName(named.ownerType());
+            return BytecodeHelper.toInternalName(named.ownerType());
         }
 
         var name = named.name();
@@ -1105,7 +1105,7 @@ class JavaFunctionEmitter {
         if (sepIndex > -1) {
             name = name.substring(0, sepIndex);
         }
-        return AsmHelper.toInternalName(name);
+        return BytecodeHelper.toInternalName(name);
     }
 
     private String resolveFieldName(final IRValue.Named named,
@@ -1364,7 +1364,7 @@ class JavaFunctionEmitter {
             if (param instanceof IRValue.Temp temp && slots.hasSlot(temp.name())) {
                 final var paramName = SlotAllocator.normalize(temp.name());
                 final var index = slots.getSlot(temp.name());
-                final var paramDescriptor = AsmHelper.createDescriptor(temp.type());
+                final var paramDescriptor = BytecodeHelper.createDescriptor(temp.type());
 
                 code.localVariable(
                         index,
@@ -1387,7 +1387,7 @@ class JavaFunctionEmitter {
             if (slotName == null || !slots.hasSlot(slotName)) continue;
 
             final var index = slots.getSlot(slotName);
-            final var descriptor = AsmHelper.createDescriptor(localVar.type());
+            final var descriptor = BytecodeHelper.createDescriptor(localVar.type());
 
             code.localVariable(
                     index,

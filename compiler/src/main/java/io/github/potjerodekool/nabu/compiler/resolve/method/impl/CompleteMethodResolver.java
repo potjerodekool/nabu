@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CUnknownType;
 import io.github.potjerodekool.nabu.log.Logger;
@@ -480,7 +481,7 @@ public class CompleteMethodResolver implements MethodResolver {
     }
 
     private Predicate<Element> methodFilter() {
-        return symbol -> symbol instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+        return symbol -> symbol instanceof MethodSymbol;
     }
 
     private TypeMirror mapToType(final TypeMirror sourceType, final TypeMirror targetType) {

@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.ElementBuilders;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilders;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20ParserBaseVisitor;

@@ -60,21 +60,19 @@
     </dependencies>
 
     <modules>
-        <!--
         <module>compiler-api</module>
-        -->
         <module>compiler</module>
         <module>testing</module>
-        <module>nabu-lang</module>
         <module>jpa-support</module>
         <module>jpa-plugin</module>
         <module>maven-plugin</module>
         <module>compiler-test</module>
-        <module>java-backend</module>
         <module>nabu-daemon</module>
         <module>nabu-client</module>
-        <module>tools</module>
+        <module>java-backend</module>
         <module>native-backend</module>
+        <module>nabu-lang</module>
+        <module>tools</module>
     </modules>
 
     <repositories>

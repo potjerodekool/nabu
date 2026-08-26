@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.plugin.jpa.transform;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementFilter;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.VariableElement;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;

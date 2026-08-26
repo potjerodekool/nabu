@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.CompoundAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.CompoundAttribute;
 
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
@@ -43,7 +43,7 @@ public class JCompoundAttribute extends JAttribute implements AnnotationMirror {
     @Override
     public Map<? extends ExecutableElement, ? extends AnnotationValue> getElementValues() {
         if (values == null) {
-            final var map = (Map<io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement, io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationValue>) original.getElementValues();
+            final var map = (Map<io.github.potjerodekool.nabu.lang.model.element.ExecutableElement, io.github.potjerodekool.nabu.lang.model.element.AnnotationValue>) original.getElementValues();
             values = map.entrySet().stream()
                     .map(entry -> {
                         final var mappedKey = (ExecutableElement) ElementWrapperFactory.wrap(entry.getKey());

@@ -7,13 +7,10 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CWildcardType;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.type.TypeKind;
-import io.github.potjerodekool.nabu.type.TypeVariable;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.function.Consumer;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 class TypeMapFillerTest extends AbstractCompilerTest {
 

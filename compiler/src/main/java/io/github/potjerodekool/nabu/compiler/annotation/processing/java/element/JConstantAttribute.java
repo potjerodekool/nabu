@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ConstantAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.ConstantAttribute;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
 import javax.lang.model.element.AnnotationValueVisitor;

@@ -72,7 +72,7 @@ public class JavacElements implements Elements {
 
         return map.computeIfAbsent(name, (key) -> {
             final var typeElement = nabuElements.getTypeElement(
-                    (io.github.potjerodekool.nabu.compiler.lang.model.element.ModuleElement) ElementWrapperFactory.unwrap(module),
+                    (io.github.potjerodekool.nabu.lang.model.element.ModuleElement) ElementWrapperFactory.unwrap(module),
                     key
             );
 
@@ -104,7 +104,7 @@ public class JavacElements implements Elements {
     @Override
     public Name getBinaryName(final TypeElement type) {
         final var binaryName = nabuElements.getBinaryName(
-                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
         );
         return new JName(binaryName);
     }
@@ -124,7 +124,7 @@ public class JavacElements implements Elements {
     @Override
     public List<? extends Element> getAllMembers(final TypeElement type) {
         return nabuElements.getAllMembers(
-                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
         ).stream()
                 .map(ElementWrapperFactory::wrap)
                 .toList();
@@ -148,9 +148,9 @@ public class JavacElements implements Elements {
                              final ExecutableElement overridden,
                              final TypeElement type) {
         return nabuElements.overrides(
-                (io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overrider),
-                (io.github.potjerodekool.nabu.compiler.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
-                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+                (io.github.potjerodekool.nabu.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overrider),
+                (io.github.potjerodekool.nabu.lang.model.element.ExecutableElement) ElementWrapperFactory.unwrap(overridden),
+                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
         );
     }
 
@@ -185,7 +185,7 @@ public class JavacElements implements Elements {
     @Override
     public boolean isFunctionalInterface(final TypeElement type) {
         return nabuElements.isFunctionalInterface(
-                (io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
+                (io.github.potjerodekool.nabu.lang.model.element.TypeElement) ElementWrapperFactory.unwrap(type)
         );
     }
 

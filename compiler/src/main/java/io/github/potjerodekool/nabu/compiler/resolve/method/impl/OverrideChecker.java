@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import io.github.potjerodekool.nabu.util.Types;
@@ -166,9 +167,9 @@ public final class OverrideChecker {
             return true;
         }
 
-        return ((io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol) subClass)
+        return ((Symbol) subClass)
                 .isSubClass(
-                        (io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol) superClass,
+                        (Symbol) superClass,
                         types
                 );
     }

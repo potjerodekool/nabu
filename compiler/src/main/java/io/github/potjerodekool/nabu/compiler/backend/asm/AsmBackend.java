@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 import io.github.potjerodekool.nabu.compiler.backend.Backend;
 import io.github.potjerodekool.nabu.compiler.backend.CompileException;
 import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
 import io.github.potjerodekool.nabu.compiler.ir.IRModule;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;

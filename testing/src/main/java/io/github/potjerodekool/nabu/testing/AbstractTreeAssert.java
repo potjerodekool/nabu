@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.testing;
 
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.PathFileObject;
 import io.github.potjerodekool.nabu.tree.Tree;

@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationMirror;
+import io.github.potjerodekool.nabu.lang.model.element.AnnotationMirror;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Proxy;

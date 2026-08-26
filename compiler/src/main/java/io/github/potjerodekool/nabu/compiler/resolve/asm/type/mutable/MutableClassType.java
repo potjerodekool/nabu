@@ -2,7 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.NestingKind;
+import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.compiler.type.impl.AbstractType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.type.TypeMirror;

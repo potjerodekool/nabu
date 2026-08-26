@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.Attribute;
+import io.github.potjerodekool.nabu.lang.model.element.Attribute;
 
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.AnnotationValueVisitor;
@@ -18,7 +18,7 @@ public class JArrayAttribute extends JAttribute {
     @Override
     public List<? extends AnnotationValue> getValue() {
         if (annotationValues == null) {
-            final var list = (List<io.github.potjerodekool.nabu.compiler.lang.model.element.AnnotationValue>) original.getValue();
+            final var list = (List<io.github.potjerodekool.nabu.lang.model.element.AnnotationValue>) original.getValue();
             annotationValues =list.stream()
                     .map(ElementWrapperFactory::wrap)
                     .toList();

@@ -6,7 +6,6 @@ import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.Typ
 import io.github.potjerodekool.nabu.compiler.type.impl.*;
 import io.github.potjerodekool.nabu.type.BoundKind;
 import io.github.potjerodekool.nabu.type.TypeKind;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import javax.lang.model.type.*;

@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeElement;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.TypeParameterElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -152,7 +152,7 @@ public final class JvmSignatureBuilder {
             case TYPEVAR -> {
                 if (type instanceof io.github.potjerodekool.nabu.type.TypeVariable tv) {
                     final var element = tv.asElement();
-                    if (element instanceof io.github.potjerodekool.nabu.compiler.lang.model.element.TypeParameterElement tpe) {
+                    if (element instanceof io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement tpe) {
                         sb.append(tpe.getSimpleName());
                     } else {
                         sb.append(element.getSimpleName());

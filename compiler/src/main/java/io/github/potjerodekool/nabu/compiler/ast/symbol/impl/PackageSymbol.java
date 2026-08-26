@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.ast.symbol.impl;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.PackageSymbolBuilder;
-import io.github.potjerodekool.nabu.compiler.lang.Flags;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.PackageSymbolBuilder;
+import io.github.potjerodekool.nabu.lang.Flags;
+import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CPackageType;
 import io.github.potjerodekool.nabu.resolve.scope.WritableScope;
 

@@ -1,10 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.ClassSymbolBuilder;
-import io.github.potjerodekool.nabu.compiler.ast.element.builder.impl.MethodSymbolBuilderImpl;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.CArrayAttributeProxy;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.CCompoundAttribute;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.ElementKind;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.ClassSymbolBuilder;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.MethodSymbolBuilderImpl;
+import io.github.potjerodekool.nabu.lang.model.element.CArrayAttributeProxy;
+import io.github.potjerodekool.nabu.lang.model.element.CCompoundAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.AnnotationDeProxyProcessor;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.type.DeclaredType;

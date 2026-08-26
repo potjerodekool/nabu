@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.compiler.lang.spi.LanguageSupport;
+import io.github.potjerodekool.nabu.lang.spi.LanguageSupport;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.FileObject;
 

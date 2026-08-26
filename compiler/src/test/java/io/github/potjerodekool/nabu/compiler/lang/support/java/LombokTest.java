@@ -2,9 +2,9 @@ package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.*;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.AnnotationBuilder;
-import io.github.potjerodekool.nabu.compiler.lang.model.element.builder.TypeElementBuilder;
+import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.lang.model.element.builder.AnnotationBuilder;
+import io.github.potjerodekool.nabu.lang.model.element.builder.TypeElementBuilder;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.lomboksupport.Lombok;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.Modifiers;

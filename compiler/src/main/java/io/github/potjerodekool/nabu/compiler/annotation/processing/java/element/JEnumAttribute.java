@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
-import io.github.potjerodekool.nabu.compiler.lang.model.element.EnumAttribute;
+import io.github.potjerodekool.nabu.lang.model.element.EnumAttribute;
 
 import javax.lang.model.element.AnnotationValueVisitor;
 import javax.lang.model.element.VariableElement;

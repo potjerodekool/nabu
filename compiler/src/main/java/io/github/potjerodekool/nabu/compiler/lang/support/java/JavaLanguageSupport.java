@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.lang.support.java;
 
-import io.github.potjerodekool.nabu.compiler.lang.spi.LanguageSupport;
+import io.github.potjerodekool.nabu.lang.spi.LanguageSupport;
 import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.tools.CompilerContext;

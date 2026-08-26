@@ -46,8 +46,10 @@ public class LanguageParserManager {
                         compilerContext
                 );
                 final var sourceKind = languageParser.getSourceKind();
-                this.languageParsers.put(sourceKind, languageParser);
-                this.sourceKinds.add(sourceKind);
+                if (!this.languageParsers.containsKey(sourceKind)) {
+                    this.languageParsers.put(sourceKind, languageParser);
+                    this.sourceKinds.add(sourceKind);
+                }
             });
         }
     }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin>
+    <id>io.github.potjerodekool.nabu.java-backend</id>
+    <version>0.0.1</version>
+    <description>Java backend for Nabu compiler (requires Java 24+)</description>
+    <extensions>
+        <backend implementationClass="io.github.potjerodekool.nabu.compiler.backend.java.JavaBackend" name="JAVA"/>
+    </extensions>
+</plugin>

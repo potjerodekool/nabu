@@ -811,6 +811,21 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
             return builder.emitLoad(TypeMirrorToIRType.map(field.getSymbol().asType()), globalPtr);
         } else if (fieldSymbol == null) {
+            final var selectedType = selected != null ? selected.getType() : null;
+
+            if ("length".equals(field.getName()) && isArrayType(selectedType)) {
+                IRValue obj = acceptTree(selected, builder);
+                return obj != null ? builder.emitArrayLength(obj) : null;
+            }
+
+            if ("length".equals(field.getName())
+                    && selectedType == null
+                    && fieldAccess.getType() != null
+                    && fieldAccess.getType().getKind() == io.github.potjerodekool.nabu.type.TypeKind.INT) {
+                IRValue obj = acceptTree(selected, builder);
+                return obj != null ? builder.emitArrayLength(obj) : null;
+            }
+
             final var type = field.getType();
             final var descriptor = TypeMirrorToIRType.toJvmDescriptor(type);
             return new IRValue.ConstClass(
@@ -1033,6 +1048,14 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                     emitFieldStore(obj, fieldSymbol, field, value);
                 }
             }
+        } else if (target instanceof ArrayAccessExpressionTree arrayAccess) {
+            IRValue array = acceptTree(arrayAccess.getExpression(), builder);
+            IRValue index = acceptTree(arrayAccess.getIndex(), builder);
+
+            if (array != null && array.type() instanceof IRType.Ptr ptrType) {
+                IRType elemType = ptrType.pointee();
+                builder.emitArrayStore(array, index, value, elemType);
+            }
         }
     }
 
@@ -1122,12 +1145,51 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     @Override
     public IRValue visitNewArray(final NewArrayExpression newArrayExpression, final IRBuilder param) {
-        final var arrayType = newArrayExpression.getType();
+        var arrayType = newArrayExpression.getType();
+
+        if (arrayType == null || arrayType.getKind() == io.github.potjerodekool.nabu.type.TypeKind.VOID) {
+            final var elemTypeTree = newArrayExpression.getElementType();
+            if (elemTypeTree != null) {
+                final var elemType = elemTypeTree.getType();
+                if (elemType != null) {
+                    final var componentIRType = TypeMirrorToIRType.map(elemType);
+                    final var descriptor = TypeMirrorToIRType.toJvmDescriptor(elemType);
+                    arrayType = null;
+                    final IRType objectType = new IRType.Ptr(componentIRType, descriptor);
+                    return emitNewArrayBody(newArrayExpression, objectType);
+                }
+            }
+        }
+
         final IRType objectType = TypeMirrorToIRType.map(arrayType);
+        return emitNewArrayBody(newArrayExpression, objectType);
+    }
+
+    private IRValue emitNewArrayBody(final NewArrayExpression newArrayExpression,
+                                     final IRType objectType) {
         final var dimensions = newArrayExpression.getDimensions();
 
         if (dimensions.isEmpty()) {
-            return builder.emitAllocaArray(0, objectType);
+            final var elements = newArrayExpression.getElements();
+            final int elemCount = (elements != null) ? elements.size() : 0;
+            final var arrayPtr = builder.emitAllocaArray(elemCount, objectType);
+
+            if (elements != null && !elements.isEmpty()) {
+                final var componentType = switch (objectType) {
+                    case IRType.Ptr p -> p.pointee();
+                    case IRType.Array a -> a.elem();
+                    case IRType t -> t;
+                };
+
+                for (int i = 0; i < elements.size(); i++) {
+                    final IRValue elemValue = acceptTree(elements.get(i), builder);
+                    if (elemValue != null) {
+                        builder.emitArrayStore(arrayPtr, IRValue.ofI32(i), elemValue, componentType);
+                    }
+                }
+            }
+
+            return arrayPtr;
         }
 
         final var firstDim = dimensions.getFirst();
@@ -1916,6 +1978,16 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             if (declared.asElement() instanceof TypeElement te) {
                 return "java.lang.Object".equals(te.getQualifiedName());
             }
+        }
+        return false;
+    }
+
+    private static boolean isArrayType(final TypeMirror type) {
+        if (type instanceof io.github.potjerodekool.nabu.type.ArrayType) {
+            return true;
+        }
+        if (type instanceof io.github.potjerodekool.nabu.type.VariableType vt) {
+            return vt.getInterferedType() instanceof io.github.potjerodekool.nabu.type.ArrayType;
         }
         return false;
     }

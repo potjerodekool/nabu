@@ -124,15 +124,23 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     @Override
     public Tree visitBinaryExpression(final BinaryExpressionTree binaryExpression,
                                       final LowerScope scope) {
-        var left = wideningConverter.convert(
-                binaryExpression.getLeft(),
-                binaryExpression.getRight()
-        );
+        var left = binaryExpression.getLeft();
+        var right = binaryExpression.getRight();
 
-        var right = wideningConverter.convert(
-                binaryExpression.getRight(),
-                binaryExpression.getLeft()
-        );
+        if (scope != null) {
+            final var leftType = compilerContext.getTreeUtils().typeOf(left);
+            final var rightType = compilerContext.getTreeUtils().typeOf(right);
+            final var module = scope.findModuleElement();
+            final var stringType = loader.loadClass(module, Constants.STRING).asType();
+
+            if ((leftType != null && types.isSameType(stringType, leftType))
+                    || (rightType != null && types.isSameType(stringType, rightType))) {
+                return binaryExpression;
+            }
+        }
+
+        left = wideningConverter.convert(left, right);
+        right = wideningConverter.convert(right, left);
 
         left = compilerContext.getTreeUtils().typeOf(right).accept(caster, left);
         right = compilerContext.getTreeUtils().typeOf(left).accept(caster, right);

@@ -156,6 +156,69 @@ public class CopyPropagation implements OptimizationPass {
                         ? new IRInstruction.Phi(phi.result(), newIncoming, phi.location())
                         : phi;
             }
+            case IRInstruction.Move move -> {
+                var v = replaceValue(move.value(), copies);
+                yield (v != move.value())
+                        ? new IRInstruction.Move(move.result(), v, move.location())
+                        : move;
+            }
+            case IRInstruction.ArrayLoad al -> {
+                var a = replaceValue(al.array(), copies);
+                var idx = replaceValue(al.index(), copies);
+                yield (a != al.array() || idx != al.index())
+                        ? new IRInstruction.ArrayLoad(al.result(), a, idx, al.elemType(), al.location())
+                        : al;
+            }
+            case IRInstruction.ArrayStore as -> {
+                var a = replaceValue(as.array(), copies);
+                var idx = replaceValue(as.index(), copies);
+                var v = replaceValue(as.value(), copies);
+                yield (a != as.array() || idx != as.index() || v != as.value())
+                        ? new IRInstruction.ArrayStore(a, idx, v, as.elemType(), as.location())
+                        : as;
+            }
+            case IRInstruction.ArrayLength al -> {
+                var a = replaceValue(al.array(), copies);
+                yield (a != al.array())
+                        ? new IRInstruction.ArrayLength(al.result(), a, al.location())
+                        : al;
+            }
+            case IRInstruction.InstanceOf io -> {
+                var s = replaceValue(io.source(), copies);
+                yield (s != io.source())
+                        ? new IRInstruction.InstanceOf(io.result(), s, io.type(), io.location())
+                        : io;
+            }
+            case IRInstruction.MonitorEnter me -> {
+                var o = replaceValue(me.object(), copies);
+                yield (o != me.object())
+                        ? new IRInstruction.MonitorEnter(o, me.location())
+                        : me;
+            }
+            case IRInstruction.MonitorExit mx -> {
+                var o = replaceValue(mx.object(), copies);
+                yield (o != mx.object())
+                        ? new IRInstruction.MonitorExit(o, mx.location())
+                        : mx;
+            }
+            case IRInstruction.Throw t -> {
+                var v = replaceValue(t.result(), copies);
+                yield (v != t.result())
+                        ? new IRInstruction.Throw(v, t.type(), t.location())
+                        : t;
+            }
+            case IRInstruction.Pop p -> {
+                var v = replaceValue(p.result(), copies);
+                yield (v != p.result())
+                        ? new IRInstruction.Pop(v, p.location())
+                        : p;
+            }
+            case IRInstruction.AllocaArray aa -> {
+                var s = replaceValue(aa.size(), copies);
+                yield (s != aa.size())
+                        ? new IRInstruction.AllocaArray(aa.result(), aa.allocType(), s, aa.location())
+                        : aa;
+            }
             default -> instr;
         };
     }

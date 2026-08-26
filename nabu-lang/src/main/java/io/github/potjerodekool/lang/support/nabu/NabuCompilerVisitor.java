@@ -845,7 +845,11 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitPrimary(final NabuParser.PrimaryContext ctx) {
-        return ctx.primaryNoNewArray().accept(this);
+        if (ctx.primaryNoNewArray() != null) {
+            return ctx.primaryNoNewArray().accept(this);
+        }
+
+        return ctx.arrayCreationExpression().accept(this);
     }
 
     @Override
@@ -854,16 +858,19 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var typeArguments = new ArrayList<IdentifierTree>();
         final var arguments = new ArrayList<ExpressionTree>();
         boolean isMethodCall = false;
+        boolean expectIndex = false;
+        ExpressionTree arrayExpression = null;
 
         for (int c = 0; c < ctx.getChildCount(); c++) {
             final var child = ctx.getChild(c);
 
             switch (child) {
                 case TerminalNode terminalNode -> {
-                    if ("(".equals(terminalNode.getText())
+                    final var text = terminalNode.getText();
+                    if ("(".equals(text)
                             && c > 0) {
                         isMethodCall = true;
-                    } else if (")".equals(terminalNode.getText())) {
+                    } else if (")".equals(text)) {
                         final ExpressionTree methodSelector = lastExpression;
 
                         lastExpression = new MethodInvocationTreeBuilder()
@@ -872,13 +879,33 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                                 .arguments(arguments)
                                 .build();
                         isMethodCall = false;
+                    } else if ("[".equals(text)) {
+                        arrayExpression = lastExpression;
+                        expectIndex = true;
+                    } else if ("]".equals(text)) {
+                        expectIndex = false;
                     } else {
                         lastExpression = combineExpressions(lastExpression, (ExpressionTree) child.accept(this));
                     }
                 }
                 case NabuParser.ArgumentListContext ignored -> arguments.addAll(acceptList(child));
                 case NabuParser.TypeArgumentsContext ignored -> typeArguments.addAll(acceptList(child));
-                default -> lastExpression = combineExpressions(lastExpression, (ExpressionTree) child.accept(this));
+                default -> {
+                    final var result = child.accept(this);
+
+                    if (result instanceof ExpressionTree expressionTree) {
+                        if (expectIndex) {
+                            lastExpression = new ArrayAccessExpressionBuilder()
+                                    .expression(arrayExpression)
+                                    .index(expressionTree)
+                                    .build();
+                            expectIndex = false;
+                            arrayExpression = null;
+                        } else {
+                            lastExpression = combineExpressions(lastExpression, expressionTree);
+                        }
+                    }
+                }
             }
         }
 
@@ -3659,7 +3686,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitVariableInitializerList(final NabuParser.VariableInitializerListContext ctx) {
-        return super.visitVariableInitializerList(ctx);
+        return acceptList(ctx.variableInitializer());
     }
 
     @Override
@@ -3754,17 +3781,51 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
 
     @Override
     public Object visitArrayCreationExpression(final NabuParser.ArrayCreationExpressionContext ctx) {
-        return super.visitArrayCreationExpression(ctx);
+        if (ctx.arrayCreationExpressionWithoutInitializer() != null) {
+            return ctx.arrayCreationExpressionWithoutInitializer().accept(this);
+        }
+
+        return ctx.arrayCreationExpressionWithInitializer().accept(this);
     }
 
     @Override
     public Object visitArrayCreationExpressionWithInitializer(final NabuParser.ArrayCreationExpressionWithInitializerContext ctx) {
-        return super.visitArrayCreationExpressionWithInitializer(ctx);
+        final ExpressionTree type = ctx.primitiveType() != null
+                ? (ExpressionTree) ctx.primitiveType().accept(this)
+                : (ExpressionTree) ctx.classOrInterfaceType().accept(this);
+
+        acceptList(ctx.dims());
+        final var initializer = (NewArrayExpression) ctx.arrayInitializer().accept(this);
+        final var elements = new ArrayList<ExpressionTree>(initializer.getElements());
+
+        return NewArrayExpression.create(
+                type,
+                List.of(),
+                elements,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override
     public Object visitArrayAccess(final NabuParser.ArrayAccessContext ctx) {
-        return super.visitArrayAccess(ctx);
+        final ExpressionTree expression;
+        if (ctx.expressionName() != null) {
+            expression = (ExpressionTree) ctx.expressionName().accept(this);
+        } else if (ctx.primaryNoNewArray() != null) {
+            expression = (ExpressionTree) ctx.primaryNoNewArray().accept(this);
+        } else {
+            expression = (ExpressionTree) ctx.arrayCreationExpressionWithInitializer().accept(this);
+        }
+
+        final var index = (ExpressionTree) ctx.expression().accept(this);
+
+        return new ArrayAccessExpressionBuilder()
+                .expression(expression)
+                .index(index)
+                .lineNumber(ctx.getStart().getLine())
+                .columnNumber(ctx.getStart().getCharPositionInLine())
+                .build();
     }
 
     @Override

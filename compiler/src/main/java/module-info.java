@@ -44,5 +44,9 @@ module io.github.potjerodekool.nabu.compiler {
     exports io.github.potjerodekool.nabu.compiler.ir.types;
     exports io.github.potjerodekool.nabu.compiler.ir.instructions;
     exports io.github.potjerodekool.nabu.compiler.backend;
+    exports io.github.potjerodekool.nabu.compiler.backend.asm;
+    exports io.github.potjerodekool.nabu.compiler.backend.ir;
+    exports io.github.potjerodekool.nabu.compiler.debug;
+    exports io.github.potjerodekool.nabu.compiler.resolve.asm;
     exports io.github.potjerodekool.nabu.compiler.extension;
 }

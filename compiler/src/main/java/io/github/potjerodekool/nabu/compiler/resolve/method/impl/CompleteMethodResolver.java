@@ -1013,6 +1013,12 @@ public class CompleteMethodResolver implements MethodResolver {
                 }
             }
 
+            if (argType.isPrimitiveType() && paramType.isPrimitiveType()) {
+                if (!types.isSameType(argType, paramType)) {
+                    specificity += 0.5;
+                }
+            }
+
             if (!paramType.isPrimitiveType() && !argType.isPrimitiveType()
                     && paramType instanceof DeclaredType declaredParamType) {
                 specificity += getClassDepth(declaredParamType);

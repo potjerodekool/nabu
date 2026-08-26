@@ -30,4 +30,12 @@ public class Strings {
 
         return result;
     }
+
+    fun stringPlusInt(x: int): String {
+        return "value=" + x;
+    }
+
+    fun intToString(x: int): String {
+        return String.valueOf(x);
+    }
 }

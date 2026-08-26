@@ -1,0 +1,22 @@
+package io.github.potjerodekool.nabu.example;
+
+public class ArraysOnly {
+
+    fun makeArray(): int[] {
+        return new int[] { 10, 20, 30 };
+    }
+
+    fun arrayLength(values: int[]): int {
+        return values.length;
+    }
+
+    fun sum(values: int[]): int {
+        var result = 0;
+        var i = 0;
+        while (i < values.length) {
+            result = result + values[i];
+            i = i + 1;
+        }
+        return result;
+    }
+}

@@ -75,6 +75,7 @@ public class NabuCompiler implements Compiler {
 
             return generateCode(compilerContext, compilationUnits, fullOptions);
         } catch (final Exception e) {
+            e.printStackTrace(System.err);
             throw new RuntimeException(e);
         }
     }

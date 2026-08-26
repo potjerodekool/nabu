@@ -257,11 +257,18 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
 
     @Override
-    public Object visitCastExpression(final CastExpressionTree castExpressionTree,
-                                      final Scope scope) {
-        acceptTree(castExpressionTree.getExpression(), scope);
-        acceptTree(castExpressionTree.getTargetType(), scope);
-        return defaultAnswer(castExpressionTree, scope);
+    public Object visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree,
+                                   final Scope scope) {
+        acceptTree(arrayAccessExpressionTree.getExpression(), scope);
+        acceptTree(arrayAccessExpressionTree.getIndex(), scope);
+
+        final var expressionType = arrayAccessExpressionTree.getExpression().getType();
+
+        if (expressionType instanceof ArrayType arrayType) {
+            arrayAccessExpressionTree.setType(arrayType.getComponentType());
+        }
+
+        return defaultAnswer(arrayAccessExpressionTree, scope);
     }
 
     @Override
@@ -691,13 +698,6 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     }
 
     @Override
-    public Object visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree, final Scope scope) {
-        acceptTree(arrayAccessExpressionTree.getExpression(), scope);
-        acceptTree(arrayAccessExpressionTree.getIndex(), scope);
-        return defaultAnswer(arrayAccessExpressionTree, scope);
-    }
-
-    @Override
     public Object visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Scope scope) {
         acceptTree(enhancedForStatement.getExpression(), scope);
 
@@ -774,6 +774,17 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         acceptTree(selected, scope);
 
         final var varElement = TreeUtils.getSymbol(selected);
+
+        if (varElement != null && "length".equals(fieldAccessExpression.getField().getName())) {
+            final var varType = varElement.asType();
+
+            if (varType instanceof ArrayType) {
+                final var intType = types.getPrimitiveType(TypeKind.INT);
+                fieldAccessExpression.getField().setType(intType);
+                fieldAccessExpression.setType(intType);
+                return defaultAnswer(fieldAccessExpression, scope);
+            }
+        }
 
         if (varElement != null) {
             final var varType = varElement.asType();
@@ -1057,8 +1068,34 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     }
 
     @Override
-    public Object visitNewArray(final NewArrayExpression newArrayExpression, final Scope param) {
-        return super.visitNewArray(newArrayExpression, param);
+    public Object visitNewArray(final NewArrayExpression newArrayExpression, final Scope scope) {
+        if (newArrayExpression.getElementType() != null) {
+            acceptTree(newArrayExpression.getElementType(), scope);
+        }
+
+        final var dimensions = newArrayExpression.getDimensions();
+        if (dimensions != null) {
+            for (final var dim : dimensions) {
+                acceptTree(dim, scope);
+            }
+        }
+
+        final var elementType = newArrayExpression.getElementType() != null
+                ? newArrayExpression.getElementType().getType()
+                : null;
+
+        if (elementType != null) {
+            final var arrayType = types.getArrayType(elementType);
+            newArrayExpression.setType(arrayType);
+        }
+
+        if (newArrayExpression.getElements() != null) {
+            for (final var element : newArrayExpression.getElements()) {
+                acceptTree(element, scope);
+            }
+        }
+
+        return defaultAnswer(newArrayExpression, scope);
     }
 
     private TypeMirror captureLambdaParamType(final TypeMirror type) {

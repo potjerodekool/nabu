@@ -36,8 +36,11 @@ public class LanguageSupportManager {
                 );
 
                 final var sourceKind = languageSupporter.getSourceKind();
-                this.languageSupporters.put(sourceKind, languageSupporter);
-                this.sourceKinds.add(sourceKind);
+
+                if (!this.languageSupporters.containsKey(sourceKind)) {
+                    this.languageSupporters.put(sourceKind, languageSupporter);
+                    this.sourceKinds.add(sourceKind);
+                }
             });
         }
     }

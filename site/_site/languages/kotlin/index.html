@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kotlin Support - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" class="active">Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Kotlin Support</h1>
+    The Nabu compiler has **experimental Kotlin support**.
+
+<div class="callout callout-warning">
+**Experimental.** Kotlin support is largely incomplete. Most constructs currently throw `UnsupportedOperationException`. It should not be relied upon for production use.
+</div>
+
+## Current state
+
+- A `KotlinParser.g4` grammar and a `KotlinLanguageSupport` / `KotlinCompilerVisitor` exist.
+- The visitor currently only handles **top-level class declarations**.
+- Most other constructs are not yet implemented.
+
+Kotlin is registered as a `language-support` extension in the compiler's `plugin.xml`.
+
+  </main>
+</div>
+
+</body>
+</html>

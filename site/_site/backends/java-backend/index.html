@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Java Backend - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" class="active">Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Java Backend</h1>
+    The **Java backend** is an experimental backend that uses the **JDK 24 ClassFile API** (`java.lang.classfile`) instead of ASM to emit JVM bytecode.
+
+<div class="callout callout-warning">
+**Experimental.** This backend is a prototype/experiment and **requires Java 24+**. It throws `UnsupportedOperationException` on older JVMs.
+</div>
+
+## Location
+
+The backend lives in `java-backend/src/main/java/io/github/potjerodekool/nabu/compiler/backend/java/`.
+
+## Architecture
+
+- **`JavaBackend`** — implements `Backend`; enforces the Java 24+ requirement (`MINIMUM_JAVA_FEATURE_VERSION = 24`).
+- **`ClassFileByteCodeEmitter`** — emits an `IRModule` via the ClassFile API, using the same structural pipeline as the ASM backend: **PhiElimination → Linearizer → JavaFunctionEmitter + SlotAllocator**. It defines `ACC_RECORD` locally.
+- **`JavaFunctionEmitter`** — the mirror of the ASM `FunctionEmitter`, emitting via `CodeBuilder`, `Label`, `Opcode`, `ClassDesc`, `DirectMethodHandleDesc`, and `DynamicCallSiteDesc`.
+- **`AttributeFactories`** — builds classfile attributes (annotations, records, permits, signatures, etc.).
+
+The backend emits class files at version 17 (`JavaVersion.MINIMAL_VERSION`).
+
+## Registration
+
+Registered as backend `"JAVA"` in the `java-backend` module's `plugin.xml`.
+
+  </main>
+</div>
+
+</body>
+</html>

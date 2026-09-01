@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compiler Design - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" class="active">Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Compiler Design</h1>
+    This page describes each phase of the Nabu compiler in detail, from parsing source files to emitting bytecode.
+
+## Pipeline overview
+
+<div class="diagram">
+  <img src="/assets/images/compiler-phases.png" alt="Compiler phases">
+</div>
+
+The core driver is the `NabuCompiler` class (in `compiler`), which implements `tools.Compiler`. Its `compile(CompilerOptions)` method drives the frontend (`processFiles`), and `generateCode` drives the backend.
+
+## Frontend phases
+
+### Parse
+
+Source files are dispatched by file-extension *kind* to a registered `SourceParser` / `LanguageParser` via the plugin registry. The compiler supports parsing multiple languages (Nabu, Java, Kotlin) and mixing them in one project.
+
+Each parser produces an abstract syntax tree (`CompilationUnit`). The Nabu language uses ANTLR grammars (`NabuLexer.g4` / `NabuParser.g4`) plus the `NabuCompilerVisitor` (~3,300 lines) which builds the AST.
+
+### Enter
+
+The `EnterPhase` / `EnterClasses` adds classes to the symbol table. This happens before resolution so that classes can be resolved when referenced by other classes (independent of source order).
+
+### Resolve
+
+The `ResolverPhase` resolves classes, methods, fields, and other symbols. It reads class files via ASM (`resolve/asm`), handles generics, method resolution (`resolve/method`), boxing, and type entering. This is a broad phase that gives the compiler a full symbol and type model.
+
+### Annotate
+
+The `AnnotatePhase` de-proxies annotations and provides annotation-processing interoperability. It runs JSR-269-style processors through a `JavacProcessingEnvironment` with a `JavacFiler`, `JavacElements`, `JavacTypes`, `JavacMessager`, and `JavacRoundEnvironment`. See [Annotation Processing](/annotation-processing/) for details.
+
+### Transform
+
+The `TransformPhase` runs `CodeTransformer`s registered as compiler plugins. This is where DSLs hook in — for example, the JPA plugin transforms a readable criteria DSL into standard JPA calls. See [DSL Support](/plugins/dsl-support/).
+
+### Check
+
+The `CheckPhase` performs type and flow diagnostics and checks for unresolved symbols (methods, fields, types).
+
+### LambdaToMethod
+
+The `LambdaToMethodPhase` desugars lambda expressions into synthetic private methods via SAM conversion (using `invokedynamic` / `LambdaMetafactory`-style lowering).
+
+## Backend phases
+
+### Lower
+
+The `Lower` phase adds additional code:
+
+- Generate code to init fields (both in constructors and in `<clinit>`)
+- Generate code for enum and record classes (`EnumCodeGenerator`, `RecordCodeGenerator`)
+- Add boxing and unboxing code
+- Lower enhanced-for statements
+- Remap enum switches
+
+### IR generation
+
+The `IrGeneratingVisitor` builds an intermediate representation from the lowered AST. The `ir` package contains:
+
+- **`IRModule`** — flags, name, super type, interfaces, sealed classes, fields, functions, globals
+- **`IRFunction`** — name, return type, parameters, basic blocks
+- **`IRBasicBlock`** — label, instructions, successors, termination
+- **`IRInstruction`** — Alloca, AllocaArray, ArrayLoad/Store, BinaryOp, Branch, Call, Cast, CondBranch, HeapAlloc, IndirectCall, InstanceOf, Load, MonitorEnter/Exit, Move, Phi, Pop, Return, Store, Throw, TryCatchRegion
+- **`IRValue`** — ConstBool, ConstClass, ConstFloat, ConstInt, ConstNull, ConstString, FunctionRef, Named, Temp
+- **`IRType`** — Array, Bool, Float, Function, Int, Ptr, Struct, Void
+
+### IR optimization
+
+The IR is optimized through several passes in `backend/ir`:
+
+- **`SsaBuilder`** — Cytron-style SSA construction (dominance tree, dominance frontiers, phi placement, renaming)
+- **`PhiElimination`** — replaces phis with stores in predecessors and loads in the head block
+- **`Linearizer`** — orders blocks and inverts conditions for fall-through
+- **`Optimizer`** — runs an optimization pipeline: TypeInference → ConstantFolder → CopyPropagation → GVN → DCE, repeated to a fixpoint (max 10 iterations)
+
+The IR is **backend-agnostic** — all backends consume the same `IRModule`, which is the key to the "write a language once, target multiple backends" design.
+
+### Bytecode emission
+
+The IR module is handed to a registered `Backend` which emits class files. See the [Backends](/backends/) section for the details of each backend.
+
+- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23`.
+- The default **ASM backend** is slot-based (JVM local-variable-slot addressed) and validated via `CheckClassAdapter`.
+
+## Module layout
+
+| Module | Responsibility |
+|---|---|
+| `compiler-api` | Public API/SPI layer (AST, type system, tools, language SPI, element model, resolve SPI, transform SPI) |
+| `compiler` | Core compiler: parse, enter, resolve, transform, check, lower, IR, ASM backend |
+| `nabu-lang` | Nabu language: ANTLR grammar + `NabuCompilerVisitor` |
+| `java-backend` | Experimental backend using the JDK 24 ClassFile API |
+| `native-backend` | Experimental LLVM-based native backend |
+| `maven-plugin` | Maven plugin wiring the compiler into builds |
+| `jpa-plugin` / `jpa-support` | Example DSL plugin for JPA criteria |
+| `nabu-daemon` / `nabu-client` | Compile daemon protocol for incremental builds |
+| `tools` | Project-model tooling |
+| `testing` | Scaffold for testing compiler plugins |
+
+  </main>
+</div>
+
+</body>
+</html>

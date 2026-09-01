@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLVM Backend - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" class="active">LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>LLVM Backend</h1>
+    The **LLVM backend** is an experimental **native backend** that compiles the Nabu IR to native code via LLVM, with a small C runtime library.
+
+<div class="callout callout-warning">
+**Experimental / WIP.** This backend is exploratory and duplicates emission logic. It should not be relied upon for production use.
+</div>
+
+## Toolchain
+
+The backend uses the **Bytedeco LLVM** JavaCPP bindings (`org.bytedeco.llvm`). A static initializer enables all LLVM targets, MC, ASM parsers, and printers.
+
+## Location
+
+The backend lives in `native-backend/src/main/java/io/github/potjerodekool/nabu/compiler/backend/native_llvm/`.
+
+## Outputs
+
+`NativeLLVMBackend` produces three outputs:
+
+1. **`.ll`** — LLVM IR text
+2. **`.o`** — an object file
+3. **A linked executable** — only when a `main` function exists
+
+Supported platforms: Windows x64, Linux x64, macOS x64/ARM64.
+
+## Architecture
+
+- **`LLVMModuleEmitter`** — orchestrates emission: globals → function signatures → function bodies.
+- **`FunctionEmitter`** — declares signatures (`LLVMAddFunction`; externals get `ExternalLinkage` with no body). `emitBody()` pre-creates all basic blocks (for forward references), maps block labels to `LLVMBasicBlockRef`, pre-scans `TryCatchRegion` instructions into a `tryHandlerMap`, sets a personality function (`@__gcc_personality_v0`) when try regions exist, and emits landing pads that call `@nabu_catch`.
+- **`InstructionEmitter`** — maps IR instructions to LLVM builder calls. Calls inside a try region become `invoke` with a continuation-block split.
+- **`TypeMapper`** — maps `IRType` → `LLVMTypeRef`.
+- **`GlobalEmitter`** — globals and string globals (`[N x i8]`).
+- **`ConstantResolver`** — constants → `LLVMValueRef`, with a string-dedup cache.
+- **`Linker`** — per-platform linking: Windows `link.exe`, macOS `clang`, Linux `gcc`.
+
+## C runtime
+
+The `runtime/` module provides a small C runtime (`nabu_runtime.c` / `.h` + `CMakeLists.txt`) for:
+
+- Runtime type info (`nabu_object`, `nabu_type_info` structs)
+- `nabu_instanceof` — runtime instance-of checks
+- `nabu_throw` / `nabu_catch` — exception handling via the Itanium ABI (`_Unwind_Exception`) or MSVC path on Windows
+- `nabu_monitorenter` / `nabu_monitorexit` — `synchronized` support
+
+The LLVM backend also supports configurable garbage collection strategies: `NONE` (stack-alloca), `BOEHM` (`GC_malloc`), and `REFCOUNT` (`malloc`).
+
+## Registration
+
+Registered as backend `"LLVM"` in `native-backend/src/main/resources/plugin.xml`, bundled via `maven-shade-plugin`.
+
+  </main>
+</div>
+
+</body>
+</html>

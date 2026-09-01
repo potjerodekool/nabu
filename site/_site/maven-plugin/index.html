@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maven Plugin - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" class="active">Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Maven Plugin</h1>
+    The **Nabu Maven plugin** (`nabu-maven-plugin`) wires the Nabu compiler into your Maven build, so you can mix Nabu and Java sources in a single project.
+
+## Modules
+
+- `maven-plugin` — contains `CompileMojo`, `TestCompileMojo`, and `AbstractCompilerMojo`.
+
+## Mixing Nabu and Java
+
+To use Nabu and Java in the same project, the `nabu-maven-plugin` must be placed **before** the `maven-compiler-plugin`. The `build-helper-maven-plugin` adds `src/main/nabu` as a source directory.
+
+```xml
+<plugin>
+    <groupId>org.codehaus.mojo</groupId>
+    <artifactId>build-helper-maven-plugin</artifactId>
+    <version>3.4.0</version>
+    <executions>
+        <execution>
+            <id>add-source</id>
+            <phase>generate-sources</phase>
+            <goals>
+                <goal>add-source</goal>
+            </goals>
+            <configuration>
+                <sources>
+                    <source>src/main/nabu</source>
+                </sources>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+<plugin>
+    <groupId>io.github.potjerodekool</groupId>
+    <artifactId>nabu-maven-plugin</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <executions>
+        <execution>
+            <goals>
+                <goal>compile</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+```
+
+The `maven-compiler-plugin` is then configured so that its default compile/testCompile executions are disabled and Java compilation is split into separate phases that run after Nabu compilation:
+
+```xml
+<plugin>
+    <artifactId>maven-compiler-plugin</artifactId>
+    <version>3.13.0</version>
+    <configuration>
+        <release>${java.version}</release>
+    </configuration>
+    <executions>
+        <execution>
+            <id>default-compile</id>
+            <phase>none</phase>
+        </execution>
+        <execution>
+            <id>default-testCompile</id>
+            <phase>none</phase>
+        </execution>
+        <execution>
+            <id>java-compile</id>
+            <phase>compile</phase>
+            <goals>
+                <goal>compile</goal>
+            </goals>
+        </execution>
+        <execution>
+            <id>java-test-compile</id>
+            <phase>test-compile</phase>
+            <goals>
+                <goal>testCompile</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+```
+
+This ordering ensures Nabu sources are compiled first, and are then available to the Java compiler via `javac` (which handles Java-to-bytecode).
+
+  </main>
+</div>
+
+</body>
+</html>

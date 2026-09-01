@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASM Backend - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" class="active">ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>ASM Backend</h1>
+    The **ASM backend** is the default, production backend. It emits JVM bytecode using the [ASM](https://asm.ow2.io/) library (version 9.8).
+
+## Location
+
+The backend lives in `compiler/src/main/java/io/github/potjerodekool/nabu/compiler/backend/asm/`.
+
+## Architecture
+
+The main classes:
+
+- **`AsmBackend`** — implements the `Backend` interface; receives an `IRModule` and calls `AsmByteCodeEmitter`.
+- **`AsmByteCodeEmitter`** — emits a whole `IRModule` to `.class` files. For each function it runs **PhiElimination → Linearizer → FunctionEmitter** (each function gets its own `SlotAllocator`). Uses ASM's `ClassWriter`, `CheckClassAdapter`, and `TraceClassVisitor`.
+- **`FunctionEmitter`** — emits one function's instructions to ASM bytecode. SSA temporaries are resolved to JVM local-variable slots via `SlotAllocator`. Uses ASM's `MethodVisitor`, `Label`, `Opcodes`, `Type`, and `Handle`.
+- **`JvmSignatureBuilder`** — builds JVM generic signatures from Nabu `TypeMirror`s.
+
+Support classes in `backend/jvm/`:
+
+- **`SlotAllocator`** — allocates parameters first (slot 0 = `this` for instance methods), maps SSA temp names to unique JVM slots, lazily allocating slots.
+- **`Linearizer`** — orders blocks and inverts conditions for fall-through.
+- **`BytecodeHelper`** — utility helpers.
+
+## Key characteristics
+
+- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23` (`MAXIMAL_VERSION`).
+- Uses `COMPUTE_MAXS`.
+- Output is validated via `CheckClassAdapter`.
+- String concatenation is lowered to `invokedynamic` with `StringConcatFactory.makeConcatWithConstants` (modern javac-equivalent).
+
+## Registration
+
+Registered as backend `"ASM"` in `compiler/src/main/resources/plugin.xml`.
+
+  </main>
+</div>
+
+</body>
+</html>

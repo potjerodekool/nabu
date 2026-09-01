@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSL Support - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" class="active">Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" class="active">DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>DSL Support</h1>
+    A **domain-specific language (DSL)** lets you write code more easily for a specific domain, for example XML, JSON, or JPA.
+
+The DSL is a **compiler feature**, not a language feature, so it works independently of the language it is used in and can define its own rules.
+
+## Implementing a DSL
+
+To implement a DSL, one or more of these interfaces can be implemented:
+
+| Interface | Description |
+|---|---|
+| `io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver` | Resolves elements in a DSL |
+| `io.github.potjerodekool.nabu.compiler.transform.CodeTransformer` | Transforms a DSL into regular code |
+
+## Registering implementations
+
+Implementations are registered in the `plugin.xml` file:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<plugin>
+    <id>io.github.potjerodekool.nabu.plugin.simple</id>
+    <version>0.0.1</version>
+    <description>Simple plugin for Nabu compiler</description>
+    <extensions>
+        <code-transformer implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleTransformer"/>
+        <element-resolver implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleElementResolver"/>
+    </extensions>
+</plugin>
+```
+
+## DSL example: JPA
+
+Take, for example, JPA. Writing a predicate quickly results in hard-to-read code:
+
+```java
+fun findCompanyByEmployeeFirstName(employeeFirstName: String): Specification<Company> {
+    return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
+        var e = (InnerJoin<Company, Employee>) c.employees;
+        var e = c.join(Company_.employees, JoinType.INNER);
+        return cb.equal(e.get(Employee_.FIRST_NAME), employeeFirstName);
+    };
+}
+```
+
+With a DSL you can write much more readable code:
+
+```java
+fun findCompanyByEmployeeFirstName(employeeFirstName: String): Specification<Company> {
+    return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
+        var e = (InnerJoin<Company, Employee>) c.employees;
+        return e.firstName == employeeFirstName;
+    };
+}
+```
+
+Here a join is defined with a cast using a DSL class (`InnerJoin` in this example), and the fields of the entity are accessed directly. Operator overloading is supported.
+
+The `CodeTransformer` then rewrites this to standard code. Because the plugin has access to the type model, it can check whether fields exist:
+
+```java
+fun findCompanyByEmployeeFirstName(employeeFirstName: String): Specification<Company> {
+    return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
+        var e = c.join("employees", JoinType.INNER);
+        return cb.equal(e.get("firstName"), employeeFirstName);
+    };
+}
+```
+
+  </main>
+</div>
+
+</body>
+</html>

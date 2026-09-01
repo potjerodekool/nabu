@@ -1,0 +1,21 @@
+title: Nabu Compiler Documentation
+description: Documentation for the Nabu polyglot JVM compiler
+url: ""
+baseurl: ""
+
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: page

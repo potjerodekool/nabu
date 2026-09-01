@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adding a Language - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" class="active">Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" class="active">Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Adding a Language</h1>
+    To add support for a new language to the Nabu compiler, you provide a **language parser** that parses source files of your language and converts them into an abstract syntax tree (AST).
+
+## The `LanguageParser` interface
+
+```java
+import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+
+public class SimpleLanguageParser implements LanguageParser {
+
+    private final FileObject.Kind SOURCE_KIND =
+        new FileObject.Kind(".simple", true);
+
+    @Override
+    public FileObject.Kind getSourceKind() {
+        return SOURCE_KIND;
+    }
+
+    @Override
+    public CompilationUnit parse(final FileObject fileObject,
+                                 final CompilerContext compilerContext) {
+        // TODO: Implement parsing logic for .simple files
+        return null;
+    }
+}
+```
+
+Key methods:
+
+- **`getSourceKind()`** — returns the file extension `FileObject.Kind` that this parser handles (e.g. `.simple`).
+- **`parse(...)`** — parses the source and builds a `CompilationUnit` (the AST root).
+
+## Registering the parser
+
+The language parser is registered in the plugin's `plugin.xml`:
+
+```xml
+<language-parser implementationClass="com.example.SimpleLanguageParser"/>
+```
+
+## What the compiler does for you
+
+Once you produce a valid `CompilationUnit` AST, the rest of the pipeline — entering, resolving, transforming, checking, lowering, IR generation, optimization, and bytecode emission — is handled by the compiler. You do not need to write a compiler from scratch.
+
+## Related interfaces
+
+- `SourceParser` — the base interface (kind + `parse`)
+- `LanguageParser` / `LanguageSupport` — extend `SourceParser` for full language support, including the `plugin.xml` `language-support` extension.
+
+  </main>
+</div>
+
+</body>
+</html>

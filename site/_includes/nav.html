@@ -1,0 +1,29 @@
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="{{ '/' | relative_url }}">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="{{ '/' | relative_url }}" {% if page.url == '/' %}class="active"{% endif %}>Introduction</a></li>
+    <li><a href="{{ '/compiler-overview/' | relative_url }}" {% if page.url contains 'compiler-overview' %}class="active"{% endif %}>Compiler Overview</a></li>
+    <li><a href="{{ '/compiler-design/' | relative_url }}" {% if page.url contains 'compiler-design' %}class="active"{% endif %}>Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="{{ '/languages/nabu/' | relative_url }}" {% if page.url contains 'languages/nabu' %}class="active"{% endif %}>Nabu</a></li>
+    <li><a href="{{ '/languages/java/' | relative_url }}" {% if page.url contains 'languages/java' %}class="active"{% endif %}>Java Interop</a></li>
+    <li><a href="{{ '/languages/kotlin/' | relative_url }}" {% if page.url contains 'languages/kotlin' %}class="active"{% endif %}>Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="{{ '/backends/' | relative_url }}" {% if page.url == '/backends/' %}class="active"{% endif %}>Overview</a></li>
+    <li><a href="{{ '/backends/asm/' | relative_url }}" {% if page.url contains 'backends/asm' %}class="active"{% endif %}>ASM Backend</a></li>
+    <li><a href="{{ '/backends/java-backend/' | relative_url }}" {% if page.url contains 'backends/java-backend' %}class="active"{% endif %}>Java Backend</a></li>
+    <li><a href="{{ '/backends/llvm/' | relative_url }}" {% if page.url contains 'backends/llvm' %}class="active"{% endif %}>LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="{{ '/plugins/' | relative_url }}" {% if page.url contains '/plugins' and page.url != '/plugins/adding-language' and page.url != '/plugins/dsl-support' and page.url != '/plugins/element-resolver' %}class="active"{% endif %}>Plugin System</a></li>
+    <li><a href="{{ '/plugins/adding-language/' | relative_url }}" {% if page.url contains 'plugins/adding-language' %}class="active"{% endif %}>Adding a Language</a></li>
+    <li><a href="{{ '/plugins/dsl-support/' | relative_url }}" {% if page.url contains 'plugins/dsl-support' %}class="active"{% endif %}>DSL Support</a></li>
+    <li><a href="{{ '/plugins/element-resolver/' | relative_url }}" {% if page.url contains 'plugins/element-resolver' %}class="active"{% endif %}>Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="{{ '/ir/' | relative_url }}" {% if page.url contains '/ir' %}class="active"{% endif %}>Intermediate Representation</a></li>
+    <li><a href="{{ '/annotation-processing/' | relative_url }}" {% if page.url contains 'annotation-processing' %}class="active"{% endif %}>Annotation Processing</a></li>
+    <li><a href="{{ '/maven-plugin/' | relative_url }}" {% if page.url contains 'maven-plugin' %}class="active"{% endif %}>Maven Plugin</a></li>
+    <li><a href="{{ '/testing/' | relative_url }}" {% if page.url contains 'testing' %}class="active"{% endif %}>Testing</a></li>
+  </ul>
+</nav>

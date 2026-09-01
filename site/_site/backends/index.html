@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backends - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" class="active">Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Backends</h1>
+    A **backend** is responsible for turning the compiler's intermediate representation (IR) into output — typically JVM bytecode or native code. The Nabu frontend is shared, so the same source can target multiple backends by selecting a different backend at compile time.
+
+## Backend selection
+
+The backend is chosen by a compiler option (`--backend=ASM|JAVA|LLVM`), defaulting to `ASM`. The `BackendManager.createBackend` resolves a `"backend"` extension by name.
+
+## Available backends
+
+| Backend | Name | Output | Status |
+|---|---|---|---|
+| **ASM** | `ASM` | JVM bytecode (v17+) | Default, production |
+| **Java** | `JAVA` | JVM bytecode (ClassFile API) | Experimental |
+| **LLVM** | `LLVM` | Native executable | Experimental |
+
+## The shared IR
+
+All three backends consume the same backend-agnostic `IRModule` produced by the IR generation phase. This is the key to the "write a language once, target multiple backends" design goal.
+
+Each backend follows the same structural pipeline:
+
+```
+IRModule → PhiElimination → Linearizer → FunctionEmitter (+ SlotAllocator)
+```
+
+Individual backends:
+
+- [ASM Backend](/backends/asm/) — the default, production backend
+- [Java Backend](/backends/java-backend/) — a parallel implementation using the JDK ClassFile API
+- [LLVM Backend](/backends/llvm/) — a native backend using LLVM and a C runtime
+
+  </main>
+</div>
+
+</body>
+</html>

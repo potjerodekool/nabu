@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Element Resolver - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" class="active">Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" class="active">Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Element Resolver</h1>
+    The **element resolver** SPI (`ElementResolver`) lets a plugin provide custom resolution of elements within a DSL, so the compiler can understand DSL constructs that deviate from ordinary language rules.
+
+## Interface
+
+```java
+package io.github.potjerodekool.nabu.resolve.spi;
+
+public interface ElementResolver {
+    boolean supports(Element element);
+    // ... resolution hooks
+}
+```
+
+## Purpose
+
+A DSL typically introduces new ways of writing expressions (for example, field access on a casted join, or operator overloading). An `ElementResolver` teaches the compiler how to resolve these elements so they can be type-checked and transformed correctly.
+
+It is paired with a `CodeTransformer`, which then rewrites the resolved DSL code into ordinary code during the [Transform phase](/compiler-design/). See [DSL Support](/plugins/dsl-support/) for the full example using JPA.
+
+## Registration
+
+```xml
+<element-resolver implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleElementResolver"/>
+```
+
+  </main>
+</div>
+
+</body>
+</html>

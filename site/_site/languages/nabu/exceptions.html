@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exceptions - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" class="active">Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Exceptions</h1>
+    Methods can declare checked exceptions with a `throws` clause.
+
+```java
+public class Box<T> {
+
+    private final value: T;
+
+    public Box(value: T) {
+        this.value = value;
+    }
+
+    public fun getValue(): T throws EmptyException {
+        return value;
+    }
+}
+```
+
+## Exception handling
+
+- **`throw` / `try` / `catch`** including **multi-catch** (`catchType: unannClassType ('|' classType)*`) are supported. Catch clauses emit an exception table via `TryCatchRange` metadata.
+- **`finally`** blocks are supported (implemented per the Java 17 core roadmap).
+- **try-with-resources** is supported, desugared to expanded variables with `close()` calls and suppressed-exception handling.
+- `synchronized` methods and blocks emit `monitorenter` / `monitorexit`.
+
+## Exception model across backends
+
+- On the **ASM backend**, exceptions map to the JVM exception table.
+- On the **LLVM backend**, exceptions are handled through the C runtime (`@nabu_throw`, `@nabu_catch` with landing pads and a personality function).
+
+  </main>
+</div>
+
+</body>
+</html>

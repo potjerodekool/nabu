@@ -1,0 +1,27 @@
+---
+layout: page
+title: Java Backend
+---
+
+The **Java backend** is an experimental backend that uses the **JDK 24 ClassFile API** (`java.lang.classfile`) instead of ASM to emit JVM bytecode.
+
+<div class="callout callout-warning">
+**Experimental.** This backend is a prototype/experiment and **requires Java 24+**. It throws `UnsupportedOperationException` on older JVMs.
+</div>
+
+## Location
+
+The backend lives in `java-backend/src/main/java/io/github/potjerodekool/nabu/compiler/backend/java/`.
+
+## Architecture
+
+- **`JavaBackend`** — implements `Backend`; enforces the Java 24+ requirement (`MINIMUM_JAVA_FEATURE_VERSION = 24`).
+- **`ClassFileByteCodeEmitter`** — emits an `IRModule` via the ClassFile API, using the same structural pipeline as the ASM backend: **PhiElimination → Linearizer → JavaFunctionEmitter + SlotAllocator**. It defines `ACC_RECORD` locally.
+- **`JavaFunctionEmitter`** — the mirror of the ASM `FunctionEmitter`, emitting via `CodeBuilder`, `Label`, `Opcode`, `ClassDesc`, `DirectMethodHandleDesc`, and `DynamicCallSiteDesc`.
+- **`AttributeFactories`** — builds classfile attributes (annotations, records, permits, signatures, etc.).
+
+The backend emits class files at version 17 (`JavaVersion.MINIMAL_VERSION`).
+
+## Registration
+
+Registered as backend `"JAVA"` in the `java-backend` module's `plugin.xml`.

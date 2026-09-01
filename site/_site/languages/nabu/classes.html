@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classes - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" class="active">Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Classes</h1>
+    Nabu supports classes, interfaces, enums, and records, following a syntax inspired by Java and Kotlin.
+
+## Classes
+
+```java
+package foo.bar.shape;
+
+public class Rectangle extends AbstractShape implements Shape {
+}
+```
+
+## Interfaces
+
+```java
+package foo.bar.shape;
+
+public interface Shape {
+    abstract fun points() : List<Point>;
+}
+```
+
+Interfaces support `default`, `static`, and `private` methods.
+
+## Enums
+
+```java
+package foo.bar.shape;
+
+public enum Status {
+    ON("On"),
+    OFF("Off");
+
+    private final text : String;
+
+    private Status(final text : String) {
+        this.text = text;
+    }
+
+    public fun getText() : String {
+        return text;
+    }
+}
+```
+
+The compiler synthesises the `$VALUES`, `values()`, and `valueOf()` members automatically through the `EnumCodeGenerator`. Enum-constant bodies are supported.
+
+## Records
+
+```java
+package foo.bar.shape;
+
+public record IdAndName(id : String, name : String) {
+}
+```
+
+Records support compact constructors, and the `RecordCodeGenerator` expands accessors automatically. The `ACC_RECORD` flag is emitted in the class file.
+
+  </main>
+</div>
+
+</body>
+</html>

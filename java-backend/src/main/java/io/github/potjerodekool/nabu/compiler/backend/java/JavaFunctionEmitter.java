@@ -1,15 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
-import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
-import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
-import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
-import io.github.potjerodekool.nabu.compiler.ir.CallKind;
-import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
-import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.IRGlobal;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.backend.jvm.SlotAllocator;
+import io.github.potjerodekool.nabu.debug.SourceLocation;
+import io.github.potjerodekool.nabu.backend.ir.CallKind;
+import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.IRGlobal;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.Label;
@@ -205,8 +205,8 @@ class JavaFunctionEmitter {
     }
 
     private static IRType returnedType(final IRValue value) {
-        return value instanceof IRValue.Values values
-                ? values.values().getLast().type()
+        return value instanceof IRValue.Values(List<IRValue> values1)
+                ? values1.getLast().type()
                 : value.type();
     }
 
@@ -305,8 +305,8 @@ class JavaFunctionEmitter {
                                     final StringBuilder template) {
         if (isStringConstant(value) && value instanceof IRValue.Named named) {
             final var global = findGlobal(named.name());
-            if (global != null && global.initializer() instanceof IRValue.ConstString constString) {
-                template.append(constString.value());
+            if (global != null && global.initializer() instanceof IRValue.ConstString(String value1)) {
+                template.append(value1);
                 return;
             }
         }
@@ -344,74 +344,76 @@ class JavaFunctionEmitter {
     private void emitLoad(final IRInstruction.Load load) {
         final var ptr = load.ptr();
 
-        if (ptr instanceof IRValue.Named named) {
-            final var global = findGlobal(named.name());
+        switch (ptr) {
+            case IRValue.Named named -> {
+                final var global = findGlobal(named.name());
 
-            if (isStringLiteral(named, global)) {
-                emitValue(global.initializer());
-            } else if (named.isStatic() || (global != null && global.isStatic())) {
-                code.getstatic(
-                        ClassDesc.ofInternalName(resolveOwnerName(named, global)),
-                        resolveFieldName(named, global),
-                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(load.result().type()))
-                );
-            } else {
-                code.getfield(
-                        ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
-                        named.name(),
-                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(load.type()))
-                );
+                if (isStringLiteral(named, global)) {
+                    emitValue(global.initializer());
+                } else if (named.isStatic() || (global != null && global.isStatic())) {
+                    code.getstatic(
+                            ClassDesc.ofInternalName(resolveOwnerName(named, global)),
+                            resolveFieldName(named, global),
+                            ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(load.result().type()))
+                    );
+                } else {
+                    code.getfield(
+                            ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
+                            named.name(),
+                            ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(load.type()))
+                    );
+                }
             }
-        } else if (ptr instanceof IRValue.Temp temp) {
-            load(loadStoreKind(load.result().type()), slots.slotOf(temp.name(), temp.type()));
-        } else if (ptr instanceof IRValue.Values values) {
-            values.values().forEach(this::emitValue);
-        } else {
-            throw new UnsupportedOperationException("Unexpected load target: " + load);
+            case IRValue.Temp temp -> load(loadStoreKind(load.result().type()), slots.slotOf(temp.name(), temp.type()));
+            case IRValue.Values values -> values.values().forEach(this::emitValue);
+            case null, default -> throw new UnsupportedOperationException("Unexpected load target: " + load);
         }
 
         storeResult(load.result());
     }
 
     private void emitStore(final IRInstruction.Store store) {
-        if (store.ptr() instanceof IRValue.Named named) {
-            final var global = findGlobal(named.name());
-            final var isStatic = named.isStatic() || (global != null && global.isStatic());
+        switch (store.ptr()) {
+            case IRValue.Named named -> {
+                final var global = findGlobal(named.name());
+                final var isStatic = named.isStatic() || (global != null && global.isStatic());
 
-            emitValue(store.value());
+                emitValue(store.value());
 
-            if (isStatic) {
-                code.putstatic(
-                        ClassDesc.ofInternalName(resolveOwnerName(named, global)),
-                        resolveFieldName(named, global),
-                        ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(
-                                global != null ? global.type() : named.type()))
-                );
-            } else {
+                if (isStatic) {
+                    code.putstatic(
+                            ClassDesc.ofInternalName(resolveOwnerName(named, global)),
+                            resolveFieldName(named, global),
+                            ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(
+                                    global != null ? global.type() : named.type()))
+                    );
+                } else {
+                    code.putfield(
+                            ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
+                            named.name(),
+                            ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(named.type()))
+                    );
+                }
+            }
+            case IRValue.Values values -> {
+                // Emit alleen de receiver-chain (alle elementen behalve de laatste
+                // Named field-metadata). De Named wordt alleen gebruikt voor de
+                // veldnaam/-descriptor van PUTFIELD.
+                final var named = (IRValue.Named) values.values().getLast();
+                values.values().subList(0, values.values().size() - 1).forEach(this::emitValue);
+                emitValue(store.value());
+
                 code.putfield(
                         ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
                         named.name(),
                         ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(named.type()))
                 );
             }
-        } else if (store.ptr() instanceof IRValue.Values values) {
-            // Emit alleen de receiver-chain (alle elementen behalve de laatste
-            // Named field-metadata). De Named wordt alleen gebruikt voor de
-            // veldnaam/-descriptor van PUTFIELD.
-            final var named = (IRValue.Named) values.values().getLast();
-            values.values().subList(0, values.values().size() - 1).forEach(this::emitValue);
-            emitValue(store.value());
-
-            code.putfield(
-                    ClassDesc.ofInternalName(BytecodeHelper.toInternalName(named.ownerType())),
-                    named.name(),
-                    ClassDesc.ofDescriptor(BytecodeHelper.createDescriptor(named.type()))
-            );
-        } else if (store.ptr() instanceof IRValue.Temp temp) {
-            emitValue(store.value());
-            store(loadStoreKind(store.value().type()), slots.slotOf(temp.name(), temp.type()));
-        } else {
-            throw new UnsupportedOperationException("Unexpected store target: " + store);
+            case IRValue.Temp temp -> {
+                emitValue(store.value());
+                store(loadStoreKind(store.value().type()), slots.slotOf(temp.name(), temp.type()));
+            }
+            case null, default -> throw new UnsupportedOperationException("Unexpected store target: " + store);
         }
     }
 
@@ -662,8 +664,8 @@ class JavaFunctionEmitter {
         if (value instanceof IRValue.Temp temp) {
             return temp.name().equals(name);
         }
-        if (value instanceof IRValue.Values values) {
-            return referencesValue(name, values.values());
+        if (value instanceof IRValue.Values(List<IRValue> values1)) {
+            return referencesValue(name, values1);
         }
         return false;
     }
@@ -729,11 +731,11 @@ class JavaFunctionEmitter {
     private void emitComparisonOperands(final IRInstruction.BinaryOp binaryOp) {
         final var leftType = binaryOp.left().type();
 
-        if (leftType instanceof IRType.Float floatType) {
+        if (leftType instanceof IRType.Float(int bits)) {
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
-            emitOpcode(floatType.bits() == 64 ? Opcode.DCMPL : Opcode.FCMPL);
-        } else if (leftType instanceof IRType.Int intType && intType.bits() == 64) {
+            emitOpcode(bits == 64 ? Opcode.DCMPL : Opcode.FCMPL);
+        } else if (leftType instanceof IRType.Int(int bits) && bits == 64) {
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
             emitOpcode(Opcode.LCMP);
@@ -785,7 +787,7 @@ class JavaFunctionEmitter {
             };
         }
 
-        if (leftType instanceof IRType.Int intType && intType.bits() == 64) {
+        if (leftType instanceof IRType.Int(int bits) && bits == 64) {
             return switch (binaryOp.op()) {
                 case LT -> Opcode.IFLT;
                 case LTE -> Opcode.IFLE;
@@ -908,9 +910,9 @@ class JavaFunctionEmitter {
         if (type instanceof IRType.Ptr || type instanceof IRType.Array
                 || type instanceof IRType.Function) {
             code.aconst_null();
-        } else if (type instanceof IRType.Int intType && intType.bits() == 64) {
+        } else if (type instanceof IRType.Int(int bits) && bits == 64) {
             code.lconst_0();
-        } else if (type instanceof IRType.Float floatType && floatType.bits() == 64) {
+        } else if (type instanceof IRType.Float(int bits) && bits == 64) {
             code.dconst_0();
         } else if (type instanceof IRType.Float) {
             code.fconst_0();
@@ -1126,9 +1128,9 @@ class JavaFunctionEmitter {
     // -------------------------------------------------------
 
     private void storeResult(final IRValue result) {
-        if (result instanceof IRValue.Temp temp) {
-            store(loadStoreKind(temp.type()),
-                    slots.slotOf(temp.name(), temp.type()));
+        if (result instanceof IRValue.Temp(String name, IRType type)) {
+            store(loadStoreKind(type),
+                    slots.slotOf(name, type));
         }
     }
 
@@ -1361,10 +1363,10 @@ class JavaFunctionEmitter {
         final var allocaVersions = function.allocaVersions();
 
         for (final var param : function.params) {
-            if (param instanceof IRValue.Temp temp && slots.hasSlot(temp.name())) {
-                final var paramName = SlotAllocator.normalize(temp.name());
-                final var index = slots.getSlot(temp.name());
-                final var paramDescriptor = BytecodeHelper.createDescriptor(temp.type());
+            if (param instanceof IRValue.Temp(String name, IRType type) && slots.hasSlot(name)) {
+                final var paramName = SlotAllocator.normalize(name);
+                final var index = slots.getSlot(name);
+                final var paramDescriptor = BytecodeHelper.createDescriptor(type);
 
                 code.localVariable(
                         index,

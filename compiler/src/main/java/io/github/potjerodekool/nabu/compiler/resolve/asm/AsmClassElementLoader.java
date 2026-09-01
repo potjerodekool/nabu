@@ -107,7 +107,7 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
     @Override
     public PackageElement findOrCreatePackage(final ModuleElement moduleElement,
                                               final String packageName) {
-        return symbolTable.lookupPackage((ModuleSymbol) moduleElement, packageName);
+        return symbolTable.lookupPackage(moduleElement, packageName);
     }
 
     @Override

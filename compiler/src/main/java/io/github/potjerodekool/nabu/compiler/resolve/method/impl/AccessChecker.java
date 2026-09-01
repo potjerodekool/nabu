@@ -32,9 +32,7 @@ public final class AccessChecker {
             } else if (element instanceof ExecutableElement executableElement) {
                 final var ownerClass = (TypeElement) executableElement.getEnclosingElement();
 
-                if (isSubclass(caller, ownerClass)) {
-                    return true;
-                }
+                return isSubclass(caller, ownerClass);
             }
         } else if (element.isDefaultAccess()) {
             if (isSameModule(element.getModuleElement(), caller.getModuleElement())) {

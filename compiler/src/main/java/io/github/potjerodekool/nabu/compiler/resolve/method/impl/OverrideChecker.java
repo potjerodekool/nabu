@@ -81,11 +81,7 @@ public final class OverrideChecker {
             return false;
         }
 
-        if (!isSubclass(overriderClass, overriddenClass)) {
-            return false;
-        }
-
-        return true;
+        return isSubclass(overriderClass, overriddenClass);
     }
 
     private boolean hasSameParameterTypes(final ExecutableElement m1,

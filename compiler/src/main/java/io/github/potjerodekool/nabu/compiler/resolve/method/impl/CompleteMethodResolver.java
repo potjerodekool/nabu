@@ -901,7 +901,7 @@ public class CompleteMethodResolver implements MethodResolver {
                                            final java.util.HashMap<String, TypeMirror> inferenceMap) {
         if (paramType instanceof WildcardType wt && argType instanceof TypeVariable argTv) {
             if (wt.getBound() != null) {
-                inferenceMap.putIfAbsent(argTv.asElement().getSimpleName().toString(), wt.getBound());
+                inferenceMap.putIfAbsent(argTv.asElement().getSimpleName(), wt.getBound());
             }
         } else if (paramType instanceof WildcardType wt && argType instanceof DeclaredType argDeclared) {
             final var paramBound = wt.getBound();
@@ -934,12 +934,12 @@ public class CompleteMethodResolver implements MethodResolver {
                                    final java.util.List<? extends TypeVariable> methodTypeVars) {
         if (paramType instanceof WildcardType wt && argType instanceof TypeVariable argTv) {
             if (wt.getBound() != null) {
-                inferenceMap.putIfAbsent(argTv.asElement().getSimpleName().toString(), wt.getBound());
+                inferenceMap.putIfAbsent(argTv.asElement().getSimpleName(), wt.getBound());
             }
         } else if (paramType instanceof TypeVariable paramTv) {
-            if (methodTypeVars.stream().anyMatch(mtv -> mtv.asElement().getSimpleName().toString().equals(paramTv.asElement().getSimpleName().toString()))) {
+            if (methodTypeVars.stream().anyMatch(mtv -> mtv.asElement().getSimpleName().equals(paramTv.asElement().getSimpleName()))) {
                 if (!(argType instanceof TypeVariable)) {
-                    inferenceMap.putIfAbsent(paramTv.asElement().getSimpleName().toString(), argType);
+                    inferenceMap.putIfAbsent(paramTv.asElement().getSimpleName(), argType);
                 }
             }
         } else if (paramType instanceof DeclaredType paramDeclared
@@ -958,7 +958,7 @@ public class CompleteMethodResolver implements MethodResolver {
     private TypeMirror substituteTypeVariables(final TypeMirror type,
                                                final java.util.Map<String, TypeMirror> map) {
         if (type instanceof TypeVariable tv) {
-            final var replacement = map.get(tv.asElement().getSimpleName().toString());
+            final var replacement = map.get(tv.asElement().getSimpleName());
             return replacement != null ? replacement : type;
         } else if (type instanceof DeclaredType declaredType) {
             final var typeArgs = declaredType.getTypeArguments();
@@ -969,7 +969,7 @@ public class CompleteMethodResolver implements MethodResolver {
                     .map(ta -> substituteTypeVariables(ta, map))
                     .toList();
             return types.getDeclaredType(
-                    (TypeElement) declaredType.asTypeElement(),
+                    declaredType.asTypeElement(),
                     newTypeArgs.toArray(new TypeMirror[0])
             );
         }
@@ -1114,8 +1114,31 @@ public class CompleteMethodResolver implements MethodResolver {
                 .filter(m -> m.phase() == minPhase)
                 .toList();
 
+        if (samePhase.isEmpty()) {
+            return null;
+        }
+
+        // Leg de pre-deduplicatie lijst vast: alle kandidaten die dezelfde
+        // (meest specifieke) fase delen. Wanneer deduplicatie die volledig
+        // reduceert tot eén exemplaar, zijn alle oorspronkelijke kandidaten
+        // identiek aan elkaar en is elk ervan een geldige (en evenwaardige)
+        // keuze — alleen dan is het op de pre-dedup-lijst terugvallen correct.
+        final var firstSamePhase = new ArrayList<>(samePhase);
+
+        samePhase = deduplicate(samePhase);
         samePhase = new ArrayList<>(samePhase);
         samePhase.sort(Comparator.comparingDouble(ApplicableMethod::specificity));
+
+        if (samePhase.isEmpty()) {
+            // Alle kandidaten bleken duplicaten van elkaar. Dit kan gebeuren
+            // wanneer een klasse meermaals in dezelfde compilatie wordt
+            // binnengevoegd (bijv. gegenereerde bronnen die ook al op de
+            // source-path staan), waardoor dezelfde methode meerdere keren
+            // geregistreerd wordt. Alle kandidaten zijn dan identiek aan
+            // elkaar, dus de eerste daarvan is een geldige keuze.
+            firstSamePhase.sort(Comparator.comparingDouble(ApplicableMethod::specificity));
+            return firstSamePhase.getFirst();
+        }
 
         if (samePhase.size() > 1) {
             final var filtered = filterOverridden(samePhase);
@@ -1145,6 +1168,68 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         return samePhase.getFirst();
+    }
+
+    /**
+     * Verwijdert kandidaten die dezelfde methode voorstellen (zelfde declarerende
+     * klasse, zelfde naam en zelfde (ge-erasede) parameterlijst) maar doorheen de
+     * compilatie onder verschillende {@code MethodSymbol}-identiteiten zijn
+     * geregistreerd. Zonder deze normalisatie zou een methode die per ongeluk
+     * meermaals is toegevoegd als een ambigue overload worden beschouwd.
+     */
+    private List<ApplicableMethod> deduplicate(final List<ApplicableMethod> methods) {
+        if (methods.size() < 2) {
+            return methods;
+        }
+
+        final var result = new ArrayList<ApplicableMethod>();
+        for (final var method : methods) {
+            var duplicate = false;
+            for (final var existing : result) {
+                if (sameSignature(existing.method(), method.method())) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                result.add(method);
+            }
+        }
+        return result;
+    }
+
+    private boolean sameSignature(final ExecutableType left, final ExecutableType right) {
+        final var leftSymbol = left.getMethodSymbol();
+        final var rightSymbol = right.getMethodSymbol();
+
+        if (!leftSymbol.getSimpleName().equals(rightSymbol.getSimpleName())) {
+            return false;
+        }
+
+        final var leftOwner = leftSymbol.getEnclosingElement();
+        final var rightOwner = rightSymbol.getEnclosingElement();
+        if (leftOwner == null || rightOwner == null) {
+            return leftOwner == rightOwner;
+        }
+        if (!TypePrinter.print(leftOwner.asType()).equals(TypePrinter.print(rightOwner.asType()))) {
+            return false;
+        }
+
+        final var leftParams = left.getParameterTypes();
+        final var rightParams = right.getParameterTypes();
+        if (leftParams.size() != rightParams.size()) {
+            return false;
+        }
+
+        for (var i = 0; i < leftParams.size(); i++) {
+            final var leftParam = TypePrinter.print(leftParams.get(i));
+            final var rightParam = TypePrinter.print(rightParams.get(i));
+            if (!leftParam.equals(rightParam)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private List<ApplicableMethod> filterOverridden(final List<ApplicableMethod> methods) {
@@ -1234,11 +1319,7 @@ public class CompleteMethodResolver implements MethodResolver {
             return true;
         }
 
-        if (isBoxingCompatible(sourceType, targetType)) {
-            return true;
-        }
-
-        return false;
+        return isBoxingCompatible(sourceType, targetType);
     }
 
     boolean isUnboxingCompatible(final TypeMirror source, final TypeMirror target) {

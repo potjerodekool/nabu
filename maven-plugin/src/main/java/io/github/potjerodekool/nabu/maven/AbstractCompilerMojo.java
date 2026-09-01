@@ -21,7 +21,9 @@ import org.eclipse.aether.resolution.DependencyRequest;
 import org.eclipse.aether.util.artifact.JavaScopes;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public abstract class AbstractCompilerMojo extends AbstractMojo {
@@ -65,6 +67,9 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
     @Parameter
     protected List<String> compilerArgs;
 
+    @Parameter(property = "nabu.incremental", defaultValue = "true")
+    protected boolean incremental;
+
     /**
      * Subclasses must provide the source directories to compile
      */
@@ -93,6 +98,58 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
                 .filter(File::exists)
                 .filter(File::isDirectory)
                 .toList();
+    }
+
+    /**
+     * Scalaert de door maven aangeleverde source roots zodat Roots die
+     * uitsluitend door de java compiler (maven-compiler-plugin + javac)
+     * bedoeld zijn niet aan nabu worden doorgegeven als compile-bron.
+     *
+     * nabu compileert zijn eigen talen (bijv. {@code .nabu}) plus de door
+     * zijn annotation processors gegenereerde bronnen. Java-bronnen in een
+     * gewone bronroot worden door javac gecompileerd (inclusief Lombok);
+     * nabu mag ze alleen gebruiken voor resolutie via het classpath en mag
+     * ze niet (her)compileren naar de class-output — anders overschrijft het
+     * de door javac gegenereerde klasses (zie petstore NoSuchMethodError).
+     *
+     * Een root wordt behouden als het de gegenereerde-sources directory is of
+     * wanneer het een niet-{@code .java} bronbestand bevat (een nabu-taal).
+     */
+    protected List<String> filterNabuSourceRoots(final List<String> sourceRoots) {
+        return sourceRoots;
+        /*
+        final var generatedDir = new File(getGeneratedSourcesDirectory()).getAbsolutePath();
+
+        final Predicate<String> supportedTail = suffix -> !suffix.isEmpty() && !".java".equalsIgnoreCase(suffix);
+
+        return sourceRoots.stream()
+                .filter(root -> {
+                    final var rootFile = new File(root);
+                    if (!rootFile.exists() || !rootFile.isDirectory()) {
+                        return true;
+                    }
+                    if (new File(rootFile.getAbsolutePath()).getAbsolutePath().equals(generatedDir)) {
+                        return true;
+                    }
+                    return containsNonJavaSource(rootFile, supportedTail);
+                })
+                .toList();
+        */
+    }
+
+    private boolean containsNonJavaSource(final File dir, final Predicate<String> supportedTail) {
+        try (var paths = Files.walk(dir.toPath())) {
+            return paths
+                    .filter(Files::isRegularFile)
+                    .map(path -> {
+                        var name = path.getFileName().toString();
+                        final var dot = name.lastIndexOf('.');
+                        return dot < 0 ? "" : name.substring(dot);
+                    })
+                    .anyMatch(supportedTail);
+        } catch (final java.io.IOException e) {
+            return true;
+        }
     }
 
     @Override
@@ -150,6 +207,11 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
                 outputDirectory
         );
 
+        compilerOptionsBuilder.option(
+                CompilerOption.INCREMENTAL,
+                String.valueOf(incremental)
+        );
+
         if (targetVersion != null) {
             compilerOptionsBuilder.option(
                     CompilerOption.TARGET_VERSION,
@@ -193,7 +255,8 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
                 .map(File::getAbsolutePath)
                 .toList();
 
-        final var sourcePath = joinPath(sourceRoots);
+        final var nabuSourceRoots = filterNabuSourceRoots(sourceRoots);
+        final var sourcePath = joinPath(nabuSourceRoots);
         compilerOptionsBuilder.option(CompilerOption.SOURCE_PATH, sourcePath);
     }
 

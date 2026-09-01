@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 
 import java.io.IOException;
+import java.util.List;
 
 
 public class JavaLanguageSupport implements LanguageSupport {
@@ -28,8 +29,9 @@ public class JavaLanguageSupport implements LanguageSupport {
 
         try (var inputStream = fileObject.openInputStream()) {
             final var compilationUnitContext = JavaCompilerParser.parse(inputStream);
-            final var visitor = new JavaCompilerVisitor(fileObject);
-            return (CompilationUnit) compilationUnitContext.accept(visitor);
+            final var visitor = new JavaCompilerVisitor(fileObject, false);
+            final var cu = (CompilationUnit) compilationUnitContext.accept(visitor);
+            return cu;
         } catch (final IOException e) {
             throw new RuntimeException(e);
         }

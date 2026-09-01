@@ -283,7 +283,7 @@ class TypeEnterTest extends AbstractCompilerTest {
         );
 
         final var module = getCompilerContext().getModules().getUnnamedModule();
-        packageSymbol.setModuleSymbol((ModuleSymbol) module);
+        packageSymbol.setModuleSymbol(module);
 
         final var clazz = new ClassSymbolBuilder()
                 .enclosingElement(packageSymbol)

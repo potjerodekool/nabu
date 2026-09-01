@@ -117,7 +117,4 @@ public abstract class AbstractAnnotationProcessorTest extends AbstractCompilerTe
                 );
     }
 
-    protected String createClassPath(String... pathElements) {
-        return String.join(File.pathSeparator, pathElements);
-    }
 }

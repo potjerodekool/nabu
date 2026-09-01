@@ -219,7 +219,7 @@ public class SymbolTable {
         var classSymbol = getClassSymbol(packageSymbol.getModuleSymbol(), flatname);
 
         if (classSymbol == null) {
-            classSymbol = defineClass(getShortName(flatname), (Symbol) packageSymbol);
+            classSymbol = defineClass(getShortName(flatname), packageSymbol);
             doEnterClass(packageSymbol.getModuleSymbol(), classSymbol);
         }
 

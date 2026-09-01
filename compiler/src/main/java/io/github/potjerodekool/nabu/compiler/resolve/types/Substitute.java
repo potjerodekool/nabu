@@ -7,7 +7,7 @@ import java.util.List;
 
 public class Substitute extends StructuralTypeMapping<Void> {
 
-    private List<? extends TypeMirror> from;
+    private final List<? extends TypeMirror> from;
     private List<? extends TypeMirror> to;
 
     public Substitute() {

@@ -1,10 +1,13 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.ScopeTracker;
+import io.github.potjerodekool.nabu.backend.ir.TagToIROp;
+import io.github.potjerodekool.nabu.backend.ir.TypeMirrorToIRType;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tree.Tag;
 import io.github.potjerodekool.nabu.type.TypeKind;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction.BinaryOp.Op;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.BinaryOp.Op;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

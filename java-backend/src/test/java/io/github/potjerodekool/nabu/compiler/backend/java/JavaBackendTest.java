@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
-import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
-import io.github.potjerodekool.nabu.compiler.ir.IRModule;
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
+import io.github.potjerodekool.nabu.backend.ir.IRModule;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.lang.Flags;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
-import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
-import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.IRModule;
+import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;

@@ -3,8 +3,8 @@ package io.github.potjerodekool.nabu.compiler.backend.asm;
 import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
 import io.github.potjerodekool.nabu.compiler.backend.ASMTestUtils;
 import io.github.potjerodekool.nabu.compiler.backend.ir.BackendTest;
-import io.github.potjerodekool.nabu.compiler.backend.ir.IrGeneratingVisitor;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Optimizer;
+import io.github.potjerodekool.nabu.backend.ir.IrGeneratingVisitor;
+import io.github.potjerodekool.nabu.backend.ir.Optimizer;
 import io.github.potjerodekool.nabu.compiler.impl.EnterPhase;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
@@ -217,6 +217,7 @@ class InstructionEmitterTest extends BackendTest {
         CompilationUnit compilationUnit = parse(
                 """
                         public class MyClass {
+                            int number;
                             void setValue(int number) {
                                  this.number = number;
                                  return;

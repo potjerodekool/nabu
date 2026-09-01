@@ -750,9 +750,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     private DeclaredType asDeclaredType(final TypeMirror typeMirror) {
         if (typeMirror instanceof DeclaredType declaredType) {
             return declaredType;
-        } else {
-            final var variableType = (VariableType) typeMirror;
+        } else if (typeMirror instanceof VariableType variableType) {
             return (DeclaredType) variableType.getInterferedType();
+        } else {
+            return null;
         }
     }
 
@@ -788,6 +789,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         if (varElement != null) {
             final var varType = varElement.asType();
+
+            if (varType instanceof ArrayType) {
+                return defaultAnswer(fieldAccessExpression, scope);
+            }
+
             final DeclaredType declaredType = asDeclaredType(varType);
             final var symbolScope = new SymbolScope(
                     declaredType,
@@ -795,7 +801,19 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             );
             acceptTree(fieldAccessExpression.getField(), symbolScope);
         } else if (selected.getType() != null) {
-            final DeclaredType declaredType = asDeclaredType(selected.getType());
+            final var selectedType = selected.getType();
+
+            if (selectedType instanceof ArrayType) {
+                final var classLiteralType = types.getDeclaredType(
+                        loader.loadClass(scope.findModuleElement(), Constants.CLAZZ),
+                        selectedType
+                );
+                fieldAccessExpression.getField().setType(classLiteralType);
+                fieldAccessExpression.setType(classLiteralType);
+                return defaultAnswer(fieldAccessExpression, scope);
+            }
+
+            final DeclaredType declaredType = asDeclaredType(selectedType);
             final var classScope = new ClassScope(
                     declaredType,
                     null,
@@ -924,7 +942,21 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final Scope scope) {
         acceptTree(instanceOfExpression.getExpression(), scope);
-        acceptTree(instanceOfExpression.getTypeExpression(), scope);
+
+        final var typeExpression = instanceOfExpression.getTypeExpression();
+
+        if (typeExpression instanceof TypePattern typePattern) {
+            final var variableDeclarator = typePattern.getVariableDeclarator();
+            acceptTree(variableDeclarator.getVariableType(), scope);
+            variableDeclarator.setType(variableDeclarator.getVariableType().getType());
+
+            final var symbol = phaseUtils.createVariable(variableDeclarator);
+            variableDeclarator.getName().setSymbol(symbol);
+            scope.define(symbol);
+        } else {
+            acceptTree(typeExpression, scope);
+        }
+
         return null;
     }
 
@@ -935,7 +967,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var types = compilerContext.getTypes();
         final var arrayType = types.getArrayType(componentType);
         arrayTypeTree.setType(arrayType);
-        return null;
+        return arrayTypeTree;
     }
 
     @Override

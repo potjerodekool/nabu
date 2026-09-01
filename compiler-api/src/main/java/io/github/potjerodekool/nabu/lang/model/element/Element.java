@@ -25,6 +25,8 @@ public interface Element extends AnnotatedConstruct {
 
     Set<Modifier> getModifiers();
 
+    long getFlags();
+
     boolean hasFlag(long flag);
 
     boolean isPublic();

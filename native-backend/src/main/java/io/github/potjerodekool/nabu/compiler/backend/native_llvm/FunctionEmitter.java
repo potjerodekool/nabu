@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
-import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
-import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;

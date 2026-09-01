@@ -35,7 +35,7 @@ public final class ToNabuMapper {
             final Map<ExecutableElement, AnnotationValue> values = mirror.getElementValues().entrySet().stream()
                     .map(it -> {
                         final var key = (ExecutableElement) ElementWrapperFactory.toNabuElement(it.getKey());
-                        final var value = (AnnotationValue) it.getValue().accept(this, null);
+                        final var value = it.getValue().accept(this, null);
                         return Map.entry(key, value);
                     })
                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));

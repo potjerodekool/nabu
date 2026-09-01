@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.compiler.resolve.jvm.AccessUtils;
+import io.github.potjerodekool.nabu.resolve.jvm.AccessUtils;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
@@ -86,7 +86,7 @@ class AsmClassBuilder extends ClassVisitor {
 
             if (packageEnd > -1) {
                 final var packageName = qualifiedName.substring(0, packageEnd);
-                enclosingElement = (Symbol) symbolTable.lookupPackage(
+                enclosingElement = symbolTable.lookupPackage(
                         moduleSymbol,
                         packageName
                 );

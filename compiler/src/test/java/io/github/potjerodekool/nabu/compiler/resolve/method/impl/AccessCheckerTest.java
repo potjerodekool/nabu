@@ -55,12 +55,8 @@ class AccessCheckerTest extends AbstractCompilerTest {
 
     @Test
     void isAccessible() {
-        final var fooClass = createClass("foo-module", "foo", "Foo", b -> {
-            b.flags(Flags.PUBLIC);
-        });
-        final var barClass = createClass("bar-module", "bar", "Bar",b -> {
-            b.flags(Flags.PUBLIC);
-        });
+        final var fooClass = createClass("foo-module", "foo", "Foo", b -> b.flags(Flags.PUBLIC));
+        final var barClass = createClass("bar-module", "bar", "Bar",b -> b.flags(Flags.PUBLIC));
 
         assertTrue(AccessChecker.isAccessible(fooClass, barClass));
     }

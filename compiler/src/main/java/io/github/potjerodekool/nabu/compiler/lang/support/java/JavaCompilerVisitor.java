@@ -228,6 +228,24 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
     }
 
+    public Object visitPackageOrTypeName(final Java20Parser.PackageOrTypeNameContext ctx) {
+        final IdentifierTree identifier = (IdentifierTree) ctx.identifier().accept(this);
+        final ExpressionTree packageOrTypeName = accept(ctx.packageOrTypeName());
+
+        if (packageOrTypeName == null) {
+            return TreeMaker.identifier(
+                    identifier.getName(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        } else {
+            return createFieldAccessExpression(
+                    identifier,
+                    packageOrTypeName
+            );
+        }
+    }
+
     private ExpressionTree createFieldAccessExpression(final ExpressionTree first,
                                                        final ExpressionTree second) {
         CFieldAccessExpressionTree result;
@@ -1485,6 +1503,92 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitConstructorBody(final Java20Parser.ConstructorBodyContext ctx) {
+        if (skipBody) {
+            return TreeMaker.blockStatement(
+                    List.of(),
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        final var statements = new ArrayList<StatementTree>();
+
+        if (ctx.explicitConstructorInvocation() != null) {
+            statements.add((StatementTree) ctx.explicitConstructorInvocation().accept(this));
+        }
+
+        if (ctx.blockStatements() != null) {
+            statements.addAll(acceptList(ctx.blockStatements()));
+        }
+
+        return TreeMaker.blockStatement(
+                statements,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitExplicitConstructorInvocation(final Java20Parser.ExplicitConstructorInvocationContext ctx) {
+        final List<IdentifierTree> typeArguments = acceptList(ctx.typeArguments());
+        final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
+        ExpressionTree target = null;
+
+        if (ctx.expressionName() != null) {
+            target = (ExpressionTree) ctx.expressionName().accept(this);
+        } else if (ctx.primary() != null) {
+            target = (ExpressionTree) ctx.primary().accept(this);
+        }
+
+        final var methodName = TreeMaker.identifier(
+                ctx.THIS() != null ? Constants.THIS : Constants.SUPER,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+
+        final ExpressionTree methodSelector =
+                target != null
+                        ? FieldAccessExpressionTree.create(target, methodName)
+                        : methodName;
+
+        return TreeMaker.expressionStatement(
+                TreeMaker.methodInvocationTree(
+                        methodSelector,
+                        typeArguments,
+                        arguments,
+                        ctx.getStart().getLine(),
+                        ctx.getStart().getCharPositionInLine()
+                ),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
+    public Object visitFieldAccess(final Java20Parser.FieldAccessContext ctx) {
+        final ExpressionTree selected;
+
+        if (ctx.primary() != null) {
+            final var primary = ctx.primary().accept(this);
+            selected = primary instanceof ExpressionTree expressionTree
+                    ? expressionTree
+                    : IdentifierTree.create(Constants.THIS);
+        } else if (ctx.SUPER() != null) {
+            selected = IdentifierTree.create(Constants.SUPER);
+        } else {
+            final var typeName = (ExpressionTree) ctx.typeName().accept(this);
+            selected = FieldAccessExpressionTree.create(
+                    typeName,
+                    IdentifierTree.create(Constants.SUPER)
+            );
+        }
+
+        final var field = (IdentifierTree) ctx.identifier().accept(this);
+        return FieldAccessExpressionTree.create(selected, field);
+    }
+
+    @Override
     public Object visitConstructorDeclaration(final Java20Parser.ConstructorDeclarationContext ctx) {
         final var modifiers = parseModifiers(ctx.constructorModifier());
         final var constructor = (Function) ctx.constructorDeclarator().accept(this);
@@ -1832,6 +1936,19 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitPrimaryNoNewArray(final Java20Parser.PrimaryNoNewArrayContext ctx) {
+        final var firstChild = ctx.getChild(0);
+
+        if (firstChild instanceof TerminalNode terminalNode
+                && ("this".equals(terminalNode.getText()) || "super".equals(terminalNode.getText()))) {
+            final var base = IdentifierTree.create(terminalNode.getText());
+
+            if (ctx.pNNA() != null) {
+                return combineExpressions(base, ctx.pNNA().accept(this));
+            }
+
+            return base;
+        }
+
         final var pNNA = accept(ctx.pNNA());
 
         if (ctx.pattern() != null) {
@@ -1845,8 +1962,6 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 return combineExpressions(literal, pNNA);
             }
         }
-
-        final var firstChild = ctx.getChild(0);
 
         if (firstChild instanceof TerminalNode terminalNode && firstChild.getText().equals("(")) {
             final var expression = (ExpressionTree) ctx.expression().accept(this);
@@ -1937,7 +2052,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 if ("instanceof".equals(operatorText)) {
                     childResult = TreeMaker.instanceOfExpression(
                             lastExpression,
-                            (ExpressionTree) childResult,
+                            (Tree) childResult,
                             ctx.getStart().getLine(),
                             ctx.getStart().getCharPositionInLine()
                     );
@@ -2453,8 +2568,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     public Object visitLambdaParameters(final Java20Parser.LambdaParametersContext ctx) {
         if (ctx.lambdaParameterList() != null) {
             return acceptList(ctx.lambdaParameterList());
-        } else {
+        } else if (ctx.identifier() != null) {
             return toLambdaVariable((Tree) ctx.identifier().accept(this));
+        } else {
+            return List.of();
         }
     }
 
@@ -2654,7 +2771,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         } else if (ctx.switchExpression() != null) {
             return visitSwitchExpression(ctx.switchExpression());
         } else if (ctx.children.size() >= 2) {
-            final var operatorNode = ctx.children.get(0);
+            final var operatorNode = ctx.children.getFirst();
             if (operatorNode instanceof TerminalNode terminalNode) {
                 final var tag = switch (terminalNode.getText()) {
                     case "~" -> Tag.BITNOT;

@@ -37,6 +37,8 @@ build/
 ### Mac OS ###
 .DS_Store
 /compiler-test/output/
+/compiler/output/
+/compiler/test-out/
 /compiler/src/main/antlr4/gen/
 /.idea/
 /compiler/gen/

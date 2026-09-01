@@ -24,5 +24,16 @@ module io.github.potjerodekool.compiler.api {
     exports io.github.potjerodekool.nabu.tree.statement.impl;
     exports io.github.potjerodekool.nabu.tree.impl;
     exports io.github.potjerodekool.nabu.lang;
+    exports io.github.potjerodekool.nabu.backend.asm;
+    exports io.github.potjerodekool.nabu.backend.ir;
+    exports io.github.potjerodekool.nabu.backend.jvm;
+    exports io.github.potjerodekool.nabu.backend.ir.values;
+    exports io.github.potjerodekool.nabu.backend.ir.instructions;
+    exports io.github.potjerodekool.nabu.backend.ir.types;
+    exports io.github.potjerodekool.nabu.resolve.jvm;
+    exports io.github.potjerodekool.nabu.backend;
+    exports io.github.potjerodekool.nabu.debug;
+    exports io.github.potjerodekool.nabu.backend.ir.optimize;
     requires org.antlr.antlr4.runtime;
+    requires org.objectweb.asm;
 }

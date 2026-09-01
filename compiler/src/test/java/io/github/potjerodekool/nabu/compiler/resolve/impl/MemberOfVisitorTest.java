@@ -74,7 +74,7 @@ class MemberOfVisitorTest extends AbstractCompilerTest {
 
     private VariableSymbol createParameter(final String name,
                                            final TypeMirror type) {
-        return (VariableSymbol) new VariableSymbolBuilderImpl()
+        return new VariableSymbolBuilderImpl()
                 .kind(ElementKind.PARAMETER)
                 .simpleName(name)
                 .type(type)

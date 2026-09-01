@@ -51,7 +51,7 @@ class TypeArgApplyer implements ElementVisitor<TypeMirror, Map<String, TypeMirro
 
     @Override
     public TypeMirror visitTypeParameter(final TypeParameterElement typeParameterElement, final Map<String, TypeMirror> map) {
-        final var name = typeParameterElement.getSimpleName().toString();
+        final var name = typeParameterElement.getSimpleName();
         return map.getOrDefault(name, typeParameterElement.asType());
     }
 

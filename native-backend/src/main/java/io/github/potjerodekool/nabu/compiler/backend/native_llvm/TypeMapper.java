@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;
 import org.bytedeco.llvm.LLVM.LLVMContextRef;

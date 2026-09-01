@@ -1,11 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir.optimize;
 
-import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
-import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.IRModule;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.IRModule;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.optimize.ConstantFolder;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

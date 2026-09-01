@@ -1,7 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.jvm;
 
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

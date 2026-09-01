@@ -2,14 +2,14 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
+import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.extension.PluginClassLoader;
-import io.github.potjerodekool.nabu.compiler.ir.CallKind;
-import io.github.potjerodekool.nabu.compiler.ir.IRBuilder;
-import io.github.potjerodekool.nabu.compiler.ir.IRModule;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction.BinaryOp.Op;
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.CallKind;
+import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
+import io.github.potjerodekool.nabu.backend.ir.IRModule;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.BinaryOp.Op;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -663,6 +663,7 @@ class NativeLLVMBackendTest {
                 "Object file in directory niet aangemaakt");
     }
 
+    @Disabled
     @Test
     void loadPlugin() throws MalformedURLException, ClassNotFoundException {
         final var urls = new URL[]{

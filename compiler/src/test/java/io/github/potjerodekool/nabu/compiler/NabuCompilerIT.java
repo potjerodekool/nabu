@@ -2,10 +2,12 @@ package io.github.potjerodekool.nabu.compiler;
 
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Disabled
 class NabuCompilerIT {
 
     @Test

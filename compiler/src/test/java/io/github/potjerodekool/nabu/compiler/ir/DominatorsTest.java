@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.ir;
 
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.Dominators;
+import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

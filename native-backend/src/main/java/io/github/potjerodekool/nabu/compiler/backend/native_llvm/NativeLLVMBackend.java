@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
-import io.github.potjerodekool.nabu.compiler.backend.Backend;
-import io.github.potjerodekool.nabu.compiler.backend.CompileException;
-import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
-import io.github.potjerodekool.nabu.compiler.ir.IRModule;
+import io.github.potjerodekool.nabu.backend.Backend;
+import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.backend.ir.IRModule;
+import io.github.potjerodekool.nabu.util.CompileException;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.llvm.LLVM.*;
 

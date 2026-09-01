@@ -1,9 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.backend.ir;
 
-import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
-import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
-import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.Optimizer;
+import io.github.potjerodekool.nabu.debug.SourceLocation;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

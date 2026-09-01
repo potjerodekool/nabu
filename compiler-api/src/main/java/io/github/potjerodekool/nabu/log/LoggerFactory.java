@@ -49,7 +49,7 @@ class SystemLogger implements Logger {
                 final var stringWriter = new StringWriter();
                 new PrintWriter(stringWriter);
                 exception.printStackTrace(new PrintWriter(stringWriter));
-                System.err.println(stringWriter.getBuffer().toString());
+                System.err.println(stringWriter.getBuffer());
             }
         } else {
             System.out.println(message);

@@ -87,7 +87,7 @@ public class JavacElements implements Elements {
     @Override
     public Map<? extends ExecutableElement, ? extends AnnotationValue> getElementValuesWithDefaults(final AnnotationMirror a) {
         @SuppressWarnings("unchecked")
-        final var result = (Map<? extends ExecutableElement, ? extends AnnotationValue>) (Map<?, ?>) nabuElements.getElementValuesWithDefaults(ToNabuMapper.accept(a));
+        final var result = (Map<? extends ExecutableElement, ? extends AnnotationValue>) nabuElements.getElementValuesWithDefaults(ToNabuMapper.accept(a));
         return result;
     }
 

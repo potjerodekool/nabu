@@ -1,16 +1,16 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
-import io.github.potjerodekool.nabu.compiler.backend.ir.PhiElimination;
-import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
-import io.github.potjerodekool.nabu.compiler.resolve.jvm.AccessUtils;
-import io.github.potjerodekool.nabu.compiler.backend.jvm.Linearizer;
-import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
-import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
-import io.github.potjerodekool.nabu.compiler.ir.IRField;
-import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.IRGlobal;
-import io.github.potjerodekool.nabu.compiler.ir.IRModule;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.ir.PhiElimination;
+import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.resolve.jvm.AccessUtils;
+import io.github.potjerodekool.nabu.backend.jvm.Linearizer;
+import io.github.potjerodekool.nabu.backend.jvm.SlotAllocator;
+import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
+import io.github.potjerodekool.nabu.backend.ir.IRField;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.IRGlobal;
+import io.github.potjerodekool.nabu.backend.ir.IRModule;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.lang.Flags;
 
 import java.lang.classfile.ClassBuilder;
@@ -54,7 +54,7 @@ class ClassFileByteCodeEmitter {
     }
 
     private static int resolveModuleAccess(final IRModule module) {
-        int access = 0;
+        int access;
 
         if (module.flags == 0) {
             access = ClassFile.ACC_PUBLIC | ClassFile.ACC_SUPER;
@@ -91,12 +91,10 @@ class ClassFileByteCodeEmitter {
 
         ownerInternalName = BytecodeHelper.toInternalName(module.name);
 
-        final var classBytes = ClassFile.of().build(
+        return ClassFile.of().build(
                 ClassDesc.ofInternalName(ownerInternalName),
                 classBuilder -> buildClass(module, classBuilder)
         );
-
-        return classBytes;
     }
 
     private void buildClass(final IRModule module,
@@ -197,17 +195,15 @@ class ClassFileByteCodeEmitter {
                     field.genericSignature(),
                     field.annotations()
             );
-            case FIELD -> {
-                classBuilder.withField(
-                        name,
-                        fieldDesc,
-                        fieldBuilder -> {
-                            fieldBuilder.withFlags(AccessUtils.flagsToAccess(field.flags()));
-                            AttributeFactories.annotations(fieldBuilder, field.annotations());
-                            AttributeFactories.signature(fieldBuilder, field.genericSignature());
-                        }
-                );
-            }
+            case FIELD -> classBuilder.withField(
+                    name,
+                    fieldDesc,
+                    fieldBuilder -> {
+                        fieldBuilder.withFlags(AccessUtils.flagsToAccess(field.flags()));
+                        AttributeFactories.annotations(fieldBuilder, field.annotations());
+                        AttributeFactories.signature(fieldBuilder, field.genericSignature());
+                    }
+            );
         }
     }
 
@@ -218,14 +214,14 @@ class ClassFileByteCodeEmitter {
         }
 
         final var access = AccessUtils.flagsToAccess(function.getFlags());
-        final boolean isStatic = Flags.hasFlag(function.getFlags(), Flags.STATIC);
+        final boolean methodIsStatic = Flags.hasFlag(function.getFlags(), Flags.STATIC);
 
-        final var name = emittedName(function);
+        final var methodName = emittedName(function);
 
         var params = function.params;
 
-        if (!isStatic && !params.isEmpty()) {
-            params = params.size() == 1 ? List.<IRValue>of() : params.subList(1, params.size());
+        if (!methodIsStatic && !params.isEmpty()) {
+            params = params.size() == 1 ? List.of() : params.subList(1, params.size());
         }
 
         final var descriptor = BytecodeHelper.createDescriptorWithValues(
@@ -233,9 +229,7 @@ class ClassFileByteCodeEmitter {
                 function.returnType
         );
 
-        final var methodName = name;
         final var methodParams = params;
-        final var methodIsStatic = isStatic;
 
         classBuilder.withMethod(
                 methodName,

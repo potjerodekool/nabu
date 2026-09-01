@@ -16,6 +16,7 @@ public final class AnnotationBuilder {
     }
 
     /**
+     * Create an annotation.
      * @param annotationType An annotation type
      * @param values Annotation values
      * @return Returns an annotation with the give values
@@ -27,6 +28,7 @@ public final class AnnotationBuilder {
     }
 
     /**
+     * Create an array value for an annotation.
      * @param componentType Component type of the array
      * @param values Values of the array
      * @return Returns an array with the given values
@@ -37,6 +39,7 @@ public final class AnnotationBuilder {
     }
 
     /**
+     * Create an constant value for an annotation.
      * @param value A constant value
      * @return Returns a constant value
      */
@@ -45,6 +48,7 @@ public final class AnnotationBuilder {
     }
 
     /**
+     * Create an enum value for an annotation.
      * @param enumType Enumeration type
      * @param enumValue Enumvlaue
      * @return Return the enum value
@@ -58,6 +62,7 @@ public final class AnnotationBuilder {
     }
 
     /**
+     * Create an class value for an annotation.
      * @param type A type
      * @return Returns a class type
      */

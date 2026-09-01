@@ -4,21 +4,25 @@ public class MyClass {
 
   // compiled from: Myclass.java
 
+  // access flags 0x0
+  I number
+
   // access flags 0x1
   public setValue(I)V
     // parameter final  number
    L0
-    LINENUMBER 3 L0
     LINENUMBER 4 L0
+    LINENUMBER 5 L0
     ILOAD 1
     ISTORE 2
+    ALOAD 0
     ILOAD 2
-    ISTORE 1
+    PUTFIELD MyClass.number : I
     RETURN
    L1
     LOCALVARIABLE this LMyClass; L0 L1 0
     LOCALVARIABLE number I L0 L1 1
-    MAXSTACK = 1
+    MAXSTACK = 2
     MAXLOCALS = 3
 
   // access flags 0x1

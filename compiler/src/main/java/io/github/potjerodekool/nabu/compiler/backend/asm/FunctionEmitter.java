@@ -1,15 +1,15 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
-import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
-import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
-import io.github.potjerodekool.nabu.compiler.debug.SourceLocation;
-import io.github.potjerodekool.nabu.compiler.ir.CallKind;
-import io.github.potjerodekool.nabu.compiler.ir.IRBasicBlock;
-import io.github.potjerodekool.nabu.compiler.ir.IRFunction;
-import io.github.potjerodekool.nabu.compiler.ir.IRGlobal;
-import io.github.potjerodekool.nabu.compiler.ir.instructions.IRInstruction;
-import io.github.potjerodekool.nabu.compiler.ir.types.IRType;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.backend.jvm.SlotAllocator;
+import io.github.potjerodekool.nabu.debug.SourceLocation;
+import io.github.potjerodekool.nabu.backend.ir.CallKind;
+import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.IRGlobal;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -99,9 +99,7 @@ public class FunctionEmitter {
             case IRInstruction.Load load -> emitLoad(load);
             case IRInstruction.Call call -> emitCall(call);
             case IRInstruction.AllocaArray allocArray -> emitNewArray(allocArray);
-            case IRInstruction.Branch branch -> {
-                mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(branch.targetLabel()));
-            }
+            case IRInstruction.Branch branch -> mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(branch.targetLabel()));
             case IRInstruction.Cast cast -> emitCast(cast);
             case IRInstruction.CondBranch condBranch -> emitCondBranch(condBranch);
             case IRInstruction.IndirectCall indirectCall -> emitIndirectCall(indirectCall);
@@ -274,8 +272,8 @@ public class FunctionEmitter {
                                     final StringBuilder template) {
         if (isStringConstant(value) && value instanceof IRValue.Named named) {
             final var global = findGlobal(named.name());
-            if (global != null && global.initializer() instanceof IRValue.ConstString constString) {
-                template.append(constString.value());
+            if (global != null && global.initializer() instanceof IRValue.ConstString(String value1)) {
+                template.append(value1);
                 return;
             }
         }
@@ -313,54 +311,71 @@ public class FunctionEmitter {
     private void emitLoad(final IRInstruction.Load load) {
         final var ptr = load.ptr();
 
-        if (ptr instanceof IRValue.Named named) {
-            final var global = findGlobal(named.name());
+        switch (ptr) {
+            case IRValue.Named named -> {
+                final var global = findGlobal(named.name());
 
-            if (isStringLiteral(named, global)) {
-                emitValue(global.initializer());
-            } else if (named.isStatic() || (global != null && global.isStatic())) {
-                mv.visitFieldInsn(
-                        Opcodes.GETSTATIC,
-                        resolveOwnerName(named, global),
-                        resolveFieldName(named, global),
-                        BytecodeHelper.createDescriptor(load.result().type())
-                );
-            } else {
-                mv.visitFieldInsn(
-                        Opcodes.GETFIELD,
-                        BytecodeHelper.toInternalName(named.ownerType()),
-                        named.name(),
-                        BytecodeHelper.createDescriptor(load.type())
-                );
+                if (isStringLiteral(named, global)) {
+                    emitValue(global.initializer());
+                } else if (named.isStatic() || (global != null && global.isStatic())) {
+                    mv.visitFieldInsn(
+                            Opcodes.GETSTATIC,
+                            resolveOwnerName(named, global),
+                            resolveFieldName(named, global),
+                            BytecodeHelper.createDescriptor(load.result().type())
+                    );
+                } else {
+                    mv.visitFieldInsn(
+                            Opcodes.GETFIELD,
+                            BytecodeHelper.toInternalName(named.ownerType()),
+                            named.name(),
+                            BytecodeHelper.createDescriptor(load.type())
+                    );
+                }
             }
-        } else if (ptr instanceof IRValue.Temp temp) {
-            final var opcode = resolveLoadOpcode(load.result().type());
-            mv.visitVarInsn(opcode, slots.slotOf(temp.name(), temp.type()));
-        } else if (ptr instanceof IRValue.Values values) {
-            values.values().forEach(this::emitValue);
-        } else {
-            throw new UnsupportedOperationException("Unexpected load target: " + load);
+            case IRValue.Temp temp -> {
+                final var opcode = resolveLoadOpcode(load.result().type());
+                mv.visitVarInsn(opcode, slots.slotOf(temp.name(), temp.type()));
+            }
+            case IRValue.Values values -> values.values().forEach(this::emitValue);
+            case null, default -> throw new UnsupportedOperationException("Unexpected load target: " + load);
         }
 
         storeResult(load.result());
     }
 
     private void emitStore(final IRInstruction.Store store) {
-        if (store.ptr() instanceof IRValue.Named named) {
-            final var global = findGlobal(named.name());
-            final var isStatic = named.isStatic() || (global != null && global.isStatic());
+        switch (store.ptr()) {
+            case IRValue.Named named -> {
+                final var global = findGlobal(named.name());
+                final var isStatic = named.isStatic() || (global != null && global.isStatic());
 
-            emitValue(store.value());
+                emitValue(store.value());
 
-            if (isStatic) {
-                mv.visitFieldInsn(
-                        Opcodes.PUTSTATIC,
-                        resolveOwnerName(named, global),
-                        resolveFieldName(named, global),
-                        BytecodeHelper.createDescriptor(
-                                global != null ? global.type() : named.type())
-                );
-            } else {
+                if (isStatic) {
+                    mv.visitFieldInsn(
+                            Opcodes.PUTSTATIC,
+                            resolveOwnerName(named, global),
+                            resolveFieldName(named, global),
+                            BytecodeHelper.createDescriptor(
+                                    global != null ? global.type() : named.type())
+                    );
+                } else {
+                    mv.visitFieldInsn(
+                            Opcodes.PUTFIELD,
+                            BytecodeHelper.toInternalName(named.ownerType()),
+                            named.name(),
+                            BytecodeHelper.createDescriptor(named.type())
+                    );
+                }
+            }
+            case IRValue.Values values -> {
+                // Emit only the receiver chain (all elements except the last Named field metadata).
+                // The Named is used only for PUTFIELD's field name/descriptor.
+                final var named = (IRValue.Named) values.values().getLast();
+                values.values().subList(0, values.values().size() - 1).forEach(this::emitValue);
+                emitValue(store.value());
+
                 mv.visitFieldInsn(
                         Opcodes.PUTFIELD,
                         BytecodeHelper.toInternalName(named.ownerType()),
@@ -368,27 +383,14 @@ public class FunctionEmitter {
                         BytecodeHelper.createDescriptor(named.type())
                 );
             }
-        } else if (store.ptr() instanceof IRValue.Values values) {
-            // Emit only the receiver chain (all elements except the last Named field metadata).
-            // The Named is used only for PUTFIELD's field name/descriptor.
-            final var named = (IRValue.Named) values.values().getLast();
-            values.values().subList(0, values.values().size() - 1).forEach(this::emitValue);
-            emitValue(store.value());
-
-            mv.visitFieldInsn(
-                    Opcodes.PUTFIELD,
-                    BytecodeHelper.toInternalName(named.ownerType()),
-                    named.name(),
-                    BytecodeHelper.createDescriptor(named.type())
-            );
-        } else if (store.ptr() instanceof IRValue.Temp temp) {
-            emitValue(store.value());
-            mv.visitVarInsn(
-                    resolveStoreOpcode(store.value().type()),
-                    slots.slotOf(temp.name(), temp.type())
-            );
-        } else {
-            throw new UnsupportedOperationException("Unexpected store target: " + store);
+            case IRValue.Temp temp -> {
+                emitValue(store.value());
+                mv.visitVarInsn(
+                        resolveStoreOpcode(store.value().type()),
+                        slots.slotOf(temp.name(), temp.type())
+                );
+            }
+            case null, default -> throw new UnsupportedOperationException("Unexpected store target: " + store);
         }
     }
 
@@ -446,8 +448,71 @@ public class FunctionEmitter {
 
     private void emitCast(final IRInstruction.Cast cast) {
         emitValue(cast.source());
-        mv.visitTypeInsn(Opcodes.CHECKCAST, BytecodeHelper.toInternalName(cast.targetType()));
+        final var conversionOpcode = resolveConversionOpcode(
+                cast.source().type(),
+                cast.targetType()
+        );
+
+        if (conversionOpcode == Opcodes.NOP) {
+            // Geen conversie nodig (bv. byte -> int, of gelijke types)
+        } else if (conversionOpcode == Integer.MIN_VALUE) {
+            mv.visitTypeInsn(Opcodes.CHECKCAST, BytecodeHelper.toInternalName(cast.targetType()));
+        } else {
+            // Primitieve numerieke conversie (bv. I2F, F2I, L2D, ...)
+            mv.visitInsn(conversionOpcode);
+        }
         storeResult(cast.result());
+    }
+
+    // Geef de JVM-conversie-opcode voor een primitieve cast; Opcodes.NOP voor
+    // een nulloperatie en Integer.MIN_VALUE voor een referentie-CHECKCAST.
+    private int resolveConversionOpcode(final IRType source,
+                                        final IRType target) {
+        if (source instanceof IRType.Int sourceInt) {
+            if (target instanceof IRType.Int targetInt) {
+                if (sourceInt.bits() == targetInt.bits()) {
+                    return Opcodes.NOP;
+                }
+                if (targetInt.bits() == 32 && sourceInt.bits() < 32) {
+                    // byte/short/char op de JVM-stack is al een int
+                    return Opcodes.NOP;
+                }
+                if (sourceInt.bits() == 64 && targetInt.bits() == 32) {
+                    return Opcodes.L2I;
+                }
+                if (targetInt.bits() == 64) {
+                    return Opcodes.I2L;
+                }
+                if (targetInt.bits() == 8) {
+                    return Opcodes.I2B;
+                }
+                if (targetInt.bits() == 16) {
+                    return Opcodes.I2S;
+                }
+                return Opcodes.NOP;
+            }
+            if (target instanceof IRType.Float targetFloat) {
+                if (sourceInt.bits() == 64) {
+                    return targetFloat.bits() == 32 ? Opcodes.L2F : Opcodes.L2D;
+                }
+                return targetFloat.bits() == 32 ? Opcodes.I2F : Opcodes.I2D;
+            }
+        } else if (source instanceof IRType.Float sourceFloat) {
+            if (target instanceof IRType.Int targetInt) {
+                if (sourceFloat.bits() == 64) {
+                    return targetInt.bits() == 64 ? Opcodes.D2L : Opcodes.D2I;
+                }
+                return targetInt.bits() == 64 ? Opcodes.F2L : Opcodes.F2I;
+            }
+            if (target instanceof IRType.Float targetFloat) {
+                if (sourceFloat.bits() == targetFloat.bits()) {
+                    return Opcodes.NOP;
+                }
+                return sourceFloat.bits() == 32 ? Opcodes.F2D : Opcodes.D2F;
+            }
+        }
+
+        return Integer.MIN_VALUE;
     }
 
     // -------------------------------------------------------
@@ -637,16 +702,11 @@ public class FunctionEmitter {
 
     private boolean referencesValue(final String name,
                                     final IRValue value) {
-        if (value == null) {
-            return false;
-        }
-        if (value instanceof IRValue.Temp temp) {
-            return temp.name().equals(name);
-        }
-        if (value instanceof IRValue.Values values) {
-            return referencesValue(name, values.values());
-        }
-        return false;
+        return switch (value) {
+            case IRValue.Temp temp -> temp.name().equals(name);
+            case IRValue.Values values -> referencesValue(name, values.values());
+            case null, default -> false;
+        };
     }
 
     private boolean isConstructorCall(final IRInstruction.Call call) {
@@ -712,11 +772,11 @@ public class FunctionEmitter {
     private void emitComparisonOperands(final IRInstruction.BinaryOp binaryOp) {
         final var leftType = binaryOp.left().type();
 
-        if (leftType instanceof IRType.Float floatType) {
+        if (leftType instanceof IRType.Float(int bits)) {
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
-            mv.visitInsn(floatType.bits() == 64 ? Opcodes.DCMPL : Opcodes.FCMPL);
-        } else if (leftType instanceof IRType.Int intType && intType.bits() == 64) {
+            mv.visitInsn(bits == 64 ? Opcodes.DCMPL : Opcodes.FCMPL);
+        } else if (leftType instanceof IRType.Int(int bits) && bits == 64) {
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
             mv.visitInsn(Opcodes.LCMP);
@@ -768,7 +828,7 @@ public class FunctionEmitter {
             };
         }
 
-        if (leftType instanceof IRType.Int intType && intType.bits() == 64) {
+        if (leftType instanceof IRType.Int(int bits) && bits == 64) {
             return switch (binaryOp.op()) {
                 case LT -> Opcodes.IFLT;
                 case LTE -> Opcodes.IFLE;
@@ -885,9 +945,9 @@ public class FunctionEmitter {
         if (type instanceof IRType.Ptr || type instanceof IRType.Array
                 || type instanceof IRType.Function) {
             mv.visitInsn(Opcodes.ACONST_NULL);
-        } else if (type instanceof IRType.Int intType && intType.bits() == 64) {
+        } else if (type instanceof IRType.Int(int bits) && bits == 64) {
             mv.visitInsn(Opcodes.LCONST_0);
-        } else if (type instanceof IRType.Float floatType && floatType.bits() == 64) {
+        } else if (type instanceof IRType.Float(int bits) && bits == 64) {
             mv.visitInsn(Opcodes.DCONST_0);
         } else if (type instanceof IRType.Float) {
             mv.visitInsn(Opcodes.FCONST_0);
@@ -1091,10 +1151,10 @@ public class FunctionEmitter {
     // -------------------------------------------------------
 
     private void storeResult(final IRValue result) {
-        if (result instanceof IRValue.Temp temp) {
+        if (result instanceof IRValue.Temp(String name, IRType type)) {
             mv.visitVarInsn(
-                    resolveStoreOpcode(temp.type()),
-                    slots.slotOf(temp.name(), temp.type())
+                    resolveStoreOpcode(type),
+                    slots.slotOf(name, type)
             );
         }
     }
@@ -1148,8 +1208,6 @@ public class FunctionEmitter {
             case IRValue.Named named -> resolveReturnOpcode(named.type());
             case IRValue.Values(List<IRValue> values) -> resolveReturnOpcode(values.getLast());
             case IRValue.FunctionRef ignored -> Opcodes.ARETURN;
-            default -> throw new UnsupportedOperationException(
-                    "Cannot resolve return opcode for: " + value.getClass().getSimpleName());
         };
     }
 
@@ -1283,10 +1341,10 @@ public class FunctionEmitter {
         final var allocaVersions = function.allocaVersions();
 
         for (final var param : function.params) {
-            if (param instanceof IRValue.Temp temp) {
-                final var paramName = SlotAllocator.normalize(temp.name());
-                final var index = slots.getSlot(temp.name());
-                final var paramDescriptor = BytecodeHelper.createDescriptor(temp.type());
+            if (param instanceof IRValue.Temp(String name, IRType type)) {
+                final var paramName = SlotAllocator.normalize(name);
+                final var index = slots.getSlot(name);
+                final var paramDescriptor = BytecodeHelper.createDescriptor(type);
 
                 mv.visitLocalVariable(
                         paramName,

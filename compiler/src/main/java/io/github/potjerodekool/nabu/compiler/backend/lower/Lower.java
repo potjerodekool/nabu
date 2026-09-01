@@ -336,7 +336,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                            final LowerScope scope) {
         final var selected = access(fieldAccessExpression.getSelected(), null);
-        final var field = (IdentifierTree) access(fieldAccessExpression.getField(), selected);
+        final var field = fieldAccessExpression.getField();
         return fieldAccessExpression.builder()
                 .selected(selected)
                 .field(field)

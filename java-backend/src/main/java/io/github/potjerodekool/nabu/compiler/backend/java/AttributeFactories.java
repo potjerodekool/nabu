@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
-import io.github.potjerodekool.nabu.compiler.backend.jvm.BytecodeHelper;
-import io.github.potjerodekool.nabu.compiler.backend.jvm.SlotAllocator;
-import io.github.potjerodekool.nabu.compiler.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
+import io.github.potjerodekool.nabu.backend.jvm.SlotAllocator;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.lang.model.element.AnnotationValue;
 import io.github.potjerodekool.nabu.lang.model.element.ArrayAttribute;
 import io.github.potjerodekool.nabu.lang.model.element.ClassAttribute;

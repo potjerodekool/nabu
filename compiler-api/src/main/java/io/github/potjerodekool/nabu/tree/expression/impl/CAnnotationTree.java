@@ -59,7 +59,7 @@ public class CAnnotationTree extends CExpressionTree implements AnnotationTree {
                             .findFirst()
                             .orElse(null);
 
-                    return extractArgumentValue((VariableElement) value);
+                    return extractArgumentValue(value);
                 });
     }
 

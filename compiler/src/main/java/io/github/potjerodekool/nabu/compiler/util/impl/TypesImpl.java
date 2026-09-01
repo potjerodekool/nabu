@@ -193,17 +193,9 @@ public class TypesImpl implements Types {
         final var typeArguments = typeElem.asType().getTypeArguments();
 
         if (typeArgs.length != typeArguments.size()) {
-            return getErrorType(enclosing.getClassName());
-/*
-            throw new IllegalArgumentException(
-                    String.format(
-                            "Incorrect number of type arguments. Got %s but expected %s",
-                            typeArgs.length,
-                            typeArguments.size()
-                    )
-            );
-
- */
+            return getErrorType(enclosing != null
+                    ? enclosing.getClassName()
+                    : typeElem.getQualifiedName());
         }
 
         if (Arrays.stream(typeArgs)
@@ -211,8 +203,9 @@ public class TypesImpl implements Types {
                         !(typeArg instanceof ReferenceType
                                 || typeArg instanceof WildcardType)
                 )) {
-            //throw new IllegalArgumentException("Invalid type argument type");
-            return getErrorType(enclosing.getClassName());
+            return getErrorType(enclosing != null
+                    ? enclosing.getClassName()
+                    : typeElem.getQualifiedName());
         }
 
         final var typeArgList = Arrays.stream(typeArgs)

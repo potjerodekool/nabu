@@ -3,16 +3,16 @@ package io.github.potjerodekool.nabu.compiler;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.*;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
-import io.github.potjerodekool.nabu.compiler.backend.CompileException;
-import io.github.potjerodekool.nabu.compiler.backend.CompileOptions;
-import io.github.potjerodekool.nabu.compiler.backend.ir.IrGeneratingVisitor;
-import io.github.potjerodekool.nabu.compiler.backend.ir.Optimizer;
-import io.github.potjerodekool.nabu.compiler.backend.ir.SsaBuilder;
+import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.backend.ir.IrGeneratingVisitor;
+import io.github.potjerodekool.nabu.backend.ir.Optimizer;
+import io.github.potjerodekool.nabu.backend.ir.SsaBuilder;
 import io.github.potjerodekool.nabu.compiler.extension.BackendManager;
 import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.impl.AnnotatePhase;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.impl.LambdaToMethodPhase;
+import io.github.potjerodekool.nabu.compiler.incremental.IncrementalBuildState;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
@@ -23,6 +23,7 @@ import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.util.CompileException;
 
 import javax.annotation.processing.Processor;
 import javax.lang.model.element.TypeElement;
@@ -58,12 +59,38 @@ public class NabuCompiler implements Compiler {
 
             final var fileManager = compilerContext.getFileManager();
 
-            final var allSourceKinds = compilerContext.getPluginRegistry()
+            final var allSourceKinds = new ArrayList<FileObject.Kind>();
+            allSourceKinds.addAll(compilerContext.getPluginRegistry()
                     .getLanguageParserManager()
-                    .getSourceKinds();
+                    .getSourceKinds());
+            /*
+            allSourceKinds.addAll(compilerContext.getPluginRegistry()
+                    .getLanguageSupportManager()
+                    .getSourceKinds());
+            */
 
             final var sourceFileKinds = allSourceKinds.toArray(FileObject.Kind[]::new);
             final var sourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
+
+            final var incremental = isIncremental(fullOptions);
+            Path incrementalStateFile = null;
+            IncrementalBuildState previousState = null;
+
+            if (incremental) {
+                incrementalStateFile = IncrementalBuildState.stateFile(targetDirectory);
+
+                if (IncrementalBuildState.isUpToDate(incrementalStateFile, fullOptions, sourceFiles)) {
+                    compilerDiagnosticListener.report(new DefaultDiagnostic(
+                            Diagnostic.Kind.NOTE,
+                            "Incremental compilation skipped: all sources are up to date.",
+                            null
+                    ));
+                    return 0;
+                }
+
+                previousState = IncrementalBuildState.read(incrementalStateFile);
+            }
+
             final var compilationUnits = processFiles(sourceFiles, compilerContext);
 
             if (compilationUnits.isEmpty()
@@ -73,7 +100,24 @@ public class NabuCompiler implements Compiler {
                 return -1;
             }
 
-            return generateCode(compilerContext, compilationUnits, fullOptions);
+            final Map<String, List<String>> producedBySource = incremental ? new HashMap<>() : null;
+            final var result = generateCode(compilerContext, compilationUnits, fullOptions, producedBySource);
+
+            if (incremental && result == 0) {
+                IncrementalBuildState.write(
+                        incrementalStateFile,
+                        IncrementalBuildState.configFingerprint(fullOptions),
+                        producedBySource,
+                        sourceFiles
+                );
+                IncrementalBuildState.deleteStaleClasses(
+                        targetDirectory,
+                        previousState,
+                        producedBySource.values()
+                );
+            }
+
+            return result;
         } catch (final Exception e) {
             e.printStackTrace(System.err);
             throw new RuntimeException(e);
@@ -82,7 +126,8 @@ public class NabuCompiler implements Compiler {
 
     private int generateCode(final CompilerContextImpl compilerContext,
                              final List<CompilationUnit> compilationUnits,
-                             final CompilerOptions compilerOptions) throws CompileException {
+                             final CompilerOptions compilerOptions,
+                             final Map<String, List<String>> producedBySource) throws CompileException {
         final var backend = getBackendName(compilerOptions);
 
         final var codeBackend = BackendManager.createBackend(
@@ -92,32 +137,44 @@ public class NabuCompiler implements Compiler {
         );
 
         if (codeBackend != null) {
-            final var modules = compilationUnits.stream()
-                    .flatMap(cu -> {
-                        final IrGeneratingVisitor visitor = new IrGeneratingVisitor();
-                        visitor.acceptTree(cu, null);
-                        return visitor.getModules().stream();
-                    }).toList();
+            for (final var compilationUnit : compilationUnits) {
+                final String sourceName = producedBySource != null
+                        ? IncrementalBuildState.normalizePath(compilationUnit.getFileObject().getFileName())
+                        : null;
 
-            for (var module : modules) {
-                try {
-                    // Type-inferentie vóór SSA
-                    for (final var fn : module.functions()) {
-                        if (!fn.isExternal()) {
-                            new io.github.potjerodekool.nabu.compiler.backend.ir.optimize.TypeInference().run(fn);
+                final IrGeneratingVisitor visitor = new IrGeneratingVisitor();
+                visitor.acceptTree(compilationUnit, null);
+
+                for (final var module : visitor.getModules()) {
+                    try {
+                        // Type-inferentie vóór SSA
+                        for (final var fn : module.functions()) {
+                            if (!fn.isExternal()) {
+                                new io.github.potjerodekool.nabu.backend.ir.optimize.TypeInference().run(fn);
+                            }
                         }
+                        SsaBuilder.run(module);
+                        final var optimizedModule = Optimizer.optimize(module);
+                        codeBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
+
+                        if (producedBySource != null) {
+                            producedBySource.computeIfAbsent(sourceName, k -> new ArrayList<>())
+                                    .add(module.name.replace('.', '/') + ".class");
+                        }
+                    } catch (final CompileException e) {
+                        return -1;
                     }
-                    SsaBuilder.run(module);
-                    final var optimizedModule = Optimizer.optimize(module);
-                    codeBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
-                } catch (final CompileException e) {
-                    return -1;
                 }
             }
             return 0;
         } else {
             return -1;
         }
+    }
+
+    private boolean isIncremental(final CompilerOptions compilerOptions) {
+        return compilerOptions.getClassOutput().isPresent()
+                && compilerOptions.getOption(CompilerOption.INCREMENTAL, false, Boolean.class);
     }
 
     private String getBackendName(final CompilerOptions compilerOptions) {
@@ -172,7 +229,7 @@ public class NabuCompiler implements Compiler {
 
     private List<CompilationUnit> processFiles(final List<FileObject> files,
                                                final CompilerContextImpl compilerContext) {
-        var compilationUnits = parseFiles(files, compilerContext);
+        var compilationUnits = new ArrayList<>(parseFiles(files, compilerContext));
 
         Modules.getInstance(compilerContext)
                 .initAllModules();
@@ -180,18 +237,35 @@ public class NabuCompiler implements Compiler {
         compilationUnits = compilationUnits.stream()
                 .map(fileObjectAndCompilationUnit ->
                         enterPhase(fileObjectAndCompilationUnit, compilerContext))
-                .toList();
+                .collect(Collectors.toCollection(ArrayList::new));
 
-        runAnnotationProcessors(compilerContext, compilationUnits);
+        final var generatedUnits = runAnnotationProcessors(compilerContext, compilationUnits);
 
-        final var allSources = new ArrayList<>(compilationUnits);
+        // Maximaal één compilatie-eenheid per bronbestand. Een gegenereerd
+        // .java-bestand dat al op de source-path staat (bijv. wanneer build-
+        // helper gegenereerde bronnen als sourceroot toevoegt) mag niet als
+        // aparte eenheid worden toegevoegd — anders wordt dezelfde klasse
+        // tweemaal binnengevoegd (dubbele member-registratie, verloren
+        // gesynthetiseerde constructor, dubbel gegenereerde bytecode).
+        final var sourcePaths = compilationUnits.stream()
+                .map(CompilationUnit::getFileObject)
+                .map(FileObject::getFileName)
+                .map(IncrementalBuildState::normalizePath)
+                .collect(Collectors.toSet());
 
-        compilationUnits = allSources.stream()
+        generatedUnits.removeIf(generatedUnit ->
+                sourcePaths.contains(
+                        IncrementalBuildState.normalizePath(generatedUnit.getFileObject().getFileName())
+                ));
+
+        compilationUnits.addAll(generatedUnits);
+
+        compilationUnits = compilationUnits.stream()
                 .map(it -> resolvePhase(it, compilerContext))
                 .map(it -> AnnotatePhase.annotate(it, compilerContext))
                 .map(it -> transform(it, compilerContext))
                 .map(it -> check(it, compilerContext, compilerDiagnosticListener))
-                .toList();
+                .collect(Collectors.toCollection(ArrayList::new));
 
         if (compilerDiagnosticListener.getErrorCount() > 0) {
             return List.of();
@@ -239,8 +313,8 @@ public class NabuCompiler implements Compiler {
         }
     }
 
-    private void runAnnotationProcessors(final CompilerContextImpl compilerContext,
-                                         final List<CompilationUnit> compilationUnits) {
+    private List<CompilationUnit> runAnnotationProcessors(final CompilerContextImpl compilerContext,
+                                                          final List<CompilationUnit> compilationUnits) {
         Set<TypeElement> classes = resolveClasses(compilationUnits);
         final var processors = findAnnotationProcessors(compilerContext);
         final var processingEnvironment = createProcessingEnvironment(compilerContext);
@@ -256,6 +330,7 @@ public class NabuCompiler implements Compiler {
 
         Set<String> generatedSourceFiles;
         List<CompilationUnit> roundResult;
+        final List<CompilationUnit> generatedUnits = new ArrayList<>();
 
         do {
             processingEnvironment.round(classes, processorStates);
@@ -270,10 +345,13 @@ public class NabuCompiler implements Compiler {
                         .toList();
 
                 roundResult = parseAndEnter(fileObjects, compilerContext);
+                generatedUnits.addAll(roundResult);
                 classes = resolveClasses(roundResult);
                 filer.prepareForRound();
             }
         } while (!generatedSourceFiles.isEmpty());
+
+        return generatedUnits;
     }
 
     private JavacProcessingEnvironment createProcessingEnvironment(final CompilerContextImpl compilerContext) {
@@ -332,7 +410,6 @@ public class NabuCompiler implements Compiler {
 }
 
 class DevNullByteCodeGeneratorListener implements ByteCodeGeneratorListener {
-
     static final DevNullByteCodeGeneratorListener INSTANCE = new DevNullByteCodeGeneratorListener();
 
     private DevNullByteCodeGeneratorListener() {

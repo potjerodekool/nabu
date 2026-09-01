@@ -169,7 +169,7 @@ public class ClassFinder {
             packageSymbol.setMembers(members);
         }
 
-        final var module = (ModuleSymbol) packageSymbol.getModuleSymbol();
+        final var module = packageSymbol.getModuleSymbol();
 
         if (module.getClassLocation() == StandardLocation.CLASS_PATH) {
             scanUserPaths(

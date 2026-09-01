@@ -138,12 +138,9 @@ public class CMethodType extends AbstractType implements ExecutableType {
 
     @Override
     public String toString() {
-        final var builder = new StringBuilder();
-        builder.append(returnType);
-        builder.append(parameterTypes.stream()
-                .map(TypeMirror::toString)
-                .collect(Collectors.joining(",", "(", ")"))
-        );
-        return builder.toString();
+        return returnType +
+                parameterTypes.stream()
+                        .map(TypeMirror::toString)
+                        .collect(Collectors.joining(",", "(", ")"));
     }
 }

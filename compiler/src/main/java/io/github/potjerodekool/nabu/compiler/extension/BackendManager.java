@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.extension;
 
-import io.github.potjerodekool.nabu.compiler.backend.Backend;
-import io.github.potjerodekool.nabu.compiler.backend.CompileException;
+import io.github.potjerodekool.nabu.backend.Backend;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
+import io.github.potjerodekool.nabu.util.CompileException;
 
 public class BackendManager {
 

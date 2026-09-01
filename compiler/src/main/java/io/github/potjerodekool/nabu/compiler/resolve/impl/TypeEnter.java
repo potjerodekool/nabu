@@ -343,7 +343,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                                            final String classOrPackageName,
                                            final CompilationUnit compilationUnit) {
         final var packageSymbol = symbolTable.lookupPackage(
-                (ModuleSymbol) moduleElement,
+                moduleElement,
                 classOrPackageName
         );
 
@@ -481,7 +481,12 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             variableDeclaratorStatement.getVariableType().setType(arrayType);
         }
 
+        final var annotations = variableDeclaratorStatement.getAnnotations().stream()
+                .map(annotationTree -> (AnnotationMirror) acceptTree(annotationTree, scope))
+                .toList();
+
         final var symbol = createVariable(variableDeclaratorStatement);
+        symbol.setAnnotations(annotations);
         variableDeclaratorStatement.getName().setSymbol(symbol);
 
         if (symbol.getKind() == ElementKind.FIELD
@@ -728,7 +733,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                             value
                     );
                 } else {
-                    yield AnnotationBuilder.createClassAttribute(fieldAccessExpressionTree.getField().getType());
+                    yield AnnotationBuilder.createClassAttribute(fieldAccessExpressionTree.getSelected().getType());
                 }
             }
             case NewArrayExpression newArrayExpression -> {

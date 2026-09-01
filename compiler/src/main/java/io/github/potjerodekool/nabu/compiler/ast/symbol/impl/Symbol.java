@@ -185,6 +185,7 @@ public abstract class Symbol implements Element {
         return Flags.createModifiers(this.flags);
     }
 
+    @Override
     public long getFlags() {
         return flags;
     }
@@ -262,6 +263,7 @@ public abstract class Symbol implements Element {
 
     public void setAnnotations(final List<? extends AnnotationMirror> annotations) {
         this.deProxyAnnotations = true;
+        this.annotationMirrors.clear();
         this.annotationMirrors.addAll(
                 annotations.stream()
                         .map(it -> (CompoundAttribute) it)

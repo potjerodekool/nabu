@@ -76,7 +76,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
             clazzDeclaration.removeEnclosedElements(clientInitializers);
             classDeclaration.enclosedElement(mergedClientInit);
             final var clazz = (ClassSymbol) clazzDeclaration.getClassSymbol();
-            clazz.addEnclosedElement((MethodSymbol) mergedClientInit.getMethodSymbol());
+            clazz.addEnclosedElement(mergedClientInit.getMethodSymbol());
         }
     }
 

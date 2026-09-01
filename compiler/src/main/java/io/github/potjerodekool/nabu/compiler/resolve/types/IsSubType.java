@@ -153,10 +153,15 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
         final var typeArgs = new TypeMirror[interfaceType.getTypeArguments().size()];
 
         for (var i = 0; i < interfaceTypeArguments.size(); i++) {
-            final var typeVariable = (TypeVariable) interfaceTypeArguments.get(i);
-            final var name = typeVariable.asElement().getSimpleName();
-            final var type = map.get(name);
-            typeArgs[i] = type;
+            final var interfaceTypeArgument = interfaceTypeArguments.get(i);
+
+            if (interfaceTypeArgument instanceof TypeVariable typeVariable) {
+                final var name = typeVariable.asElement().getSimpleName();
+                final var resolved = map.get(name);
+                typeArgs[i] = resolved != null ? resolved : interfaceTypeArgument;
+            } else {
+                typeArgs[i] = interfaceTypeArgument;
+            }
         }
 
         return types.getDeclaredType(

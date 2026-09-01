@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
@@ -431,7 +432,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
         final var stringType = stringClass.asType();
         final var typeVariable = types.getTypeVariable("T", stringType, null);
 
-        assertTrue(types.isAssignable(stringType, (TypeMirror) typeVariable),
+        assertTrue(types.isAssignable(stringType, typeVariable),
                 "String should be assignable to T where T has upper bound String");
     }
 
@@ -447,7 +448,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
         final var tVar = types.getTypeVariable("T", objectType, null);
         final var sVar = types.getTypeVariable("S", tVar, null);
 
-        assertTrue(types.isAssignable(stringType, (TypeMirror) sVar),
+        assertTrue(types.isAssignable(stringType, sVar),
                 "String should be assignable to S where S extends T and T extends Object");
     }
 
@@ -496,5 +497,232 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
         );
 
         assertNotNull(result.first());
+    }
+
+    @Test
+    void resolveStringValueOfIntOverload() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "String.valueOf(42)", Java20Parser::expression
+        );
+
+        final var stringType = parseType("java.lang.String");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(stringType);
+
+        invocation.getArguments().getFirst().setType(
+                getCompilerContext().getTypes().getPrimitiveType(TypeKind.INT)
+        );
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "String.valueOf(int) zou geresolved moeten worden");
+        assertEquals("java.lang.String valueOf(int)", TypePrinter.print(resolvedMethod.get()),
+                "Zou de int overload moeten kiezen");
+    }
+
+    @Test
+    void resolveStringValueOfLongOverload() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "String.valueOf(42L)", Java20Parser::expression
+        );
+
+        final var stringType = parseType("java.lang.String");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(stringType);
+
+        invocation.getArguments().getFirst().setType(
+                getCompilerContext().getTypes().getPrimitiveType(TypeKind.LONG)
+        );
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "String.valueOf(long) zou geresolved moeten worden");
+        assertEquals("java.lang.String valueOf(long)", TypePrinter.print(resolvedMethod.get()),
+                "Zou de long overload moeten kiezen");
+    }
+
+    @Test
+    void resolveStringValueOfBooleanOverload() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "String.valueOf(true)", Java20Parser::expression
+        );
+
+        final var stringType = parseType("java.lang.String");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(stringType);
+
+        invocation.getArguments().getFirst().setType(
+                getCompilerContext().getTypes().getPrimitiveType(TypeKind.BOOLEAN)
+        );
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "String.valueOf(boolean) zou geresolved moeten worden");
+        assertEquals("java.lang.String valueOf(boolean)", TypePrinter.print(resolvedMethod.get()),
+                "Zou de boolean overload moeten kiezen");
+    }
+
+    @Test
+    void resolveStringValueOfObjectOverload() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "String.valueOf(obj)", Java20Parser::expression
+        );
+
+        final var stringType = parseType("java.lang.String");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(stringType);
+
+        final var objectType = loadClass("java.lang.Object").asType();
+        invocation.getArguments().getFirst().setType(objectType);
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "String.valueOf(Object) zou geresolved moeten worden");
+        assertEquals("java.lang.String valueOf(java.lang.Object)", TypePrinter.print(resolvedMethod.get()),
+                "Zou de Object overload moeten kiezen voor een Object argument");
+    }
+
+    @Test
+    void resolveArraysAsListWithImplicitVarArgs() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "Arrays.asList(\"a\", \"b\", \"c\")", Java20Parser::expression
+        );
+
+        final var arraysType = parseType("java.util.Arrays");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(arraysType);
+
+        for (final var argument : invocation.getArguments()) {
+            argument.setType(parseType("java.lang.String"));
+        }
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(),
+                "Arrays.asList(T...) zou geresolved moeten worden via de varargs-fase");
+        assertEquals("asList", resolvedMethod.get().getMethodSymbol().getSimpleName());
+        assertEquals(1, resolvedMethod.get().getParameterTypes().size());
+        assertTrue(resolvedMethod.get().getParameterTypes().getFirst() instanceof CArrayType,
+                "Varargs-parameter zou een array moeten zijn");
+    }
+
+    @Test
+    void resolveStringFormatWithVarArgs() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "String.format(\"%s\", \"x\")", Java20Parser::expression
+        );
+
+        final var stringType = parseType("java.lang.String");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(stringType);
+
+        invocation.getArguments().getFirst().setType(stringType);
+        invocation.getArguments().get(1).setType(loadClass("java.lang.Object").asType());
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(),
+                "String.format(String, Object...) zou geresolved moeten worden via de varargs-fase");
+        assertEquals("format", resolvedMethod.get().getMethodSymbol().getSimpleName());
+        assertEquals(Constants.STRING, resolvedMethod.get().getReturnType().getClassName());
+    }
+
+    @Test
+    void resolveMathMaxChoosingMostSpecificOverload() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "Math.max(1, 2)", Java20Parser::expression
+        );
+
+        final var mathType = parseType("java.lang.Math");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(mathType);
+
+        invocation.getArguments().getFirst().setType(
+                getCompilerContext().getTypes().getPrimitiveType(TypeKind.INT)
+        );
+        invocation.getArguments().get(1).setType(
+                getCompilerContext().getTypes().getPrimitiveType(TypeKind.INT)
+        );
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "Math.max(int, int) zou geresolved moeten worden");
+        assertEquals("int max(int, int)", TypePrinter.print(resolvedMethod.get()),
+                "Zou de meest specifieke overload moeten kiezen");
+    }
+
+    @Test
+    void resolveCollectionsEmptyListWithExplicitBound() throws IOException {
+        final MethodInvocationTree invocation = parseJavaCode(
+                "Collections.<String>emptyList()", Java20Parser::methodInvocation
+        );
+
+        final var typeArg = invocation.getTypeArguments().getFirst();
+        typeArg.setType(loadClass(Constants.STRING).asType());
+
+        final var collectionsType = parseType("java.util.Collections");
+        final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
+        selector.getSelected().setType(collectionsType);
+
+        final Scope scope = mock(Scope.class);
+        when(scope.getCurrentClass()).thenReturn(
+                getCompilerContext().getElementBuilders().typeElementBuilder()
+                        .kind(ElementKind.CLASS).build()
+        );
+
+        final var resolvedMethod = createResolver()
+                .resolveMethod(invocation, scope);
+
+        assertTrue(resolvedMethod.isPresent(), "Collections.emptyList() zou geresolved moeten worden");
+        assertEquals("emptyList", resolvedMethod.get().getMethodSymbol().getSimpleName());
     }
 }

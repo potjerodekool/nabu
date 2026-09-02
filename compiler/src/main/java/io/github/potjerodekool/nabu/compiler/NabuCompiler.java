@@ -182,10 +182,23 @@ public class NabuCompiler implements Compiler {
                 .orElse("ASM");
     }
 
+    private void logOptions(final CompilerOptions fullOptions) {
+
+        fullOptions.forEach((k, v) -> {
+            compilerDiagnosticListener.report(new DefaultDiagnostic(
+                    Diagnostic.Kind.NOTE,
+                    "Option " + k + ": " + v,
+                    null,
+                    null,
+                    null
+            ));
+        });
+    }
 
     @Override
     public CompilerContextImpl configure(final CompilerOptions compilerOptions) {
         final var fullOptions = withDefaults(compilerOptions);
+        logOptions(fullOptions);
 
         final var compilerContext = new CompilerContextImpl(
                 new NabuCFileManager(),

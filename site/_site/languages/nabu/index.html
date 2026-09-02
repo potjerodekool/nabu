@@ -41,58 +41,63 @@
 
   <main>
     <h1>Nabu Language</h1>
-    The **Nabu language** is a programming language whose syntax is based on both Java and Kotlin. It is the primary language compiled by the Nabu compiler, and it is designed to interoperate with Java.
+    <p>The <strong>Nabu language</strong> is a programming language whose syntax is based on both Java and Kotlin. It is the primary language compiled by the Nabu compiler, and it is designed to interoperate with Java.</p>
 
-This is an overview of the language. Individual topics are covered in dedicated pages:
+<p>This is an overview of the language. Individual topics are covered in dedicated pages:</p>
 
-- [Classes](/languages/nabu/classes/)
-- [Fields](/languages/nabu/fields/)
-- [Generics](/languages/nabu/generics/)
-- [Annotations](/languages/nabu/annotations/)
-- [Lambda Expressions](/languages/nabu/lambda-expressions/)
-- [Exceptions](/languages/nabu/exceptions/)
+<ul>
+  <li><a href="/languages/nabu/classes/">Classes</a></li>
+  <li><a href="/languages/nabu/fields/">Fields</a></li>
+  <li><a href="/languages/nabu/generics/">Generics</a></li>
+  <li><a href="/languages/nabu/annotations/">Annotations</a></li>
+  <li><a href="/languages/nabu/lambda-expressions/">Lambda Expressions</a></li>
+  <li><a href="/languages/nabu/exceptions/">Exceptions</a></li>
+</ul>
 
-## A small example
+<h2 id="a-small-example">A small example</h2>
 
-```java
-package foo.bar.shape;
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">package</span> <span class="nn">foo.bar.shape</span><span class="o">;</span>
 
-public interface Shape {
-    abstract fun points() : List<Point>;
-}
+<span class="kd">public</span> <span class="kd">interface</span> <span class="nc">Shape</span> <span class="o">{</span>
+    <span class="kd">abstract</span> <span class="n">fun</span> <span class="nf">points</span><span class="o">()</span> <span class="o">:</span> <span class="nc">List</span><span class="o">&lt;</span><span class="nc">Point</span><span class="o">&gt;;</span>
+<span class="o">}</span>
 
-public enum Status {
-    ON("On"),
-    OFF("Off");
+<span class="kd">public</span> <span class="kd">enum</span> <span class="nc">Status</span> <span class="o">{</span>
+    <span class="no">ON</span><span class="o">(</span><span class="s">"On"</span><span class="o">),</span>
+    <span class="no">OFF</span><span class="o">(</span><span class="s">"Off"</span><span class="o">);</span>
 
-    private final text : String;
+    <span class="kd">private</span> <span class="kd">final</span> <span class="n">text</span> <span class="o">:</span> <span class="nc">String</span><span class="o">;</span>
 
-    private Status(final text : String) {
-        this.text = text;
-    }
+    <span class="kd">private</span> <span class="nf">Status</span><span class="o">(</span><span class="kd">final</span> <span class="n">text</span> <span class="o">:</span> <span class="nc">String</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">this</span><span class="o">.</span><span class="na">text</span> <span class="o">=</span> <span class="n">text</span><span class="o">;</span>
+    <span class="o">}</span>
 
-    public fun getText() : String {
-        return text;
-    }
-}
-```
+    <span class="kd">public</span> <span class="n">fun</span> <span class="nf">getText</span><span class="o">()</span> <span class="o">:</span> <span class="nc">String</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">text</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-## Key characteristics
+<h2 id="key-characteristics">Key characteristics</h2>
 
-- **Type-after-name syntax** (`firstName : String`) similar to Kotlin.
-- **`fun` keyword** for function declarations.
-- **Top-level functions** are supported (Nabu-specific, beyond Java).
-- **Sealed classes, records, enums, and annotations** are all supported.
-- **Java interoperability** works out of the box — Nabu can call Java and vice versa.
+<ul>
+  <li><strong>Type-after-name syntax</strong> (<code class="language-plaintext highlighter-rouge">firstName : String</code>) similar to Kotlin.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">fun</code> keyword</strong> for function declarations.</li>
+  <li><strong>Top-level functions</strong> are supported (Nabu-specific, beyond Java).</li>
+  <li><strong>Sealed classes, records, enums, and annotations</strong> are all supported.</li>
+  <li><strong>Java interoperability</strong> works out of the box — Nabu can call Java and vice versa.</li>
+</ul>
 
-## Grammar
+<h2 id="grammar">Grammar</h2>
 
-The language is defined by ANTLR grammars:
+<p>The language is defined by ANTLR grammars:</p>
 
-- `NabuLexer.g4`
-- `NabuParser.g4`
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">NabuLexer.g4</code></li>
+  <li><code class="language-plaintext highlighter-rouge">NabuParser.g4</code></li>
+</ul>
 
-The AST is built by the `NabuCompilerVisitor` (~3,300 lines) in the `nabu-lang` module.
+<p>The AST is built by the <code class="language-plaintext highlighter-rouge">NabuCompilerVisitor</code> (~3,300 lines) in the <code class="language-plaintext highlighter-rouge">nabu-lang</code> module.</p>
 
   </main>
 </div>

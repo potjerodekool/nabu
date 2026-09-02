@@ -41,24 +41,26 @@
 
   <main>
     <h1>Java Interop</h1>
-    The Nabu compiler provides **Java interoperability out of the box**. Java 20 is supported, and Nabu and Java sources can be mixed in a single project.
+    <p>The Nabu compiler provides <strong>Java interoperability out of the box</strong>. Java 20 is supported, and Nabu and Java sources can be mixed in a single project.</p>
 
-## What works
+<h2 id="what-works">What works</h2>
 
-- **Nabu can call Java** code and **Java can call Nabu** code.
-- Java and Nabu sources can be mixed in one project.
-- The compiler reads Java class files (Java 17–23) including generics and modules via its `resolve/asm` package.
-- Java **sources** (up to Java 20) are parsed and modeled using the ANTLR `Java20Parser.g4` grammar and the `JavaCompilerVisitor`.
+<ul>
+  <li><strong>Nabu can call Java</strong> code and <strong>Java can call Nabu</strong> code.</li>
+  <li>Java and Nabu sources can be mixed in one project.</li>
+  <li>The compiler reads Java class files (Java 17–23) including generics and modules via its <code class="language-plaintext highlighter-rouge">resolve/asm</code> package.</li>
+  <li>Java <strong>sources</strong> (up to Java 20) are parsed and modeled using the ANTLR <code class="language-plaintext highlighter-rouge">Java20Parser.g4</code> grammar and the <code class="language-plaintext highlighter-rouge">JavaCompilerVisitor</code>.</li>
+</ul>
 
-## How Java sources are compiled
+<h2 id="how-java-sources-are-compiled">How Java sources are compiled</h2>
 
-Nabu parses Java sources for interop and symbol modeling, but does **not** generate bytecode for Java itself. In the Maven flow, Java-to-bytecode is delegated to `javac`. The `nabu-maven-plugin` must be placed **before** the `maven-compiler-plugin` so that Nabu sources are compiled first and available to Java.
+<p>Nabu parses Java sources for interop and symbol modeling, but does <strong>not</strong> generate bytecode for Java itself. In the Maven flow, Java-to-bytecode is delegated to <code class="language-plaintext highlighter-rouge">javac</code>. The <code class="language-plaintext highlighter-rouge">nabu-maven-plugin</code> must be placed <strong>before</strong> the <code class="language-plaintext highlighter-rouge">maven-compiler-plugin</code> so that Nabu sources are compiled first and available to Java.</p>
 
-See [Maven Plugin](/maven-plugin/) for the full configuration.
+<p>See <a href="/maven-plugin/">Maven Plugin</a> for the full configuration.</p>
 
-## Reference language level
+<h2 id="reference-language-level">Reference language level</h2>
 
-The reference language level for the frontend is **Java 20** (JLS SE 20). Interop and mixed input languages support both Nabu and Java 20 features.
+<p>The reference language level for the frontend is <strong>Java 20</strong> (JLS SE 20). Interop and mixed input languages support both Nabu and Java 20 features.</p>
 
   </main>
 </div>

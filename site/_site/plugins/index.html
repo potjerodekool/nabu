@@ -41,51 +41,79 @@
 
   <main>
     <h1>Plugin System</h1>
-    The Nabu compiler is **extended through plugins**. A plugin declares extension points, and these extensions are registered in the plugin's `plugin.xml` file, discovered from the classpath and from a user directory.
+    <p>The Nabu compiler is <strong>extended through plugins</strong>. A plugin declares extension points, and these extensions are registered in the plugin’s <code class="language-plaintext highlighter-rouge">plugin.xml</code> file, discovered from the classpath and from a user directory.</p>
 
-## How plugins work
+<h2 id="how-plugins-work">How plugins work</h2>
 
-The `PluginRegistry` (in `compiler/src/main/java/io/github/potjerodekool/nabu/compiler/extension/`) is the top-level manager. It owns several sub-managers:
+<p>The <code class="language-plaintext highlighter-rouge">PluginRegistry</code> (in <code class="language-plaintext highlighter-rouge">compiler/src/main/java/io/github/potjerodekool/nabu/compiler/extension/</code>) is the top-level manager. It owns several sub-managers:</p>
 
-- `ExtensionManager` — named extensions for `element-resolver` and `code-transformer`
-- `LanguageParserManager` — maps `FileObject.Kind` → `LanguageParser`
-- `LanguageSupportManager` — maps to `LanguageSupport`
-- `BackendManager` — resolves backends by name
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">ExtensionManager</code> — named extensions for <code class="language-plaintext highlighter-rouge">element-resolver</code> and <code class="language-plaintext highlighter-rouge">code-transformer</code></li>
+  <li><code class="language-plaintext highlighter-rouge">LanguageParserManager</code> — maps <code class="language-plaintext highlighter-rouge">FileObject.Kind</code> → <code class="language-plaintext highlighter-rouge">LanguageParser</code></li>
+  <li><code class="language-plaintext highlighter-rouge">LanguageSupportManager</code> — maps to <code class="language-plaintext highlighter-rouge">LanguageSupport</code></li>
+  <li><code class="language-plaintext highlighter-rouge">BackendManager</code> — resolves backends by name</li>
+</ul>
 
-Plugins are loaded via `registerPlugins()` which calls `loadPluginsFromClassPath()` and `loadPluginsFromUserDirectory()`. Each plugin's `plugin.xml` is parsed with SAX.
+<p>Plugins are loaded via <code class="language-plaintext highlighter-rouge">registerPlugins()</code> which calls <code class="language-plaintext highlighter-rouge">loadPluginsFromClassPath()</code> and <code class="language-plaintext highlighter-rouge">loadPluginsFromUserDirectory()</code>. Each plugin’s <code class="language-plaintext highlighter-rouge">plugin.xml</code> is parsed with SAX.</p>
 
-## A minimal plugin.xml
+<h2 id="a-minimal-pluginxml">A minimal plugin.xml</h2>
 
-```xml
-<?xml version="1.0" encoding="UTF-8" ?>
-<plugin>
-    <id>io.github.potjerodekool.nabu.plugin.simple</id>
-    <version>0.0.1</version>
-    <description>Simple plugin for Nabu compiler</description>
-    <extensions>
-    </extensions>
-</plugin>
-```
+<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">&lt;?xml version="1.0" encoding="UTF-8" ?&gt;</span>
+<span class="nt">&lt;plugin&gt;</span>
+    <span class="nt">&lt;id&gt;</span>io.github.potjerodekool.nabu.plugin.simple<span class="nt">&lt;/id&gt;</span>
+    <span class="nt">&lt;version&gt;</span>0.0.1<span class="nt">&lt;/version&gt;</span>
+    <span class="nt">&lt;description&gt;</span>Simple plugin for Nabu compiler<span class="nt">&lt;/description&gt;</span>
+    <span class="nt">&lt;extensions&gt;</span>
+    <span class="nt">&lt;/extensions&gt;</span>
+<span class="nt">&lt;/plugin&gt;</span>
+</code></pre></div></div>
 
-## Extension points
+<h2 id="extension-points">Extension points</h2>
 
-| Description | Interface | More |
-|---|---|---|
-| Custom element resolver for a DSL | `io.github.potjerodekool.nabu.resolve.spi.ElementResolver` | [More info](/plugins/dsl-support/) |
-| Transformer to transform the AST (DSL AST → normal AST) | `io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer` | [More info](/plugins/dsl-support/) |
-| Parser to parse source code and build an AST | `io.github.potjerodekool.nabu.lang.spi.LanguageParser` | [More info](/plugins/adding-language/) |
-| Output backend | `io.github.potjerodekool.nabu.compiler.backend.Backend` | [More info](/backends/) |
+<table>
+  <thead>
+    <tr>
+      <th>Description</th>
+      <th>Interface</th>
+      <th>More</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Custom element resolver for a DSL</td>
+      <td><code class="language-plaintext highlighter-rouge">io.github.potjerodekool.nabu.resolve.spi.ElementResolver</code></td>
+      <td><a href="/plugins/dsl-support/">More info</a></td>
+    </tr>
+    <tr>
+      <td>Transformer to transform the AST (DSL AST → normal AST)</td>
+      <td><code class="language-plaintext highlighter-rouge">io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer</code></td>
+      <td><a href="/plugins/dsl-support/">More info</a></td>
+    </tr>
+    <tr>
+      <td>Parser to parse source code and build an AST</td>
+      <td><code class="language-plaintext highlighter-rouge">io.github.potjerodekool.nabu.lang.spi.LanguageParser</code></td>
+      <td><a href="/plugins/adding-language/">More info</a></td>
+    </tr>
+    <tr>
+      <td>Output backend</td>
+      <td><code class="language-plaintext highlighter-rouge">io.github.potjerodekool.nabu.compiler.backend.Backend</code></td>
+      <td><a href="/backends/">More info</a></td>
+    </tr>
+  </tbody>
+</table>
 
-## Plugin classloading
+<h2 id="plugin-classloading">Plugin classloading</h2>
 
-Plugins are loaded through a `PluginClassLoader` (a `URLClassLoader`). A `SharedLoader` aggregates plugin classloaders so classes can be found across plugins.
+<p>Plugins are loaded through a <code class="language-plaintext highlighter-rouge">PluginClassLoader</code> (a <code class="language-plaintext highlighter-rouge">URLClassLoader</code>). A <code class="language-plaintext highlighter-rouge">SharedLoader</code> aggregates plugin classloaders so classes can be found across plugins.</p>
 
-Extension declarations can constrain the JDK feature version via `supportsJdkFeatureVersion` (min/max) attributes.
+<p>Extension declarations can constrain the JDK feature version via <code class="language-plaintext highlighter-rouge">supportsJdkFeatureVersion</code> (min/max) attributes.</p>
 
-## Example plugins
+<h2 id="example-plugins">Example plugins</h2>
 
-- **`jpa-plugin`** — a DSL plugin that transforms JPA criteria joins/casts into normal code. See [DSL Support](/plugins/dsl-support/).
-- **`java-backend`** and **`native-backend`** — register the `JAVA` and `LLVM` backends. See [Backends](/backends/).
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">jpa-plugin</code></strong> — a DSL plugin that transforms JPA criteria joins/casts into normal code. See <a href="/plugins/dsl-support/">DSL Support</a>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">java-backend</code></strong> and <strong><code class="language-plaintext highlighter-rouge">native-backend</code></strong> — register the <code class="language-plaintext highlighter-rouge">JAVA</code> and <code class="language-plaintext highlighter-rouge">LLVM</code> backends. See <a href="/backends/">Backends</a>.</li>
+</ul>
 
   </main>
 </div>

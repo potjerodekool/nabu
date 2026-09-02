@@ -41,28 +41,30 @@
 
   <main>
     <h1>Java Backend</h1>
-    The **Java backend** is an experimental backend that uses the **JDK 24 ClassFile API** (`java.lang.classfile`) instead of ASM to emit JVM bytecode.
+    <p>The <strong>Java backend</strong> is an experimental backend that uses the <strong>JDK 24 ClassFile API</strong> (<code class="language-plaintext highlighter-rouge">java.lang.classfile</code>) instead of ASM to emit JVM bytecode.</p>
 
 <div class="callout callout-warning">
-**Experimental.** This backend is a prototype/experiment and **requires Java 24+**. It throws `UnsupportedOperationException` on older JVMs.
+<b>Experimental.</b> This backend is a prototype/experiment and **requires Java 24+**. It throws `UnsupportedOperationException` on older JVMs.
 </div>
 
-## Location
+<h2 id="location">Location</h2>
 
-The backend lives in `java-backend/src/main/java/io/github/potjerodekool/nabu/compiler/backend/java/`.
+<p>The backend lives in <code class="language-plaintext highlighter-rouge">java-backend/src/main/java/io/github/potjerodekool/nabu/compiler/backend/java/</code>.</p>
 
-## Architecture
+<h2 id="architecture">Architecture</h2>
 
-- **`JavaBackend`** — implements `Backend`; enforces the Java 24+ requirement (`MINIMUM_JAVA_FEATURE_VERSION = 24`).
-- **`ClassFileByteCodeEmitter`** — emits an `IRModule` via the ClassFile API, using the same structural pipeline as the ASM backend: **PhiElimination → Linearizer → JavaFunctionEmitter + SlotAllocator**. It defines `ACC_RECORD` locally.
-- **`JavaFunctionEmitter`** — the mirror of the ASM `FunctionEmitter`, emitting via `CodeBuilder`, `Label`, `Opcode`, `ClassDesc`, `DirectMethodHandleDesc`, and `DynamicCallSiteDesc`.
-- **`AttributeFactories`** — builds classfile attributes (annotations, records, permits, signatures, etc.).
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">JavaBackend</code></strong> — implements <code class="language-plaintext highlighter-rouge">Backend</code>; enforces the Java 24+ requirement (<code class="language-plaintext highlighter-rouge">MINIMUM_JAVA_FEATURE_VERSION = 24</code>).</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">ClassFileByteCodeEmitter</code></strong> — emits an <code class="language-plaintext highlighter-rouge">IRModule</code> via the ClassFile API, using the same structural pipeline as the ASM backend: <strong>PhiElimination → Linearizer → JavaFunctionEmitter + SlotAllocator</strong>. It defines <code class="language-plaintext highlighter-rouge">ACC_RECORD</code> locally.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">JavaFunctionEmitter</code></strong> — the mirror of the ASM <code class="language-plaintext highlighter-rouge">FunctionEmitter</code>, emitting via <code class="language-plaintext highlighter-rouge">CodeBuilder</code>, <code class="language-plaintext highlighter-rouge">Label</code>, <code class="language-plaintext highlighter-rouge">Opcode</code>, <code class="language-plaintext highlighter-rouge">ClassDesc</code>, <code class="language-plaintext highlighter-rouge">DirectMethodHandleDesc</code>, and <code class="language-plaintext highlighter-rouge">DynamicCallSiteDesc</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">AttributeFactories</code></strong> — builds classfile attributes (annotations, records, permits, signatures, etc.).</li>
+</ul>
 
-The backend emits class files at version 17 (`JavaVersion.MINIMAL_VERSION`).
+<p>The backend emits class files at version 17 (<code class="language-plaintext highlighter-rouge">JavaVersion.MINIMAL_VERSION</code>).</p>
 
-## Registration
+<h2 id="registration">Registration</h2>
 
-Registered as backend `"JAVA"` in the `java-backend` module's `plugin.xml`.
+<p>Registered as backend <code class="language-plaintext highlighter-rouge">"JAVA"</code> in the <code class="language-plaintext highlighter-rouge">java-backend</code> module’s <code class="language-plaintext highlighter-rouge">plugin.xml</code>.</p>
 
   </main>
 </div>

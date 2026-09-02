@@ -16,7 +16,7 @@ Writing a compiler is a complex task that takes a lot of time and usually requir
 - **Add your own language.** The compiler is extended via plugins. Provide a language parser that parses source code and builds an AST, and the compiler does the rest.
 
 <div class="callout callout-note">
-**Extendable by design.** The compiler defines extension points. Just provide a language parser, an element resolver, or a code transformer, and register it in a `plugin.xml` file.
+<b>Extendable by design.</b> The compiler defines extension points. Just provide a language parser, an element resolver, or a code transformer, and register it in a `plugin.xml` file.
 </div>
 
 ## The simplest extension

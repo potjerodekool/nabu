@@ -41,73 +41,83 @@
 
   <main>
     <h1>DSL Support</h1>
-    A **domain-specific language (DSL)** lets you write code more easily for a specific domain, for example XML, JSON, or JPA.
+    <p>A <strong>domain-specific language (DSL)</strong> lets you write code more easily for a specific domain, for example XML, JSON, or JPA.</p>
 
-The DSL is a **compiler feature**, not a language feature, so it works independently of the language it is used in and can define its own rules.
+<p>The DSL is a <strong>compiler feature</strong>, not a language feature, so it works independently of the language it is used in and can define its own rules.</p>
 
-## Implementing a DSL
+<h2 id="implementing-a-dsl">Implementing a DSL</h2>
 
-To implement a DSL, one or more of these interfaces can be implemented:
+<p>To implement a DSL, one or more of these interfaces can be implemented:</p>
 
-| Interface | Description |
-|---|---|
-| `io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver` | Resolves elements in a DSL |
-| `io.github.potjerodekool.nabu.compiler.transform.CodeTransformer` | Transforms a DSL into regular code |
+<table>
+  <thead>
+    <tr>
+      <th>Interface</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">io.github.potjerodekool.nabu.compiler.resolve.spi.ElementResolver</code></td>
+      <td>Resolves elements in a DSL</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">io.github.potjerodekool.nabu.compiler.transform.CodeTransformer</code></td>
+      <td>Transforms a DSL into regular code</td>
+    </tr>
+  </tbody>
+</table>
 
-## Registering implementations
+<h2 id="registering-implementations">Registering implementations</h2>
 
-Implementations are registered in the `plugin.xml` file:
+<p>Implementations are registered in the <code class="language-plaintext highlighter-rouge">plugin.xml</code> file:</p>
 
-```xml
-<?xml version="1.0" encoding="UTF-8" ?>
-<plugin>
-    <id>io.github.potjerodekool.nabu.plugin.simple</id>
-    <version>0.0.1</version>
-    <description>Simple plugin for Nabu compiler</description>
-    <extensions>
-        <code-transformer implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleTransformer"/>
-        <element-resolver implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleElementResolver"/>
-    </extensions>
-</plugin>
-```
+<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">&lt;?xml version="1.0" encoding="UTF-8" ?&gt;</span>
+<span class="nt">&lt;plugin&gt;</span>
+    <span class="nt">&lt;id&gt;</span>io.github.potjerodekool.nabu.plugin.simple<span class="nt">&lt;/id&gt;</span>
+    <span class="nt">&lt;version&gt;</span>0.0.1<span class="nt">&lt;/version&gt;</span>
+    <span class="nt">&lt;description&gt;</span>Simple plugin for Nabu compiler<span class="nt">&lt;/description&gt;</span>
+    <span class="nt">&lt;extensions&gt;</span>
+        <span class="nt">&lt;code-transformer</span> <span class="na">implementationClass=</span><span class="s">"io.github.potjerodekool.nabu.plugin.simple.transform.SimpleTransformer"</span><span class="nt">/&gt;</span>
+        <span class="nt">&lt;element-resolver</span> <span class="na">implementationClass=</span><span class="s">"io.github.potjerodekool.nabu.plugin.simple.transform.SimpleElementResolver"</span><span class="nt">/&gt;</span>
+    <span class="nt">&lt;/extensions&gt;</span>
+<span class="nt">&lt;/plugin&gt;</span>
+</code></pre></div></div>
 
-## DSL example: JPA
+<h2 id="dsl-example-jpa">DSL example: JPA</h2>
 
-Take, for example, JPA. Writing a predicate quickly results in hard-to-read code:
+<p>Take, for example, JPA. Writing a predicate quickly results in hard-to-read code:</p>
 
-```java
-fun findCompanyByEmployeeFirstName(employeeFirstName: String): Specification<Company> {
-    return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
-        var e = (InnerJoin<Company, Employee>) c.employees;
-        var e = c.join(Company_.employees, JoinType.INNER);
-        return cb.equal(e.get(Employee_.FIRST_NAME), employeeFirstName);
-    };
-}
-```
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">fun</span> <span class="nf">findCompanyByEmployeeFirstName</span><span class="o">(</span><span class="nl">employeeFirstName:</span> <span class="nc">String</span><span class="o">):</span> <span class="nc">Specification</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">&gt;</span> <span class="o">{</span>
+    <span class="k">return</span> <span class="o">(</span><span class="n">c</span> <span class="o">:</span> <span class="nc">Root</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">&gt;,</span> <span class="nl">q:</span> <span class="nc">CriteriaQuery</span><span class="o">&lt;?&gt;,</span> <span class="nl">cb:</span> <span class="nc">CriteriaBuilder</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="o">{</span>
+        <span class="kt">var</span> <span class="n">e</span> <span class="o">=</span> <span class="o">(</span><span class="nc">InnerJoin</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">,</span> <span class="nc">Employee</span><span class="o">&gt;)</span> <span class="n">c</span><span class="o">.</span><span class="na">employees</span><span class="o">;</span>
+        <span class="kt">var</span> <span class="n">e</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="na">join</span><span class="o">(</span><span class="n">Company_</span><span class="o">.</span><span class="na">employees</span><span class="o">,</span> <span class="nc">JoinType</span><span class="o">.</span><span class="na">INNER</span><span class="o">);</span>
+        <span class="k">return</span> <span class="n">cb</span><span class="o">.</span><span class="na">equal</span><span class="o">(</span><span class="n">e</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="n">Employee_</span><span class="o">.</span><span class="na">FIRST_NAME</span><span class="o">),</span> <span class="n">employeeFirstName</span><span class="o">);</span>
+    <span class="o">};</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-With a DSL you can write much more readable code:
+<p>With a DSL you can write much more readable code:</p>
 
-```java
-fun findCompanyByEmployeeFirstName(employeeFirstName: String): Specification<Company> {
-    return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
-        var e = (InnerJoin<Company, Employee>) c.employees;
-        return e.firstName == employeeFirstName;
-    };
-}
-```
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">fun</span> <span class="nf">findCompanyByEmployeeFirstName</span><span class="o">(</span><span class="nl">employeeFirstName:</span> <span class="nc">String</span><span class="o">):</span> <span class="nc">Specification</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">&gt;</span> <span class="o">{</span>
+    <span class="k">return</span> <span class="o">(</span><span class="n">c</span> <span class="o">:</span> <span class="nc">Root</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">&gt;,</span> <span class="nl">q:</span> <span class="nc">CriteriaQuery</span><span class="o">&lt;?&gt;,</span> <span class="nl">cb:</span> <span class="nc">CriteriaBuilder</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="o">{</span>
+        <span class="kt">var</span> <span class="n">e</span> <span class="o">=</span> <span class="o">(</span><span class="nc">InnerJoin</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">,</span> <span class="nc">Employee</span><span class="o">&gt;)</span> <span class="n">c</span><span class="o">.</span><span class="na">employees</span><span class="o">;</span>
+        <span class="k">return</span> <span class="n">e</span><span class="o">.</span><span class="na">firstName</span> <span class="o">==</span> <span class="n">employeeFirstName</span><span class="o">;</span>
+    <span class="o">};</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-Here a join is defined with a cast using a DSL class (`InnerJoin` in this example), and the fields of the entity are accessed directly. Operator overloading is supported.
+<p>Here a join is defined with a cast using a DSL class (<code class="language-plaintext highlighter-rouge">InnerJoin</code> in this example), and the fields of the entity are accessed directly. Operator overloading is supported.</p>
 
-The `CodeTransformer` then rewrites this to standard code. Because the plugin has access to the type model, it can check whether fields exist:
+<p>The <code class="language-plaintext highlighter-rouge">CodeTransformer</code> then rewrites this to standard code. Because the plugin has access to the type model, it can check whether fields exist:</p>
 
-```java
-fun findCompanyByEmployeeFirstName(employeeFirstName: String): Specification<Company> {
-    return (c : Root<Company>, q: CriteriaQuery<?>, cb: CriteriaBuilder) -> {
-        var e = c.join("employees", JoinType.INNER);
-        return cb.equal(e.get("firstName"), employeeFirstName);
-    };
-}
-```
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">fun</span> <span class="nf">findCompanyByEmployeeFirstName</span><span class="o">(</span><span class="nl">employeeFirstName:</span> <span class="nc">String</span><span class="o">):</span> <span class="nc">Specification</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">&gt;</span> <span class="o">{</span>
+    <span class="k">return</span> <span class="o">(</span><span class="n">c</span> <span class="o">:</span> <span class="nc">Root</span><span class="o">&lt;</span><span class="nc">Company</span><span class="o">&gt;,</span> <span class="nl">q:</span> <span class="nc">CriteriaQuery</span><span class="o">&lt;?&gt;,</span> <span class="nl">cb:</span> <span class="nc">CriteriaBuilder</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="o">{</span>
+        <span class="kt">var</span> <span class="n">e</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="na">join</span><span class="o">(</span><span class="s">"employees"</span><span class="o">,</span> <span class="nc">JoinType</span><span class="o">.</span><span class="na">INNER</span><span class="o">);</span>
+        <span class="k">return</span> <span class="n">cb</span><span class="o">.</span><span class="na">equal</span><span class="o">(</span><span class="n">e</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">"firstName"</span><span class="o">),</span> <span class="n">employeeFirstName</span><span class="o">);</span>
+    <span class="o">};</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
   </main>
 </div>

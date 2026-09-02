@@ -41,54 +41,60 @@
 
   <main>
     <h1>LLVM Backend</h1>
-    The **LLVM backend** is an experimental **native backend** that compiles the Nabu IR to native code via LLVM, with a small C runtime library.
+    <p>The <strong>LLVM backend</strong> is an experimental <strong>native backend</strong> that compiles the Nabu IR to native code via LLVM, with a small C runtime library.</p>
 
 <div class="callout callout-warning">
-**Experimental / WIP.** This backend is exploratory and duplicates emission logic. It should not be relied upon for production use.
+<b>Experimental / WIP.</b> This backend is exploratory and duplicates emission logic. It should not be relied upon for production use.
 </div>
 
-## Toolchain
+<h2 id="toolchain">Toolchain</h2>
 
-The backend uses the **Bytedeco LLVM** JavaCPP bindings (`org.bytedeco.llvm`). A static initializer enables all LLVM targets, MC, ASM parsers, and printers.
+<p>The backend uses the <strong>Bytedeco LLVM</strong> JavaCPP bindings (<code class="language-plaintext highlighter-rouge">org.bytedeco.llvm</code>). A static initializer enables all LLVM targets, MC, ASM parsers, and printers.</p>
 
-## Location
+<h2 id="location">Location</h2>
 
-The backend lives in `native-backend/src/main/java/io/github/potjerodekool/nabu/compiler/backend/native_llvm/`.
+<p>The backend lives in <code class="language-plaintext highlighter-rouge">native-backend/src/main/java/io/github/potjerodekool/nabu/compiler/backend/native_llvm/</code>.</p>
 
-## Outputs
+<h2 id="outputs">Outputs</h2>
 
-`NativeLLVMBackend` produces three outputs:
+<p><code class="language-plaintext highlighter-rouge">NativeLLVMBackend</code> produces three outputs:</p>
 
-1. **`.ll`** — LLVM IR text
-2. **`.o`** — an object file
-3. **A linked executable** — only when a `main` function exists
+<ol>
+  <li><strong><code class="language-plaintext highlighter-rouge">.ll</code></strong> — LLVM IR text</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">.o</code></strong> — an object file</li>
+  <li><strong>A linked executable</strong> — only when a <code class="language-plaintext highlighter-rouge">main</code> function exists</li>
+</ol>
 
-Supported platforms: Windows x64, Linux x64, macOS x64/ARM64.
+<p>Supported platforms: Windows x64, Linux x64, macOS x64/ARM64.</p>
 
-## Architecture
+<h2 id="architecture">Architecture</h2>
 
-- **`LLVMModuleEmitter`** — orchestrates emission: globals → function signatures → function bodies.
-- **`FunctionEmitter`** — declares signatures (`LLVMAddFunction`; externals get `ExternalLinkage` with no body). `emitBody()` pre-creates all basic blocks (for forward references), maps block labels to `LLVMBasicBlockRef`, pre-scans `TryCatchRegion` instructions into a `tryHandlerMap`, sets a personality function (`@__gcc_personality_v0`) when try regions exist, and emits landing pads that call `@nabu_catch`.
-- **`InstructionEmitter`** — maps IR instructions to LLVM builder calls. Calls inside a try region become `invoke` with a continuation-block split.
-- **`TypeMapper`** — maps `IRType` → `LLVMTypeRef`.
-- **`GlobalEmitter`** — globals and string globals (`[N x i8]`).
-- **`ConstantResolver`** — constants → `LLVMValueRef`, with a string-dedup cache.
-- **`Linker`** — per-platform linking: Windows `link.exe`, macOS `clang`, Linux `gcc`.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">LLVMModuleEmitter</code></strong> — orchestrates emission: globals → function signatures → function bodies.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">FunctionEmitter</code></strong> — declares signatures (<code class="language-plaintext highlighter-rouge">LLVMAddFunction</code>; externals get <code class="language-plaintext highlighter-rouge">ExternalLinkage</code> with no body). <code class="language-plaintext highlighter-rouge">emitBody()</code> pre-creates all basic blocks (for forward references), maps block labels to <code class="language-plaintext highlighter-rouge">LLVMBasicBlockRef</code>, pre-scans <code class="language-plaintext highlighter-rouge">TryCatchRegion</code> instructions into a <code class="language-plaintext highlighter-rouge">tryHandlerMap</code>, sets a personality function (<code class="language-plaintext highlighter-rouge">@__gcc_personality_v0</code>) when try regions exist, and emits landing pads that call <code class="language-plaintext highlighter-rouge">@nabu_catch</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">InstructionEmitter</code></strong> — maps IR instructions to LLVM builder calls. Calls inside a try region become <code class="language-plaintext highlighter-rouge">invoke</code> with a continuation-block split.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">TypeMapper</code></strong> — maps <code class="language-plaintext highlighter-rouge">IRType</code> → <code class="language-plaintext highlighter-rouge">LLVMTypeRef</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">GlobalEmitter</code></strong> — globals and string globals (<code class="language-plaintext highlighter-rouge">[N x i8]</code>).</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">ConstantResolver</code></strong> — constants → <code class="language-plaintext highlighter-rouge">LLVMValueRef</code>, with a string-dedup cache.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">Linker</code></strong> — per-platform linking: Windows <code class="language-plaintext highlighter-rouge">link.exe</code>, macOS <code class="language-plaintext highlighter-rouge">clang</code>, Linux <code class="language-plaintext highlighter-rouge">gcc</code>.</li>
+</ul>
 
-## C runtime
+<h2 id="c-runtime">C runtime</h2>
 
-The `runtime/` module provides a small C runtime (`nabu_runtime.c` / `.h` + `CMakeLists.txt`) for:
+<p>The <code class="language-plaintext highlighter-rouge">runtime/</code> module provides a small C runtime (<code class="language-plaintext highlighter-rouge">nabu_runtime.c</code> / <code class="language-plaintext highlighter-rouge">.h</code> + <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>) for:</p>
 
-- Runtime type info (`nabu_object`, `nabu_type_info` structs)
-- `nabu_instanceof` — runtime instance-of checks
-- `nabu_throw` / `nabu_catch` — exception handling via the Itanium ABI (`_Unwind_Exception`) or MSVC path on Windows
-- `nabu_monitorenter` / `nabu_monitorexit` — `synchronized` support
+<ul>
+  <li>Runtime type info (<code class="language-plaintext highlighter-rouge">nabu_object</code>, <code class="language-plaintext highlighter-rouge">nabu_type_info</code> structs)</li>
+  <li><code class="language-plaintext highlighter-rouge">nabu_instanceof</code> — runtime instance-of checks</li>
+  <li><code class="language-plaintext highlighter-rouge">nabu_throw</code> / <code class="language-plaintext highlighter-rouge">nabu_catch</code> — exception handling via the Itanium ABI (<code class="language-plaintext highlighter-rouge">_Unwind_Exception</code>) or MSVC path on Windows</li>
+  <li><code class="language-plaintext highlighter-rouge">nabu_monitorenter</code> / <code class="language-plaintext highlighter-rouge">nabu_monitorexit</code> — <code class="language-plaintext highlighter-rouge">synchronized</code> support</li>
+</ul>
 
-The LLVM backend also supports configurable garbage collection strategies: `NONE` (stack-alloca), `BOEHM` (`GC_malloc`), and `REFCOUNT` (`malloc`).
+<p>The LLVM backend also supports configurable garbage collection strategies: <code class="language-plaintext highlighter-rouge">NONE</code> (stack-alloca), <code class="language-plaintext highlighter-rouge">BOEHM</code> (<code class="language-plaintext highlighter-rouge">GC_malloc</code>), and <code class="language-plaintext highlighter-rouge">REFCOUNT</code> (<code class="language-plaintext highlighter-rouge">malloc</code>).</p>
 
-## Registration
+<h2 id="registration">Registration</h2>
 
-Registered as backend `"LLVM"` in `native-backend/src/main/resources/plugin.xml`, bundled via `maven-shade-plugin`.
+<p>Registered as backend <code class="language-plaintext highlighter-rouge">"LLVM"</code> in <code class="language-plaintext highlighter-rouge">native-backend/src/main/resources/plugin.xml</code>, bundled via <code class="language-plaintext highlighter-rouge">maven-shade-plugin</code>.</p>
 
   </main>
 </div>

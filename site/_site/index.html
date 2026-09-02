@@ -41,52 +41,53 @@
 
   <main>
     <h1>Introduction</h1>
-    The **Nabu compiler** is a polyglot compiler that compiles source code into Java bytecode so it can be executed on the Java Virtual Machine (JVM).
+    <p>The <strong>Nabu compiler</strong> is a polyglot compiler that compiles source code into Java bytecode so it can be executed on the Java Virtual Machine (JVM).</p>
 
-Writing a compiler is a complex task that takes a lot of time and usually requires a lot of expertise about the JVM. The goal of the Nabu compiler is to make this easier: it is designed to be **extendable**, so you can add support for your own language without having to write a compiler from scratch.
+<p>Writing a compiler is a complex task that takes a lot of time and usually requires a lot of expertise about the JVM. The goal of the Nabu compiler is to make this easier: it is designed to be <strong>extendable</strong>, so you can add support for your own language without having to write a compiler from scratch.</p>
 
-## What can you do with Nabu?
+<h2 id="what-can-you-do-with-nabu">What can you do with Nabu?</h2>
 
-- **Compile the Nabu language** to JVM bytecode. Nabu is a programming language whose syntax is based on Java and Kotlin.
-- **Interoperate with Java.** Nabu and Java code can be mixed in a single project, and Nabu code can call Java code and vice versa. Java 20 is supported.
-- **Write DSLs.** The compiler supports domain-specific languages (DSLs) so you can write code that is more readable and maintainable for a specific domain. See [DSL support](/plugins/dsl-support/) for an example with JPA.
-- **Target multiple backends.** Beyond the standard ASM backend (JVM bytecode), experimental backends exist for the JDK ClassFile API and LLVM (native).
-- **Add your own language.** The compiler is extended via plugins. Provide a language parser that parses source code and builds an AST, and the compiler does the rest.
+<ul>
+  <li><strong>Compile the Nabu language</strong> to JVM bytecode. Nabu is a programming language whose syntax is based on Java and Kotlin.</li>
+  <li><strong>Interoperate with Java.</strong> Nabu and Java code can be mixed in a single project, and Nabu code can call Java code and vice versa. Java 20 is supported.</li>
+  <li><strong>Write DSLs.</strong> The compiler supports domain-specific languages (DSLs) so you can write code that is more readable and maintainable for a specific domain. See <a href="/plugins/dsl-support/">DSL support</a> for an example with JPA.</li>
+  <li><strong>Target multiple backends.</strong> Beyond the standard ASM backend (JVM bytecode), experimental backends exist for the JDK ClassFile API and LLVM (native).</li>
+  <li><strong>Add your own language.</strong> The compiler is extended via plugins. Provide a language parser that parses source code and builds an AST, and the compiler does the rest.</li>
+</ul>
 
 <div class="callout callout-note">
-**Extendable by design.** The compiler defines extension points. Just provide a language parser, an element resolver, or a code transformer, and register it in a `plugin.xml` file.
+<b>Extendable by design.</b> The compiler defines extension points. Just provide a language parser, an element resolver, or a code transformer, and register it in a `plugin.xml` file.
 </div>
 
-## The simplest extension
+<h2 id="the-simplest-extension">The simplest extension</h2>
 
-Because the compiler is built around plugins, adding a language is largely about providing a `LanguageParser`:
+<p>Because the compiler is built around plugins, adding a language is largely about providing a <code class="language-plaintext highlighter-rouge">LanguageParser</code>:</p>
 
-```java
-public class SimpleLanguageParser implements LanguageParser {
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">class</span> <span class="nc">SimpleLanguageParser</span> <span class="kd">implements</span> <span class="nc">LanguageParser</span> <span class="o">{</span>
 
-    private final FileObject.Kind SOURCE_KIND = new FileObject.Kind(".simple", true);
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">FileObject</span><span class="o">.</span><span class="na">Kind</span> <span class="no">SOURCE_KIND</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">FileObject</span><span class="o">.</span><span class="na">Kind</span><span class="o">(</span><span class="s">".simple"</span><span class="o">,</span> <span class="kc">true</span><span class="o">);</span>
 
-    @Override
-    public FileObject.Kind getSourceKind() {
-        return SOURCE_KIND;
-    }
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">FileObject</span><span class="o">.</span><span class="na">Kind</span> <span class="nf">getSourceKind</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="no">SOURCE_KIND</span><span class="o">;</span>
+    <span class="o">}</span>
 
-    @Override
-    public CompilationUnit parse(final FileObject fileObject,
-                                 final CompilerContext compilerContext) {
-        // TODO: Implement parsing logic for .simple files
-        return null;
-    }
-}
-```
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">CompilationUnit</span> <span class="nf">parse</span><span class="o">(</span><span class="kd">final</span> <span class="nc">FileObject</span> <span class="n">fileObject</span><span class="o">,</span>
+                                 <span class="kd">final</span> <span class="nc">CompilerContext</span> <span class="n">compilerContext</span><span class="o">)</span> <span class="o">{</span>
+        <span class="c1">// TODO: Implement parsing logic for .simple files</span>
+        <span class="k">return</span> <span class="kc">null</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-## Demo application
+<h2 id="demo-application">Demo application</h2>
 
-A demo application is available at the [Nabu petstore](https://github.com/potjerodekool/nabu-petstore) repository, showing the compiler in action.
+<p>A demo application is available at the <a href="https://github.com/potjerodekool/nabu-petstore">Nabu petstore</a> repository, showing the compiler in action.</p>
 
-## Getting started
+<h2 id="getting-started">Getting started</h2>
 
-To use Nabu and Java together in a Maven project, see the [Maven Plugin](/maven-plugin/) documentation. For IDE support, check out the [Nabu Idea](https://github.com/potjerodekool/nabu-idea) plugin for IntelliJ.
+<p>To use Nabu and Java together in a Maven project, see the <a href="/maven-plugin/">Maven Plugin</a> documentation. For IDE support, check out the <a href="https://github.com/potjerodekool/nabu-idea">Nabu Idea</a> plugin for IntelliJ.</p>
 
   </main>
 </div>

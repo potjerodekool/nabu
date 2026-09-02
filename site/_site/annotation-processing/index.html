@@ -41,36 +41,40 @@
 
   <main>
     <h1>Annotation Processing</h1>
-    The Nabu compiler implements the **JSR-269** annotation processing API (`javax.annotation.processing`), giving it surprisingly complete support for running standard annotation processors — including Lombok-style handlers and real-world processors like Hibernate's `hibernate-jpamodelgen` and MapStruct.
+    <p>The Nabu compiler implements the <strong>JSR-269</strong> annotation processing API (<code class="language-plaintext highlighter-rouge">javax.annotation.processing</code>), giving it surprisingly complete support for running standard annotation processors — including Lombok-style handlers and real-world processors like Hibernate’s <code class="language-plaintext highlighter-rouge">hibernate-jpamodelgen</code> and MapStruct.</p>
 
-## Location
+<h2 id="location">Location</h2>
 
-The implementation lives in `compiler/src/main/java/io/github/potjerodekool/nabu/compiler/annotation/processing/`.
+<p>The implementation lives in <code class="language-plaintext highlighter-rouge">compiler/src/main/java/io/github/potjerodekool/nabu/compiler/annotation/processing/</code>.</p>
 
-## Key classes
+<h2 id="key-classes">Key classes</h2>
 
-- **`JavacProcessingEnvironment`** — implements `javax.annotation.processing.ProcessingEnvironment`; bundles `Messager`, `JavacFiler`, `JavacElements`, and `JavacTypes`. `getSourceVersion()` returns `RELEASE_17`. Its `round(rootElements, processorStates)` drives `processor.process(annotations, roundEnvironment)`.
-- **`JavacFiler`** — implements `Filer`; tracks generated source/class files (via file-object close callbacks), resolves modules/packages from `/`-separated names, and clears sets each round.
-- **`JavacElements`** / **`JavacTypes`** — wrap Nabu element/type utilities and bridge to `javax.lang.model` via `ElementWrapperFactory` / `TypeWrapperFactory`.
-- **`JavacRoundEnvironment`** — implements `RoundEnvironment`; `getElementsAnnotatedWith` scans root elements' annotation mirrors.
-- **`JavacMessager`** — forwards diagnostics to the compiler's `DiagnosticListener`.
-- **`ProcessorState`** — pairs a `Processor` with the `TypeElement`s of its supported annotation types.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">JavacProcessingEnvironment</code></strong> — implements <code class="language-plaintext highlighter-rouge">javax.annotation.processing.ProcessingEnvironment</code>; bundles <code class="language-plaintext highlighter-rouge">Messager</code>, <code class="language-plaintext highlighter-rouge">JavacFiler</code>, <code class="language-plaintext highlighter-rouge">JavacElements</code>, and <code class="language-plaintext highlighter-rouge">JavacTypes</code>. <code class="language-plaintext highlighter-rouge">getSourceVersion()</code> returns <code class="language-plaintext highlighter-rouge">RELEASE_17</code>. Its <code class="language-plaintext highlighter-rouge">round(rootElements, processorStates)</code> drives <code class="language-plaintext highlighter-rouge">processor.process(annotations, roundEnvironment)</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">JavacFiler</code></strong> — implements <code class="language-plaintext highlighter-rouge">Filer</code>; tracks generated source/class files (via file-object close callbacks), resolves modules/packages from <code class="language-plaintext highlighter-rouge">/</code>-separated names, and clears sets each round.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">JavacElements</code></strong> / <strong><code class="language-plaintext highlighter-rouge">JavacTypes</code></strong> — wrap Nabu element/type utilities and bridge to <code class="language-plaintext highlighter-rouge">javax.lang.model</code> via <code class="language-plaintext highlighter-rouge">ElementWrapperFactory</code> / <code class="language-plaintext highlighter-rouge">TypeWrapperFactory</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">JavacRoundEnvironment</code></strong> — implements <code class="language-plaintext highlighter-rouge">RoundEnvironment</code>; <code class="language-plaintext highlighter-rouge">getElementsAnnotatedWith</code> scans root elements’ annotation mirrors.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">JavacMessager</code></strong> — forwards diagnostics to the compiler’s <code class="language-plaintext highlighter-rouge">DiagnosticListener</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">ProcessorState</code></strong> — pairs a <code class="language-plaintext highlighter-rouge">Processor</code> with the <code class="language-plaintext highlighter-rouge">TypeElement</code>s of its supported annotation types.</li>
+</ul>
 
-Wrapper packages provide `JTypeElement`, `JPackageElement`, `JVariableElement`, `JExecutableElement`, `JTypeParameterElement`, `JModuleElement`, and the type wrappers (`JDeclaredType`, `JPrimitiveType`, `JExecutableType`, `JArrayType`, `JTypeVariable`, `JWildcardType`, etc.).
+<p>Wrapper packages provide <code class="language-plaintext highlighter-rouge">JTypeElement</code>, <code class="language-plaintext highlighter-rouge">JPackageElement</code>, <code class="language-plaintext highlighter-rouge">JVariableElement</code>, <code class="language-plaintext highlighter-rouge">JExecutableElement</code>, <code class="language-plaintext highlighter-rouge">JTypeParameterElement</code>, <code class="language-plaintext highlighter-rouge">JModuleElement</code>, and the type wrappers (<code class="language-plaintext highlighter-rouge">JDeclaredType</code>, <code class="language-plaintext highlighter-rouge">JPrimitiveType</code>, <code class="language-plaintext highlighter-rouge">JExecutableType</code>, <code class="language-plaintext highlighter-rouge">JArrayType</code>, <code class="language-plaintext highlighter-rouge">JTypeVariable</code>, <code class="language-plaintext highlighter-rouge">JWildcardType</code>, etc.).</p>
 
-## How processors run
+<h2 id="how-processors-run">How processors run</h2>
 
-The driver (`NabuCompiler.runAnnotationProcessors`) follows this flow:
+<p>The driver (<code class="language-plaintext highlighter-rouge">NabuCompiler.runAnnotationProcessors</code>) follows this flow:</p>
 
-1. **`resolveClasses`** wraps class symbols as `TypeElement`s.
-2. **`findAnnotationProcessors`** uses `ServiceLoader.load(Processor.class, classLoader)` (classloader from `ANNOTATION_PROCESSOR_PATH`, else `CLASS_PATH`).
-3. **`createProcessingEnvironment`** wires up the Javac utilities.
-4. `processor.init(env)` is called, creating one `ProcessorState` per processor.
-5. Rounds are repeated: `round()` runs processors → the filer's generated source files are read → the generated files are parsed and entered → `prepareForRound()` clears the sets — until nothing new is generated.
+<ol>
+  <li><strong><code class="language-plaintext highlighter-rouge">resolveClasses</code></strong> wraps class symbols as <code class="language-plaintext highlighter-rouge">TypeElement</code>s.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">findAnnotationProcessors</code></strong> uses <code class="language-plaintext highlighter-rouge">ServiceLoader.load(Processor.class, classLoader)</code> (classloader from <code class="language-plaintext highlighter-rouge">ANNOTATION_PROCESSOR_PATH</code>, else <code class="language-plaintext highlighter-rouge">CLASS_PATH</code>).</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">createProcessingEnvironment</code></strong> wires up the Javac utilities.</li>
+  <li><code class="language-plaintext highlighter-rouge">processor.init(env)</code> is called, creating one <code class="language-plaintext highlighter-rouge">ProcessorState</code> per processor.</li>
+  <li>Rounds are repeated: <code class="language-plaintext highlighter-rouge">round()</code> runs processors → the filer’s generated source files are read → the generated files are parsed and entered → <code class="language-plaintext highlighter-rouge">prepareForRound()</code> clears the sets — until nothing new is generated.</li>
+</ol>
 
-## Lombok-style handlers
+<h2 id="lombok-style-handlers">Lombok-style handlers</h2>
 
-Built-in handlers implement `Getter`, `Setter`, `Data`, and `Constructors` automation, demonstrating how the compiler can integrate with code-generating processors.
+<p>Built-in handlers implement <code class="language-plaintext highlighter-rouge">Getter</code>, <code class="language-plaintext highlighter-rouge">Setter</code>, <code class="language-plaintext highlighter-rouge">Data</code>, and <code class="language-plaintext highlighter-rouge">Constructors</code> automation, demonstrating how the compiler can integrate with code-generating processors.</p>
 
   </main>
 </div>

@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CUnknownType;
+import io.github.potjerodekool.nabu.log.LogLevel;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
@@ -513,6 +514,11 @@ public class CompleteMethodResolver implements MethodResolver {
                 isConstructorCall = false;
             }
 
+            if (searchType == null) {
+                logger.log(LogLevel.WARN, "Searchtype is NULL in IdentifierTree branch, methodName " + methodName);
+                return Optional.empty();
+            }
+
             do {
                 var executableType = resolveMethod(
                         methodInvocationTree,
@@ -540,6 +546,11 @@ public class CompleteMethodResolver implements MethodResolver {
                 isConstructorCall = true;
             } else {
                 isConstructorCall = false;
+            }
+
+            if (searchType == null) {
+                logger.log(LogLevel.WARN,  String.format("Searchtype is NULL in FieldAccessExpressionTree branch, methodName %s, %s", methodName, fieldAccessExpressionTree));
+                return Optional.empty();
             }
 
             final var resolvedMethod = resolveMethod(

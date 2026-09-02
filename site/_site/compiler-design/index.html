@@ -41,103 +41,149 @@
 
   <main>
     <h1>Compiler Design</h1>
-    This page describes each phase of the Nabu compiler in detail, from parsing source files to emitting bytecode.
+    <p>This page describes each phase of the Nabu compiler in detail, from parsing source files to emitting bytecode.</p>
 
-## Pipeline overview
+<h2 id="pipeline-overview">Pipeline overview</h2>
 
 <div class="diagram">
-  <img src="/assets/images/compiler-phases.png" alt="Compiler phases">
+  <img src="/assets/images/compiler-phases.png" alt="Compiler phases" />
 </div>
 
-The core driver is the `NabuCompiler` class (in `compiler`), which implements `tools.Compiler`. Its `compile(CompilerOptions)` method drives the frontend (`processFiles`), and `generateCode` drives the backend.
+<p>The core driver is the <code class="language-plaintext highlighter-rouge">NabuCompiler</code> class (in <code class="language-plaintext highlighter-rouge">compiler</code>), which implements <code class="language-plaintext highlighter-rouge">tools.Compiler</code>. Its <code class="language-plaintext highlighter-rouge">compile(CompilerOptions)</code> method drives the frontend (<code class="language-plaintext highlighter-rouge">processFiles</code>), and <code class="language-plaintext highlighter-rouge">generateCode</code> drives the backend.</p>
 
-## Frontend phases
+<h2 id="frontend-phases">Frontend phases</h2>
 
-### Parse
+<h3 id="parse">Parse</h3>
 
-Source files are dispatched by file-extension *kind* to a registered `SourceParser` / `LanguageParser` via the plugin registry. The compiler supports parsing multiple languages (Nabu, Java, Kotlin) and mixing them in one project.
+<p>Source files are dispatched by file-extension <em>kind</em> to a registered <code class="language-plaintext highlighter-rouge">SourceParser</code> / <code class="language-plaintext highlighter-rouge">LanguageParser</code> via the plugin registry. The compiler supports parsing multiple languages (Nabu, Java, Kotlin) and mixing them in one project.</p>
 
-Each parser produces an abstract syntax tree (`CompilationUnit`). The Nabu language uses ANTLR grammars (`NabuLexer.g4` / `NabuParser.g4`) plus the `NabuCompilerVisitor` (~3,300 lines) which builds the AST.
+<p>Each parser produces an abstract syntax tree (<code class="language-plaintext highlighter-rouge">CompilationUnit</code>). The Nabu language uses ANTLR grammars (<code class="language-plaintext highlighter-rouge">NabuLexer.g4</code> / <code class="language-plaintext highlighter-rouge">NabuParser.g4</code>) plus the <code class="language-plaintext highlighter-rouge">NabuCompilerVisitor</code> (~3,300 lines) which builds the AST.</p>
 
-### Enter
+<h3 id="enter">Enter</h3>
 
-The `EnterPhase` / `EnterClasses` adds classes to the symbol table. This happens before resolution so that classes can be resolved when referenced by other classes (independent of source order).
+<p>The <code class="language-plaintext highlighter-rouge">EnterPhase</code> / <code class="language-plaintext highlighter-rouge">EnterClasses</code> adds classes to the symbol table. This happens before resolution so that classes can be resolved when referenced by other classes (independent of source order).</p>
 
-### Resolve
+<h3 id="resolve">Resolve</h3>
 
-The `ResolverPhase` resolves classes, methods, fields, and other symbols. It reads class files via ASM (`resolve/asm`), handles generics, method resolution (`resolve/method`), boxing, and type entering. This is a broad phase that gives the compiler a full symbol and type model.
+<p>The <code class="language-plaintext highlighter-rouge">ResolverPhase</code> resolves classes, methods, fields, and other symbols. It reads class files via ASM (<code class="language-plaintext highlighter-rouge">resolve/asm</code>), handles generics, method resolution (<code class="language-plaintext highlighter-rouge">resolve/method</code>), boxing, and type entering. This is a broad phase that gives the compiler a full symbol and type model.</p>
 
-### Annotate
+<h3 id="annotate">Annotate</h3>
 
-The `AnnotatePhase` de-proxies annotations and provides annotation-processing interoperability. It runs JSR-269-style processors through a `JavacProcessingEnvironment` with a `JavacFiler`, `JavacElements`, `JavacTypes`, `JavacMessager`, and `JavacRoundEnvironment`. See [Annotation Processing](/annotation-processing/) for details.
+<p>The <code class="language-plaintext highlighter-rouge">AnnotatePhase</code> de-proxies annotations and provides annotation-processing interoperability. It runs JSR-269-style processors through a <code class="language-plaintext highlighter-rouge">JavacProcessingEnvironment</code> with a <code class="language-plaintext highlighter-rouge">JavacFiler</code>, <code class="language-plaintext highlighter-rouge">JavacElements</code>, <code class="language-plaintext highlighter-rouge">JavacTypes</code>, <code class="language-plaintext highlighter-rouge">JavacMessager</code>, and <code class="language-plaintext highlighter-rouge">JavacRoundEnvironment</code>. See <a href="/annotation-processing/">Annotation Processing</a> for details.</p>
 
-### Transform
+<h3 id="transform">Transform</h3>
 
-The `TransformPhase` runs `CodeTransformer`s registered as compiler plugins. This is where DSLs hook in — for example, the JPA plugin transforms a readable criteria DSL into standard JPA calls. See [DSL Support](/plugins/dsl-support/).
+<p>The <code class="language-plaintext highlighter-rouge">TransformPhase</code> runs <code class="language-plaintext highlighter-rouge">CodeTransformer</code>s registered as compiler plugins. This is where DSLs hook in — for example, the JPA plugin transforms a readable criteria DSL into standard JPA calls. See <a href="/plugins/dsl-support/">DSL Support</a>.</p>
 
-### Check
+<h3 id="check">Check</h3>
 
-The `CheckPhase` performs type and flow diagnostics and checks for unresolved symbols (methods, fields, types).
+<p>The <code class="language-plaintext highlighter-rouge">CheckPhase</code> performs type and flow diagnostics and checks for unresolved symbols (methods, fields, types).</p>
 
-### LambdaToMethod
+<h3 id="lambdatomethod">LambdaToMethod</h3>
 
-The `LambdaToMethodPhase` desugars lambda expressions into synthetic private methods via SAM conversion (using `invokedynamic` / `LambdaMetafactory`-style lowering).
+<p>The <code class="language-plaintext highlighter-rouge">LambdaToMethodPhase</code> desugars lambda expressions into synthetic private methods via SAM conversion (using <code class="language-plaintext highlighter-rouge">invokedynamic</code> / <code class="language-plaintext highlighter-rouge">LambdaMetafactory</code>-style lowering).</p>
 
-## Backend phases
+<h2 id="backend-phases">Backend phases</h2>
 
-### Lower
+<h3 id="lower">Lower</h3>
 
-The `Lower` phase adds additional code:
+<p>The <code class="language-plaintext highlighter-rouge">Lower</code> phase adds additional code:</p>
 
-- Generate code to init fields (both in constructors and in `<clinit>`)
-- Generate code for enum and record classes (`EnumCodeGenerator`, `RecordCodeGenerator`)
-- Add boxing and unboxing code
-- Lower enhanced-for statements
-- Remap enum switches
+<ul>
+  <li>Generate code to init fields (both in constructors and in <code class="language-plaintext highlighter-rouge">&lt;clinit&gt;</code>)</li>
+  <li>Generate code for enum and record classes (<code class="language-plaintext highlighter-rouge">EnumCodeGenerator</code>, <code class="language-plaintext highlighter-rouge">RecordCodeGenerator</code>)</li>
+  <li>Add boxing and unboxing code</li>
+  <li>Lower enhanced-for statements</li>
+  <li>Remap enum switches</li>
+</ul>
 
-### IR generation
+<h3 id="ir-generation">IR generation</h3>
 
-The `IrGeneratingVisitor` builds an intermediate representation from the lowered AST. The `ir` package contains:
+<p>The <code class="language-plaintext highlighter-rouge">IrGeneratingVisitor</code> builds an intermediate representation from the lowered AST. The <code class="language-plaintext highlighter-rouge">ir</code> package contains:</p>
 
-- **`IRModule`** — flags, name, super type, interfaces, sealed classes, fields, functions, globals
-- **`IRFunction`** — name, return type, parameters, basic blocks
-- **`IRBasicBlock`** — label, instructions, successors, termination
-- **`IRInstruction`** — Alloca, AllocaArray, ArrayLoad/Store, BinaryOp, Branch, Call, Cast, CondBranch, HeapAlloc, IndirectCall, InstanceOf, Load, MonitorEnter/Exit, Move, Phi, Pop, Return, Store, Throw, TryCatchRegion
-- **`IRValue`** — ConstBool, ConstClass, ConstFloat, ConstInt, ConstNull, ConstString, FunctionRef, Named, Temp
-- **`IRType`** — Array, Bool, Float, Function, Int, Ptr, Struct, Void
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRModule</code></strong> — flags, name, super type, interfaces, sealed classes, fields, functions, globals</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRFunction</code></strong> — name, return type, parameters, basic blocks</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRBasicBlock</code></strong> — label, instructions, successors, termination</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRInstruction</code></strong> — Alloca, AllocaArray, ArrayLoad/Store, BinaryOp, Branch, Call, Cast, CondBranch, HeapAlloc, IndirectCall, InstanceOf, Load, MonitorEnter/Exit, Move, Phi, Pop, Return, Store, Throw, TryCatchRegion</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRValue</code></strong> — ConstBool, ConstClass, ConstFloat, ConstInt, ConstNull, ConstString, FunctionRef, Named, Temp</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRType</code></strong> — Array, Bool, Float, Function, Int, Ptr, Struct, Void</li>
+</ul>
 
-### IR optimization
+<h3 id="ir-optimization">IR optimization</h3>
 
-The IR is optimized through several passes in `backend/ir`:
+<p>The IR is optimized through several passes in <code class="language-plaintext highlighter-rouge">backend/ir</code>:</p>
 
-- **`SsaBuilder`** — Cytron-style SSA construction (dominance tree, dominance frontiers, phi placement, renaming)
-- **`PhiElimination`** — replaces phis with stores in predecessors and loads in the head block
-- **`Linearizer`** — orders blocks and inverts conditions for fall-through
-- **`Optimizer`** — runs an optimization pipeline: TypeInference → ConstantFolder → CopyPropagation → GVN → DCE, repeated to a fixpoint (max 10 iterations)
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">SsaBuilder</code></strong> — Cytron-style SSA construction (dominance tree, dominance frontiers, phi placement, renaming)</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">PhiElimination</code></strong> — replaces phis with stores in predecessors and loads in the head block</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">Linearizer</code></strong> — orders blocks and inverts conditions for fall-through</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">Optimizer</code></strong> — runs an optimization pipeline: TypeInference → ConstantFolder → CopyPropagation → GVN → DCE, repeated to a fixpoint (max 10 iterations)</li>
+</ul>
 
-The IR is **backend-agnostic** — all backends consume the same `IRModule`, which is the key to the "write a language once, target multiple backends" design.
+<p>The IR is <strong>backend-agnostic</strong> — all backends consume the same <code class="language-plaintext highlighter-rouge">IRModule</code>, which is the key to the “write a language once, target multiple backends” design.</p>
 
-### Bytecode emission
+<h3 id="bytecode-emission">Bytecode emission</h3>
 
-The IR module is handed to a registered `Backend` which emits class files. See the [Backends](/backends/) section for the details of each backend.
+<p>The IR module is handed to a registered <code class="language-plaintext highlighter-rouge">Backend</code> which emits class files. See the <a href="/backends/">Backends</a> section for the details of each backend.</p>
 
-- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23`.
-- The default **ASM backend** is slot-based (JVM local-variable-slot addressed) and validated via `CheckClassAdapter`.
+<ul>
+  <li>Class files are emitted at <strong>version 61 (Java 17)</strong> by default (<code class="language-plaintext highlighter-rouge">JavaVersion.MINIMAL_VERSION</code>), up to <code class="language-plaintext highlighter-rouge">V23</code>.</li>
+  <li>The default <strong>ASM backend</strong> is slot-based (JVM local-variable-slot addressed) and validated via <code class="language-plaintext highlighter-rouge">CheckClassAdapter</code>.</li>
+</ul>
 
-## Module layout
+<h2 id="module-layout">Module layout</h2>
 
-| Module | Responsibility |
-|---|---|
-| `compiler-api` | Public API/SPI layer (AST, type system, tools, language SPI, element model, resolve SPI, transform SPI) |
-| `compiler` | Core compiler: parse, enter, resolve, transform, check, lower, IR, ASM backend |
-| `nabu-lang` | Nabu language: ANTLR grammar + `NabuCompilerVisitor` |
-| `java-backend` | Experimental backend using the JDK 24 ClassFile API |
-| `native-backend` | Experimental LLVM-based native backend |
-| `maven-plugin` | Maven plugin wiring the compiler into builds |
-| `jpa-plugin` / `jpa-support` | Example DSL plugin for JPA criteria |
-| `nabu-daemon` / `nabu-client` | Compile daemon protocol for incremental builds |
-| `tools` | Project-model tooling |
-| `testing` | Scaffold for testing compiler plugins |
+<table>
+  <thead>
+    <tr>
+      <th>Module</th>
+      <th>Responsibility</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">compiler-api</code></td>
+      <td>Public API/SPI layer (AST, type system, tools, language SPI, element model, resolve SPI, transform SPI)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">compiler</code></td>
+      <td>Core compiler: parse, enter, resolve, transform, check, lower, IR, ASM backend</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">nabu-lang</code></td>
+      <td>Nabu language: ANTLR grammar + <code class="language-plaintext highlighter-rouge">NabuCompilerVisitor</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">java-backend</code></td>
+      <td>Experimental backend using the JDK 24 ClassFile API</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">native-backend</code></td>
+      <td>Experimental LLVM-based native backend</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">maven-plugin</code></td>
+      <td>Maven plugin wiring the compiler into builds</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">jpa-plugin</code> / <code class="language-plaintext highlighter-rouge">jpa-support</code></td>
+      <td>Example DSL plugin for JPA criteria</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">nabu-daemon</code> / <code class="language-plaintext highlighter-rouge">nabu-client</code></td>
+      <td>Compile daemon protocol for incremental builds</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">tools</code></td>
+      <td>Project-model tooling</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">testing</code></td>
+      <td>Scaffold for testing compiler plugins</td>
+    </tr>
+  </tbody>
+</table>
 
   </main>
 </div>

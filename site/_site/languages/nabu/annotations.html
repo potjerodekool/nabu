@@ -41,22 +41,21 @@
 
   <main>
     <h1>Annotations</h1>
-    Nabu supports normal, marker, and single-element annotations, arrays, nested annotations, and default values.
+    <p>Nabu supports normal, marker, and single-element annotations, arrays, nested annotations, and default values.</p>
 
-```java
-@Deprecated(since = "1.5")
-public class SomeClass {
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nd">@Deprecated</span><span class="o">(</span><span class="n">since</span> <span class="o">=</span> <span class="s">"1.5"</span><span class="o">)</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">SomeClass</span> <span class="o">{</span>
 
-    @Deprecated
-    @Override
-    fun clear(): void {
-    }
-}
-```
+    <span class="nd">@Deprecated</span>
+    <span class="nd">@Override</span>
+    <span class="n">fun</span> <span class="nf">clear</span><span class="o">():</span> <span class="kt">void</span> <span class="o">{</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-Annotation retention and target are emitted via `AsmByteCodeEmitter.emitAnnotations`.
+<p>Annotation retention and target are emitted via <code class="language-plaintext highlighter-rouge">AsmByteCodeEmitter.emitAnnotations</code>.</p>
 
-Annotation interfaces themselves can also be declared in Nabu. The compiler also has deep support for running JSR-269-style annotation processors — see [Annotation Processing](/annotation-processing/).
+<p>Annotation interfaces themselves can also be declared in Nabu. The compiler also has deep support for running JSR-269-style annotation processors — see <a href="/annotation-processing/">Annotation Processing</a>.</p>
 
   </main>
 </div>

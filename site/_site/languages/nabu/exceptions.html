@@ -41,34 +41,37 @@
 
   <main>
     <h1>Exceptions</h1>
-    Methods can declare checked exceptions with a `throws` clause.
+    <p>Methods can declare checked exceptions with a <code class="language-plaintext highlighter-rouge">throws</code> clause.</p>
 
-```java
-public class Box<T> {
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">class</span> <span class="nc">Box</span><span class="o">&lt;</span><span class="no">T</span><span class="o">&gt;</span> <span class="o">{</span>
 
-    private final value: T;
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nl">value:</span> <span class="no">T</span><span class="o">;</span>
 
-    public Box(value: T) {
-        this.value = value;
-    }
+    <span class="kd">public</span> <span class="nf">Box</span><span class="o">(</span><span class="nl">value:</span> <span class="no">T</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">this</span><span class="o">.</span><span class="na">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">;</span>
+    <span class="o">}</span>
 
-    public fun getValue(): T throws EmptyException {
-        return value;
-    }
-}
-```
+    <span class="kd">public</span> <span class="n">fun</span> <span class="nf">getValue</span><span class="o">():</span> <span class="no">T</span> <span class="kd">throws</span> <span class="nc">EmptyException</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">value</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-## Exception handling
+<h2 id="exception-handling">Exception handling</h2>
 
-- **`throw` / `try` / `catch`** including **multi-catch** (`catchType: unannClassType ('|' classType)*`) are supported. Catch clauses emit an exception table via `TryCatchRange` metadata.
-- **`finally`** blocks are supported (implemented per the Java 17 core roadmap).
-- **try-with-resources** is supported, desugared to expanded variables with `close()` calls and suppressed-exception handling.
-- `synchronized` methods and blocks emit `monitorenter` / `monitorexit`.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">throw</code> / <code class="language-plaintext highlighter-rouge">try</code> / <code class="language-plaintext highlighter-rouge">catch</code></strong> including <strong>multi-catch</strong> (<code class="language-plaintext highlighter-rouge">catchType: unannClassType ('|' classType)*</code>) are supported. Catch clauses emit an exception table via <code class="language-plaintext highlighter-rouge">TryCatchRange</code> metadata.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">finally</code></strong> blocks are supported (implemented per the Java 17 core roadmap).</li>
+  <li><strong>try-with-resources</strong> is supported, desugared to expanded variables with <code class="language-plaintext highlighter-rouge">close()</code> calls and suppressed-exception handling.</li>
+  <li><code class="language-plaintext highlighter-rouge">synchronized</code> methods and blocks emit <code class="language-plaintext highlighter-rouge">monitorenter</code> / <code class="language-plaintext highlighter-rouge">monitorexit</code>.</li>
+</ul>
 
-## Exception model across backends
+<h2 id="exception-model-across-backends">Exception model across backends</h2>
 
-- On the **ASM backend**, exceptions map to the JVM exception table.
-- On the **LLVM backend**, exceptions are handled through the C runtime (`@nabu_throw`, `@nabu_catch` with landing pads and a personality function).
+<ul>
+  <li>On the <strong>ASM backend</strong>, exceptions map to the JVM exception table.</li>
+  <li>On the <strong>LLVM backend</strong>, exceptions are handled through the C runtime (<code class="language-plaintext highlighter-rouge">@nabu_throw</code>, <code class="language-plaintext highlighter-rouge">@nabu_catch</code> with landing pads and a personality function).</li>
+</ul>
 
   </main>
 </div>

@@ -41,35 +41,61 @@
 
   <main>
     <h1>Backends</h1>
-    A **backend** is responsible for turning the compiler's intermediate representation (IR) into output — typically JVM bytecode or native code. The Nabu frontend is shared, so the same source can target multiple backends by selecting a different backend at compile time.
+    <p>A <strong>backend</strong> is responsible for turning the compiler’s intermediate representation (IR) into output — typically JVM bytecode or native code. The Nabu frontend is shared, so the same source can target multiple backends by selecting a different backend at compile time.</p>
 
-## Backend selection
+<h2 id="backend-selection">Backend selection</h2>
 
-The backend is chosen by a compiler option (`--backend=ASM|JAVA|LLVM`), defaulting to `ASM`. The `BackendManager.createBackend` resolves a `"backend"` extension by name.
+<p>The backend is chosen by a compiler option (<code class="language-plaintext highlighter-rouge">--backend=ASM|JAVA|LLVM</code>), defaulting to <code class="language-plaintext highlighter-rouge">ASM</code>. The <code class="language-plaintext highlighter-rouge">BackendManager.createBackend</code> resolves a <code class="language-plaintext highlighter-rouge">"backend"</code> extension by name.</p>
 
-## Available backends
+<h2 id="available-backends">Available backends</h2>
 
-| Backend | Name | Output | Status |
-|---|---|---|---|
-| **ASM** | `ASM` | JVM bytecode (v17+) | Default, production |
-| **Java** | `JAVA` | JVM bytecode (ClassFile API) | Experimental |
-| **LLVM** | `LLVM` | Native executable | Experimental |
+<table>
+  <thead>
+    <tr>
+      <th>Backend</th>
+      <th>Name</th>
+      <th>Output</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>ASM</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">ASM</code></td>
+      <td>JVM bytecode (v17+)</td>
+      <td>Default, production</td>
+    </tr>
+    <tr>
+      <td><strong>Java</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">JAVA</code></td>
+      <td>JVM bytecode (ClassFile API)</td>
+      <td>Experimental</td>
+    </tr>
+    <tr>
+      <td><strong>LLVM</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">LLVM</code></td>
+      <td>Native executable</td>
+      <td>Experimental</td>
+    </tr>
+  </tbody>
+</table>
 
-## The shared IR
+<h2 id="the-shared-ir">The shared IR</h2>
 
-All three backends consume the same backend-agnostic `IRModule` produced by the IR generation phase. This is the key to the "write a language once, target multiple backends" design goal.
+<p>All three backends consume the same backend-agnostic <code class="language-plaintext highlighter-rouge">IRModule</code> produced by the IR generation phase. This is the key to the “write a language once, target multiple backends” design goal.</p>
 
-Each backend follows the same structural pipeline:
+<p>Each backend follows the same structural pipeline:</p>
 
-```
-IRModule → PhiElimination → Linearizer → FunctionEmitter (+ SlotAllocator)
-```
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>IRModule → PhiElimination → Linearizer → FunctionEmitter (+ SlotAllocator)
+</code></pre></div></div>
 
-Individual backends:
+<p>Individual backends:</p>
 
-- [ASM Backend](/backends/asm/) — the default, production backend
-- [Java Backend](/backends/java-backend/) — a parallel implementation using the JDK ClassFile API
-- [LLVM Backend](/backends/llvm/) — a native backend using LLVM and a C runtime
+<ul>
+  <li><a href="/backends/asm/">ASM Backend</a> — the default, production backend</li>
+  <li><a href="/backends/java-backend/">Java Backend</a> — a parallel implementation using the JDK ClassFile API</li>
+  <li><a href="/backends/llvm/">LLVM Backend</a> — a native backend using LLVM and a C runtime</li>
+</ul>
 
   </main>
 </div>

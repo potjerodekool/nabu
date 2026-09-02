@@ -41,53 +41,55 @@
 
   <main>
     <h1>Adding a Language</h1>
-    To add support for a new language to the Nabu compiler, you provide a **language parser** that parses source files of your language and converts them into an abstract syntax tree (AST).
+    <p>To add support for a new language to the Nabu compiler, you provide a <strong>language parser</strong> that parses source files of your language and converts them into an abstract syntax tree (AST).</p>
 
-## The `LanguageParser` interface
+<h2 id="the-languageparser-interface">The <code class="language-plaintext highlighter-rouge">LanguageParser</code> interface</h2>
 
-```java
-import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="nn">io.github.potjerodekool.nabu.lang.spi.LanguageParser</span><span class="o">;</span>
 
-public class SimpleLanguageParser implements LanguageParser {
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">SimpleLanguageParser</span> <span class="kd">implements</span> <span class="nc">LanguageParser</span> <span class="o">{</span>
 
-    private final FileObject.Kind SOURCE_KIND =
-        new FileObject.Kind(".simple", true);
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">FileObject</span><span class="o">.</span><span class="na">Kind</span> <span class="no">SOURCE_KIND</span> <span class="o">=</span>
+        <span class="k">new</span> <span class="nc">FileObject</span><span class="o">.</span><span class="na">Kind</span><span class="o">(</span><span class="s">".simple"</span><span class="o">,</span> <span class="kc">true</span><span class="o">);</span>
 
-    @Override
-    public FileObject.Kind getSourceKind() {
-        return SOURCE_KIND;
-    }
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">FileObject</span><span class="o">.</span><span class="na">Kind</span> <span class="nf">getSourceKind</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="no">SOURCE_KIND</span><span class="o">;</span>
+    <span class="o">}</span>
 
-    @Override
-    public CompilationUnit parse(final FileObject fileObject,
-                                 final CompilerContext compilerContext) {
-        // TODO: Implement parsing logic for .simple files
-        return null;
-    }
-}
-```
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">CompilationUnit</span> <span class="nf">parse</span><span class="o">(</span><span class="kd">final</span> <span class="nc">FileObject</span> <span class="n">fileObject</span><span class="o">,</span>
+                                 <span class="kd">final</span> <span class="nc">CompilerContext</span> <span class="n">compilerContext</span><span class="o">)</span> <span class="o">{</span>
+        <span class="c1">// TODO: Implement parsing logic for .simple files</span>
+        <span class="k">return</span> <span class="kc">null</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-Key methods:
+<p>Key methods:</p>
 
-- **`getSourceKind()`** — returns the file extension `FileObject.Kind` that this parser handles (e.g. `.simple`).
-- **`parse(...)`** — parses the source and builds a `CompilationUnit` (the AST root).
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">getSourceKind()</code></strong> — returns the file extension <code class="language-plaintext highlighter-rouge">FileObject.Kind</code> that this parser handles (e.g. <code class="language-plaintext highlighter-rouge">.simple</code>).</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">parse(...)</code></strong> — parses the source and builds a <code class="language-plaintext highlighter-rouge">CompilationUnit</code> (the AST root).</li>
+</ul>
 
-## Registering the parser
+<h2 id="registering-the-parser">Registering the parser</h2>
 
-The language parser is registered in the plugin's `plugin.xml`:
+<p>The language parser is registered in the plugin’s <code class="language-plaintext highlighter-rouge">plugin.xml</code>:</p>
 
-```xml
-<language-parser implementationClass="com.example.SimpleLanguageParser"/>
-```
+<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;language-parser</span> <span class="na">implementationClass=</span><span class="s">"com.example.SimpleLanguageParser"</span><span class="nt">/&gt;</span>
+</code></pre></div></div>
 
-## What the compiler does for you
+<h2 id="what-the-compiler-does-for-you">What the compiler does for you</h2>
 
-Once you produce a valid `CompilationUnit` AST, the rest of the pipeline — entering, resolving, transforming, checking, lowering, IR generation, optimization, and bytecode emission — is handled by the compiler. You do not need to write a compiler from scratch.
+<p>Once you produce a valid <code class="language-plaintext highlighter-rouge">CompilationUnit</code> AST, the rest of the pipeline — entering, resolving, transforming, checking, lowering, IR generation, optimization, and bytecode emission — is handled by the compiler. You do not need to write a compiler from scratch.</p>
 
-## Related interfaces
+<h2 id="related-interfaces">Related interfaces</h2>
 
-- `SourceParser` — the base interface (kind + `parse`)
-- `LanguageParser` / `LanguageSupport` — extend `SourceParser` for full language support, including the `plugin.xml` `language-support` extension.
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">SourceParser</code> — the base interface (kind + <code class="language-plaintext highlighter-rouge">parse</code>)</li>
+  <li><code class="language-plaintext highlighter-rouge">LanguageParser</code> / <code class="language-plaintext highlighter-rouge">LanguageSupport</code> — extend <code class="language-plaintext highlighter-rouge">SourceParser</code> for full language support, including the <code class="language-plaintext highlighter-rouge">plugin.xml</code> <code class="language-plaintext highlighter-rouge">language-support</code> extension.</li>
+</ul>
 
   </main>
 </div>

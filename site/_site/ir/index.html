@@ -41,60 +41,65 @@
 
   <main>
     <h1>Intermediate Representation</h1>
-    The **intermediate representation (IR)** is a backend-agnostic representation of the program, produced by the `IrGeneratingVisitor` from the lowered AST. All backends consume the same `IRModule`, which is what enables targeting multiple backends from a single frontend.
+    <p>The <strong>intermediate representation (IR)</strong> is a backend-agnostic representation of the program, produced by the <code class="language-plaintext highlighter-rouge">IrGeneratingVisitor</code> from the lowered AST. All backends consume the same <code class="language-plaintext highlighter-rouge">IRModule</code>, which is what enables targeting multiple backends from a single frontend.</p>
 
-## Location
+<h2 id="location">Location</h2>
 
-The IR lives in `compiler/src/main/java/io/github/potjerodekool/nabu/compiler/ir/`.
+<p>The IR lives in <code class="language-plaintext highlighter-rouge">compiler/src/main/java/io/github/potjerodekool/nabu/compiler/ir/</code>.</p>
 
-## Core types
+<h2 id="core-types">Core types</h2>
 
-- **`IRModule`** — flags, name, super type, interfaces, sealed class, permitted subclasses, fields, functions, globals (`LinkedHashMap`), annotations, source file/dir, generic signature.
-- **`IRGlobal`** — `(name, type, initializer, linkage, constant, ownerType, isStatic)` with factories for `mutable`, `constant`, `internal`, `external`, and `stringLiteral`.
-- **`IRFunction`** — name, return type, parameters, blocks, external flag, flags, constructor flag, alloca versions.
-- **`IRBasicBlock`** — label, instructions, successors, and termination (`Branch`/`CondBranch`/`Return`).
-- **`CFG`** — block map, entry/exit labels.
-- **`Dominators`** — idom, dominance tree, dominance frontiers, preorder (iterative).
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRModule</code></strong> — flags, name, super type, interfaces, sealed class, permitted subclasses, fields, functions, globals (<code class="language-plaintext highlighter-rouge">LinkedHashMap</code>), annotations, source file/dir, generic signature.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRGlobal</code></strong> — <code class="language-plaintext highlighter-rouge">(name, type, initializer, linkage, constant, ownerType, isStatic)</code> with factories for <code class="language-plaintext highlighter-rouge">mutable</code>, <code class="language-plaintext highlighter-rouge">constant</code>, <code class="language-plaintext highlighter-rouge">internal</code>, <code class="language-plaintext highlighter-rouge">external</code>, and <code class="language-plaintext highlighter-rouge">stringLiteral</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRFunction</code></strong> — name, return type, parameters, blocks, external flag, flags, constructor flag, alloca versions.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">IRBasicBlock</code></strong> — label, instructions, successors, and termination (<code class="language-plaintext highlighter-rouge">Branch</code>/<code class="language-plaintext highlighter-rouge">CondBranch</code>/<code class="language-plaintext highlighter-rouge">Return</code>).</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">CFG</code></strong> — block map, entry/exit labels.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">Dominators</code></strong> — idom, dominance tree, dominance frontiers, preorder (iterative).</li>
+</ul>
 
-## Instructions
+<h2 id="instructions">Instructions</h2>
 
-`IRInstruction` covers: Alloca, AllocaArray, ArrayLength, ArrayLoad, ArrayStore, BinaryOp, Branch, Call, Cast, CondBranch, HeapAlloc, IndirectCall, InstanceOf, Load, MonitorEnter, MonitorExit, Move, Phi, Pop, Return, Store, Throw, TryCatchRegion.
+<p><code class="language-plaintext highlighter-rouge">IRInstruction</code> covers: Alloca, AllocaArray, ArrayLength, ArrayLoad, ArrayStore, BinaryOp, Branch, Call, Cast, CondBranch, HeapAlloc, IndirectCall, InstanceOf, Load, MonitorEnter, MonitorExit, Move, Phi, Pop, Return, Store, Throw, TryCatchRegion.</p>
 
-Every instruction has a `result()` and a `location()`.
+<p>Every instruction has a <code class="language-plaintext highlighter-rouge">result()</code> and a <code class="language-plaintext highlighter-rouge">location()</code>.</p>
 
-## Values
+<h2 id="values">Values</h2>
 
-`IRValue` covers: ConstBool, ConstClass, ConstFloat, ConstInt, ConstNull, ConstString, ConstUndef, FunctionRef, Named, Temp, and Values.
+<p><code class="language-plaintext highlighter-rouge">IRValue</code> covers: ConstBool, ConstClass, ConstFloat, ConstInt, ConstNull, ConstString, ConstUndef, FunctionRef, Named, Temp, and Values.</p>
 
-`IRType` covers: Array, Bool, Float, Function, Int, Ptr, Struct, and Void.
+<p><code class="language-plaintext highlighter-rouge">IRType</code> covers: Array, Bool, Float, Function, Int, Ptr, Struct, and Void.</p>
 
-## Building IR
+<h2 id="building-ir">Building IR</h2>
 
-The `IRBuilder` provides fluent IR construction: scoped symbol tables, temp/label/string counters, JLS 5.6.2 binary numeric promotion for `BinaryOp`, alloca/load/store, `Call` (`CallKind`: STATIC/VIRTUAL/INTERFACE/SPECIAL), branches, `Phi`, `Move`, globals/constants, `InstanceOf`, `Throw`, monitors, array operations, and `defaultInitializer`.
+<p>The <code class="language-plaintext highlighter-rouge">IRBuilder</code> provides fluent IR construction: scoped symbol tables, temp/label/string counters, JLS 5.6.2 binary numeric promotion for <code class="language-plaintext highlighter-rouge">BinaryOp</code>, alloca/load/store, <code class="language-plaintext highlighter-rouge">Call</code> (<code class="language-plaintext highlighter-rouge">CallKind</code>: STATIC/VIRTUAL/INTERFACE/SPECIAL), branches, <code class="language-plaintext highlighter-rouge">Phi</code>, <code class="language-plaintext highlighter-rouge">Move</code>, globals/constants, <code class="language-plaintext highlighter-rouge">InstanceOf</code>, <code class="language-plaintext highlighter-rouge">Throw</code>, monitors, array operations, and <code class="language-plaintext highlighter-rouge">defaultInitializer</code>.</p>
 
-## SSA and optimization passes
+<h2 id="ssa-and-optimization-passes">SSA and optimization passes</h2>
 
-Located in `compiler/.../backend/ir/`:
+<p>Located in <code class="language-plaintext highlighter-rouge">compiler/.../backend/ir/</code>:</p>
 
-- **`SsaBuilder`** — Cytron-style SSA construction: collect allocas, dominance tree + dominance frontiers, phi placement, renaming.
-- **`PhiElimination`** — replaces phis with stores in predecessors and loads in the head block.
-- **`Linearizer`** — successor order + condition inversion for fall-through.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">SsaBuilder</code></strong> — Cytron-style SSA construction: collect allocas, dominance tree + dominance frontiers, phi placement, renaming.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">PhiElimination</code></strong> — replaces phis with stores in predecessors and loads in the head block.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">Linearizer</code></strong> — successor order + condition inversion for fall-through.</li>
+</ul>
 
-Optimization passes are in `backend/ir/optimize/`. Each `OptimizationPass` returns a `boolean` indicating whether it changed the IR. The default pipeline runs in order:
+<p>Optimization passes are in <code class="language-plaintext highlighter-rouge">backend/ir/optimize/</code>. Each <code class="language-plaintext highlighter-rouge">OptimizationPass</code> returns a <code class="language-plaintext highlighter-rouge">boolean</code> indicating whether it changed the IR. The default pipeline runs in order:</p>
 
-```
-TypeInference → ConstantFolder → CopyPropagation → GVN → DCE
-```
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>TypeInference → ConstantFolder → CopyPropagation → GVN → DCE
+</code></pre></div></div>
 
-repeated to a fixpoint (max 10 iterations).
+<p>repeated to a fixpoint (max 10 iterations).</p>
 
-- **`GlobalValueNumbering`** (GVN) — per-block value numbers hashing `(opcode, vn(left), vn(right))`.
-- **`DeadCodeElimination`** (DCE) — use counts, dead-instruction removal, empty-block removal, fixpoint.
-- **`ConstantFolder`** — folds constant `BinaryOp`s.
-- **`CopyPropagation`** — replaces `Move` results with their source.
-- **`TypeInference`** — fixpoint type propagation.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">GlobalValueNumbering</code></strong> (GVN) — per-block value numbers hashing <code class="language-plaintext highlighter-rouge">(opcode, vn(left), vn(right))</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">DeadCodeElimination</code></strong> (DCE) — use counts, dead-instruction removal, empty-block removal, fixpoint.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">ConstantFolder</code></strong> — folds constant <code class="language-plaintext highlighter-rouge">BinaryOp</code>s.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">CopyPropagation</code></strong> — replaces <code class="language-plaintext highlighter-rouge">Move</code> results with their source.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">TypeInference</code></strong> — fixpoint type propagation.</li>
+</ul>
 
-A `TypeChecker` validates IR types and returns a list of errors.
+<p>A <code class="language-plaintext highlighter-rouge">TypeChecker</code> validates IR types and returns a list of errors.</p>
 
   </main>
 </div>

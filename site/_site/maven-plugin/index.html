@@ -41,87 +41,87 @@
 
   <main>
     <h1>Maven Plugin</h1>
-    The **Nabu Maven plugin** (`nabu-maven-plugin`) wires the Nabu compiler into your Maven build, so you can mix Nabu and Java sources in a single project.
+    <p>The <strong>Nabu Maven plugin</strong> (<code class="language-plaintext highlighter-rouge">nabu-maven-plugin</code>) wires the Nabu compiler into your Maven build, so you can mix Nabu and Java sources in a single project.</p>
 
-## Modules
+<h2 id="modules">Modules</h2>
 
-- `maven-plugin` — contains `CompileMojo`, `TestCompileMojo`, and `AbstractCompilerMojo`.
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">maven-plugin</code> — contains <code class="language-plaintext highlighter-rouge">CompileMojo</code>, <code class="language-plaintext highlighter-rouge">TestCompileMojo</code>, and <code class="language-plaintext highlighter-rouge">AbstractCompilerMojo</code>.</li>
+</ul>
 
-## Mixing Nabu and Java
+<h2 id="mixing-nabu-and-java">Mixing Nabu and Java</h2>
 
-To use Nabu and Java in the same project, the `nabu-maven-plugin` must be placed **before** the `maven-compiler-plugin`. The `build-helper-maven-plugin` adds `src/main/nabu` as a source directory.
+<p>To use Nabu and Java in the same project, the <code class="language-plaintext highlighter-rouge">nabu-maven-plugin</code> must be placed <strong>before</strong> the <code class="language-plaintext highlighter-rouge">maven-compiler-plugin</code>. The <code class="language-plaintext highlighter-rouge">build-helper-maven-plugin</code> adds <code class="language-plaintext highlighter-rouge">src/main/nabu</code> as a source directory.</p>
 
-```xml
-<plugin>
-    <groupId>org.codehaus.mojo</groupId>
-    <artifactId>build-helper-maven-plugin</artifactId>
-    <version>3.4.0</version>
-    <executions>
-        <execution>
-            <id>add-source</id>
-            <phase>generate-sources</phase>
-            <goals>
-                <goal>add-source</goal>
-            </goals>
-            <configuration>
-                <sources>
-                    <source>src/main/nabu</source>
-                </sources>
-            </configuration>
-        </execution>
-    </executions>
-</plugin>
-<plugin>
-    <groupId>io.github.potjerodekool</groupId>
-    <artifactId>nabu-maven-plugin</artifactId>
-    <version>1.0-SNAPSHOT</version>
-    <executions>
-        <execution>
-            <goals>
-                <goal>compile</goal>
-            </goals>
-        </execution>
-    </executions>
-</plugin>
-```
+<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;plugin&gt;</span>
+    <span class="nt">&lt;groupId&gt;</span>org.codehaus.mojo<span class="nt">&lt;/groupId&gt;</span>
+    <span class="nt">&lt;artifactId&gt;</span>build-helper-maven-plugin<span class="nt">&lt;/artifactId&gt;</span>
+    <span class="nt">&lt;version&gt;</span>3.4.0<span class="nt">&lt;/version&gt;</span>
+    <span class="nt">&lt;executions&gt;</span>
+        <span class="nt">&lt;execution&gt;</span>
+            <span class="nt">&lt;id&gt;</span>add-source<span class="nt">&lt;/id&gt;</span>
+            <span class="nt">&lt;phase&gt;</span>generate-sources<span class="nt">&lt;/phase&gt;</span>
+            <span class="nt">&lt;goals&gt;</span>
+                <span class="nt">&lt;goal&gt;</span>add-source<span class="nt">&lt;/goal&gt;</span>
+            <span class="nt">&lt;/goals&gt;</span>
+            <span class="nt">&lt;configuration&gt;</span>
+                <span class="nt">&lt;sources&gt;</span>
+                    <span class="nt">&lt;source&gt;</span>src/main/nabu<span class="nt">&lt;/source&gt;</span>
+                <span class="nt">&lt;/sources&gt;</span>
+            <span class="nt">&lt;/configuration&gt;</span>
+        <span class="nt">&lt;/execution&gt;</span>
+    <span class="nt">&lt;/executions&gt;</span>
+<span class="nt">&lt;/plugin&gt;</span>
+<span class="nt">&lt;plugin&gt;</span>
+    <span class="nt">&lt;groupId&gt;</span>io.github.potjerodekool<span class="nt">&lt;/groupId&gt;</span>
+    <span class="nt">&lt;artifactId&gt;</span>nabu-maven-plugin<span class="nt">&lt;/artifactId&gt;</span>
+    <span class="nt">&lt;version&gt;</span>1.0-SNAPSHOT<span class="nt">&lt;/version&gt;</span>
+    <span class="nt">&lt;executions&gt;</span>
+        <span class="nt">&lt;execution&gt;</span>
+            <span class="nt">&lt;goals&gt;</span>
+                <span class="nt">&lt;goal&gt;</span>compile<span class="nt">&lt;/goal&gt;</span>
+            <span class="nt">&lt;/goals&gt;</span>
+        <span class="nt">&lt;/execution&gt;</span>
+    <span class="nt">&lt;/executions&gt;</span>
+<span class="nt">&lt;/plugin&gt;</span>
+</code></pre></div></div>
 
-The `maven-compiler-plugin` is then configured so that its default compile/testCompile executions are disabled and Java compilation is split into separate phases that run after Nabu compilation:
+<p>The <code class="language-plaintext highlighter-rouge">maven-compiler-plugin</code> is then configured so that its default compile/testCompile executions are disabled and Java compilation is split into separate phases that run after Nabu compilation:</p>
 
-```xml
-<plugin>
-    <artifactId>maven-compiler-plugin</artifactId>
-    <version>3.13.0</version>
-    <configuration>
-        <release>${java.version}</release>
-    </configuration>
-    <executions>
-        <execution>
-            <id>default-compile</id>
-            <phase>none</phase>
-        </execution>
-        <execution>
-            <id>default-testCompile</id>
-            <phase>none</phase>
-        </execution>
-        <execution>
-            <id>java-compile</id>
-            <phase>compile</phase>
-            <goals>
-                <goal>compile</goal>
-            </goals>
-        </execution>
-        <execution>
-            <id>java-test-compile</id>
-            <phase>test-compile</phase>
-            <goals>
-                <goal>testCompile</goal>
-            </goals>
-        </execution>
-    </executions>
-</plugin>
-```
+<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;plugin&gt;</span>
+    <span class="nt">&lt;artifactId&gt;</span>maven-compiler-plugin<span class="nt">&lt;/artifactId&gt;</span>
+    <span class="nt">&lt;version&gt;</span>3.13.0<span class="nt">&lt;/version&gt;</span>
+    <span class="nt">&lt;configuration&gt;</span>
+        <span class="nt">&lt;release&gt;</span>${java.version}<span class="nt">&lt;/release&gt;</span>
+    <span class="nt">&lt;/configuration&gt;</span>
+    <span class="nt">&lt;executions&gt;</span>
+        <span class="nt">&lt;execution&gt;</span>
+            <span class="nt">&lt;id&gt;</span>default-compile<span class="nt">&lt;/id&gt;</span>
+            <span class="nt">&lt;phase&gt;</span>none<span class="nt">&lt;/phase&gt;</span>
+        <span class="nt">&lt;/execution&gt;</span>
+        <span class="nt">&lt;execution&gt;</span>
+            <span class="nt">&lt;id&gt;</span>default-testCompile<span class="nt">&lt;/id&gt;</span>
+            <span class="nt">&lt;phase&gt;</span>none<span class="nt">&lt;/phase&gt;</span>
+        <span class="nt">&lt;/execution&gt;</span>
+        <span class="nt">&lt;execution&gt;</span>
+            <span class="nt">&lt;id&gt;</span>java-compile<span class="nt">&lt;/id&gt;</span>
+            <span class="nt">&lt;phase&gt;</span>compile<span class="nt">&lt;/phase&gt;</span>
+            <span class="nt">&lt;goals&gt;</span>
+                <span class="nt">&lt;goal&gt;</span>compile<span class="nt">&lt;/goal&gt;</span>
+            <span class="nt">&lt;/goals&gt;</span>
+        <span class="nt">&lt;/execution&gt;</span>
+        <span class="nt">&lt;execution&gt;</span>
+            <span class="nt">&lt;id&gt;</span>java-test-compile<span class="nt">&lt;/id&gt;</span>
+            <span class="nt">&lt;phase&gt;</span>test-compile<span class="nt">&lt;/phase&gt;</span>
+            <span class="nt">&lt;goals&gt;</span>
+                <span class="nt">&lt;goal&gt;</span>testCompile<span class="nt">&lt;/goal&gt;</span>
+            <span class="nt">&lt;/goals&gt;</span>
+        <span class="nt">&lt;/execution&gt;</span>
+    <span class="nt">&lt;/executions&gt;</span>
+<span class="nt">&lt;/plugin&gt;</span>
+</code></pre></div></div>
 
-This ordering ensures Nabu sources are compiled first, and are then available to the Java compiler via `javac` (which handles Java-to-bytecode).
+<p>This ordering ensures Nabu sources are compiled first, and are then available to the Java compiler via <code class="language-plaintext highlighter-rouge">javac</code> (which handles Java-to-bytecode).</p>
 
   </main>
 </div>

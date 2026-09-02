@@ -41,19 +41,18 @@
 
   <main>
     <h1>Lambda Expressions</h1>
-    Lambda expressions in Nabu are desugared into synthetic private methods by the `LambdaToMethodPhase`, then called through SAM conversion (`invokedynamic` / `LambdaMetafactory`-style).
+    <p>Lambda expressions in Nabu are desugared into synthetic private methods by the <code class="language-plaintext highlighter-rouge">LambdaToMethodPhase</code>, then called through SAM conversion (<code class="language-plaintext highlighter-rouge">invokedynamic</code> / <code class="language-plaintext highlighter-rouge">LambdaMetafactory</code>-style).</p>
 
-```java
-public fun predicate(expected: String) {
-    return (value : String) -> {
-            return expected.equals(value);
-    }
-}
-```
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="n">fun</span> <span class="nf">predicate</span><span class="o">(</span><span class="nl">expected:</span> <span class="nc">String</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">return</span> <span class="o">(</span><span class="n">value</span> <span class="o">:</span> <span class="nc">String</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="o">{</span>
+            <span class="k">return</span> <span class="n">expected</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">value</span><span class="o">);</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-Method references are supported, including constructor references (`Type::new`).
+<p>Method references are supported, including constructor references (<code class="language-plaintext highlighter-rouge">Type::new</code>).</p>
 
-Because lambdas are lowered in a dedicated phase before the backend, they work uniformly across all output backends.
+<p>Because lambdas are lowered in a dedicated phase before the backend, they work uniformly across all output backends.</p>
 
   </main>
 </div>

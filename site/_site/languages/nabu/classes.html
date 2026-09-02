@@ -41,62 +41,58 @@
 
   <main>
     <h1>Classes</h1>
-    Nabu supports classes, interfaces, enums, and records, following a syntax inspired by Java and Kotlin.
+    <p>Nabu supports classes, interfaces, enums, and records, following a syntax inspired by Java and Kotlin.</p>
 
-## Classes
+<h2 id="classes">Classes</h2>
 
-```java
-package foo.bar.shape;
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">package</span> <span class="nn">foo.bar.shape</span><span class="o">;</span>
 
-public class Rectangle extends AbstractShape implements Shape {
-}
-```
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">Rectangle</span> <span class="kd">extends</span> <span class="nc">AbstractShape</span> <span class="kd">implements</span> <span class="nc">Shape</span> <span class="o">{</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-## Interfaces
+<h2 id="interfaces">Interfaces</h2>
 
-```java
-package foo.bar.shape;
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">package</span> <span class="nn">foo.bar.shape</span><span class="o">;</span>
 
-public interface Shape {
-    abstract fun points() : List<Point>;
-}
-```
+<span class="kd">public</span> <span class="kd">interface</span> <span class="nc">Shape</span> <span class="o">{</span>
+    <span class="kd">abstract</span> <span class="n">fun</span> <span class="nf">points</span><span class="o">()</span> <span class="o">:</span> <span class="nc">List</span><span class="o">&lt;</span><span class="nc">Point</span><span class="o">&gt;;</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-Interfaces support `default`, `static`, and `private` methods.
+<p>Interfaces support <code class="language-plaintext highlighter-rouge">default</code>, <code class="language-plaintext highlighter-rouge">static</code>, and <code class="language-plaintext highlighter-rouge">private</code> methods.</p>
 
-## Enums
+<h2 id="enums">Enums</h2>
 
-```java
-package foo.bar.shape;
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">package</span> <span class="nn">foo.bar.shape</span><span class="o">;</span>
 
-public enum Status {
-    ON("On"),
-    OFF("Off");
+<span class="kd">public</span> <span class="kd">enum</span> <span class="nc">Status</span> <span class="o">{</span>
+    <span class="no">ON</span><span class="o">(</span><span class="s">"On"</span><span class="o">),</span>
+    <span class="no">OFF</span><span class="o">(</span><span class="s">"Off"</span><span class="o">);</span>
 
-    private final text : String;
+    <span class="kd">private</span> <span class="kd">final</span> <span class="n">text</span> <span class="o">:</span> <span class="nc">String</span><span class="o">;</span>
 
-    private Status(final text : String) {
-        this.text = text;
-    }
+    <span class="kd">private</span> <span class="nf">Status</span><span class="o">(</span><span class="kd">final</span> <span class="n">text</span> <span class="o">:</span> <span class="nc">String</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">this</span><span class="o">.</span><span class="na">text</span> <span class="o">=</span> <span class="n">text</span><span class="o">;</span>
+    <span class="o">}</span>
 
-    public fun getText() : String {
-        return text;
-    }
-}
-```
+    <span class="kd">public</span> <span class="n">fun</span> <span class="nf">getText</span><span class="o">()</span> <span class="o">:</span> <span class="nc">String</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">text</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-The compiler synthesises the `$VALUES`, `values()`, and `valueOf()` members automatically through the `EnumCodeGenerator`. Enum-constant bodies are supported.
+<p>The compiler synthesises the <code class="language-plaintext highlighter-rouge">$VALUES</code>, <code class="language-plaintext highlighter-rouge">values()</code>, and <code class="language-plaintext highlighter-rouge">valueOf()</code> members automatically through the <code class="language-plaintext highlighter-rouge">EnumCodeGenerator</code>. Enum-constant bodies are supported.</p>
 
-## Records
+<h2 id="records">Records</h2>
 
-```java
-package foo.bar.shape;
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">package</span> <span class="nn">foo.bar.shape</span><span class="o">;</span>
 
-public record IdAndName(id : String, name : String) {
-}
-```
+<span class="kd">public</span> <span class="kd">record</span> <span class="nf">IdAndName</span><span class="o">(</span><span class="n">id</span> <span class="o">:</span> <span class="nc">String</span><span class="o">,</span> <span class="n">name</span> <span class="o">:</span> <span class="nc">String</span><span class="o">)</span> <span class="o">{</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-Records support compact constructors, and the `RecordCodeGenerator` expands accessors automatically. The `ACC_RECORD` flag is emitted in the class file.
+<p>Records support compact constructors, and the <code class="language-plaintext highlighter-rouge">RecordCodeGenerator</code> expands accessors automatically. The <code class="language-plaintext highlighter-rouge">ACC_RECORD</code> flag is emitted in the class file.</p>
 
   </main>
 </div>

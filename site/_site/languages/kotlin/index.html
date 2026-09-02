@@ -41,19 +41,21 @@
 
   <main>
     <h1>Kotlin Support</h1>
-    The Nabu compiler has **experimental Kotlin support**.
+    <p>The Nabu compiler has <strong>experimental Kotlin support</strong>.</p>
 
 <div class="callout callout-warning">
-**Experimental.** Kotlin support is largely incomplete. Most constructs currently throw `UnsupportedOperationException`. It should not be relied upon for production use.
+<b>Experimental.</b> Kotlin support is largely incomplete. Most constructs currently throw `UnsupportedOperationException`. It should not be relied upon for production use.
 </div>
 
-## Current state
+<h2 id="current-state">Current state</h2>
 
-- A `KotlinParser.g4` grammar and a `KotlinLanguageSupport` / `KotlinCompilerVisitor` exist.
-- The visitor currently only handles **top-level class declarations**.
-- Most other constructs are not yet implemented.
+<ul>
+  <li>A <code class="language-plaintext highlighter-rouge">KotlinParser.g4</code> grammar and a <code class="language-plaintext highlighter-rouge">KotlinLanguageSupport</code> / <code class="language-plaintext highlighter-rouge">KotlinCompilerVisitor</code> exist.</li>
+  <li>The visitor currently only handles <strong>top-level class declarations</strong>.</li>
+  <li>Most other constructs are not yet implemented.</li>
+</ul>
 
-Kotlin is registered as a `language-support` extension in the compiler's `plugin.xml`.
+<p>Kotlin is registered as a <code class="language-plaintext highlighter-rouge">language-support</code> extension in the compiler’s <code class="language-plaintext highlighter-rouge">plugin.xml</code>.</p>
 
   </main>
 </div>

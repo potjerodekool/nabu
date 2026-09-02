@@ -41,37 +41,43 @@
 
   <main>
     <h1>ASM Backend</h1>
-    The **ASM backend** is the default, production backend. It emits JVM bytecode using the [ASM](https://asm.ow2.io/) library (version 9.8).
+    <p>The <strong>ASM backend</strong> is the default, production backend. It emits JVM bytecode using the <a href="https://asm.ow2.io/">ASM</a> library (version 9.8).</p>
 
-## Location
+<h2 id="location">Location</h2>
 
-The backend lives in `compiler/src/main/java/io/github/potjerodekool/nabu/compiler/backend/asm/`.
+<p>The backend lives in <code class="language-plaintext highlighter-rouge">compiler/src/main/java/io/github/potjerodekool/nabu/compiler/backend/asm/</code>.</p>
 
-## Architecture
+<h2 id="architecture">Architecture</h2>
 
-The main classes:
+<p>The main classes:</p>
 
-- **`AsmBackend`** — implements the `Backend` interface; receives an `IRModule` and calls `AsmByteCodeEmitter`.
-- **`AsmByteCodeEmitter`** — emits a whole `IRModule` to `.class` files. For each function it runs **PhiElimination → Linearizer → FunctionEmitter** (each function gets its own `SlotAllocator`). Uses ASM's `ClassWriter`, `CheckClassAdapter`, and `TraceClassVisitor`.
-- **`FunctionEmitter`** — emits one function's instructions to ASM bytecode. SSA temporaries are resolved to JVM local-variable slots via `SlotAllocator`. Uses ASM's `MethodVisitor`, `Label`, `Opcodes`, `Type`, and `Handle`.
-- **`JvmSignatureBuilder`** — builds JVM generic signatures from Nabu `TypeMirror`s.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">AsmBackend</code></strong> — implements the <code class="language-plaintext highlighter-rouge">Backend</code> interface; receives an <code class="language-plaintext highlighter-rouge">IRModule</code> and calls <code class="language-plaintext highlighter-rouge">AsmByteCodeEmitter</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">AsmByteCodeEmitter</code></strong> — emits a whole <code class="language-plaintext highlighter-rouge">IRModule</code> to <code class="language-plaintext highlighter-rouge">.class</code> files. For each function it runs <strong>PhiElimination → Linearizer → FunctionEmitter</strong> (each function gets its own <code class="language-plaintext highlighter-rouge">SlotAllocator</code>). Uses ASM’s <code class="language-plaintext highlighter-rouge">ClassWriter</code>, <code class="language-plaintext highlighter-rouge">CheckClassAdapter</code>, and <code class="language-plaintext highlighter-rouge">TraceClassVisitor</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">FunctionEmitter</code></strong> — emits one function’s instructions to ASM bytecode. SSA temporaries are resolved to JVM local-variable slots via <code class="language-plaintext highlighter-rouge">SlotAllocator</code>. Uses ASM’s <code class="language-plaintext highlighter-rouge">MethodVisitor</code>, <code class="language-plaintext highlighter-rouge">Label</code>, <code class="language-plaintext highlighter-rouge">Opcodes</code>, <code class="language-plaintext highlighter-rouge">Type</code>, and <code class="language-plaintext highlighter-rouge">Handle</code>.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">JvmSignatureBuilder</code></strong> — builds JVM generic signatures from Nabu <code class="language-plaintext highlighter-rouge">TypeMirror</code>s.</li>
+</ul>
 
-Support classes in `backend/jvm/`:
+<p>Support classes in <code class="language-plaintext highlighter-rouge">backend/jvm/</code>:</p>
 
-- **`SlotAllocator`** — allocates parameters first (slot 0 = `this` for instance methods), maps SSA temp names to unique JVM slots, lazily allocating slots.
-- **`Linearizer`** — orders blocks and inverts conditions for fall-through.
-- **`BytecodeHelper`** — utility helpers.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">SlotAllocator</code></strong> — allocates parameters first (slot 0 = <code class="language-plaintext highlighter-rouge">this</code> for instance methods), maps SSA temp names to unique JVM slots, lazily allocating slots.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">Linearizer</code></strong> — orders blocks and inverts conditions for fall-through.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">BytecodeHelper</code></strong> — utility helpers.</li>
+</ul>
 
-## Key characteristics
+<h2 id="key-characteristics">Key characteristics</h2>
 
-- Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23` (`MAXIMAL_VERSION`).
-- Uses `COMPUTE_MAXS`.
-- Output is validated via `CheckClassAdapter`.
-- String concatenation is lowered to `invokedynamic` with `StringConcatFactory.makeConcatWithConstants` (modern javac-equivalent).
+<ul>
+  <li>Class files are emitted at <strong>version 61 (Java 17)</strong> by default (<code class="language-plaintext highlighter-rouge">JavaVersion.MINIMAL_VERSION</code>), up to <code class="language-plaintext highlighter-rouge">V23</code> (<code class="language-plaintext highlighter-rouge">MAXIMAL_VERSION</code>).</li>
+  <li>Uses <code class="language-plaintext highlighter-rouge">COMPUTE_MAXS</code>.</li>
+  <li>Output is validated via <code class="language-plaintext highlighter-rouge">CheckClassAdapter</code>.</li>
+  <li>String concatenation is lowered to <code class="language-plaintext highlighter-rouge">invokedynamic</code> with <code class="language-plaintext highlighter-rouge">StringConcatFactory.makeConcatWithConstants</code> (modern javac-equivalent).</li>
+</ul>
 
-## Registration
+<h2 id="registration">Registration</h2>
 
-Registered as backend `"ASM"` in `compiler/src/main/resources/plugin.xml`.
+<p>Registered as backend <code class="language-plaintext highlighter-rouge">"ASM"</code> in <code class="language-plaintext highlighter-rouge">compiler/src/main/resources/plugin.xml</code>.</p>
 
   </main>
 </div>

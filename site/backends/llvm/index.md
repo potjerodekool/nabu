@@ -6,7 +6,7 @@ title: LLVM Backend
 The **LLVM backend** is an experimental **native backend** that compiles the Nabu IR to native code via LLVM, with a small C runtime library.
 
 <div class="callout callout-warning">
-**Experimental / WIP.** This backend is exploratory and duplicates emission logic. It should not be relied upon for production use.
+<b>Experimental / WIP.</b> This backend is exploratory and duplicates emission logic. It should not be relied upon for production use.
 </div>
 
 ## Toolchain

@@ -41,11 +41,11 @@
 
   <main>
     <h1>Compiler Overview</h1>
-    The Nabu compiler is a **source-to-JVM-bytecode** compiler. This page gives a high-level overview of what the compiler is and how source code flows through it to become executable bytecode.
+    <p>The Nabu compiler is a <strong>source-to-JVM-bytecode</strong> compiler. This page gives a high-level overview of what the compiler is and how source code flows through it to become executable bytecode.</p>
 
-## High-level pipeline
+<h2 id="high-level-pipeline">High-level pipeline</h2>
 
-Source files are processed through a well-defined sequence of phases:
+<p>Source files are processed through a well-defined sequence of phases:</p>
 
 <div class="pipeline">
   <span class="step">Parse</span><span class="arrow">→</span>
@@ -59,45 +59,91 @@ Source files are processed through a well-defined sequence of phases:
   <span class="step">Bytecode</span>
 </div>
 
-The **frontend phases** (Parse through Lower) produce a lowered abstract syntax tree. The **backend phases** then generate an intermediate representation (IR), optimize it, and emit bytecode through a pluggable backend.
+<p>The <strong>frontend phases</strong> (Parse through Lower) produce a lowered abstract syntax tree. The <strong>backend phases</strong> then generate an intermediate representation (IR), optimize it, and emit bytecode through a pluggable backend.</p>
 
-## Supported languages
+<h2 id="supported-languages">Supported languages</h2>
 
-The compiler can parse and mix multiple input languages in a single project:
+<p>The compiler can parse and mix multiple input languages in a single project:</p>
 
-| Language | Status | Details |
-|---|---|---|
-| **Nabu** | Native, full support | The compiler's own language, based on Java + Kotlin syntax |
-| **Java** (up to 20) | Interop, full parse | Java sources are parsed and modeled for interop; bytecode generation is delegated to `javac` in the Maven flow |
-| **Kotlin** | Experimental | Grammar and language support exist; only top-level class declarations are handled |
+<table>
+  <thead>
+    <tr>
+      <th>Language</th>
+      <th>Status</th>
+      <th>Details</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Nabu</strong></td>
+      <td>Native, full support</td>
+      <td>The compiler’s own language, based on Java + Kotlin syntax</td>
+    </tr>
+    <tr>
+      <td><strong>Java</strong> (up to 20)</td>
+      <td>Interop, full parse</td>
+      <td>Java sources are parsed and modeled for interop; bytecode generation is delegated to <code class="language-plaintext highlighter-rouge">javac</code> in the Maven flow</td>
+    </tr>
+    <tr>
+      <td><strong>Kotlin</strong></td>
+      <td>Experimental</td>
+      <td>Grammar and language support exist; only top-level class declarations are handled</td>
+    </tr>
+  </tbody>
+</table>
 
-## Supported backends
+<h2 id="supported-backends">Supported backends</h2>
 
-The same frontend and IR can be targeted to multiple backends:
+<p>The same frontend and IR can be targeted to multiple backends:</p>
 
-| Backend | Status | Output |
-|---|---|---|
-| **ASM** | Default, production | JVM bytecode (class file v17+ via ASM) |
-| **Java** | Experimental | JVM bytecode (via JDK 24 ClassFile API) |
-| **LLVM** | Experimental | Native code (via LLVM + C runtime) |
+<table>
+  <thead>
+    <tr>
+      <th>Backend</th>
+      <th>Status</th>
+      <th>Output</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>ASM</strong></td>
+      <td>Default, production</td>
+      <td>JVM bytecode (class file v17+ via ASM)</td>
+    </tr>
+    <tr>
+      <td><strong>Java</strong></td>
+      <td>Experimental</td>
+      <td>JVM bytecode (via JDK 24 ClassFile API)</td>
+    </tr>
+    <tr>
+      <td><strong>LLVM</strong></td>
+      <td>Experimental</td>
+      <td>Native code (via LLVM + C runtime)</td>
+    </tr>
+  </tbody>
+</table>
 
-## Extensibility
+<h2 id="extensibility">Extensibility</h2>
 
-The compiler is extended through a plugin system. `PluginRegistry` discovers plugins from the classpath and from a user directory, reading each plugin's `plugin.xml` manifest. Extension points include:
+<p>The compiler is extended through a plugin system. <code class="language-plaintext highlighter-rouge">PluginRegistry</code> discovers plugins from the classpath and from a user directory, reading each plugin’s <code class="language-plaintext highlighter-rouge">plugin.xml</code> manifest. Extension points include:</p>
 
-- **`language-parser` / `language-support`** — add a new input language
-- **`backend`** — add a new output backend
-- **`element-resolver`** — add DSL element resolution
-- **`code-transformer`** — transform a DSL AST into a normal AST
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">language-parser</code> / <code class="language-plaintext highlighter-rouge">language-support</code></strong> — add a new input language</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">backend</code></strong> — add a new output backend</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">element-resolver</code></strong> — add DSL element resolution</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">code-transformer</code></strong> — transform a DSL AST into a normal AST</li>
+</ul>
 
-## Entry point
+<h2 id="entry-point">Entry point</h2>
 
-The top-level driver is the `NabuCompiler` class, which implements the `tools.Compiler` interface. Its `compile(CompilerOptions)` method orchestrates all phases. The compiler is driven programmatically, through the [Maven plugin](/maven-plugin/), or through the compile daemon.
+<p>The top-level driver is the <code class="language-plaintext highlighter-rouge">NabuCompiler</code> class, which implements the <code class="language-plaintext highlighter-rouge">tools.Compiler</code> interface. Its <code class="language-plaintext highlighter-rouge">compile(CompilerOptions)</code> method orchestrates all phases. The compiler is driven programmatically, through the <a href="/maven-plugin/">Maven plugin</a>, or through the compile daemon.</p>
 
-## Next steps
+<h2 id="next-steps">Next steps</h2>
 
-- Understand each phase in detail in [Compiler Design](/compiler-design/).
-- Read about how to [add a language](/plugins/adding-language/) or [extend the compiler](/plugins/).
+<ul>
+  <li>Understand each phase in detail in <a href="/compiler-design/">Compiler Design</a>.</li>
+  <li>Read about how to <a href="/plugins/adding-language/">add a language</a> or <a href="/plugins/">extend the compiler</a>.</li>
+</ul>
 
   </main>
 </div>

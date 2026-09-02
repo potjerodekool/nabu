@@ -41,30 +41,28 @@
 
   <main>
     <h1>Element Resolver</h1>
-    The **element resolver** SPI (`ElementResolver`) lets a plugin provide custom resolution of elements within a DSL, so the compiler can understand DSL constructs that deviate from ordinary language rules.
+    <p>The <strong>element resolver</strong> SPI (<code class="language-plaintext highlighter-rouge">ElementResolver</code>) lets a plugin provide custom resolution of elements within a DSL, so the compiler can understand DSL constructs that deviate from ordinary language rules.</p>
 
-## Interface
+<h2 id="interface">Interface</h2>
 
-```java
-package io.github.potjerodekool.nabu.resolve.spi;
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">package</span> <span class="nn">io.github.potjerodekool.nabu.resolve.spi</span><span class="o">;</span>
 
-public interface ElementResolver {
-    boolean supports(Element element);
-    // ... resolution hooks
-}
-```
+<span class="kd">public</span> <span class="kd">interface</span> <span class="nc">ElementResolver</span> <span class="o">{</span>
+    <span class="kt">boolean</span> <span class="nf">supports</span><span class="o">(</span><span class="nc">Element</span> <span class="n">element</span><span class="o">);</span>
+    <span class="c1">// ... resolution hooks</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-## Purpose
+<h2 id="purpose">Purpose</h2>
 
-A DSL typically introduces new ways of writing expressions (for example, field access on a casted join, or operator overloading). An `ElementResolver` teaches the compiler how to resolve these elements so they can be type-checked and transformed correctly.
+<p>A DSL typically introduces new ways of writing expressions (for example, field access on a casted join, or operator overloading). An <code class="language-plaintext highlighter-rouge">ElementResolver</code> teaches the compiler how to resolve these elements so they can be type-checked and transformed correctly.</p>
 
-It is paired with a `CodeTransformer`, which then rewrites the resolved DSL code into ordinary code during the [Transform phase](/compiler-design/). See [DSL Support](/plugins/dsl-support/) for the full example using JPA.
+<p>It is paired with a <code class="language-plaintext highlighter-rouge">CodeTransformer</code>, which then rewrites the resolved DSL code into ordinary code during the <a href="/compiler-design/">Transform phase</a>. See <a href="/plugins/dsl-support/">DSL Support</a> for the full example using JPA.</p>
 
-## Registration
+<h2 id="registration">Registration</h2>
 
-```xml
-<element-resolver implementationClass="io.github.potjerodekool.nabu.plugin.simple.transform.SimpleElementResolver"/>
-```
+<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;element-resolver</span> <span class="na">implementationClass=</span><span class="s">"io.github.potjerodekool.nabu.plugin.simple.transform.SimpleElementResolver"</span><span class="nt">/&gt;</span>
+</code></pre></div></div>
 
   </main>
 </div>

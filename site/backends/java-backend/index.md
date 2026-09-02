@@ -6,7 +6,7 @@ title: Java Backend
 The **Java backend** is an experimental backend that uses the **JDK 24 ClassFile API** (`java.lang.classfile`) instead of ASM to emit JVM bytecode.
 
 <div class="callout callout-warning">
-**Experimental.** This backend is a prototype/experiment and **requires Java 24+**. It throws `UnsupportedOperationException` on older JVMs.
+<b>Experimental.</b> This backend is a prototype/experiment and **requires Java 24+**. It throws `UnsupportedOperationException` on older JVMs.
 </div>
 
 ## Location

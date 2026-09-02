@@ -41,29 +41,33 @@
 
   <main>
     <h1>Testing</h1>
-    The Nabu compiler has a layered testing strategy, from unit tests to end-to-end compilation and execution tests.
+    <p>The Nabu compiler has a layered testing strategy, from unit tests to end-to-end compilation and execution tests.</p>
 
-## Test modules
+<h2 id="test-modules">Test modules</h2>
 
-- **`compiler`** — ~129 unit/integration test classes covering parser, enter/resolve, method resolution, access checks, the ASM emitter (with golden bytecode listings), IR optimization passes, widening/boxing, the annotation-processing environment, Lombok handlers, and Kotlin language-support fixtures.
-- **`compiler-test`** — end-to-end tests that compile `.nabu` sources under `src/main/nabu` and **execute the produced bytecode** with assertions.
-- **`testing`** — a scaffold (currently "Not started") for utilities to test compiler plugins.
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">compiler</code></strong> — ~129 unit/integration test classes covering parser, enter/resolve, method resolution, access checks, the ASM emitter (with golden bytecode listings), IR optimization passes, widening/boxing, the annotation-processing environment, Lombok handlers, and Kotlin language-support fixtures.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">compiler-test</code></strong> — end-to-end tests that compile <code class="language-plaintext highlighter-rouge">.nabu</code> sources under <code class="language-plaintext highlighter-rouge">src/main/nabu</code> and <strong>execute the produced bytecode</strong> with assertions.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">testing</code></strong> — a scaffold (currently “Not started”) for utilities to test compiler plugins.</li>
+</ul>
 
-## End-to-end examples
+<h2 id="end-to-end-examples">End-to-end examples</h2>
 
-The `compiler-test` module compiles and runs real programs:
+<p>The <code class="language-plaintext highlighter-rouge">compiler-test</code> module compiles and runs real programs:</p>
 
-- **Generics + interfaces + annotations** (`Box.nabu`, `Category.nabu`)
-- **Sealed hierarchy + `instanceof` pattern** (`Shape.nabu` → `ShapeKindTest`)
-- **Loops including enhanced-for over collections** (`Loops.nabu`)
-- **Classic, enum, and boxed switches** (`SwitchIt.nabu` → `SwitchItTest`)
-- **Lambdas / method references** in predicate DSLs (`*Predicates.nabu`)
-- **Records** (`IdAndName.nabu`)
-- **Hibernate/JPA plugin integration** with `persistence.properties` and `hibernate.cfg.xml`
+<ul>
+  <li><strong>Generics + interfaces + annotations</strong> (<code class="language-plaintext highlighter-rouge">Box.nabu</code>, <code class="language-plaintext highlighter-rouge">Category.nabu</code>)</li>
+  <li><strong>Sealed hierarchy + <code class="language-plaintext highlighter-rouge">instanceof</code> pattern</strong> (<code class="language-plaintext highlighter-rouge">Shape.nabu</code> → <code class="language-plaintext highlighter-rouge">ShapeKindTest</code>)</li>
+  <li><strong>Loops including enhanced-for over collections</strong> (<code class="language-plaintext highlighter-rouge">Loops.nabu</code>)</li>
+  <li><strong>Classic, enum, and boxed switches</strong> (<code class="language-plaintext highlighter-rouge">SwitchIt.nabu</code> → <code class="language-plaintext highlighter-rouge">SwitchItTest</code>)</li>
+  <li><strong>Lambdas / method references</strong> in predicate DSLs (<code class="language-plaintext highlighter-rouge">*Predicates.nabu</code>)</li>
+  <li><strong>Records</strong> (<code class="language-plaintext highlighter-rouge">IdAndName.nabu</code>)</li>
+  <li><strong>Hibernate/JPA plugin integration</strong> with <code class="language-plaintext highlighter-rouge">persistence.properties</code> and <code class="language-plaintext highlighter-rouge">hibernate.cfg.xml</code></li>
+</ul>
 
-## Bytecode verification
+<h2 id="bytecode-verification">Bytecode verification</h2>
 
-The ASM emitter is tested against golden bytecode listings (`InstructionEmitterTest`, `ASMByteCodeEmitterTest/record.txt`), and `CheckClassAdapter` validates emitted class files.
+<p>The ASM emitter is tested against golden bytecode listings (<code class="language-plaintext highlighter-rouge">InstructionEmitterTest</code>, <code class="language-plaintext highlighter-rouge">ASMByteCodeEmitterTest/record.txt</code>), and <code class="language-plaintext highlighter-rouge">CheckClassAdapter</code> validates emitted class files.</p>
 
   </main>
 </div>

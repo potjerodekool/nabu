@@ -41,32 +41,33 @@
 
   <main>
     <h1>Generics</h1>
-    Nabu supports full generic types, with JVM generic signatures emitted both ways.
+    <p>Nabu supports full generic types, with JVM generic signatures emitted both ways.</p>
 
-## Parameterized classes
+<h2 id="parameterized-classes">Parameterized classes</h2>
 
-```java
-public class Box<T> {
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">class</span> <span class="nc">Box</span><span class="o">&lt;</span><span class="no">T</span><span class="o">&gt;</span> <span class="o">{</span>
 
-    private final value: T;
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nl">value:</span> <span class="no">T</span><span class="o">;</span>
 
-    public Box(value: T) {
-        this.value = value;
-    }
+    <span class="kd">public</span> <span class="nf">Box</span><span class="o">(</span><span class="nl">value:</span> <span class="no">T</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">this</span><span class="o">.</span><span class="na">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">;</span>
+    <span class="o">}</span>
 
-    public fun getValue(): T {
-        return value;
-    }
-}
-```
+    <span class="kd">public</span> <span class="n">fun</span> <span class="nf">getValue</span><span class="o">():</span> <span class="no">T</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">value</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span>
+</code></pre></div></div>
 
-## Supported generic features
+<h2 id="supported-generic-features">Supported generic features</h2>
 
-- **Parameterized types** — full signature support in both directions (via the ASM `SignatureParser` visitors)
-- **Bounded type parameters** — `<T extends A & B>` via `typeBound` / `additionalBound`
-- **Wildcards** — `? extends T` and `? super T` (`CWildcardType`)
-- **Generic method invocation inference** — implemented through `UndetVarType` and `TypeMapFiller`/`TypeMapApplier`
-- **`var`** — local type inference is supported
+<ul>
+  <li><strong>Parameterized types</strong> — full signature support in both directions (via the ASM <code class="language-plaintext highlighter-rouge">SignatureParser</code> visitors)</li>
+  <li><strong>Bounded type parameters</strong> — <code class="language-plaintext highlighter-rouge">&lt;T extends A &amp; B&gt;</code> via <code class="language-plaintext highlighter-rouge">typeBound</code> / <code class="language-plaintext highlighter-rouge">additionalBound</code></li>
+  <li><strong>Wildcards</strong> — <code class="language-plaintext highlighter-rouge">? extends T</code> and <code class="language-plaintext highlighter-rouge">? super T</code> (<code class="language-plaintext highlighter-rouge">CWildcardType</code>)</li>
+  <li><strong>Generic method invocation inference</strong> — implemented through <code class="language-plaintext highlighter-rouge">UndetVarType</code> and <code class="language-plaintext highlighter-rouge">TypeMapFiller</code>/<code class="language-plaintext highlighter-rouge">TypeMapApplier</code></li>
+  <li><strong><code class="language-plaintext highlighter-rouge">var</code></strong> — local type inference is supported</li>
+</ul>
 
   </main>
 </div>

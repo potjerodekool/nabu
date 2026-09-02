@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
+import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.backend.ir.PhiElimination;
 import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
 import io.github.potjerodekool.nabu.backend.jvm.Linearizer;
@@ -98,10 +99,11 @@ public class AsmByteCodeEmitter {
         return access;
     }
 
-    public void emit(final IRModule module) {
+    public void emit(final IRModule module,
+                     final CompileOptions compileOptions) {
         module.globals().forEach(this::emitGlobal);
 
-        final var javaVersion = JavaVersion.MINIMAL_VERSION;
+        final var javaVersion = compileOptions.javaVersion();
         final var classVersion = javaVersion.getValue();
         final var access = resolveModuleAccess(module);
         final var internalName = BytecodeHelper.toInternalName(module.name);

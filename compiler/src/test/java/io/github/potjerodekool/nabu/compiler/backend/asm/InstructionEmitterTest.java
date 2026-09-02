@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
+import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
 import io.github.potjerodekool.nabu.compiler.backend.ASMTestUtils;
 import io.github.potjerodekool.nabu.compiler.backend.ir.BackendTest;
@@ -10,6 +11,7 @@ import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.ResolverPhase;
+import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
@@ -75,7 +77,7 @@ class InstructionEmitterTest extends BackendTest {
     /**
      * TODO
      *  pos++ can be optimized with the IINC instruction.
-     * TODO fix {{@link io.github.potjerodekool.nabu.compiler.util.impl.ElementsImpl#overWrites(ExecutableElement, List)}}
+     * TODO fix {{@link io.github.potjerodekool.nabu.util.Elements#overrides(ExecutableElement, ExecutableElement, TypeElement)}}
      **/
     @Test
     void whileLoop() {
@@ -557,7 +559,7 @@ class InstructionEmitterTest extends BackendTest {
         visitor.visitClass(clazz, null);
         final var module = Optimizer.optimize(visitor.getModule());
 
-        emitter.emit(module);
+        emitter.emit(module, CompileOptions.defaults());
 
         return ASMTestUtils.byteCodeToText(emitter.getBytecode());
     }
@@ -576,7 +578,7 @@ class InstructionEmitterTest extends BackendTest {
         */
         final var module = Optimizer.optimize(visitor.getModule());
 
-        emitter.emit(module);
+        emitter.emit(module, CompileOptions.defaults());
 
         return ASMTestUtils.byteCodeToText(emitter.getBytecode());
     }

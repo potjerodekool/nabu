@@ -39,7 +39,7 @@ public class JavaBackend implements Backend {
                         final CompileOptions opts,
                         final Path output) throws CompileException {
         final var emitter = new ClassFileByteCodeEmitter();
-        final var classBytes = emitter.emit(module);
+        final var classBytes = emitter.emit(module, opts);
 
         validate(classBytes);
 

@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
+import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.backend.ir.PhiElimination;
 import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
 import io.github.potjerodekool.nabu.resolve.jvm.AccessUtils;
@@ -85,7 +86,8 @@ class ClassFileByteCodeEmitter {
         return access;
     }
 
-    byte[] emit(final IRModule module) {
+    byte[] emit(final IRModule module,
+                final CompileOptions compileOptions) {
         hasMainFunction = false;
         module.globals().forEach(this::emitGlobal);
 
@@ -93,13 +95,14 @@ class ClassFileByteCodeEmitter {
 
         return ClassFile.of().build(
                 ClassDesc.ofInternalName(ownerInternalName),
-                classBuilder -> buildClass(module, classBuilder)
+                classBuilder -> buildClass(module, classBuilder, compileOptions)
         );
     }
 
     private void buildClass(final IRModule module,
-                            final ClassBuilder classBuilder) {
-        final var javaVersion = io.github.potjerodekool.nabu.tools.JavaVersion.MINIMAL_VERSION;
+                            final ClassBuilder classBuilder,
+                            final CompileOptions compileOptions) {
+        final var javaVersion = compileOptions.javaVersion();
         classBuilder.withVersion(javaVersion.getValue(), 0);
         classBuilder.withFlags(resolveModuleAccess(module));
 

@@ -333,7 +333,7 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
                 final var dependencyResult = repositorySystem.resolveDependencies(session.getRepositorySession(), dependencyRequest);
 
                 return dependencyResult.getArtifactResults().stream()
-                        .map(resolved -> resolved.getArtifact().getPath().toAbsolutePath().toString())
+                        .map(resolved -> resolved.getArtifact().getFile().getAbsolutePath())
                         .toList();
             } catch (final Exception e) {
                 throw new MojoExecutionException(

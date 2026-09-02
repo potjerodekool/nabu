@@ -51,7 +51,7 @@ public class AsmBackend implements Backend {
         }
 
         final var emitter = new AsmByteCodeEmitter();
-        emitter.emit(module);
+        emitter.emit(module, opts);
         final var bytecode = emitter.getBytecode();
 
         try {

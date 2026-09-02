@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.asm;
 
+import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.backend.ASMTestUtils;
 import io.github.potjerodekool.nabu.backend.ir.TypeMirrorToIRType;
@@ -52,7 +53,7 @@ class ASMByteCodeEmitterTest extends AbstractCompilerTest {
 
         final var module = irBuilder.build();
 
-        emitter.emit(module);
+        emitter.emit(module, CompileOptions.defaults());
         final var bytecode = emitter.getBytecode();
         final var actual = ASMTestUtils.byteCodeToText(bytecode);
         final var expected = loadResource("ASMByteCodeEmitterTest/record.txt");

@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.java;
 
+import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
@@ -46,7 +47,7 @@ class JavaBackendTest {
         final var javaBackend = new JavaBackend();
         final var module = moduleWithMain();
 
-        javaBackend.compile(module, null, output);
+        javaBackend.compile(module, CompileOptions.defaults(), output);
 
         final var classFile = output.resolve("HelloWorld.class");
         assertTrue(Files.exists(classFile), "Class file should be written");
@@ -66,7 +67,7 @@ class JavaBackendTest {
         builder.beginFunction("greet", IRType.VOID, List.of(), Flags.PUBLIC | Flags.STATIC, false);
         builder.endFunction();
 
-        new JavaBackend().compile(builder.build(), null, output);
+        new JavaBackend().compile(builder.build(), CompileOptions.defaults(), output);
 
         final var url = output.toUri().toURL();
         try (URLClassLoader loader = new URLClassLoader(new URL[]{url}, getClass().getClassLoader())) {
@@ -81,7 +82,7 @@ class JavaBackendTest {
         final var javaBackend = new JavaBackend();
         final var module = moduleWithMain();
 
-        javaBackend.compile(module, null, output);
+        javaBackend.compile(module, CompileOptions.defaults(), output);
 
         final var url = output.toUri().toURL();
         try (URLClassLoader loader = new URLClassLoader(new URL[]{url}, getClass().getClassLoader())) {

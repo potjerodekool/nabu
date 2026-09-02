@@ -129,6 +129,7 @@ public class NabuCompiler implements Compiler {
                              final CompilerOptions compilerOptions,
                              final Map<String, List<String>> producedBySource) throws CompileException {
         final var backend = getBackendName(compilerOptions);
+        final var targetVersion = compilerOptions.getTargetVersion();
 
         final var codeBackend = BackendManager.createBackend(
                 backend,
@@ -155,7 +156,8 @@ public class NabuCompiler implements Compiler {
                         }
                         SsaBuilder.run(module);
                         final var optimizedModule = Optimizer.optimize(module);
-                        codeBackend.compile(optimizedModule, CompileOptions.defaults(), targetDirectory);
+                        final var compileOptions = CompileOptions.defaults().withJavaVersion(targetVersion);
+                        codeBackend.compile(optimizedModule, compileOptions, targetDirectory);
 
                         if (producedBySource != null) {
                             producedBySource.computeIfAbsent(sourceName, k -> new ArrayList<>())
@@ -182,23 +184,9 @@ public class NabuCompiler implements Compiler {
                 .orElse("ASM");
     }
 
-    private void logOptions(final CompilerOptions fullOptions) {
-
-        fullOptions.forEach((k, v) -> {
-            compilerDiagnosticListener.report(new DefaultDiagnostic(
-                    Diagnostic.Kind.NOTE,
-                    "Option " + k + ": " + v,
-                    null,
-                    null,
-                    null
-            ));
-        });
-    }
-
     @Override
     public CompilerContextImpl configure(final CompilerOptions compilerOptions) {
         final var fullOptions = withDefaults(compilerOptions);
-        logOptions(fullOptions);
 
         final var compilerContext = new CompilerContextImpl(
                 new NabuCFileManager(),

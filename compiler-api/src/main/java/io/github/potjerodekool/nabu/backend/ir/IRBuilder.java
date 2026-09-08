@@ -275,7 +275,21 @@ public class IRBuilder {
             pointee = ptr.type();
         }
 
-        var result = fresh(pointee);
+        final IRType resultType;
+        if (type != null) {
+            resultType = type;
+        } else if (ptr instanceof IRValue.Values values
+                && !values.values().isEmpty()
+                && values.values().getLast() instanceof IRValue.Named named
+                && named.type() instanceof IRType.Ptr) {
+            // Referentie-veldtoegang (Values(obj, Named)): de geladen waarde is een
+            // referentie (Ptr), niet de pointee (I8) van het veldtype.
+            resultType = named.type();
+        } else {
+            resultType = pointee;
+        }
+
+        var result = fresh(resultType);
         emit(new IRInstruction.Load(result, type, ptr, currentLocation));
         return result;
     }
@@ -340,6 +354,14 @@ public class IRBuilder {
     public void emitThrow(final IRType type) {
         emit(new IRInstruction.Throw(
                 null,
+                type,
+                currentLocation
+        ));
+    }
+
+    public void emitThrow(final IRValue result, final IRType type) {
+        emit(new IRInstruction.Throw(
+                result,
                 type,
                 currentLocation
         ));

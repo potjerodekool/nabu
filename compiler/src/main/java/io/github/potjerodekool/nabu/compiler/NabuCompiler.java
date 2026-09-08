@@ -63,11 +63,9 @@ public class NabuCompiler implements Compiler {
             allSourceKinds.addAll(compilerContext.getPluginRegistry()
                     .getLanguageParserManager()
                     .getSourceKinds());
-            /*
             allSourceKinds.addAll(compilerContext.getPluginRegistry()
                     .getLanguageSupportManager()
                     .getSourceKinds());
-            */
 
             final var sourceFileKinds = allSourceKinds.toArray(FileObject.Kind[]::new);
             final var sourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
@@ -138,6 +136,13 @@ public class NabuCompiler implements Compiler {
         );
 
         if (codeBackend != null) {
+            // Batch-compilatie over álle compilatie-eenheden (niet per CU):
+            // object-model relaties over klassen heen (super-velden,
+            // override-slots, super-constructor-ketens) moeten ook over
+            // bronbestanden heen in één backend-run worden opgelost.
+            final var compileOptions = CompileOptions.defaults().withJavaVersion(targetVersion);
+            final var allModules = new ArrayList<io.github.potjerodekool.nabu.backend.ir.IRModule>();
+
             for (final var compilationUnit : compilationUnits) {
                 final String sourceName = producedBySource != null
                         ? IncrementalBuildState.normalizePath(compilationUnit.getFileObject().getFileName())
@@ -147,26 +152,33 @@ public class NabuCompiler implements Compiler {
                 visitor.acceptTree(compilationUnit, null);
 
                 for (final var module : visitor.getModules()) {
-                    try {
-                        // Type-inferentie vóór SSA
-                        for (final var fn : module.functions()) {
-                            if (!fn.isExternal()) {
-                                new io.github.potjerodekool.nabu.backend.ir.optimize.TypeInference().run(fn);
-                            }
+                    // Type-inferentie vóór SSA (per module)
+                    for (final var fn : module.functions()) {
+                        if (!fn.isExternal()) {
+                            new io.github.potjerodekool.nabu.backend.ir.optimize.TypeInference().run(fn);
                         }
-                        SsaBuilder.run(module);
-                        final var optimizedModule = Optimizer.optimize(module);
-                        final var compileOptions = CompileOptions.defaults().withJavaVersion(targetVersion);
-                        codeBackend.compile(optimizedModule, compileOptions, targetDirectory);
+                    }
+                    SsaBuilder.run(module);
 
-                        if (producedBySource != null) {
-                            producedBySource.computeIfAbsent(sourceName, k -> new ArrayList<>())
-                                    .add(module.name.replace('.', '/') + ".class");
-                        }
-                    } catch (final CompileException e) {
-                        return -1;
+                    final var optimized = Optimizer.optimize(module);
+                    allModules.add(optimized);
+
+                    if (producedBySource != null) {
+                        producedBySource.computeIfAbsent(sourceName, k -> new ArrayList<>())
+                                .add(optimized.name.replace('.', '/') + ".class");
                     }
                 }
+            }
+
+            try {
+                codeBackend.compileAll(allModules, compileOptions, targetDirectory);
+            } catch (final CompileException e) {
+                compilerDiagnosticListener.report(new DefaultDiagnostic(
+                        Diagnostic.Kind.ERROR,
+                        e.getMessage() != null ? e.getMessage() : "Backend fout",
+                        null
+                ));
+                return -1;
             }
             return 0;
         } else {
@@ -288,12 +300,14 @@ public class NabuCompiler implements Compiler {
 
     private List<CompilationUnit> parseFiles(final List<? extends FileObject> files,
                                              final CompilerContextImpl compilerContext) {
-        return files.stream()
-                .map(file -> {
-                    return parseFile(file, compilerContext);
-                })
-                .filter(Objects::nonNull)
-                .toList();
+        final var result = new ArrayList<CompilationUnit>();
+        for (final var file : files) {
+            final var unit = parseFile(file, compilerContext);
+            if (unit != null) {
+                result.add(unit);
+            }
+        }
+        return result;
     }
 
     private CompilationUnit parseFile(final FileObject fileObject,
@@ -352,6 +366,8 @@ public class NabuCompiler implements Compiler {
             }
         } while (!generatedSourceFiles.isEmpty());
 
+        processingEnvironment.round(Set.of(), processorStates, true);
+
         return generatedUnits;
     }
 
@@ -397,6 +413,9 @@ public class NabuCompiler implements Compiler {
         } else {
             classLoader = fileManager.getClassLoader(StandardLocation.CLASS_PATH);
         }
+
+        io.github.potjerodekool.nabu.compiler.ast.symbol.impl.AnnotationUtils
+                .setAnnotationProcessorClassLoader(classLoader);
 
         return ServiceLoader.load(Processor.class, classLoader).stream()
                 .map(ServiceLoader.Provider::get)

@@ -48,8 +48,11 @@ public class CBlockStatementTree extends CStatementTree implements BlockStatemen
     }
 
     public CBlockStatementTree statement(final List<StatementTree> statements) {
-        statements.forEach(Objects::requireNonNull);
-        this.statements.addAll(statements);
+        if (statements != null) {
+            statements.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .forEach(this.statements::add);
+        }
         return this;
     }
 
@@ -71,8 +74,11 @@ public class CBlockStatementTree extends CStatementTree implements BlockStatemen
 
     @Override
     public void addStatements(final List<StatementTree> statements) {
-        statements.forEach(Objects::requireNonNull);
-        this.statements.addAll(statements);
+        if (statements != null) {
+            statements.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .forEach(this.statements::add);
+        }
     }
 
     @Override

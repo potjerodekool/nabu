@@ -793,7 +793,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 }
                 return ptr;
             } else if (ptr instanceof IRValue.Temp temp) {
-                return builder.emitLoad(temp);
+                return temp;
             }
             return ptr;
         }
@@ -816,7 +816,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 // Instantieveld — laad via this
                 IRValue thisVal = scope.lookup("this").orElse(null);
                 if (thisVal != null) {
-                    return emitFieldLoad(thisVal, symbol);
+                    return builder.emitLoad(emitFieldLoad(thisVal, symbol));
                 }
             }
 
@@ -899,7 +899,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (selected != null) {
             IRValue obj = acceptTree(selected, builder);
             if (obj != null && fieldSymbol != null) {
-                return emitFieldLoad(obj, fieldSymbol);
+                return builder.emitLoad(emitFieldLoad(obj, fieldSymbol));
             }
         }
 
@@ -1313,6 +1313,12 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     @Override
     public IRValue visitThrowStatement(final ThrowStatement throwStatement, final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                throwStatement.getLineNumber(),
+                throwStatement.getColumnNumber()
+        );
+
         final var expression = throwStatement.getExpression();
         final TypeMirror throwType;
 
@@ -1323,7 +1329,20 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         }
 
         final var type = TypeMirrorToIRType.map(throwType);
-        builder.emitThrow(type);
+
+        // Evalueer de expressie. Voor een `new X()` wordt het exception-object
+        // gealloceerd en de constructor aangeroepen (net als gewone objecten),
+        // zodat de backend een echt object kan gooien in plaats van een lege
+        // placeholder.
+        final IRValue exValue = acceptTree(expression, builder);
+
+        if (exValue != null) {
+            builder.emitThrow(exValue, type);
+        } else {
+            // Fallback: geen beschikbare waarde -> de backend alloceert een
+            // placeholder van het gegooid type (result==null).
+            builder.emitThrow(type);
+        }
         return null;
     }
 
@@ -1807,6 +1826,25 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             // Catch body
             scope.pushScope();
             acceptTree(catcher.getVariable(), builder);
+
+            // Bind het gevangen exception-object aan de catch-variabele.
+            // De backend plaatst het door nabu_catch() verkregen object in het
+            // register "%exn.<handlerLabel>"; we storen dat register naar de
+            // alloca van de catch-variabele.
+            VariableDeclaratorTree catchVariable = catcher.getVariable();
+            if (catchVariable != null && catchVariable.getName() != null) {
+                String catchVarName = catchVariable.getName().getName();
+                scope.lookup(catchVarName).ifPresent(catchPtr -> {
+                    IRType catchDeclType = catchVariable.getVariableType() != null
+                            ? TypeMirrorToIRType.map(catchVariable.getVariableType().getType())
+                            : new IRType.Ptr(IRType.I8);
+                    IRValue caught = new IRValue.Temp(
+                            "%exn." + handlerBlk.label(),
+                            new IRType.Ptr(catchDeclType));
+                    builder.emitStore(catchPtr, caught);
+                });
+            }
+
             acceptTree(catcher.getBody(), builder);
             scope.popScope();
 

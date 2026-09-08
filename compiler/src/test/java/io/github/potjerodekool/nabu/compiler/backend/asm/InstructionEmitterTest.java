@@ -158,7 +158,7 @@ class InstructionEmitterTest extends BackendTest {
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/dowhileLoop.txt");
 
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/dowhileLoop.txt", expected, actual);
     }
 
     @Test
@@ -185,7 +185,7 @@ class InstructionEmitterTest extends BackendTest {
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/IfStatement.txt");
 
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/IfStatement.txt", expected, actual);
     }
 
     @Test
@@ -211,7 +211,7 @@ class InstructionEmitterTest extends BackendTest {
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/getValue.txt");
 
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/getValue.txt", expected, actual);
     }
 
     @Test
@@ -234,7 +234,7 @@ class InstructionEmitterTest extends BackendTest {
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/setValue.txt");
 
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/setValue.txt", expected, actual);
     }
 
     @Disabled
@@ -581,6 +581,27 @@ class InstructionEmitterTest extends BackendTest {
         emitter.emit(module, CompileOptions.defaults());
 
         return ASMTestUtils.byteCodeToText(emitter.getBytecode());
+    }
+
+    /**
+     * Vergelijkt de gegenereerde bytecode met het snapshot-bestand, of —
+     * met {@code -Dnabu.upd.resources=true} — schrijft de actual in het
+     * snapshot-bestand weg (voor het regenereren na geintentioneerde
+     * bytecode-veranderingen).
+     */
+    private void assertBytecodeSnapshot(final String resource,
+                                        final String expected,
+                                        final String actual) {
+        if (Boolean.getBoolean("nabu.upd.resources")) {
+            try {
+                java.nio.file.Files.writeString(
+                        java.nio.file.Path.of("src/test/resources/", resource), actual);
+            } catch (final java.io.IOException e) {
+                throw new RuntimeException(e);
+            }
+            return;
+        }
+        assertEquals(expected, actual);
     }
 
 

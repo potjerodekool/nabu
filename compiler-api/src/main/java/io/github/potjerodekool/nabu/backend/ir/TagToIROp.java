@@ -50,10 +50,10 @@ public final class TagToIROp {
             // Compound assignments, unaire operators, shifts
             // worden door de visitor uitgevouwen of zijn nog niet geïmplementeerd
             case ASSIGN,
-                 ADD_ASSIGN, MUL_ASSIGN, DIV_ASSIGN,
+                 ADD_ASSIGN, SUB_ASSIGN, MUL_ASSIGN, DIV_ASSIGN,
                  AND_ASSIGN, OR_ASSIGN, XOR_ASSIGN,
                  MOD_ASSIGN, LSHIFT_ASSIGN, RSHIFT_ASSIGN, URSHIFT_ASSIGN,
-                 POST_INC, POST_DEC, NOT, BITNOT,
+                 POST_INC, POST_DEC, PRE_INC, PRE_DEC, NOT, BITNOT,
                  LSHIFT, RSHIFT, URSHIFT ->
                     throw new UnsupportedOperationException(
                             "Tag " + tag + " is geen directe binaire IR-operatie — "
@@ -78,7 +78,7 @@ public final class TagToIROp {
      */
     public static boolean isCompoundAssignment(Tag tag) {
         return switch (tag) {
-            case ADD_ASSIGN, MUL_ASSIGN, DIV_ASSIGN,
+            case ADD_ASSIGN, SUB_ASSIGN, MUL_ASSIGN, DIV_ASSIGN,
                  AND_ASSIGN, OR_ASSIGN, XOR_ASSIGN,
                  MOD_ASSIGN, LSHIFT_ASSIGN, RSHIFT_ASSIGN, URSHIFT_ASSIGN ->
                     true;
@@ -93,6 +93,9 @@ public final class TagToIROp {
     public static Op compoundAssignmentOp(Tag tag) {
         return switch (tag) {
             case ADD_ASSIGN    -> Op.ADD;
+            case SUB_ASSIGN    -> Op.SUB;
+            case MUL_ASSIGN    -> Op.MUL;
+            case DIV_ASSIGN    -> Op.DIV;
             case AND_ASSIGN    -> Op.AND;
             case OR_ASSIGN     -> Op.OR;
             case XOR_ASSIGN    -> Op.XOR;

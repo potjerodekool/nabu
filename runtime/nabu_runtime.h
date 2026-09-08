@@ -50,6 +50,14 @@ typedef struct nabu_object {
 int nabu_instanceof(void *obj, const char *type_name);
 
 /**
+ * Voeg twee strings samen (concatenatie).
+ * @param a Eerste string (mag NULL zijn, wordt als "" behandeld)
+ * @param b Tweede string (mag NULL zijn, wordt als "" behandeld)
+ * @return Nieuw gealloceerde, nul-afgesloten string a+b
+ */
+char *nabu_concat(const char *a, const char *b);
+
+/**
  * Gooi een exception.
  * @param exception Pointer naar het exception-object
  * Wordt nooit teruggekeerd (tenzij geen handler gevonden).
@@ -57,11 +65,35 @@ int nabu_instanceof(void *obj, const char *type_name);
 void nabu_throw(void *exception);
 
 /**
+ * Bepaalt of een gevangen exception-object van het gegeven type is (of een
+ * subtype). Wordt in een landing pad gebruikt om een catch-handler al dan
+ * niet te selecteren; wanneer dit 0 retourneert moet de handler re-throwen.
+ * @param obj        Het gevangen exception-object (nooit NULL)
+ * @param type_name  Interne naam van het catch-type (bv "test/Exception")
+ * @return 1 als het object een instantie is van het type, 0 anders
+ */
+int nabu_can_catch(void *obj, const char *type_name);
+
+/**
  * Vang een exception op — wordt aangeroepen vanuit LLVM landing pads.
  * @param unwind_exc Pointer naar de _Unwind_Exception (van landingpad resultaat)
  * @return Pointer naar het Nabu exception-object
  */
 void *nabu_catch(void *unwind_exc);
+
+/**
+ * Alloceert een object van een onbekende (library)klasse met een geldig
+ * nabu_object-header (de type-info wordt per interne naam gecachet).
+ * @param type_name Interne naam van de klasse (bv "java/lang/Exception")
+ * @param size      Minimale objectgrootte (wordt opgehoogd naar de header)
+ * @return Pointer naar het gealloceerde object
+ */
+void *nabu_new_object(const char *type_name, size_t size);
+
+/**
+ * Constructor van java.lang.Exception (runtime-definitie; vult geen velden).
+ */
+void java_lang_Exception_init(void *self);
 
 /**
  * Betreed een monitor (synchronized).

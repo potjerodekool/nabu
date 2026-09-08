@@ -221,11 +221,31 @@ public class NabuCFileManager implements FileManager {
                                                           final String relativeName,
                                                           final FileObject... originatingFiles) {
         checkIfOutputLocation(location);
-        final var separatorIndex = relativeName.indexOf('.');
-        final var extension = relativeName.substring(separatorIndex);
-        final var className = packageName + "." + relativeName.substring(0, separatorIndex);
-        final var kind = new FileObject.Kind(extension, false);
-        return getFileForOutput(location, className, kind, null);
+        final var packagePath = packageName == null || packageName.isEmpty()
+                ? ""
+                : packageName.replace('.', '/') + "/";
+        final var file = resolveOutputPath(location, packagePath + relativeName);
+        return new PathFileObject(new FileObject.Kind("", false), file);
+    }
+
+    private Path resolveOutputPath(final Location location,
+                                   final String relativePath) {
+        Path dir = null;
+
+        if (location == StandardLocation.SOURCE_OUTPUT) {
+            dir = getSourceOutDir() != null
+                    ? getSourceOutDir()
+                    : getClassOutDir();
+        } else if (location == StandardLocation.CLASS_OUTPUT) {
+            dir = getClassOutDir();
+        }
+
+        if (dir == null) {
+            dir = Paths.get(System.getProperty("user.dir"));
+        }
+
+        final var normalized = relativePath.replace('/', java.io.File.separatorChar);
+        return dir.resolve(normalized);
     }
 
     private FileObject getFileForOutput(final Location location,

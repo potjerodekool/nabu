@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.TypeSymbol;
@@ -25,6 +26,67 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
     public TypeElement loadClass(final ModuleElement moduleElement,
                                  final String name) {
         final var flatName = Symbol.createFlatName(name);
+
+        final var alreadyEntered = symbolTable.findClasses(flatName).stream()
+                .filter(clazz -> !clazz.isError())
+                .findFirst();
+
+        if (alreadyEntered.isPresent()) {
+            return alreadyEntered.get();
+        }
+
+        // Een geneste klasse die als dot-naam wordt opgevraagd
+        // (bijv. "picocli.CommandLine.Command") moet via de binary-vorm
+        // ("picocli.CommandLine$Command") worden geladen. De pakketdeel-
+        // resolutie kan het laatste dot-segment anders niet van de enclosing
+        // klasse onderscheiden.
+        final var nested = loadNestedBinaryName(moduleElement, flatName);
+
+        if (nested != null) {
+            return nested;
+        }
+
+        return loadBinary(moduleElement, flatName);
+    }
+
+    private TypeElement loadNestedBinaryName(final ModuleElement moduleElement,
+                                             final String flatName) {
+        if (flatName.contains("$")) {
+            return null;
+        }
+
+        final var dotCount = flatName.length() - flatName.replace(".", "").length();
+
+        if (dotCount < 2) {
+            return null;
+        }
+
+        String candidate = flatName;
+        int dot;
+
+        while ((dot = candidate.lastIndexOf('.')) > -1) {
+            candidate = candidate.substring(0, dot) + "$" + candidate.substring(dot + 1);
+
+            final var loaded = loadBinary(moduleElement, candidate);
+
+            if (isLoadable(loaded)) {
+                return loaded;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isLoadable(final TypeElement typeElement) {
+        if (typeElement instanceof ClassSymbol classSymbol) {
+            return classSymbol.getClassFile() != null
+                    || classSymbol.getSourceFile() != null;
+        }
+        return typeElement != null;
+    }
+
+    private TypeElement loadBinary(final ModuleElement moduleElement,
+                                   final String flatName) {
         final var module = moduleElement != null
                 ? (ModuleSymbol) moduleElement
                 : symbolTable.getUnnamedModule();
@@ -32,7 +94,7 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
         final var packageName = resolvePackagePart(flatName);
 
         if (packageName == null) {
-            return createError(name);
+            return createError(flatName);
         }
 
         final var packageSymbol = symbolTable.lookupPackage(
@@ -43,7 +105,7 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
         packageSymbol.complete();
 
         if (!packageSymbol.exists()) {
-            return createError(name);
+            return createError(flatName);
         }
 
         final var packageModule = packageSymbol.getModuleSymbol();

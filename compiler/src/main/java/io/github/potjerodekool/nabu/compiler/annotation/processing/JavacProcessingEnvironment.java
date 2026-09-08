@@ -81,7 +81,13 @@ public class JavacProcessingEnvironment implements ProcessingEnvironment {
 
     public void round(final Set<TypeElement> rootElements,
                       final List<ProcessorState> processorStates) {
-        final var roundEnvironment = new JavacRoundEnvironment(false, rootElements);
+        round(rootElements, processorStates, false);
+    }
+
+    public void round(final Set<TypeElement> rootElements,
+                      final List<ProcessorState> processorStates,
+                      final boolean processingOver) {
+        final var roundEnvironment = new JavacRoundEnvironment(processingOver, rootElements);
 
         processorStates.forEach(processorState -> {
             final var processor = processorState.getProcessor();

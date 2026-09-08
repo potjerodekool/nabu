@@ -21,15 +21,20 @@ public class LightweightCompilerDaemon {
     );
 
     private final ExecutorService executorService;
-    private ServerSocket serverSocket;
+    private final ServerSocket serverSocket;
     private volatile boolean running = true;
     private volatile long lastActivity = System.currentTimeMillis();
 
-    public LightweightCompilerDaemon() {
-        this.executorService = Executors.newFixedThreadPool(MAX_CONNECTIONS);
+    public LightweightCompilerDaemon() throws IOException {
+        this(PORT);
     }
 
-    public static void main(String[] args) {
+    public LightweightCompilerDaemon(final int port) throws IOException {
+        this.executorService = Executors.newFixedThreadPool(MAX_CONNECTIONS);
+        this.serverSocket = new ServerSocket(port);
+    }
+
+    public static void main(String[] args) throws IOException {
         LightweightCompilerDaemon daemon = new LightweightCompilerDaemon();
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -46,7 +51,6 @@ public class LightweightCompilerDaemon {
     }
 
     public void start() throws IOException {
-        serverSocket = new ServerSocket(PORT);
         LOGGER.info("╔════════════════════════════════════════════════╗");
         LOGGER.info("║  Lightweight Compiler Daemon                   ║");
         LOGGER.info("╠════════════════════════════════════════════════╣");

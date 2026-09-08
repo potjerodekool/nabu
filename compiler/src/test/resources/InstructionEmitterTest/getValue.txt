@@ -12,11 +12,13 @@ public class MyClass {
    L0
     ALOAD 0
     GETFIELD MyClass.number : I
+    ISTORE 1
+    ILOAD 1
     IRETURN
    L1
     LOCALVARIABLE this LMyClass; L0 L1 0
     MAXSTACK = 1
-    MAXLOCALS = 1
+    MAXLOCALS = 2
 
   // access flags 0x1
   public <init>()V

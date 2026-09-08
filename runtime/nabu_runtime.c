@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -44,7 +45,7 @@
  * pointer uit de wrapper te extraheren.
  */
 typedef struct nabu_unwind_exception {
-    _Unwind_Exception unwind_header;
+    struct _Unwind_Exception unwind_header;
     void *nabu_object;
 } nabu_unwind_exception;
 
@@ -54,13 +55,67 @@ typedef struct nabu_unwind_exception {
  */
 static const uint64_t NABU_EXC_CLASS = 0x4e4142554e414255ULL; /* "NABUNABU" */
 
+/* -------------------------------------------------------
+ * Library-object allocatie (via type-naam; voor klassen waarvan de
+ * backend geen layout kent, bv. java/lang/Exception).
+ * ------------------------------------------------------- */
+
+/* Cache voor runtime-gegenereerde type-info; max 64 typer namen per
+   proces (voldoende voor dev/demo). Namen verwijzen naar constante
+   backend-string-globals, dus de pointers blijven geldig. */
+#define NABU_MAX_TYPES 64
+
+static nabu_type_info *nabu_type_info_for(const char *name) {
+    static nabu_type_info cache[NABU_MAX_TYPES];
+    static int count = 0;
+    for (int i = 0; i < count; i++) {
+        if (strcmp(cache[i].name, name) == 0)
+            return &cache[i];
+    }
+    if (count >= NABU_MAX_TYPES) {
+        fprintf(stderr, "nabu: te veel runtime-type-info entries\n");
+        abort();
+    }
+    nabu_type_info *ti = &cache[count++];
+    ti->name = name;
+    ti->size = sizeof(nabu_object);
+    ti->super_type = NULL;   /* exacte naam-match via nabu_instanceof volstaat */
+    ti->field_count = 0;
+    return ti;
+}
+
+/**
+ * Alloceert een object van een onbekende (library)klasse met een geldig
+ * nabu_object-header zodat nabu_instanceof/nabu_can_catch erop werken.
+ * De type-info wordt per interne naam gecachet.
+ */
+void *nabu_new_object(const char *type_name, size_t size) {
+    size = size < sizeof(nabu_object) ? sizeof(nabu_object) : size;
+    nabu_object *obj = (nabu_object *)malloc(size);
+    if (obj == NULL) {
+        fprintf(stderr, "nabu: kan niet alloceren voor %s\n", type_name);
+        abort();
+    }
+    memset(obj, 0, size);
+    obj->type = nabu_type_info_for(type_name);
+    return obj;
+}
+
+/**
+ * Constructor van java.lang.Exception (en objecten met lege layout).
+ * De runtime voorziet de definitie zodat het externe symbool resolvet.
+ */
+void java_lang_Exception_init(void *self) {
+    (void)self; /* geen instantievelden in de minimale layout */
+}
+
 /**
  * Cleanup callback — wordt door de unwinder aangeroepen wanneer de
  * exception niet meer nodig is (bijv. na een catch of wanneer geen
  * handler gevonden is).
  */
 static void nabu_exception_cleanup(_Unwind_Reason_Code reason,
-                                   _Unwind_Exception *exc) {
+                                   struct _Unwind_Exception *exc) {
     (void)reason;
     nabu_unwind_exception *nabu_exc = (nabu_unwind_exception *)exc;
     free(nabu_exc);
@@ -73,7 +128,7 @@ void nabu_throw(void *exception) {
         abort();
     }
 
-    memset(&exc->unwind_header, 0, sizeof(_Unwind_Exception));
+    memset(&exc->unwind_header, 0, sizeof(struct _Unwind_Exception));
     exc->unwind_header.exception_class = NABU_EXC_CLASS;
     exc->unwind_header.exception_cleanup = nabu_exception_cleanup;
     exc->nabu_object = exception;
@@ -93,6 +148,228 @@ void *nabu_catch(void *unwind_exc) {
     nabu_unwind_exception *exc = (nabu_unwind_exception *)unwind_exc;
     return exc->nabu_object;
 }
+
+int nabu_can_catch(void *obj, const char *type_name) {
+    return nabu_instanceof(obj, type_name);
+}
+
+/* -------------------------------------------------------
+ * Nabu-eigen SEH / Itanium persoonlijkheid
+ * -------------------------------------------------------
+ * Op Windows/x86_64-MinGW (SEH) bestaat __gcc_personality_v0 NIET; de
+ * enige unwinder is libgcc_s_seh-1.dll, die functies als
+ * _GCC_specific_handler en _Unwind_* exporteert.
+ *
+ * Een .xdata-EHANDLER wordt met de rauwe 4-arg SEH-signatuur
+ * (PEXCEPTION_RECORD, void*, PCONTEXT, PDISPATCHER_CONTEXT) aangeroepen.
+ * GCC's eigen persoonlijkheden zijn 4-arg wrappers die doorsturen naar
+ * _GCC_specific_handler(ms_exc, frame, ctx, disp, echte_itanium_personality).
+ *
+ * Hier doen we precies hetzelfde: nabu_seh_personality is de 4-arg wrapper
+ * die in .xdata staat en doorstuurt naar nabu_itanium_personality. Die leest
+ * de LSDA (.gcc_except_table) die LLVM in .xdata plaatst (=$disp->HandlerData),
+ * zoekt de call-site voor de gooiende IP en installeert het landingspad met
+ * RAX=nabu_unwind_exception* en RDX=selector. De echte type-filter gebeurt in
+ * code via nabu_can_catch.
+ */
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+/* leb128-decoders (excerpt uit GCC unwind-pe.h). */
+static const unsigned char *
+nabu_read_uleb128(const unsigned char *p, _uleb128_t *val) {
+    _uleb128_t v = 0;
+    unsigned int shift = 0;
+    unsigned char b;
+    do {
+        b = *p++;
+        v |= (_uleb128_t)(b & 0x7f) << shift;
+        shift += 7;
+    } while (b & 0x80);
+    *val = v;
+    return p;
+}
+
+static const unsigned char *
+nabu_read_sleb128(const unsigned char *p, _sleb128_t *val) {
+    _sleb128_t v = 0;
+    unsigned int shift = 0;
+    unsigned char b;
+    do {
+        b = *p++;
+        v |= (_sleb128_t)(b & 0x7f) << shift;
+        shift += 7;
+    } while (b & 0x80);
+    if (shift < (8 * sizeof(v)) && (b & 0x40))
+        v |= -(_sleb128_t)1 << shift;
+    *val = v;
+    return p;
+}
+
+/* Beperkte DW_EH_PE-ondersteuning (wat LLVM/SEH daadwerkelijk emitteert). */
+#define NABU_DW_EH_PE_absptr     0x00
+#define NABU_DW_EH_PE_omit       0xff
+#define NABU_DW_EH_PE_uleb128    0x01
+#define NABU_DW_EH_PE_sleb128    0x09
+#define NABU_DW_EH_PE_udata2     0x02
+#define NABU_DW_EH_PE_udata4     0x03
+#define NABU_DW_EH_PE_udata8     0x04
+#define NABU_DW_EH_PE_sdata2     0x0a
+#define NABU_DW_EH_PE_sdata4     0x0b
+#define NABU_DW_EH_PE_sdata8     0x0c
+
+static const unsigned char *
+nabu_read_encoded_value(struct _Unwind_Context *context,
+                        unsigned char encoding,
+                        const unsigned char *p,
+                        _Unwind_Ptr *val) {
+    union { _Unwind_Ptr result; unsigned short s2; unsigned int s4;
+            unsigned long long s8; unsigned char bytes[8]; } u;
+    (void)context;
+
+    switch (encoding & 0x0f) {
+    case NABU_DW_EH_PE_absptr:
+        switch (encoding & 0x70) {
+        case NABU_DW_EH_PE_udata2: u.s2 = (unsigned short)(p[0] | (p[1] << 8)); p += 2; break;
+        case NABU_DW_EH_PE_udata4: u.s4 = (unsigned int)p[0] | ((unsigned int)p[1] << 8)
+                                    | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24); p += 4; break;
+        case NABU_DW_EH_PE_udata8: for (int i = 0; i < 8; ++i) u.bytes[i] = p[i]; p += 8; break;
+        default: u.result = (unsigned int)p[0] | ((unsigned int)p[1] << 8)
+                            | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24); p += 4; break;
+        }
+        break;
+    case NABU_DW_EH_PE_uleb128: { _uleb128_t tmp; p = nabu_read_uleb128(p, &tmp); u.result = (_Unwind_Ptr)tmp; break; }
+    case NABU_DW_EH_PE_sleb128: { _sleb128_t tmp; p = nabu_read_sleb128(p, &tmp); u.result = (_Unwind_Ptr)tmp; break; }
+    case NABU_DW_EH_PE_udata2:  u.s2 = (unsigned short)(p[0] | (p[1] << 8)); p += 2; break;
+    case NABU_DW_EH_PE_udata4:  u.s4 = (unsigned int)p[0] | ((unsigned int)p[1] << 8)
+                                    | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24); p += 4; break;
+    case NABU_DW_EH_PE_udata8:  for (int i = 0; i < 8; ++i) u.bytes[i] = p[i]; p += 8; break;
+    default: return 0;
+    }
+    *val = u.result;
+    return p;
+}
+
+typedef struct {
+    _Unwind_Ptr Start;
+    _Unwind_Ptr LPStart;
+    unsigned char ttype_encoding;
+    unsigned char call_site_encoding;
+    const unsigned char *TType;
+    const unsigned char *action_table;
+} nabu_lsda_info;
+
+static const unsigned char *
+nabu_parse_lsda_header(struct _Unwind_Context *context,
+                       const unsigned char *p,
+                       nabu_lsda_info *info) {
+    unsigned char lpstart_encoding;
+    _uleb128_t tmp;
+
+    info->Start = context ? _Unwind_GetRegionStart(context) : 0;
+
+    lpstart_encoding = *p++;
+    if (lpstart_encoding != NABU_DW_EH_PE_omit)
+        p = nabu_read_encoded_value(context, lpstart_encoding, p, &info->LPStart);
+    else
+        info->LPStart = info->Start;
+
+    info->ttype_encoding = *p++;
+    if (info->ttype_encoding != NABU_DW_EH_PE_omit) {
+        p = nabu_read_uleb128(p, &tmp);
+        info->TType = p + tmp;
+    } else
+        info->TType = 0;
+
+    info->call_site_encoding = *p++;
+    p = nabu_read_uleb128(p, &tmp);
+    info->action_table = p + tmp;
+    return p;
+}
+
+/* Itanium-persoonlijkheid; door _GCC_specific_handler aangeroepen (5-arg). */
+static _Unwind_Reason_Code
+nabu_itanium_personality(int version,
+                         _Unwind_Action actions,
+                         _Unwind_Exception_Class exception_class,
+                         struct _Unwind_Exception *ue_header,
+                         struct _Unwind_Context *context) {
+    nabu_lsda_info info;
+    const unsigned char *lsda, *p;
+    _Unwind_Ptr landing_pad, ip;
+    int ip_before_insn = 0;
+    int selector = 0;
+
+    if (version != 1)
+        return _URC_FATAL_PHASE1_ERROR;
+    (void)exception_class;
+
+    lsda = (const unsigned char *)_Unwind_GetLanguageSpecificData(context);
+    if (!lsda)
+        return _URC_CONTINUE_UNWIND;
+
+    p = nabu_parse_lsda_header(context, lsda, &info);
+
+    ip = _Unwind_GetIPInfo(context, &ip_before_insn);
+    if (!ip_before_insn)
+        --ip;
+
+    landing_pad = 0;
+
+    /* Doorzoek de call-site tabel. */
+    while (p < info.action_table) {
+        _Unwind_Ptr cs_start, cs_len, cs_lp;
+        _uleb128_t cs_action;
+
+        p = nabu_read_encoded_value(context, info.call_site_encoding, p, &cs_start);
+        p = nabu_read_encoded_value(context, info.call_site_encoding, p, &cs_len);
+        p = nabu_read_encoded_value(context, info.call_site_encoding, p, &cs_lp);
+        p = nabu_read_uleb128(p, &cs_action);
+
+        if (ip < info.Start + cs_start) {
+            p = info.action_table;   /* gesorteerd: voorbij */
+            break;
+        }
+        if (ip < info.Start + cs_start + cs_len) {
+            if (cs_lp) {
+                landing_pad = info.LPStart + cs_lp;
+                /* Selector = 1 bij een actie-record; de echte type-filter
+                   gebeurt in code via nabu_can_catch. */
+                selector = cs_action ? 1 : 0;
+            }
+            break;
+        }
+    }
+
+    if (landing_pad == 0)
+        return _URC_CONTINUE_UNWIND;
+
+    if (actions & _UA_SEARCH_PHASE)
+        return _URC_HANDLER_FOUND;
+
+    if (actions & _UA_HANDLER_FRAME) {
+        /* NB: (_Unwind_Word) i.p.v. (long): geen 32-bit truncatie op Windows. */
+        _Unwind_SetGR(context, 0, (_Unwind_Word)ue_header);   /* RAX = exception */
+        _Unwind_SetGR(context, 1, (_Unwind_Word)selector);    /* RDX = selector */
+        _Unwind_SetIP(context, landing_pad);
+        return _URC_INSTALL_CONTEXT;
+    }
+
+    return _URC_CONTINUE_UNWIND;
+}
+
+/* Rauwe 4-arg SEH-handler (in .xdata geregistreerd); stuurt door naar
+   _GCC_specific_handler met onze Itanium-persoonlijkheid als 5e arg. */
+#if defined(_WIN32) && (defined(__GNUC__) || defined(__clang__))
+EXCEPTION_DISPOSITION
+nabu_seh_personality(PEXCEPTION_RECORD msexc, void *frame,
+                     PCONTEXT msctx, PDISPATCHER_CONTEXT disp) {
+    return _GCC_specific_handler(msexc, frame, msctx, disp,
+                                 nabu_itanium_personality);
+}
+#endif
 
 #else
 /* -------------------------------------------------------
@@ -149,6 +426,28 @@ int nabu_instanceof(void *obj, const char *type_name) {
     }
 
     return 0;
+}
+
+/* -------------------------------------------------------
+ * String-concat
+ * ------------------------------------------------------- */
+
+char *nabu_concat(const char *a, const char *b) {
+    if (a == NULL) a = "";
+    if (b == NULL) b = "";
+
+    size_t la = strlen(a);
+    size_t lb = strlen(b);
+
+    char *out = malloc(la + lb + 1);
+    if (out == NULL) {
+        fprintf(stderr, "nabu: kan geen geheugen alloceren voor concat\n");
+        abort();
+    }
+
+    memcpy(out, a, la);
+    memcpy(out + la, b, lb + 1);
+    return out;
 }
 
 /* -------------------------------------------------------

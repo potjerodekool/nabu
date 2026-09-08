@@ -269,11 +269,12 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
 
     @Override
     public R visitForStatement(final ForStatementTree forStatement, final P param) {
-        forStatement.getForInit().forEach(it -> acceptTree(it, param));
+        forStatement.getForInit().forEach(it ->
+                accept(it, param));
         accept(forStatement.getCondition(), param);
         forStatement.getForUpdate().forEach(it ->
-                acceptTree(it, param));
-        acceptTree(forStatement.getStatement(), param);
+                accept(it, param));
+        accept(forStatement.getStatement(), param);
         return defaultAnswer(forStatement, param);
     }
 

@@ -2261,16 +2261,25 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                     .build();
         } else {
             final var exp = arrayAccessExpressionTree.getExpression();
-            return arrayAccessExpressionTree.builder()
-                    .expression(
-                            TreeMaker.fieldAccessExpressionTree(
-                                    expressionTree,
-                                    (IdentifierTree) exp,
-                                    expressionTree.getLineNumber(),
-                                    expressionTree.getColumnNumber()
-                            )
-                    )
-                    .build();
+
+            if (exp instanceof IdentifierTree) {
+                return arrayAccessExpressionTree.builder()
+                        .expression(
+                                TreeMaker.fieldAccessExpressionTree(
+                                        expressionTree,
+                                        (IdentifierTree) exp,
+                                        expressionTree.getLineNumber(),
+                                        expressionTree.getColumnNumber()
+                                )
+                        )
+                        .build();
+            } else {
+                return arrayAccessExpressionTree.builder()
+                        .expression(
+                                combineExpressions(expressionTree, exp)
+                        )
+                        .build();
+            }
         }
     }
 
@@ -2637,6 +2646,7 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                 .columnNumber(ctx.getStart().getCharPositionInLine())
                 .modifiers(modifiers)
                 .variableType(catchType)
+                .kind(Kind.LOCAL_VARIABLE)
                 .name(variableDeclarator)
                 .build();
     }

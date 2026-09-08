@@ -108,26 +108,16 @@ public class JavacFiler implements Filer {
                                      final CharSequence moduleAndPkg,
                                      final CharSequence relativeName,
                                      final Element... originatingElements) throws IOException {
-        final var relativeNameString = relativeName.toString();
-        final var separatorIndex = relativeNameString.lastIndexOf('.');
-        final var subName = separatorIndex == -1
-                ? relativeNameString
-                : relativeNameString.substring(0, separatorIndex);
-        final var className = moduleAndPkg + "." + subName;
-
-        final var resolved = resolve(location, className);
-        final var resolvedLocation = resolved.location();
-        final var packageName = resolved.name();
+        final var packageName = resolvePackageName(moduleAndPkg.toString());
         final StandardLocation standardLocation;
 
-        if (resolvedLocation == javax.tools.StandardLocation.CLASS_OUTPUT) {
+        if (location == javax.tools.StandardLocation.CLASS_OUTPUT) {
             standardLocation = StandardLocation.CLASS_OUTPUT;
-        } else if (resolvedLocation == javax.tools.StandardLocation.SOURCE_OUTPUT) {
+        } else if (location == javax.tools.StandardLocation.SOURCE_OUTPUT) {
             standardLocation = StandardLocation.SOURCE_OUTPUT;
         } else {
-            throw new IllegalArgumentException();
+            throw new IllegalArgumentException("Unsupported location: " + location);
         }
-
         final var fileObject = fileManager.getFileForOutputForOriginatingFiles(
                 standardLocation,
                 packageName,
@@ -135,6 +125,14 @@ public class JavacFiler implements Filer {
         );
 
         return new JavacFillerFileObject(fileObject, (path) -> {});
+    }
+
+    private String resolvePackageName(final String moduleAndPkg) {
+        final var moduleSeparator = moduleAndPkg.indexOf('/');
+
+        return moduleSeparator != -1
+                ? moduleAndPkg.substring(moduleSeparator + 1)
+                : moduleAndPkg;
     }
 
     private LocationModuleAnName resolve(final JavaFileManager.Location location,

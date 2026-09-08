@@ -424,6 +424,11 @@ public class SymbolTable {
                 .get(moduleSymbol);
     }
 
+    public Collection<ClassSymbol> findClasses(final String flatName) {
+        final var map = classesMap.get(flatName);
+        return map == null ? Collections.emptyList() : map.values();
+    }
+
     public ModuleSymbol getModule(final String name) {
         return modulesMap.get(name);
     }

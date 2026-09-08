@@ -13,6 +13,16 @@ import java.util.function.IntFunction;
 
 public class ValueCollector extends AbstractAnnotationValueVisitor<Object, ExecutableElement> {
 
+    private final ClassLoader classLoader;
+
+    public ValueCollector() {
+        this(AnnotationUtils.getAnnotationProcessorClassLoader());
+    }
+
+    public ValueCollector(final ClassLoader classLoader) {
+        this.classLoader = classLoader;
+    }
+
     @Override
     public Object visitBoolean(final boolean b, final ExecutableElement executableElement) {
         return b;
@@ -67,7 +77,7 @@ public class ValueCollector extends AbstractAnnotationValueVisitor<Object, Execu
     }
 
     public <T extends Enum<T>> Class<? extends T> loadAnnotationClass(final String className) {
-        return AnnotationUtils.loadClass(className, getClass().getClassLoader());
+        return AnnotationUtils.loadClass(className, classLoader);
     }
 
     @Override
@@ -76,7 +86,7 @@ public class ValueCollector extends AbstractAnnotationValueVisitor<Object, Execu
         final var componentType = returnType.getComponentType();
 
         final var className = componentType.asTypeElement().getQualifiedName();
-        final Class<?> elementType = AnnotationUtils.loadClass(className, getClass().getClassLoader());
+        final Class<?> elementType = AnnotationUtils.loadClass(className, classLoader);
 
         return values.stream()
                 .map(it -> it.accept(this, executableElement))

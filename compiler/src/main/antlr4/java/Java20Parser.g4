@@ -305,26 +305,21 @@ packageModifier
 // -------------
 
 importDeclaration
-    : singleTypeImportDeclaration
-    | typeImportOnDemandDeclaration
-    | singleStaticImportDeclaration
-    | staticImportOnDemandDeclaration
+    : 'import' 'static' importStaticBody ';'
+    | 'import' singleTypeImportDeclaration
+    | 'import' typeImportOnDemandDeclaration
     ;
 
 singleTypeImportDeclaration
-    : 'import' typeName ';'
+    : typeName ';'
     ;
 
 typeImportOnDemandDeclaration
-    : 'import' packageOrTypeName '.' '*' ';'
+    : packageOrTypeName '.' '*' ';'
     ;
 
-singleStaticImportDeclaration
-    : 'import' 'static' typeName '.' identifier ';'
-    ;
-
-staticImportOnDemandDeclaration
-    : 'import' 'static' typeName '.' '*' ';'
+importStaticBody
+    : packageOrTypeName ('.' '*' )?
     ;
 
 // Paragraph 7.6
@@ -1269,8 +1264,7 @@ primary
 //
 
 primaryNoNewArray
-    : pattern
-    | literal pNNA?
+    : literal pNNA?
     | classLiteral pNNA?
     | 'this' pNNA?
     | typeName '.' 'this' pNNA?

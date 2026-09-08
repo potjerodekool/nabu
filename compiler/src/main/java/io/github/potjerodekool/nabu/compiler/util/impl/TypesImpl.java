@@ -306,11 +306,20 @@ public class TypesImpl implements Types {
             bound = superBound;
         }
 
+        if (bound != null && bound.getKind() == TypeKind.WILDCARD) {
+            final WildcardType wildcardBound = (WildcardType) bound;
+            bound = wildcardBound.getExtendsBound() != null
+                    ? wildcardBound.getExtendsBound()
+                    : symbolTable.getObjectType();
+        }
+
         switch (bound.getKind()) {
             case DECLARED, ARRAY, ERROR, TYPEVAR -> {
                 return new CWildcardType(bound, kind, symbolTable.getBoundClass());
             }
-            default -> throw new IllegalArgumentException(bound.toString());
+            default -> {
+                return new CWildcardType(symbolTable.getObjectType(), BoundKind.UNBOUND, symbolTable.getBoundClass());
+            }
         }
     }
 

@@ -28,40 +28,31 @@ public class NamedImportScope extends ImportScope {
 
     @Override
     public Element resolve(final String name) {
+        return resolveByName(name).orElse(null);
+    }
+
+    private Optional<Element> resolveByName(final String name) {
         var element = elements.get(name);
 
         if (element == null && !name.contains(".")) {
-            final var postFix = "." + name;
+            final var postFixDot = "." + name;
+            final var postFixDollar = "$" + name;
             element = elements.keySet().stream()
-                    .filter(key -> key.endsWith(postFix))
+                    .filter(key -> key.endsWith(postFixDot) || key.endsWith(postFixDollar))
                     .map(elements::get)
                     .filter(Objects::nonNull)
                     .findFirst()
                     .orElse(null);
         }
 
-        return element;
+        return Optional.ofNullable(element);
     }
 
     @Override
     public TypeMirror resolveType(final String name) {
-        var element = elements.get(name);
-
-        if (element == null && !name.contains(".")) {
-            final var postFix = "." + name;
-            element = elements.keySet().stream()
-                    .filter(key -> key.endsWith(postFix))
-                    .map(elements::get)
-                    .filter(Objects::nonNull)
-                    .findFirst()
-                    .orElse(null);
-        }
-
-        if (element == null) {
-            return null;
-        } else {
-            return element.asType();
-        }
+        return resolveByName(name)
+                .map(Element::asType)
+                .orElse(null);
     }
 
     @Override

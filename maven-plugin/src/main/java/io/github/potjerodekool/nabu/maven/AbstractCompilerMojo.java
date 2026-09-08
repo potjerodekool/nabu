@@ -67,6 +67,9 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
     @Parameter
     protected List<String> compilerArgs;
 
+    @Parameter(property = "nabu.backend", defaultValue = "ASM")
+    protected String backend;
+
     @Parameter(property = "nabu.incremental", defaultValue = "true")
     protected boolean incremental;
 
@@ -167,6 +170,11 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
             getLog().info("Target version: " + targetVersion);
         }
 
+        final var outputDir = getOutputDirectory();
+        if (outputDir != null && !outputDir.exists() && !outputDir.mkdirs()) {
+            throw new MojoExecutionException("Cannot create output directory: " + outputDir);
+        }
+
         configureLogging();
 
         try {
@@ -191,6 +199,9 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
         configureClassPath(compilerOptionsBuilder);
         configureSourceRoots(existingSourceDirs, compilerOptionsBuilder);
         configureAnnotationProcessorsPaths(compilerOptionsBuilder);
+        configureBackend(compilerOptionsBuilder);
+        // compilerArgs winnen over de expliciete mojo-parameter (voor als een
+        // build zowel <backend> als -backend:... meegeeft).
         configureCompilerArguments(compilerOptionsBuilder);
 
         final var sourceOutput = getGeneratedSourcesDirectory() != null
@@ -269,6 +280,13 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
                     joinPath(paths)
             );
         }
+    }
+
+    private void configureBackend(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder) {
+        if (backend == null) {
+            return;
+        }
+        compilerOptionsBuilder.option(CompilerOption.BACKEND, backend);
     }
 
     private void configureCompilerArguments(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder) {

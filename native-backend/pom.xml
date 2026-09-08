@@ -29,6 +29,16 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- De nabu-taalfrontend (.nabu bron: nabu visie, fun-declaraties,
+             try/catch) zodat acceptance-tests écht .nabu-bestanden kunnen
+             compileren via NabuCompiler.compile(...). -->
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-lang</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>io.github.potjerodekool</groupId>
             <artifactId>compiler-api</artifactId>
@@ -81,6 +91,24 @@
 
     <build>
         <finalName>${project.artifactId}</finalName>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- nabu-runtime bundelen: de linker (MinGW-gcc-pad) heeft
+                 nabu_runtime.c/.h nodig om de SEH-persoonlijkheid/linktijd-
+                 functies mee te compileren. Bundelen in de plugin-jar is de
+                 enige betrouwbare plek voor een maven-deployment (geen
+                 repo-checkout gegarandeerd). -->
+            <resource>
+                <directory>${project.basedir}/../runtime</directory>
+                <targetPath>nabu/runtime</targetPath>
+                <includes>
+                    <include>nabu_runtime.c</include>
+                    <include>nabu_runtime.h</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

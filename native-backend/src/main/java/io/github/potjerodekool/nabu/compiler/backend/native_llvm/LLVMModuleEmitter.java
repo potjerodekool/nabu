@@ -8,7 +8,9 @@ import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;
 import org.bytedeco.llvm.LLVM.*;
 
+import java.lang.ref.Reference;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.bytedeco.llvm.global.LLVM.*;
@@ -34,6 +36,7 @@ public class LLVMModuleEmitter {
     private final TypeMapper types;
     private final ConstantResolver   constants;
     private final GlobalEmitter globals;
+    private final ClassLayouts classLayouts;
     private final InstructionEmitter instructions;
     private final FunctionEmitter functions;
 
@@ -49,31 +52,54 @@ public class LLVMModuleEmitter {
 
         this.types       = new TypeMapper(ctx);
         this.constants   = new ConstantResolver(ctx, mod, types, globalValueMap);
+        this.classLayouts = new ClassLayouts(ctx, globalValueMap);
         this.globals     = new GlobalEmitter(mod, types, constants, globalValueMap);
         this.instructions = new InstructionEmitter(
-                builder, ctx, types, constants, globalValueMap, blockMap, opts);
+                builder, ctx, types, constants, globalValueMap, blockMap, opts, classLayouts);
         this.functions   = new FunctionEmitter(
-                ctx, mod, builder, types, instructions, globalValueMap, blockMap);
+                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap);
     }
 
     /**
-     * Vertaalt de volledige IRModule naar LLVM IR.
+     * Vertaalt één IRModule naar LLVM IR (single-module compilatie).
      */
     public void emit(IRModule module) {
+        emitAll(List.of(module));
+    }
+
+    /**
+     * Vertaalt meerdere IRModules in één LLVM-module.
+     *
+     * De passen zijn bewust over álle modules gespreid:
+     *   1. globals  + signaturen (wederzijdse recursie én vtable-verwijzingen)
+     *   2. objectmodel-registratie (structs, type-info, vtable/itable) —
+     *      alle klassen in één keer, zodat super-velden en override-slots
+     *      over klassen heen gedeeld kunnen worden
+     *   3. bodies
+     */
+    public void emitAll(List<IRModule> modules) {
         // 0. Runtime helpers declareren
         declareRuntimeHelpers();
 
         // 1. Globals (string-literals, variabelen) — vóór functies
-        for (var global : module.globals().values())
-            globals.emit(global);
+        for (var module : modules)
+            for (var global : module.globals().values())
+                globals.emit(global);
 
         // 2. Alle signaturen — vóór bodies (wederzijdse recursie)
-        for (IRFunction fn : module.functions())
-            functions.declareSignature(fn);
+        //    Ook nodig vóór de vtable-opbouw, die functiepointers gebruikt.
+        for (var module : modules)
+            for (IRFunction fn : module.functions())
+                functions.declareSignature(fn);
 
-        // 3. Bodies
-        for (IRFunction fn : module.functions())
-            functions.emitBody(fn);
+        // 3. Objectmodel (struct-layouts + type-info + vtable/itable) — na
+        //    signaturen. Ouders vóór kinderen binnen één registerAll.
+        this.classLayouts.registerAll(mod, modules);
+
+        // 4. Bodies
+        for (var module : modules)
+            for (IRFunction fn : module.functions())
+                functions.emitBody(fn);
     }
 
     /**
@@ -113,6 +139,18 @@ public class LLVMModuleEmitter {
         LLVMSetLinkage(catchFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_catch", catchFn);
 
+        // --- CanCatch (catch type-filtering; altijd nodig) ---
+        // int nabu_can_catch(void* obj, i8* type_name)
+        PointerPointer<Pointer> canCatchParams = new PointerPointer<>(2);
+        canCatchParams.put(0, i8ptr);
+        canCatchParams.put(1, i8ptr);
+        LLVMTypeRef canCatchFnType = LLVMFunctionType(LLVMInt32TypeInContext(ctx),
+                canCatchParams, 2, 0);
+        LLVMValueRef canCatchFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_can_catch"), canCatchFnType);
+        LLVMSetLinkage(canCatchFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_can_catch", canCatchFn);
+
         // --- MonitorEnter / MonitorExit (altijd nodig voor synchronized) ---
         PointerPointer<Pointer> monitorParams = new PointerPointer<>(1);
         monitorParams.put(0, i8ptr);
@@ -127,14 +165,84 @@ public class LLVMModuleEmitter {
         LLVMSetLinkage(monitorExitFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_monitorexit", monitorExitFn);
 
+        // --- String-concat (altijd nodig) ---
+        // i8* nabu_concat(i8* a, i8* b)
+        PointerPointer<Pointer> concatParams = new PointerPointer<>(2);
+        concatParams.put(0, i8ptr);
+        concatParams.put(1, i8ptr);
+        LLVMTypeRef concatFnType = LLVMFunctionType(i8ptr, concatParams, 2, 0);
+        LLVMValueRef concatFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_concat"), concatFnType);
+        LLVMSetLinkage(concatFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_concat", concatFn);
+
         // --- Personality functie voor exception handling ---
-        // i32 @__gcc_personality_v0(...)
+        // Nabu-eigen SEH-persoonlijkheid (nabu_seh_personality): een 4-arg
+        // SEH-wrapper die in .xdata wordt geregistreerd en via
+        // _GCC_specific_handler naar onze Itanium-persoonlijkheid
+        // (nabu_itanium_personality) doorstuurt. Deze leest vervolgens de LSDA
+        // (.gcc_except_table) die LLVM emitteert voor landingpads met catch-clauses.
+        // NB: Key blijft "@__gcc_personality_v0" (FunctionEmitter gebruikt die),
+        //      maar de *geëmitteerde symboolnaam* is nu nabu_seh_personality.
         LLVMTypeRef personalityFnType = LLVMFunctionType(LLVMInt32TypeInContext(ctx),
                 new PointerPointer<>(0), 0, 1);
         LLVMValueRef personalityFn = LLVMAddFunction(mod,
-                new BytePointer("__gcc_personality_v0"), personalityFnType);
+                new BytePointer("nabu_seh_personality"), personalityFnType);
         LLVMSetLinkage(personalityFn, LLVMExternalLinkage);
         globalValueMap.put("@__gcc_personality_v0", personalityFn);
+
+        // --- Exception typeinfo-marker voor LSDA-emissie ---
+        // Landingpads moeten een echte catch-clause hebben voordat LLVM een
+        // LSDA (.gcc_except_table) emitteert. De nabu-type-filtering gebeurt in
+        // code via nabu_can_catch, dus de clause hoeft geen specifiek type te
+        // zijn. Deze gegarandeerd aanwezige typeinfo-global dient als
+        // LSDA-trigger-clause; FunctionEmitter refereert hem via
+        // "@nabu_exception_typeinfo".
+        LLVMValueRef excNameStr = LLVMConstStringInContext(ctx,
+                new BytePointer("nabu/exceptions"), "nabu/exceptions".length(), 0);
+        LLVMValueRef excNameGlobal = LLVMAddGlobal(mod, LLVMTypeOf(excNameStr),
+                new BytePointer(".exc.marker"));
+        LLVMSetLinkage(excNameGlobal, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(excNameGlobal, 1);
+        LLVMSetInitializer(excNameGlobal, excNameStr);
+
+        // struct nabu_type_info { i8* name, i64 size, i8* super_type, i32 field_count }
+        LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        PointerPointer<Pointer> excInfoTypes = new PointerPointer<>(4);
+        excInfoTypes.put(0, i8ptr);
+        excInfoTypes.put(1, i64);
+        excInfoTypes.put(2, i8ptr);
+        excInfoTypes.put(3, i32);
+        LLVMTypeRef excInfoType = LLVMStructTypeInContext(ctx, excInfoTypes, 4, 0);
+        Reference.reachabilityFence(excInfoTypes);
+
+        LLVMValueRef excTypeInfo = LLVMAddGlobal(mod, excInfoType,
+                new BytePointer("_ZNabunabu.exceptionsEtype_info"));
+        LLVMSetLinkage(excTypeInfo, LLVMExternalLinkage);
+        LLVMSetGlobalConstant(excTypeInfo, 1);
+
+        PointerPointer<Pointer> excInfoFields = new PointerPointer<>(4);
+        excInfoFields.put(0, excNameGlobal);
+        excInfoFields.put(1, LLVMConstInt(i64, 0, 0));
+        excInfoFields.put(2, LLVMConstNull(i8ptr));
+        excInfoFields.put(3, LLVMConstInt(i32, 0, 0));
+        LLVMValueRef excInit = LLVMConstNamedStruct(excInfoType, excInfoFields, 4);
+        LLVMSetInitializer(excTypeInfo, excInit);
+        Reference.reachabilityFence(excInit);
+        globalValueMap.put("@nabu_exception_typeinfo", excTypeInfo);
+
+        // --- Library/onbekende klassen allocatie: nabu_new_object ---
+        // Voor klassen waarvan de backend geen layout kent (bv
+        // java/lang/Exception) alloceert de runtime het object en zet de
+        // object-header (type-info). Signatuur: i8* nabu_new_object(i8* name, i64 size).
+        PointerPointer<Pointer> newObjParams = new PointerPointer<>(2);
+        newObjParams.put(0, i8ptr);
+        newObjParams.put(1, i64);
+        LLVMTypeRef newObjType = LLVMFunctionType(i8ptr, newObjParams, 2, 0);
+        LLVMValueRef newObjFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_new_object"), newObjType);
+        LLVMSetLinkage(newObjFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_new_object", newObjFn);
 
         // --- GC-specifieke helpers ---
         switch (opts.gcStrategy()) {

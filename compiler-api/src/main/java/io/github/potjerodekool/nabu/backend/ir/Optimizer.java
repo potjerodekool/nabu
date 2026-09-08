@@ -38,7 +38,12 @@ public class Optimizer {
 
         for (final var block : irFunction.blocks()) {
             if (!newInstructions.isEmpty()) {
-                if (shouldRemoveInstruction(lastInstruction, block.label())) {
+                // Verwijder alleen een redundante branch als het blok meer bevat
+                // dan alleen die branch. Anders wordt het blok leeg en mist het
+                // zijn terminator (bv. een entry-blok dat alleen uit
+                // 'br %next' bestaat), wat resulteert in ongeldige LLVM IR.
+                if (shouldRemoveInstruction(lastInstruction, block.label())
+                        && newInstructions.size() > 1) {
                     newInstructions.remove(lastInstruction);
                 }
                 final var newBlock = new IRBasicBlock(previousLabel, newInstructions);

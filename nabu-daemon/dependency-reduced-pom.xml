@@ -35,6 +35,34 @@
   </build>
   <dependencies>
     <dependency>
+      <groupId>io.github.potjerodekool</groupId>
+      <artifactId>nabu-client</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.github.potjerodekool</groupId>
+      <artifactId>nabu-lang</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.github.potjerodekool</groupId>
+      <artifactId>native-backend</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>javacpp</artifactId>
+          <groupId>org.bytedeco</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>llvm</artifactId>
+          <groupId>org.bytedeco</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
       <version>5.12.2</version>
@@ -45,8 +73,24 @@
           <groupId>org.junit.platform</groupId>
         </exclusion>
         <exclusion>
-          <artifactId>junit-jupiter-api</artifactId>
-          <groupId>org.junit.jupiter</groupId>
+          <artifactId>apiguardian-api</artifactId>
+          <groupId>org.apiguardian</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <version>5.12.2</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>opentest4j</artifactId>
+          <groupId>org.opentest4j</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>junit-platform-commons</artifactId>
+          <groupId>org.junit.platform</groupId>
         </exclusion>
         <exclusion>
           <artifactId>apiguardian-api</artifactId>
@@ -60,10 +104,6 @@
       <version>5.12.2</version>
       <scope>test</scope>
       <exclusions>
-        <exclusion>
-          <artifactId>junit-jupiter-api</artifactId>
-          <groupId>org.junit.jupiter</groupId>
-        </exclusion>
         <exclusion>
           <artifactId>apiguardian-api</artifactId>
           <groupId>org.apiguardian</groupId>

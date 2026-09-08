@@ -20,6 +20,9 @@ public class MyClass {
     GOTO L3
    L3
    FRAME FULL [MyClass I I] []
+    GOTO L4
+   L4
+   FRAME FULL [MyClass I I] []
     ILOAD 1
     ISTORE 3
     ILOAD 3
@@ -32,9 +35,9 @@ public class MyClass {
    L2
    FRAME FULL [MyClass I I] []
     RETURN
-   L4
-    LOCALVARIABLE this LMyClass; L0 L4 0
-    LOCALVARIABLE i I L0 L4 1
+   L5
+    LOCALVARIABLE this LMyClass; L0 L5 0
+    LOCALVARIABLE i I L0 L5 1
     MAXSTACK = 2
     MAXLOCALS = 5
 

@@ -37,25 +37,34 @@ public class ClassScope implements Scope {
 
     @Override
     public Element resolve(final String name) {
-        final var classSymbol = getCurrentClass();
-        final var fieldOptional = ElementFilter.elements(
-                        classSymbol,
-                        element ->
-                                element.getKind() == ElementKind.FIELD
-                                        || element.getKind() == ElementKind.ENUM_CONSTANT,
-                        VariableElement.class
-                ).stream()
-                .filter(Element::isStatic)
-                .filter(elem -> elem.getSimpleName().equals(name))
-                .findFirst();
+        var classSymbol = getCurrentClass();
 
-        if (fieldOptional.isPresent()) {
-            return fieldOptional.get();
-        } else if (parentScope != null) {
-            return parentScope.resolve(name);
-        } else {
-            return null;
+        while (classSymbol != null) {
+            final var fieldOptional = ElementFilter.elements(
+                            classSymbol,
+                            element ->
+                                    element.getKind() == ElementKind.FIELD
+                                            || element.getKind() == ElementKind.ENUM_CONSTANT,
+                            VariableElement.class
+                    ).stream()
+                    .filter(Element::isStatic)
+                    .filter(elem -> elem.getSimpleName().equals(name))
+                    .findFirst();
+
+            if (fieldOptional.isPresent()) {
+                return fieldOptional.get();
+            }
+
+            final var superclass = classSymbol.getSuperclass();
+
+            if (superclass instanceof DeclaredType superType) {
+                classSymbol = (TypeElement) superType.asElement();
+            } else {
+                classSymbol = null;
+            }
         }
+
+        return parentScope != null ? parentScope.resolve(name) : null;
     }
 
     @Override

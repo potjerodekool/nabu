@@ -18,7 +18,9 @@ public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<A
 
     public CompoundAttribute process(final AnnotationMirror annotationMirror) {
         final var annotationType = annotationMirror.getAnnotationType();
-        final var methodMap = ElementFilter.methodsIn(annotationType.asTypeElement().getEnclosedElements()).stream()
+        final var annotationTypeElement = annotationType.asTypeElement();
+        annotationTypeElement.complete();
+        final var methodMap = ElementFilter.methodsIn(annotationTypeElement.getEnclosedElements()).stream()
                 .collect(Collectors.toMap(
                         Element::getSimpleName,
                         Function.identity()
@@ -27,13 +29,15 @@ public class AnnotationDeProxyProcessor extends AbstractAnnotationValueVisitor<A
         final var newValues = annotationMirror.getElementValues().entrySet().stream()
                 .map(entry -> {
                     final var method = methodMap.get(entry.getKey().getSimpleName());
-                    final var newValue = deProxy(entry.getValue(), method);
 
                     final var annotationName = annotationType.asTypeElement().getQualifiedName();
 
                     if (method == null) {
-                        throw new NullPointerException("Failed to resolve method " + entry.getKey().getSimpleName() + " for " + annotationName);
+                        throw new NullPointerException("Failed to resolve method " + entry.getKey().getSimpleName() + " for " + annotationName
+                                + " (annotation methods: " + methodMap.keySet() + ")");
                     }
+
+                    final var newValue = deProxy(entry.getValue(), method);
 
                     if (newValue == null) {
                         throw new NullPointerException(method.getSimpleName() + " for " + annotationName + " value is null");

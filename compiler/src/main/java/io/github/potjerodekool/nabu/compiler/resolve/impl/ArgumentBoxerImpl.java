@@ -26,10 +26,15 @@ public class ArgumentBoxerImpl implements ArgumentBoxer {
         final var arguments = methodInvocation.getArguments();
         final var argTypes = methodType.getParameterTypes();
         final var newArgs = new ArrayList<ExpressionTree>();
+        final var parameterCount = argTypes.size();
 
         forEachIndexed(arguments,
                 (i, arg) -> {
-                    final var argType = argTypes.get(i);
+                    if (parameterCount == 0) {
+                        newArgs.add(arg);
+                        return;
+                    }
+                    final var argType = argTypes.get(Math.min(i, parameterCount - 1));
                     arg = argType.accept(boxer, arg);
                     newArgs.add(arg);
                 }

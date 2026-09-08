@@ -82,9 +82,10 @@ public class CompleteMethodResolver implements MethodResolver {
             if (currentElement instanceof ExecutableElement executableElement) {
                 final var clazz = (TypeElement) executableElement.getEnclosingElement();
                 return (DeclaredType) clazz.asType();
+            } else if (currentElement instanceof TypeElement typeElement) {
+                return (DeclaredType) typeElement.asType();
             } else {
-                final var clazz = (TypeElement) currentElement;
-                return (DeclaredType) clazz.asType();
+                return types.getErrorType("");
             }
         } else {
             final var targetSymbol = selected.getSymbol();
@@ -139,8 +140,12 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         final var symbol = expression.getSymbol();
+        if (symbol == null && expression.getType() == null) {
+            System.out.println("[resolve-type-null] expr=" + expression.getClass().getSimpleName()
+                    + " line=" + expression.getLineNumber() + " text=" + safeText(expression));
+        }
         if (symbol == null) {
-            throw new NullPointerException();
+            return new CUnknownType();
         }
 
         return symbol.asType();
@@ -530,7 +535,12 @@ public class CompleteMethodResolver implements MethodResolver {
                 if (executableType != null) {
                     return Optional.of(executableType);
                 } else {
-                    searchType = (DeclaredType) searchType.getEnclosingType();
+                    final var enclosingType = searchType.getEnclosingType();
+                    if (enclosingType instanceof DeclaredType declaredEnclosing) {
+                        searchType = declaredEnclosing;
+                    } else {
+                        break;
+                    }
                 }
             } while (searchType != null);
 
@@ -621,7 +631,7 @@ public class CompleteMethodResolver implements MethodResolver {
         final var phase1Results = phase1StrictInvocation(candidates, arguments);
         if (!phase1Results.isEmpty()) {
             return inferMethodTypeParameters(
-                    chooseMostSpecificMethod(phase1Results, searchType).method(),
+                    selectApplicableMethod(phase1Results, searchType).method(),
                     arguments
             );
         }
@@ -629,7 +639,7 @@ public class CompleteMethodResolver implements MethodResolver {
         final var phase2Results = phase2LooseInvocation(candidates, arguments);
         if (!phase2Results.isEmpty()) {
             return inferMethodTypeParameters(
-                    chooseMostSpecificMethod(phase2Results, searchType).method(),
+                    selectApplicableMethod(phase2Results, searchType).method(),
                     arguments
             );
         }
@@ -637,7 +647,7 @@ public class CompleteMethodResolver implements MethodResolver {
         final var phase3Results = phase3VariableArity(candidates, arguments);
         if (!phase3Results.isEmpty()) {
             return inferMethodTypeParameters(
-                    chooseMostSpecificMethod(phase3Results, searchType).method(),
+                    selectApplicableMethod(phase3Results, searchType).method(),
                     arguments
             );
         }
@@ -682,6 +692,11 @@ public class CompleteMethodResolver implements MethodResolver {
                         final List<ExecutableType> methodCollection,
                         final boolean isConstructorCall) {
         final var typeElement = declaredType.asTypeElement();
+
+        if (typeElement instanceof ClassSymbol classSymbol) {
+            classSymbol.complete();
+        }
+
         final var methods = isConstructorCall
                 ? ElementFilter.constructorsIn(typeElement.getEnclosedElements())
                 : ElementFilter.methodsIn(typeElement.getEnclosedElements()).stream()
@@ -1105,6 +1120,12 @@ public class CompleteMethodResolver implements MethodResolver {
         }
     }
 
+    private ApplicableMethod selectApplicableMethod(final List<ApplicableMethod> methods,
+                                                        final DeclaredType searchType) {
+        final var mostSpecific = chooseMostSpecificMethod(methods, searchType);
+        return mostSpecific != null ? mostSpecific : methods.get(0);
+    }
+
     private ApplicableMethod chooseMostSpecificMethod(
             final List<ApplicableMethod> applicableMethods,
             final DeclaredType searchType) {
@@ -1418,5 +1439,9 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         return applicableMethods;
+    }
+
+    private String safeText(final io.github.potjerodekool.nabu.tree.expression.ExpressionTree tree) {
+        return tree.getClass().getSimpleName();
     }
 }

@@ -14,10 +14,12 @@ class AnnotationInvocationHandler implements InvocationHandler {
 
     private final Class<?> annotationClass;
     private final Map<String, Object> memberValues;
+    private final ClassLoader classLoader;
     private Method[] methods;
 
     public AnnotationInvocationHandler(final AnnotationMirror annotationMirror,
                                        final ClassLoader classLoader) {
+        this.classLoader = classLoader;
         final var annotationType = annotationMirror.getAnnotationType();
         final var className = annotationType.asTypeElement().getQualifiedName();
         this.annotationClass = AnnotationUtils.loadClass(className, classLoader);
@@ -54,7 +56,7 @@ class AnnotationInvocationHandler implements InvocationHandler {
     private Map<String, Object> generateRawValue(final Map<String, AnnotationValue> values,
                                                  final Map<String, ExecutableElement> methodMap) {
         final var map = new HashMap<String, Object>(values.size());
-        final var collector = new ValueCollector();
+        final var collector = new ValueCollector(classLoader);
 
         values.forEach((k, v) -> {
             final var rawValue = v.accept(collector, methodMap.get(k));

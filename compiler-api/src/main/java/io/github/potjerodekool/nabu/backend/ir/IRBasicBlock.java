@@ -42,7 +42,8 @@ public class IRBasicBlock {
         IRInstruction last = instructions.getLast();
         return last instanceof IRInstruction.Branch
             || last instanceof IRInstruction.CondBranch
-            || last instanceof IRInstruction.Return;
+            || last instanceof IRInstruction.Return
+            || last instanceof IRInstruction.Throw;
     }
 
     public void setSuccessors(String trueLabel, String falseLabel) {

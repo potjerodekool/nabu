@@ -13,13 +13,29 @@ public class StandardElementResolver implements ElementResolver {
     @Override
     public Element resolve(final String name,
                            final TypeMirror searchType) {
-        if (searchType instanceof DeclaredType declaredType) {
-            final var typeElement = (TypeElement) declaredType.asElement();
+        if (!(searchType instanceof DeclaredType declaredType)) {
+            return null;
+        }
 
-            return ElementFilter.fieldsIn(typeElement.getEnclosedElements()).stream()
+        var current = (TypeElement) declaredType.asElement();
+        var hops = 0;
+
+        while (current != null && hops++ < 20) {
+            final var field = ElementFilter.fieldsIn(current.getEnclosedElements()).stream()
                     .filter(elem -> elem.getSimpleName().equals(name))
-                    .findFirst()
-                    .orElse(null);
+                    .findFirst();
+
+            if (field.isPresent()) {
+                return field.get();
+            }
+
+            final var superclass = current.getSuperclass();
+
+            if (superclass instanceof DeclaredType superType) {
+                current = (TypeElement) superType.asElement();
+            } else {
+                current = null;
+            }
         }
 
         return null;

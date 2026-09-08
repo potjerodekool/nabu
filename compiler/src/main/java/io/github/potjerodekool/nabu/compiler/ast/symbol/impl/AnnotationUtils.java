@@ -7,6 +7,8 @@ import java.lang.reflect.Proxy;
 
 public final class AnnotationUtils {
 
+    private static volatile ClassLoader annotationProcessorClassLoader;
+
     private AnnotationUtils() {
     }
 
@@ -15,7 +17,7 @@ public final class AnnotationUtils {
         final var className = annotationMirror.getAnnotationType().asTypeElement().getQualifiedName();
         final Class<A> clazz = loadClass(className, classLoader);
         return (A) Proxy.newProxyInstance(
-                AnnotationUtils.class.getClassLoader(),
+                clazz.getClassLoader(),
                 new Class[]{clazz},
                 new AnnotationInvocationHandler(annotationMirror, classLoader)
         );
@@ -32,5 +34,15 @@ public final class AnnotationUtils {
         } catch (final ClassNotFoundException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static void setAnnotationProcessorClassLoader(final ClassLoader classLoader) {
+        if (classLoader != null) {
+            annotationProcessorClassLoader = classLoader;
+        }
+    }
+
+    public static ClassLoader getAnnotationProcessorClassLoader() {
+        return annotationProcessorClassLoader;
     }
 }

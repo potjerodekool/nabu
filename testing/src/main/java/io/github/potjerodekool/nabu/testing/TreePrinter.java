@@ -973,7 +973,27 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     public Object visitCatch(final CatchTree catchTree,
                              final Object param) {
         write("catch (");
-        acceptTree(catchTree.getVariable(), param);
+
+        // Catch-variabele in catchFormalParameter-vorm ('e : Exception'),
+        // NIET als generiek statement ('var e : Exception;') — die vorm is
+        // geen geldige nabu-syntax en breekt de parser-roundtrip-tests.
+        final var variable = catchTree.getVariable();
+        if (variable != null) {
+            if (printModifierFlags(variable.getFlags())) {
+                write(" ");
+            }
+
+            acceptTree(variable.getName(), param);
+
+            if (variable.getVariableType() != null
+                    && !(variable.getVariableType() instanceof VariableTypeTree)) {
+                write(" : ");
+                acceptTree(variable.getVariableType(), param);
+            }
+        } else {
+            write("...");
+        }
+
         write(")");
         acceptTree(catchTree.getBody(), param);
         return null;

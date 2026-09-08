@@ -325,12 +325,7 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
-    public Object visitSingleStaticImportDeclaration(final Java20Parser.SingleStaticImportDeclarationContext ctx) {
-        return null;
-    }
-
-    @Override
-    public Object visitStaticImportOnDemandDeclaration(final Java20Parser.StaticImportOnDemandDeclarationContext ctx) {
+    public Object visitImportStaticBody(final Java20Parser.ImportStaticBodyContext ctx) {
         return null;
     }
 

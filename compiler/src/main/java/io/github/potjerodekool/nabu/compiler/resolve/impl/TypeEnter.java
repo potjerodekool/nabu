@@ -85,6 +85,13 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 final var moduleElement = findModuleElement(currentClass);
                 final var compilationUnit = findCompilationUnit(currentClass);
 
+                if (compilationUnit == null) {
+                    System.out.println("[complete-null-unit] class=" + currentClass.getQualifiedName()
+                            + " flat=" + currentClass.getFlatName()
+                            + " src=" + (currentClass.getSourceFile() == null ? "null" : currentClass.getSourceFile().getFileName())
+                            + " nest=" + currentClass.getNestingKind());
+                }
+
                 final var packageDeclaration = compilationUnit.getPackageDeclaration();
                 if (packageDeclaration != null && packageDeclaration.getPackageElement() == null) {
                     packageDeclaration.setPackageElement((PackageElement) currentClass.getEnclosingElement());
@@ -102,13 +109,15 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                     compilerContext
             );
 
-            acceptTree(
-                    classDeclaration,
-                    new SymbolScope(
-                            (DeclaredType) currentClass.asType(),
-                            globalScope
-                    )
-            );
+            if (classDeclaration != null) {
+                acceptTree(
+                        classDeclaration,
+                        new SymbolScope(
+                                (DeclaredType) currentClass.asType(),
+                                globalScope
+                        )
+                );
+            }
 
             final var typeEnter = this.typeEnterMap.get(currentClass.getKind());
 
@@ -116,9 +125,11 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 typeEnter.complete(currentClass);
             }
 
-            completeClass(classDeclaration, new SymbolScope((DeclaredType) currentClass.asType(), globalScope));
+            if (classDeclaration != null) {
+                completeClass(classDeclaration, new SymbolScope((DeclaredType) currentClass.asType(), globalScope));
 
-            lombok(classDeclaration, globalScope);
+                lombok(classDeclaration, globalScope);
+            }
         }
     }
 
@@ -171,6 +182,8 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             superType = loader.loadClass(findModuleElement(currentClass), superClassName).asType();
         }
 
+        superType = canonicalizeDeclaredType(superType);
+
         if (Constants.ENUM.equals(superType.asTypeElement().getQualifiedName())) {
             superType = compilerContext.getTypes().getDeclaredType(
                     superType.asTypeElement(),
@@ -192,10 +205,31 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                     .map(it -> acceptTree(it, scope))
                     .map(it -> (ExpressionTree) it)
                     .map(ExpressionTree::getType)
+                    .map(this::canonicalizeDeclaredType)
                     .toList();
 
             currentClass.setInterfaces(interfaceTypes);
         }
+    }
+
+    private TypeMirror canonicalizeDeclaredType(final TypeMirror type) {
+        final var element = type.asTypeElement();
+
+        if (!(element instanceof ClassSymbol classSymbol)) {
+            return type;
+        }
+
+        final var canonical = SymbolTable.getInstance((CompilerContextImpl) compilerContext)
+                .findClasses(classSymbol.getFlatName()).stream()
+                .filter(c -> !c.isError())
+                .findFirst()
+                .orElse(null);
+
+        if (canonical == null || canonical == classSymbol) {
+            return type;
+        }
+
+        return canonical.asType();
     }
 
     @Override
@@ -582,8 +616,17 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         acceptTree(annotationTree.getName(), scope);
         final var annotationType = (DeclaredType) annotationTree.getName().getType();
 
-        final var values = annotationTree.getArguments().stream()
-                .map(it -> (Pair<ExecutableElement, AnnotationValue>) acceptTree(it, scope))
+        final var valuePairs = new ArrayList<Pair<ExecutableElement, AnnotationValue>>();
+        for (final var argument : annotationTree.getArguments()) {
+            final var value = acceptTree(argument, scope);
+            if (value != null) {
+                valuePairs.add((Pair<ExecutableElement, AnnotationValue>) value);
+            } else {
+                System.out.println("[annotation-null-arg] annotation=" + annotationTree.getName() + " arg=" + argument.getClass().getSimpleName() + " class=" + scope.getCurrentClass());
+            }
+        }
+        final var values = valuePairs.stream()
+                .filter(pair -> pair.second() != null)
                 .collect(Collectors.toMap(
                         Pair::first,
                         Pair::second

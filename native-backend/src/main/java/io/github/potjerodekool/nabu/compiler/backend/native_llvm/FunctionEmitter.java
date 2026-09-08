@@ -32,6 +32,7 @@ public class FunctionEmitter {
     private final LLVMModuleRef               mod;
     private final LLVMBuilderRef              builder;
     private final TypeMapper types;
+    private final ConstantResolver constants;
     private final InstructionEmitter instructions;
     private final Map<String, LLVMValueRef>   globalValueMap;
     private final Map<String, LLVMBasicBlockRef> blockMap;
@@ -42,10 +43,19 @@ public class FunctionEmitter {
      */
     private final Map<String, String> tryHandlerMap = new HashMap<>();
 
+    /**
+     * Maps een IR-blok-label van een catch-handler naar het (nieuwe) LLVM
+     * blok waarin de catch-body-instructies worden geëmit. De aanloop-code
+     * (landingpad + type-check + rethrow) wordt in het oorspronkelijke
+     * handler-blok geëmit, de catch-body in dit aparte blok.
+     */
+    private final Map<String, LLVMBasicBlockRef> handlerBodyBlocks = new HashMap<>();
+
     public FunctionEmitter(LLVMContextRef ctx,
                            LLVMModuleRef mod,
                            LLVMBuilderRef builder,
                            TypeMapper types,
+                           ConstantResolver constants,
                            InstructionEmitter instructions,
                            Map<String, LLVMValueRef> globalValueMap,
                            Map<String, LLVMBasicBlockRef> blockMap) {
@@ -53,9 +63,19 @@ public class FunctionEmitter {
         this.mod            = mod;
         this.builder        = builder;
         this.types          = types;
+        this.constants      = constants;
         this.instructions   = instructions;
         this.globalValueMap = globalValueMap;
         this.blockMap       = blockMap;
+    }
+
+    /**
+     * Retourneert het LLVM-blok voor de catch-body van een handler (of null
+     * als het blok geen handler is). Wordt gebruikt door emitBody om de
+     * instructies van een catch-handler in het juiste blok te emitteren.
+     */
+    public LLVMBasicBlockRef getHandlerBodyBlock(String blockLabel) {
+        return handlerBodyBlocks.get(blockLabel);
     }
 
     /**
@@ -173,9 +193,12 @@ public class FunctionEmitter {
         for (IRBasicBlock block : fn.blocks()) {
             LLVMPositionBuilderAtEnd(builder, blockMap.get(block.label()));
 
-            // Catch handler blokken krijgen een landingpad
+            // Catch handler blokken krijgen een landingpad + type-check + rethrow,
+            // en de catch-body wordt in een apart (body)blok geëmit.
             if (handlerLabels.contains(block.label())) {
                 emitLandingPad(block.label(), fn);
+                // emitLandingPad positioneert de builder aan het einde van het
+                // body-blok, waarin de catch-body-instructies daarna worden geëmit.
             }
 
             for (var instr : block.instructions()) {
@@ -186,11 +209,27 @@ public class FunctionEmitter {
     }
 
     /**
-     * Emitteert een landingpad voor een catch-handler blok.
-     * Een landingpad is het LLVM-mechanisme om exceptions op te vangen.
+     * Emitteert een landingpad voor een catch-handler blok, gevolgd door een
+     * catch type-check (nabu_can_catch) en een rethrow-pad voor niet-matchende
+     * exceptions.
+     *
+     * De gegenereerde structuur in het handler-blok:
+     *   %handlerBlock:
+     *     %lpad = landingpad { ptr, i32 } cleanup
+     *     %raw   = extractvalue %lpad, 0
+     *     %exn.<h> = call i8* @nabu_catch(ptr %raw)
+     *     %match = call i32 @nabu_can_catch(ptr %exn.<h>, i8* @.str.<type>)
+     *     %ok    = icmp ne i32 %match, 0
+     *     br i1 %ok, label %handler.<h>.body, label %handler.<h>.rethrow
+     *   %handler.<h>.body:            <- hierin wordt de catch-body geëmit
+     *   %handler.<h>.rethrow:
+     *     call void @nabu_throw(ptr %exn.<h>)
+     *     unreachable
+     *
+     * @return het body-blok waarin de catch-body-instructies geëmit moeten worden.
      */
     private void emitLandingPad(String handlerLabel, IRFunction fn) {
-        // Zoek de exception-type voor deze handler
+        // Zoek het catch-type voor deze handler
         String exType = null;
         for (IRBasicBlock block : fn.blocks()) {
             if (block.label().equals(handlerLabel)) {
@@ -205,51 +244,41 @@ public class FunctionEmitter {
             }
         }
 
-        // %landing_pad = landingpad { ptr, i32 }
-        //     catch ptr @_ZTIPKc    (catch-all)
-        //     catch ptr @exceptionType  (specifiek type)
         LLVMTypeRef i8Ptr = LLVMPointerType(LLVMInt8TypeInContext(ctx), 0);
+        LLVMTypeRef i64   = LLVMInt64TypeInContext(ctx);
+        LLVMTypeRef i32   = LLVMInt32TypeInContext(ctx);
         LLVMTypeRef lpType = LLVMStructTypeInContext(ctx,
-                new PointerPointer<>(new LLVMTypeRef[]{i8Ptr, LLVMInt32TypeInContext(ctx)}),
-                2, 0);
+                new PointerPointer<>(new LLVMTypeRef[]{i8Ptr, i32}), 2, 0);
 
-        // Bepaal hoeveel clauses we nodig hebben
-        List<String> clauses = new ArrayList<>();
-        if (exType != null) {
-            clauses.add(exType);
-        }
-        // Altijd een catch-all clause toevoegen (fallback)
-        clauses.add("catch-all");
-
+        // Landingpad met een echte catch-clause zodat LLVM een LSDA
+        // (.gcc_except_table) emitteert. Zonder een echte catch-clause zou LLVM
+        // geen LSDA genereren en kan de nabu-persoonlijkheid
+        // (nabu_seh_personality) het landingspad niet vinden.
+        //
+        // NB: de type-match gebeurt in code via nabu_can_catch, dus de clause
+        // hoef hier geen specifiek type-info te zijn; elke gegarandeerd
+        // aanwezige typeinfo-global dient als LSDA-trigger. Die wordt in
+        // LLVMModuleEmitter als `@_ZNabunabu.exceptionsEtype_info` geboord.
+        LLVMValueRef personality = globalValueMap.get("@__gcc_personality_v0");
         LLVMValueRef landingPad = LLVMBuildLandingPad(builder, lpType,
-                globalValueMap.getOrDefault("@__gcc_personality_v0",
-                        LLVMConstNull(LLVMPointerType(LLVMInt8TypeInContext(ctx), 0))),
-                clauses.size(),
-                new BytePointer("lpad"));
+                personality != null ? personality : LLVMConstNull(i8Ptr),
+                1, new BytePointer("lpad"));
+        LLVMSetCleanup(landingPad, 1);
 
-        // Voeg clauses toe
-        for (String clause : clauses) {
-            if (clause.equals("catch-all")) {
-                // catch-all: vang alle exceptions
-                // Gebruik @llvm.eh.typeid.for om een unieke ID te krijgen
-                // Voor nu: voeg een null clause toe (vangt alles)
-                // In LLVM is een landingpad zonder clauses een cleanup pad
-            } else {
-                // Specifiek type: voeg catch clause toe
-                LLVMValueRef typeInfo = resolveTypeInfo(clause);
-                if (typeInfo != null) {
-                    LLVMAddClause(landingPad, typeInfo);
-                }
+        LLVMValueRef excTypeInfo = globalValueMap.get("@nabu_exception_typeinfo");
+        if (excTypeInfo != null) {
+            LLVMAddClause(landingPad, excTypeInfo);
+        } else {
+            // Uiterste valback: geen clause (dan geen LSDA, maar geen crash).
+            LLVMValueRef anyTypeInfo = globalValueMap.get("@_ZNabuMainEtype_info");
+            if (anyTypeInfo != null) {
+                LLVMAddClause(landingPad, anyTypeInfo);
             }
         }
 
-        // Extracteer de raw exception pointer van de landingpad
-        String rawExnName = "%raw_exn." + handlerLabel;
+        // Raw exception pointer extraheren en nabu_catch() -> nabu_object*
         LLVMValueRef rawExPtr = LLVMBuildExtractValue(builder, landingPad, 0,
-                new BytePointer(rawExnName));
-
-        // Roep nabu_catch aan om de Nabu exception object pointer te krijgen
-        // nabu_catch(void* unwind_exc) -> void*
+                new BytePointer("%raw_exn." + handlerLabel));
         LLVMValueRef catchFn = globalValueMap.get("@nabu_catch");
         if (catchFn == null) {
             throw new IllegalStateException("Runtime helper @nabu_catch niet gedefinieerd");
@@ -258,19 +287,84 @@ public class FunctionEmitter {
         LLVMTypeRef catchFnType = getNabuCatchType();
         PointerPointer<Pointer> catchArgs = new PointerPointer<>(1);
         catchArgs.put(0, rawExPtr);
-        LLVMValueRef exPtr = LLVMBuildCall2(builder,
-                catchFnType,
-                catchFn,
-                catchArgs,
-                1,
+        LLVMValueRef exPtr = LLVMBuildCall2(builder, catchFnType, catchFn, catchArgs, 1,
                 exnName);
         instructions.getLocalValueMap().put(exnName, exPtr);
 
-        // Selector is nodig voor type-specifieke catch filters (voorlopig opslaan)
-        String selName = "%ehselector." + handlerLabel;
-        LLVMValueRef selector = LLVMBuildExtractValue(builder, landingPad, 1,
-                new BytePointer(selName));
-        instructions.getLocalValueMap().put(selName, selector);
+        // Bepaal de function-eigenaar voor de blokken
+        LLVMValueRef currentFn = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+
+        LLVMBasicBlockRef bodyBlock = LLVMAppendBasicBlockInContext(ctx, currentFn,
+                new BytePointer("handler." + handlerLabel + ".body"));
+
+        if (exType == null) {
+            // catch-all: geen type-check, direct naar de body.
+            LLVMBuildBr(builder, bodyBlock);
+        } else {
+            // Type-naam-string + nabu_can_catch check; bij niet-matchende
+            // exception gaat het pad langs het rethrow-blok.
+            LLVMBasicBlockRef rethrowBlock = LLVMAppendBasicBlockInContext(ctx, currentFn,
+                    new BytePointer("handler." + handlerLabel + ".rethrow"));
+
+            String typeName = normalizeCatchType(exType);
+            LLVMValueRef typeStr = constants.resolveString(typeName,
+                    io.github.potjerodekool.nabu.backend.ir.IRGlobal.Linkage.PRIVATE);
+
+            LLVMValueRef canCatchFn = globalValueMap.get("@nabu_can_catch");
+            if (canCatchFn == null) {
+                throw new IllegalStateException("Runtime helper @nabu_can_catch niet gedefinieerd");
+            }
+            PointerPointer<Pointer> ccParams = new PointerPointer<>(2);
+            ccParams.put(0, exPtr);
+            ccParams.put(1, typeStr);
+            // NB: het param-type-buffer moet TYPE-refs bevatten (LLVMTypeOf van
+            // de argumenten), niet de waarde-refs zelf — LLVMTypeRef en
+            // LLVMValueRef zijn allebei llvm::Value*, en het doorgeven van
+            // waarde-tips aan LLVMFunctionType geeft garbage-paramtypes die
+            // LLVMs verifier laten crashen / "call parameter type does not
+            // match" melden.
+            PointerPointer<Pointer> ccParamTypes = new PointerPointer<>(2);
+            ccParamTypes.put(0, LLVMTypeOf(exPtr));
+            ccParamTypes.put(1, LLVMTypeOf(typeStr));
+            LLVMTypeRef canCatchFnType = LLVMFunctionType(i32, ccParamTypes, 2, 0);
+            LLVMValueRef match = LLVMBuildCall2(builder, canCatchFnType, canCatchFn,
+                    ccParams, 2, "%catch.match");
+            LLVMValueRef ok = LLVMBuildICmp(builder, LLVMIntNE, match,
+                    LLVMConstInt(i32, 0, 0), "%catch.ok");
+            LLVMBuildCondBr(builder, ok, bodyBlock, rethrowBlock);
+            Reference.reachabilityFence(ccParams);
+            Reference.reachabilityFence(ccParamTypes);
+
+            // Rethrow-pad: niet-matchende exception opnieuw gooien
+            LLVMPositionBuilderAtEnd(builder, rethrowBlock);
+            LLVMValueRef throwFn = globalValueMap.get("@nabu_throw");
+            if (throwFn == null) {
+                throw new IllegalStateException("Runtime helper @nabu_throw niet gedefinieerd");
+            }
+            PointerPointer<Pointer> throwFnParams = new PointerPointer<>(1);
+            throwFnParams.put(0, i8Ptr);
+            LLVMTypeRef throwFnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                    throwFnParams, 1, 0);
+            Reference.reachabilityFence(throwFnParams);
+            PointerPointer<Pointer> throwArgs = new PointerPointer<>(1);
+            throwArgs.put(0, exPtr);
+            LLVMBuildCall2(builder, throwFnType, throwFn, throwArgs, 1, "");
+            LLVMBuildUnreachable(builder);
+            Reference.reachabilityFence(rethrowBlock);
+        }
+
+        // Builder positioneren in het body-blok voor de catch-body-instructies
+        LLVMPositionBuilderAtEnd(builder, bodyBlock);
+        handlerBodyBlocks.put(handlerLabel, bodyBlock);
+        Reference.reachabilityFence(i64);
+    }
+
+    /** Normaliseert een catch-type naar de interne naam met slashes (test.Exception -> test/Exception). */
+    private static String normalizeCatchType(String exType) {
+        if (exType == null) return null;
+        String s = ClassLayouts.normalizeInternalName(exType);
+        if (s == null) return null;
+        return s.replace('.', '/');
     }
 
     /**
@@ -281,27 +375,5 @@ public class FunctionEmitter {
         PointerPointer<Pointer> params = new PointerPointer<>(1);
         params.put(0, i8Ptr);
         return LLVMFunctionType(i8Ptr, params, 1, 0);
-    }
-
-    /**
-     * Resoloveert een type-info referentie voor een exception-type.
-     * Zoekt eerst in de module, en retourneert null als niet gevonden.
-     */
-    private LLVMValueRef resolveTypeInfo(String className) {
-        // Zoek naar @_ZTI + className (Itanium ABI)
-        LLVMValueRef typeInfo = globalValueMap.get("@_ZTI" + className);
-        if (typeInfo != null) return typeInfo;
-
-        // Fallback: maak een forward declaration aan
-        LLVMTypeRef i8Ptr = LLVMPointerType(LLVMInt8TypeInContext(ctx), 0);
-        LLVMTypeRef typeInfoType = LLVMStructTypeInContext(ctx,
-                new PointerPointer<>(new LLVMTypeRef[]{
-                        LLVMInt32TypeInContext(ctx), i8Ptr}), 2, 0);
-
-        LLVMValueRef global = LLVMAddGlobal(mod, typeInfoType,
-                new BytePointer("_ZTI" + className));
-        LLVMSetLinkage(global, LLVMExternalLinkage);
-        globalValueMap.put("@_ZTI" + className, global);
-        return global;
     }
 }

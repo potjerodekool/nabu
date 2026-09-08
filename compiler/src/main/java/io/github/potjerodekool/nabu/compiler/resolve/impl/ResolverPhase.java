@@ -278,18 +278,29 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         type = switch (wildCardExpression.getBoundKind()) {
             case UNBOUND -> types.getWildcardType(null, null);
             case EXTENDS -> {
-                final var extendsBound = (TypeMirror) acceptTree(wildCardExpression.getBound(), scope);
+                final var extendsBound = resolveBoundType(wildCardExpression.getBound(), scope);
                 yield types.getWildcardType(extendsBound, null);
 
             }
             case SUPER -> {
-                final var superBound = (TypeMirror) acceptTree(wildCardExpression, scope);
+                final var superBound = resolveBoundType(wildCardExpression.getBound(), scope);
                 yield types.getWildcardType(null, superBound);
             }
         };
 
         wildCardExpression.setType(type);
         return defaultAnswer(wildCardExpression, scope);
+    }
+
+    private TypeMirror resolveBoundType(final io.github.potjerodekool.nabu.tree.expression.ExpressionTree bound,
+                                        final Scope scope) {
+        final var result = acceptTree(bound, scope);
+        if (result instanceof TypeMirror typeMirror) {
+            return typeMirror;
+        }
+        return result instanceof io.github.potjerodekool.nabu.tree.expression.ExpressionTree expressionTree
+                ? expressionTree.getType()
+                : null;
     }
 
     public Object visitIfStatement(final IfStatementTree ifStatementTree, final Scope scope) {
@@ -304,6 +315,34 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         }
 
         return builder.build();
+    }
+
+    @Override
+    public Object visitTryStatement(final TryStatementTree tryStatement, final Scope scope) {
+        if (tryStatement.getBody() != null) {
+            acceptTree(tryStatement.getBody(), scope);
+        }
+
+        for (final CatchTree catcher : tryStatement.getCatchers()) {
+            visitCatch(catcher, scope);
+        }
+
+        if (tryStatement.getFinalizer() != null) {
+            acceptTree(tryStatement.getFinalizer(), scope);
+        }
+
+        return null;
+    }
+
+    @Override
+    public Object visitCatch(final CatchTree catcher, final Scope scope) {
+        if (catcher.getVariable() != null) {
+            acceptTree(catcher.getVariable(), scope);
+        }
+        if (catcher.getBody() != null) {
+            acceptTree(catcher.getBody(), scope);
+        }
+        return null;
     }
 
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
@@ -356,6 +395,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         var type = typeIdentifier.getType();
         final var clazz = typeIdentifier.getClazz();
         final var name = TreeUtils.getClassName(clazz);
+
+        if (name.contains("AUTO")) {
+            System.err.println("[TID-PROBE] name=" + name + " line=" + typeIdentifier.getLineNumber() + ":" + typeIdentifier.getColumnNumber());
+        }
 
         if (type == null) {
             type = resolveType(name, scope);
@@ -655,7 +698,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         final var values = annotationTree.getArguments().stream()
                 .map(it -> (Pair<ExecutableElement, AnnotationValue>) acceptTree(it, annotationScope))
-                .filter(it -> it.first() != null)
+                .filter(it -> it.first() != null && it.second() != null)
                 .collect(Collectors.toMap(
                         Pair::first,
                         Pair::second
@@ -800,27 +843,40 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     scope.getGlobalScope()
             );
             acceptTree(fieldAccessExpression.getField(), symbolScope);
-        } else if (selected.getType() != null) {
-            final var selectedType = selected.getType();
+        } else {
+            var selectedType = selected.getType();
 
-            if (selectedType instanceof ArrayType) {
-                final var classLiteralType = types.getDeclaredType(
-                        loader.loadClass(scope.findModuleElement(), Constants.CLAZZ),
-                        selectedType
-                );
-                fieldAccessExpression.getField().setType(classLiteralType);
-                fieldAccessExpression.setType(classLiteralType);
-                return defaultAnswer(fieldAccessExpression, scope);
+            if (selectedType == null && varElement instanceof ClassSymbol classSymbol) {
+                selectedType = classSymbol.asType();
             }
 
-            final DeclaredType declaredType = asDeclaredType(selectedType);
-            final var classScope = new ClassScope(
-                    declaredType,
-                    null,
-                    scope.getCompilationUnit(),
-                    compilerContext
-            );
-            acceptTree(fieldAccessExpression.getField(), classScope);
+            if (selectedType != null) {
+                if (selectedType instanceof ArrayType) {
+                    final var classLiteralType = types.getDeclaredType(
+                            loader.loadClass(scope.findModuleElement(), Constants.CLAZZ),
+                            selectedType
+                    );
+                    fieldAccessExpression.getField().setType(classLiteralType);
+                    fieldAccessExpression.setType(classLiteralType);
+                    return defaultAnswer(fieldAccessExpression, scope);
+                }
+
+                final DeclaredType declaredType = asDeclaredType(selectedType);
+                final var classScope = new ClassScope(
+                        declaredType,
+                        null,
+                        scope.getCompilationUnit(),
+                        compilerContext
+                );
+                acceptTree(fieldAccessExpression.getField(), classScope);
+            }
+        }
+
+        final var fieldSymbol = fieldAccessExpression.getField().getSymbol();
+
+        if (fieldAccessExpression.getField().getType() == null
+                && fieldSymbol instanceof ClassSymbol fieldClassSymbol) {
+            fieldAccessExpression.getField().setType(fieldClassSymbol.asType());
         }
 
         fieldAccessExpression.setType(fieldAccessExpression.getField().getType());
@@ -844,6 +900,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
             if (symbol != null) {
                 identifier.setSymbol(symbol);
+                if (identifier.getType() == null
+                        && symbol.asType() != null) {
+                    identifier.setType(symbol.asType());
+                }
             } else if (identifier.getSymbol() == null) {
                 identifier.setSymbol(
                         compilerContext.getElementBuilders()
@@ -879,6 +939,20 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     }
 
     @Override
+    public Object visitNewClass(final NewClassExpression newClassExpression, final Scope scope) {
+        acceptTree(newClassExpression.getName(), scope);
+        newClassExpression.getArguments().forEach(argument -> acceptTree(argument, scope));
+
+        if (newClassExpression.getType() == null
+                && newClassExpression.getName() != null
+                && newClassExpression.getName().getType() != null) {
+            newClassExpression.setType(newClassExpression.getName().getType());
+        }
+
+        return newClassExpression;
+    }
+
+    @Override
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Scope scope) {
         final var methodSelector = methodInvocation.getMethodSelector();
@@ -902,6 +976,9 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             final var parameterTypes = methodInvocation.getMethodType().getParameterTypes();
 
             for (var i = 0; i < arguments.size(); i++) {
+                if (i >= parameterTypes.size()) {
+                    break;
+                }
                 final var argument = arguments.get(i);
                 final var parameterType = parameterTypes.get(i);
 

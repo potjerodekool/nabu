@@ -42,26 +42,34 @@ public class SymbolScope implements Scope {
             }
         }
 
-        final var classSymbol = getCurrentClass();
+        var currentClass = getCurrentClass();
 
-        final var fieldOptional = ElementFilter.elements(
-                        classSymbol,
-                        element ->
-                                element.getKind() == ElementKind.FIELD
-                                        || element.getKind() == ElementKind.ENUM_CONSTANT,
-                        VariableElement.class
-                ).stream()
-                .filter(elem -> elem.getKind() == ElementKind.FIELD)
-                .filter(elem -> elem.getSimpleName().equals(name))
-                .findFirst();
+        while (currentClass != null) {
+            final var fieldOptional = ElementFilter.elements(
+                            currentClass,
+                            element ->
+                                    element.getKind() == ElementKind.FIELD
+                                            || element.getKind() == ElementKind.ENUM_CONSTANT,
+                            VariableElement.class
+                    ).stream()
+                    .filter(elem -> elem.getKind() == ElementKind.FIELD)
+                    .filter(elem -> elem.getSimpleName().equals(name))
+                    .findFirst();
 
-        if (fieldOptional.isPresent()) {
-            return fieldOptional.get();
-        } else if (parentScope != null) {
-            return parentScope.resolve(name);
-        } else {
-            return null;
+            if (fieldOptional.isPresent()) {
+                return fieldOptional.get();
+            }
+
+            final var superclass = currentClass.getSuperclass();
+
+            if (superclass instanceof DeclaredType superType) {
+                currentClass = (TypeElement) superType.asElement();
+            } else {
+                currentClass = null;
+            }
         }
+
+        return parentScope != null ? parentScope.resolve(name) : null;
     }
 
     private Optional<ElementResolver> findSymbolResolver(final TypeMirror searchType) {

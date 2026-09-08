@@ -33,6 +33,11 @@ public abstract class JAbstractType<T extends io.github.potjerodekool.nabu.type.
     }
 
     @Override
+    public String toString() {
+        return original != null ? original.toString() : getKind().name().toLowerCase();
+    }
+
+    @Override
     public TypeKind getKind() {
         return kind;
     }

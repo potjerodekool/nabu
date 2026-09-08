@@ -84,7 +84,7 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                     boolean match = true;
 
                     if (typeArgs.size() != otherTypeArgs.size()) {
-                        throw new IllegalStateException();
+                        return false;
                     }
 
                     for (var i = 0; i < typeArgs.size() && match; i++) {

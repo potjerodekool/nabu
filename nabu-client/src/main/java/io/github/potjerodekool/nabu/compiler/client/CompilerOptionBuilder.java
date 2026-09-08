@@ -11,6 +11,7 @@ public class CompilerOptionBuilder {
     private final List<String> sourcePath = new ArrayList<>();
     private final List<String> classPath = new ArrayList<>();
     private String outputDirectory;
+    private String backend;
 
     public CompilerOptionBuilder sourcePath(final String sourcePathElement) {
         this.sourcePath.add(sourcePathElement);
@@ -37,10 +38,15 @@ public class CompilerOptionBuilder {
         return this;
     }
 
+    public CompilerOptionBuilder backend(final String backend) {
+        this.backend = backend;
+        return this;
+    }
+
     public Map<String, String> build() {
         final var optionsMap = new HashMap<String, String>();
 
-        if (!classPath.isEmpty()) {
+        if (!sourcePath.isEmpty()) {
             optionsMap.put("--source-path", String.join(File.pathSeparator, sourcePath));
         }
 
@@ -50,6 +56,10 @@ public class CompilerOptionBuilder {
 
         if (outputDirectory != null) {
             optionsMap.put("-d", outputDirectory);
+        }
+
+        if (backend != null) {
+            optionsMap.put("--backend", backend);
         }
 
         return optionsMap;

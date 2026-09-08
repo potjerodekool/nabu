@@ -257,9 +257,17 @@ public class ClassFinder {
                 compilerContext
         );
         final var classes = compilationUnit.getClasses();
+
+        final var typeEnter = compilerContext.getTypeEnter();
+
+        if (classes.isEmpty()) {
+            typeEnter.put(classSymbol, null, compilationUnit);
+            classSymbol.setCompleter(typeEnter);
+            return;
+        }
+
         final var classDeclaration = (CClassDeclaration) classes.getFirst();
         classDeclaration.setClassSymbol(classSymbol);
-        final var typeEnter = compilerContext.getTypeEnter();
         typeEnter.put(classSymbol, classDeclaration, compilationUnit);
         classSymbol.setCompleter(typeEnter);
     }

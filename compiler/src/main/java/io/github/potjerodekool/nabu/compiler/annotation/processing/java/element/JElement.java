@@ -1,10 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.annotation.processing.java.element;
 
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.TypeWrapperFactory;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.AnnotationUtils;
 
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeMirror;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Array;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -105,13 +107,28 @@ public abstract class JElement<S extends io.github.potjerodekool.nabu.lang.model
 
     @Override
     public <A extends Annotation> A getAnnotation(final Class<A> annotationType) {
-        return null;
+        final var mirror = original.getAnnotationMirrors().stream()
+                .filter(it -> annotationType.getName().equals(it.getAnnotationType().asTypeElement().getQualifiedName()))
+                .findFirst()
+                .orElse(null);
+
+        return mirror != null
+                ? AnnotationUtils.proxy(mirror, AnnotationUtils.getAnnotationProcessorClassLoader())
+                : null;
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public <A extends Annotation> A[] getAnnotationsByType(final Class<A> annotationType) {
-        return (A[]) new Annotation[0];
+        final A annotation = getAnnotation(annotationType);
+
+        if (annotation == null) {
+            return (A[]) new Annotation[0];
+        }
+
+        final A[] array = (A[]) Array.newInstance(annotationType, 1);
+        array[0] = annotation;
+        return array;
     }
 
     @Override

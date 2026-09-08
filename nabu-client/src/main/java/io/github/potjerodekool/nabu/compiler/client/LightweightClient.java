@@ -12,10 +12,20 @@ import java.util.function.Consumer;
  */
 public class LightweightClient {
     private static final String HOST = "localhost";
-    private static final int PORT = 9876;
+    private static final int DEFAULT_PORT = 9876;
+
+    private final int port;
+
+    public LightweightClient() {
+        this(DEFAULT_PORT);
+    }
+
+    public LightweightClient(final int port) {
+        this.port = port;
+    }
 
     private void performAction(final Action consumer) throws IOException {
-        try (final Socket socket = new Socket(HOST, PORT)) {
+        try (final Socket socket = new Socket(HOST, port)) {
             final var out = new DataOutputStream(socket.getOutputStream());
             final var in = new DataInputStream(socket.getInputStream());
             consumer.apply(in, out);
@@ -23,7 +33,7 @@ public class LightweightClient {
     }
 
     private <R> R performAction(final ActionWithResult<R> consumer) throws IOException {
-        try (final Socket socket = new Socket(HOST, PORT)) {
+        try (final Socket socket = new Socket(HOST, port)) {
             final var out = new DataOutputStream(socket.getOutputStream());
             final var in = new DataInputStream(socket.getInputStream());
             return consumer.apply(in, out);
@@ -51,6 +61,9 @@ public class LightweightClient {
         return performAction((in, out) -> {
             // Send COMPILE command
             out.writeByte(Protocol.CMD_COMPILE);
+
+            // Het aantal opties eerst, dan per optie "key value" als UTF.
+            out.writeInt(compilerOptions.size());
 
             //Set compiler options.
             for (final var compileOption : compilerOptions.entrySet()) {

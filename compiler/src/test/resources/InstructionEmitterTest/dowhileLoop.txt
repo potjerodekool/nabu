@@ -20,36 +20,34 @@ public class MyClass {
    FRAME FULL [MyClass I I I] []
     ILOAD 2
     ISTORE 4
-    ILOAD 1
-    ISTORE 5
     ILOAD 4
-    ILOAD 5
+    ILOAD 1
     IADD
-    ISTORE 6
-    ILOAD 6
+    ISTORE 5
+    ILOAD 5
     ISTORE 2
     ILOAD 3
-    ISTORE 7
-    ILOAD 7
+    ISTORE 6
+    ILOAD 6
     ICONST_1
     ISUB
-    ISTORE 8
-    ILOAD 8
+    ISTORE 7
+    ILOAD 7
     ISTORE 3
    L2
     LINENUMBER 9 L2
     ILOAD 3
-    ISTORE 9
-    ILOAD 9
+    ISTORE 8
+    ILOAD 8
     ICONST_0
     IF_ICMPGT L1
     GOTO L3
    L3
     LINENUMBER 11 L3
-   FRAME FULL [MyClass I I I I I I I I I] []
+   FRAME FULL [MyClass I I I I I I I I] []
     ILOAD 2
-    ISTORE 10
-    ILOAD 10
+    ISTORE 9
+    ILOAD 9
     IRETURN
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0
@@ -57,7 +55,7 @@ public class MyClass {
     LOCALVARIABLE result I L0 L4 2
     LOCALVARIABLE steps I L0 L4 3
     MAXSTACK = 2
-    MAXLOCALS = 11
+    MAXLOCALS = 10
 
   // access flags 0x1
   public <init>()V

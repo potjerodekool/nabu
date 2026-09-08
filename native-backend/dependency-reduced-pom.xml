@@ -9,6 +9,19 @@
   <artifactId>native-backend</artifactId>
   <name>${project.groupId}:${project.artifactId}</name>
   <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <resource>
+        <targetPath>nabu/runtime</targetPath>
+        <directory>${project.basedir}/../runtime</directory>
+        <includes>
+          <include>nabu_runtime.c</include>
+          <include>nabu_runtime.h</include>
+        </includes>
+      </resource>
+    </resources>
     <finalName>${project.artifactId}</finalName>
     <plugins>
       <plugin>
@@ -82,6 +95,12 @@
           <groupId>org.ow2.asm</groupId>
         </exclusion>
       </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.github.potjerodekool</groupId>
+      <artifactId>nabu-lang</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>io.github.potjerodekool</groupId>
@@ -159,11 +178,11 @@
     </dependency>
   </dependencies>
   <properties>
-    <maven.compiler.target>21</maven.compiler.target>
-    <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
-    <javacpp.platform>windows-x86_64</javacpp.platform>
     <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
     <javacpp.version>1.5.13</javacpp.version>
+    <javacpp.platform>windows-x86_64</javacpp.platform>
   </properties>
 </project>

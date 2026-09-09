@@ -31,6 +31,10 @@ public class FunctionScope extends AbstractScope {
 
     @Override
     public TypeMirror resolveType(final String name) {
+        if (owner == null) {
+            return super.resolveType(name);
+        }
+
         final var methodType = (ExecutableType) owner.asType();
         return methodType.getTypeVariables().stream()
                 .filter(it -> it.asElement().getSimpleName().equals(name))

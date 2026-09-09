@@ -78,7 +78,13 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
 
     @Override
     public boolean isVarArgs() {
-        return hasFlag(Flags.VARARGS);
+        if (hasFlag(Flags.VARARGS)) {
+            return true;
+        }
+
+        return parameters.stream()
+                .filter(p -> p.asType() instanceof io.github.potjerodekool.nabu.compiler.type.impl.CArrayType)
+                .anyMatch(p -> ((io.github.potjerodekool.nabu.compiler.type.impl.CArrayType) p.asType()).isVarArgs());
     }
 
     @Override

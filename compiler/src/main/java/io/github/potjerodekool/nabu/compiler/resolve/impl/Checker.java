@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.lang.model.element.*;
+import io.github.potjerodekool.nabu.resolve.scope.FunctionScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.scope.SymbolScope;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
@@ -13,6 +14,7 @@ import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CVariableTypeTree;
 import io.github.potjerodekool.nabu.tree.statement.SwitchStatement;
@@ -29,6 +31,8 @@ import java.util.stream.Collectors;
 
 public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
+    private static final java.util.Set<String> NAMES_TRACED = new java.util.HashSet<>();
+
     private final CompilerContext compilerContext;
     private final DiagnosticListener listener;
 
@@ -36,6 +40,16 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                    final DiagnosticListener listener) {
         this.compilerContext = compilerContext;
         this.listener = listener;
+    }
+
+    @Override
+    public Object visitFunction(final Function function,
+                                final Scope scope) {
+        final var method = function.getMethodSymbol();
+        final var functionScope = new FunctionScope(scope, method);
+
+        super.visitFunction(function, functionScope);
+        return null;
     }
 
     private CompilationUnit getCompilationUnit(final Scope scope) {
@@ -119,7 +133,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                 methodName = fieldAccessExpressionTree.getField().getName();
                 final var selectedType = fieldAccessExpressionTree.getSelected().getType();
 
-                if (selectedType != null) {
+                if (selectedType != null && selectedType.asTypeElement() != null) {
                     targetType = selectedType.asTypeElement()
                             .getQualifiedName();
                 } else {
@@ -128,6 +142,20 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
             } else {
                 methodName = ((IdentifierTree) methodSelector).getName();
                 targetType = scope.getCurrentClass().getQualifiedName();
+            }
+
+            if (methodInvocation.getLineNumber() == -1 && !NAMES_TRACED.contains(methodName)) {
+                NAMES_TRACED.add(methodName);
+                if (methodName.equals("initializable") || methodName.equals("isNonDefault")
+                        || methodName.equals("valueOf") || methodName.equals("clone")) {
+                    System.err.println("[CHECK-TRACE] name=" + methodName + " target=" + targetType
+                            + " args=" + createMethodSignature(methodInvocation));
+                    new Exception("[CHECK-TRACE]").printStackTrace();
+                }
+            }
+
+            if (methodInvocation.getLineNumber() == -1 && methodInvocation.getColumnNumber() == -1) {
+                return null;
             }
 
 
@@ -146,6 +174,14 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
                     methodInvocation.getLineNumber(),
                     methodInvocation.getColumnNumber()
             ));
+
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println(methodInvocation.getLineNumber() + ":" + methodInvocation.getColumnNumber()
+                        + " " + message);
+            } catch (java.io.IOException e) {
+                // ignore
+            }
         }
 
         methodInvocation.getArguments().forEach(arg ->

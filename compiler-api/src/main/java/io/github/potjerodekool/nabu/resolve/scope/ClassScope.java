@@ -75,11 +75,51 @@ public class ClassScope implements Scope {
 
             final var clazz = loader.loadClass(module, Constants.CLAZZ);
             return types.getDeclaredType(clazz, declaredType);
-        } else {
-            return parentScope != null
-                    ? parentScope.resolveType(name)
-                    : null;
         }
+
+        var enclosing = getCurrentClass();
+
+        while (enclosing != null) {
+            var ancestor = enclosing;
+
+            while (ancestor != null) {
+                final var memberTypeOptional = ElementFilter.elements(
+                                ancestor,
+                                element ->
+                                        element.getKind().isClass()
+                                                || element.getKind().isInterface()
+                                                || element.getKind() == ElementKind.ENUM
+                                                || element.getKind() == ElementKind.ANNOTATION_TYPE,
+                                TypeElement.class
+                        ).stream()
+                        .filter(elem -> elem.getSimpleName().contentEquals(name))
+                        .findFirst();
+
+                if (memberTypeOptional.isPresent()) {
+                    return memberTypeOptional.get().asType();
+                }
+
+                final var superclass = ancestor.getSuperclass();
+
+                if (superclass instanceof DeclaredType superType) {
+                    ancestor = (TypeElement) superType.asElement();
+                } else {
+                    ancestor = null;
+                }
+            }
+
+            final var outerClass = enclosing.getEnclosingElement();
+
+            if (outerClass instanceof TypeElement enclosingType) {
+                enclosing = enclosingType;
+            } else {
+                enclosing = null;
+            }
+        }
+
+        return parentScope != null
+                ? parentScope.resolveType(name)
+                : null;
     }
 
     @Override

@@ -116,6 +116,15 @@ public class NabuCompiler implements Compiler {
             }
 
             return result;
+        } catch (final StackOverflowError soe) {
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/soe.log", false))) {
+                pw.println("=== StackOverflowError ===");
+                soe.printStackTrace(pw);
+            } catch (final java.io.IOException ioe) {
+                soe.printStackTrace(System.err);
+            }
+            throw soe;
         } catch (final Exception e) {
             e.printStackTrace(System.err);
             throw new RuntimeException(e);
@@ -244,13 +253,19 @@ public class NabuCompiler implements Compiler {
                                                final CompilerContextImpl compilerContext) {
         var compilationUnits = new ArrayList<>(parseFiles(files, compilerContext));
 
-        Modules.getInstance(compilerContext)
-                .initAllModules();
-
         compilationUnits = compilationUnits.stream()
                 .map(fileObjectAndCompilationUnit ->
                         enterPhase(fileObjectAndCompilationUnit, compilerContext))
                 .collect(Collectors.toCollection(ArrayList::new));
+
+        // Import scopes vroegtijdig vullen (vóór lazy klassymbol-completion
+        // en vóór de resolutie): anders kan de volgorde van completies de
+        // star-import definities 'verbruiken'.
+        compilationUnits.forEach(unit ->
+                compilerContext.getTypeEnter().fillImportsForUnit(unit));
+
+        Modules.getInstance(compilerContext)
+                .initAllModules();
 
         final var generatedUnits = runAnnotationProcessors(compilerContext, compilationUnits);
 

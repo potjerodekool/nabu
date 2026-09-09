@@ -14,6 +14,7 @@ import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.tree.*;
@@ -32,6 +33,8 @@ import java.util.stream.Collectors;
 
 public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
+    private static int MI_DEPTH = 0;
+    private static int MI_TRACE_COUNT = 0;
     private static final Logger logger = Logger.getLogger(ResolverPhase.class.getName());
     private final CompilerContextImpl compilerContext;
     private final ClassElementLoader loader;
@@ -81,6 +84,42 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitPackageDeclaration(final PackageDeclaration packageDeclaration, final Scope scope) {
         scope.setPackageElement(packageDeclaration.getPackageElement());
         return null;
+    }
+
+    @Override
+    public Object visitImportItem(final ImportItem importItem,
+                                  final Scope scope) {
+        if (importItem.getSymbol() != null && !importItem.getSymbol().isError()) {
+            return importItem;
+        }
+
+        if (importItem.isStarImport()) {
+            final var symbol = loader.loadClass(scope.findModuleElement(), importItem.getClassOrPackageName());
+            if (symbol != null) {
+                importItem.setSymbol(symbol);
+            }
+            return importItem;
+        }
+
+        final var classOrPackageName = importItem.getClassOrPackageName();
+        var clazz = loader.loadClass(scope.findModuleElement(), classOrPackageName);
+
+        if (clazz == null && classOrPackageName.contains(".")) {
+            final var parts = classOrPackageName.split("\\.");
+
+            for (var splitIndex = 1; splitIndex < parts.length && clazz == null; splitIndex++) {
+                final var pkg = String.join(".", java.util.Arrays.copyOfRange(parts, 0, splitIndex));
+                final var nestedName = String.join("$", java.util.Arrays.copyOfRange(parts, splitIndex, parts.length));
+
+                clazz = loader.loadClass(scope.findModuleElement(), pkg + "." + nestedName);
+            }
+        }
+
+        if (clazz != null) {
+            importItem.setSymbol(clazz);
+        }
+
+        return importItem;
     }
 
     @Override
@@ -140,10 +179,20 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitFunction(final Function function,
                                 final Scope scope) {
-        final var method = function.getMethodSymbol();
+        var method = function.getMethodSymbol();
+
+        if (method == null) {
+            final var currentClass = scope.getCurrentClass();
+
+            if (currentClass instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol classSymbol) {
+                classSymbol.complete();
+                method = function.getMethodSymbol();
+            }
+        }
+
         final var functionScope = new FunctionScope(scope, method);
 
-        if (!method.isStatic()) {
+        if (method != null && !method.isStatic()) {
             final var type = method.getEnclosingElement().asType();
 
             final var thisVariable = new VariableSymbolBuilderImpl()
@@ -352,9 +401,9 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         var binaryType = switch (binaryExpression.getTag()) {
             case ADD, SUB  -> {
-                if (leftType.isPrimitiveType()) {
+                if (leftType != null && leftType.isPrimitiveType()) {
                     yield leftType;
-                } else if (rightType.isPrimitiveType()) {
+                } else if (rightType != null && rightType.isPrimitiveType()) {
                     yield rightType;
                 } else {
                     yield null;
@@ -393,12 +442,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
         var type = typeIdentifier.getType();
+
+        if (isErrorType(type)) {
+            type = null;
+        }
+
         final var clazz = typeIdentifier.getClazz();
         final var name = TreeUtils.getClassName(clazz);
-
-        if (name.contains("AUTO")) {
-            System.err.println("[TID-PROBE] name=" + name + " line=" + typeIdentifier.getLineNumber() + ":" + typeIdentifier.getColumnNumber());
-        }
 
         if (type == null) {
             type = resolveType(name, scope);
@@ -430,6 +480,36 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                                    final Scope scope) {
         TypeMirror type = scope.resolveType(name);
 
+        if (type == null && name.contains(".") && !name.startsWith(".") && !name.endsWith(".")) {
+            // Geneste referentie zoals Map.Entry: resolveer de qualifier en
+            // zoek daarna het lidtype ervan.
+            final var lastDot = name.lastIndexOf('.');
+            final var qualifier = name.substring(0, lastDot);
+            final var simple = name.substring(lastDot + 1);
+
+            final var qualifierType = resolveType(qualifier, scope);
+
+            if (qualifierType != null
+                    && qualifierType.asTypeElement() != null
+                    && !qualifierType.isError()) {
+                final var memberOptional = ElementFilter.elements(
+                                qualifierType.asTypeElement(),
+                                element ->
+                                        element.getKind().isClass()
+                                                || element.getKind().isInterface()
+                                                || element.getKind() == ElementKind.ENUM
+                                                || element.getKind() == ElementKind.ANNOTATION_TYPE,
+                                TypeElement.class
+                        ).stream()
+                        .filter(elem -> elem.getSimpleName().contentEquals(simple))
+                        .findFirst();
+
+                if (memberOptional.isPresent()) {
+                    type = memberOptional.get().asType();
+                }
+            }
+        }
+
         if (type == null) {
             final var resolvedClass = loader.loadClass(
                     scope.findModuleElement(),
@@ -455,9 +535,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             final var allParamsTyped = variables.stream()
                     .allMatch(v -> v instanceof VariableDeclaratorTree vd
                             && vd.getVariableType() != null);
-            if (lambdaMethodType == null && allParamsTyped) {
-                variables.forEach(variable -> acceptTree(variable, scope));
-                acceptTree(lambdaExpression.getBody(), scope);
+            if (lambdaMethodType == null) {
+                final var lambdaScope = new LocalScope(scope);
+                variables.forEach(variable -> acceptTree(variable, lambdaScope));
+                acceptTree(lambdaExpression.getBody(), lambdaScope);
             }
             defaultAnswer(lambdaExpression, scope);
 
@@ -490,6 +571,31 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     )
             );
             lambdaExpression.setType(partialType);
+
+            // Definieer de impliciete parameters en bezoek de body, zodat
+            // identifiers binnen de lambda op zijn minst met een unknown-type
+            // opgelost kunnen worden (postResolve lost ze later in met de
+            // effectieve parametertypes).
+            final var lambdaScope = new LocalScope(scope);
+
+            lambdaExpression.getVariables().forEach(variable -> {
+                if (variable instanceof IdentifierTree identifier) {
+                    if (identifier.getSymbol() == null) {
+                        final var symbol = new VariableSymbolBuilderImpl()
+                                .kind(ElementKind.PARAMETER)
+                                .simpleName(identifier.getName())
+                                .type(types.getUnknownType())
+                                .build();
+                        identifier.setSymbol(symbol);
+                        identifier.setType(types.getUnknownType());
+                        lambdaScope.define(symbol);
+                    }
+                } else {
+                    acceptTree(variable, lambdaScope);
+                }
+            });
+
+            acceptTree(lambdaExpression.getBody(), lambdaScope);
         }
 
         if (lambdaMethodType != null) {
@@ -771,7 +877,8 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var currentClass = scope.getCurrentClass();
 
         var typeBound = typeParameterTree.getTypeBound().stream()
-                .map(it -> (TypeMirror) acceptTree(it, scope))
+                .map(it -> resolveBoundType(it, scope))
+                .filter(Objects::nonNull)
                 .toList();
 
         final var upperBound = switch (typeBound.size()) {
@@ -788,6 +895,18 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 upperBound,
                 null
         ).asElement();
+    }
+
+    private boolean isErrorType(final TypeMirror type) {
+        if (type == null) {
+            return false;
+        }
+        try {
+            return type.isError();
+        } catch (final NullPointerException e) {
+            // Sommige synthetische types hebben geen element.
+            return false;
+        }
     }
 
     private DeclaredType asDeclaredType(final TypeMirror typeMirror) {
@@ -830,49 +949,55 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             }
         }
 
-        if (varElement != null) {
-            final var varType = varElement.asType();
+        var selectedType = selected.getType();
 
-            if (varType instanceof ArrayType) {
-                return defaultAnswer(fieldAccessExpression, scope);
-            }
+        if (selectedType == null && varElement != null) {
+            selectedType = varElement.asType();
+        }
 
-            final DeclaredType declaredType = asDeclaredType(varType);
+        if (selectedType != null && "class".equals(fieldAccessExpression.getField().getName())
+                && (selectedType instanceof ArrayType || asDeclaredType(selectedType) != null)) {
+            final var classLiteralType = types.getDeclaredType(
+                    loader.loadClass(scope.findModuleElement(), Constants.CLAZZ),
+                    selectedType
+            );
+            fieldAccessExpression.getField().setType(classLiteralType);
+            fieldAccessExpression.setType(classLiteralType);
+            return defaultAnswer(fieldAccessExpression, scope);
+        }
+
+        final DeclaredType declaredType = selectedType != null
+                ? asDeclaredType(selectedType)
+                : null;
+
+        if (declaredType != null) {
             final var symbolScope = new SymbolScope(
                     declaredType,
                     scope.getGlobalScope()
             );
             acceptTree(fieldAccessExpression.getField(), symbolScope);
-        } else {
-            var selectedType = selected.getType();
-
-            if (selectedType == null && varElement instanceof ClassSymbol classSymbol) {
-                selectedType = classSymbol.asType();
-            }
-
-            if (selectedType != null) {
-                if (selectedType instanceof ArrayType) {
-                    final var classLiteralType = types.getDeclaredType(
-                            loader.loadClass(scope.findModuleElement(), Constants.CLAZZ),
-                            selectedType
-                    );
-                    fieldAccessExpression.getField().setType(classLiteralType);
-                    fieldAccessExpression.setType(classLiteralType);
-                    return defaultAnswer(fieldAccessExpression, scope);
-                }
-
-                final DeclaredType declaredType = asDeclaredType(selectedType);
-                final var classScope = new ClassScope(
-                        declaredType,
-                        null,
-                        scope.getCompilationUnit(),
-                        compilerContext
-                );
-                acceptTree(fieldAccessExpression.getField(), classScope);
-            }
         }
 
         final var fieldSymbol = fieldAccessExpression.getField().getSymbol();
+
+        if ((fieldSymbol == null || fieldSymbol instanceof ErrorSymbol)
+                && selectedType instanceof DeclaredType selectedDeclaredType) {
+            final var selectedClassName = selectedDeclaredType.asTypeElement().getQualifiedName();
+            final var nestedClass = loader.loadClass(
+                    scope.findModuleElement(),
+                    selectedClassName + "$" + fieldAccessExpression.getField().getName()
+            );
+
+            if (nestedClass != null
+                    && !(nestedClass instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol)
+                    && nestedClass instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol nestedClassSymbol
+                    && (nestedClassSymbol.getClassFile() != null || nestedClassSymbol.getSourceFile() != null)
+                    && nestedClass.getKind().isClass()) {
+                fieldAccessExpression.getField().setSymbol(nestedClass);
+                fieldAccessExpression.setType(nestedClass.asType());
+                return defaultAnswer(fieldAccessExpression, scope);
+            }
+        }
 
         if (fieldAccessExpression.getField().getType() == null
                 && fieldSymbol instanceof ClassSymbol fieldClassSymbol) {
@@ -887,6 +1012,28 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitIdentifier(final IdentifierTree identifier,
                                   final Scope scope) {
         var type = identifier.getType();
+
+        if (isErrorType(type)) {
+            // Een fouttype van een eerdere (ongebonden) passe mag een
+            // properde hersolutering in een latere pas niet blokkeren.
+            type = null;
+        }
+
+        if (type == null
+                && identifier.getSymbol() == null
+                && (Constants.THIS.equals(identifier.getName())
+                || Constants.SUPER.equals(identifier.getName()))) {
+            final var currentClass = scope.getCurrentClass();
+
+            if (currentClass != null) {
+                if (Constants.SUPER.equals(identifier.getName())
+                        && currentClass.getSuperclass() instanceof DeclaredType superDeclaredType) {
+                    type = superDeclaredType;
+                } else if (currentClass.asType() instanceof DeclaredType currentDeclaredType) {
+                    type = currentDeclaredType;
+                }
+            }
+        }
 
         if (type == null) {
             type = resolveType(identifier.getName(), scope);
@@ -955,7 +1102,22 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Scope scope) {
-        final var methodSelector = methodInvocation.getMethodSelector();
+        if (MI_TRACE_COUNT < 60) {
+            MI_TRACE_COUNT++;
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[MI] depth=" + MI_DEPTH
+                        + " line=" + methodInvocation.getLineNumber()
+                        + " col=" + methodInvocation.getColumnNumber()
+                        + " sel=" + methodInvocation.getMethodSelector());
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
+
+        MI_DEPTH++;
+        try {
+            final var methodSelector = methodInvocation.getMethodSelector();
         acceptTree(methodSelector, scope);
 
         methodInvocation.getArguments().forEach(arg -> acceptTree(arg, scope));
@@ -988,7 +1150,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             }
         }
 
-        return null;
+            return null;
+        } finally {
+            MI_DEPTH--;
+        }
     }
 
     @Override
@@ -1160,7 +1325,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         );
     }
 
-    private Attribute createAttribute(final TypeMirror type) {
+private Attribute createAttribute(final TypeMirror type) {
         if (type instanceof DeclaredType declaredType) {
             if (Constants.CLAZZ.equals(declaredType.asTypeElement().getQualifiedName())) {
                 return new CClassAttribute(type);

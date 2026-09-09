@@ -85,7 +85,71 @@ class AnnotationInvocationHandler implements InvocationHandler {
             return equalsCheck(proxy, args[0]);
         }
 
-        return memberValues.get(methodName);
+        return adaptValue(resolveMemberValue(methodName, method), method.getReturnType());
+    }
+
+    /**
+     * Zoekt de attribuutwaarde op; valt terug op de reflective default en,
+     * indien die ook ontbreekt, op een primitieve standaardwaarde zodat de
+     * proxy nooit null teruggeeft voor een attribuut met een niet-primitief
+     * verwacht type (het annotatiecontract).
+     */
+    private Object resolveMemberValue(final String methodName,
+                                     final Method method) {
+        final var value = memberValues.get(methodName);
+
+        if (value != null) {
+            return value;
+        }
+
+        try {
+            final var defaultFromReflection = method.getDefaultValue();
+
+            if (defaultFromReflection != null) {
+                return defaultFromReflection;
+            }
+        } catch (final Throwable ignored) {
+            // reflectie kan falen (bijv. cl_init van de annotatieklasse);
+            // val daarna terug op een primitieve standaardwaarde.
+        }
+
+        final var returnType = method.getReturnType();
+
+        if (returnType == boolean.class) {
+            return Boolean.FALSE;
+        } else if (returnType == byte.class) {
+            return (byte) 0;
+        } else if (returnType == short.class) {
+            return (short) 0;
+        } else if (returnType == int.class) {
+            return 0;
+        } else if (returnType == long.class) {
+            return 0L;
+        } else if (returnType == char.class) {
+            return (char) 0;
+        } else if (returnType == float.class) {
+            return 0f;
+        } else if (returnType == double.class) {
+            return 0d;
+        }
+
+        return null;
+    }
+
+    private Object adaptValue(final Object value,
+                              final Class<?> returnType) {
+        if (value == null || returnType == null || !returnType.isArray()) {
+            return value;
+        }
+
+        if (value.getClass().isArray()
+                && value.getClass().getComponentType() == returnType.getComponentType()) {
+            return value;
+        }
+
+        final var array = Array.newInstance(returnType.getComponentType(), 1);
+        Array.set(array, 0, value);
+        return array;
     }
 
     private String generateToString() {

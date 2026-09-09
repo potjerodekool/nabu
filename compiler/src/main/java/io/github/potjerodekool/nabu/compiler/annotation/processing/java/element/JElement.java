@@ -65,7 +65,11 @@ public abstract class JElement<S extends io.github.potjerodekool.nabu.lang.model
 
     public ElementKind getKind() {
         if (kind == null) {
-            kind = ElementKind.valueOf(original.getKind().name());
+            if (original.getKind().name().equals("ANNOTATION")) {
+                kind = ElementKind.ANNOTATION_TYPE;
+            } else {
+                kind = ElementKind.valueOf(original.getKind().name());
+            }
         }
 
         return kind;

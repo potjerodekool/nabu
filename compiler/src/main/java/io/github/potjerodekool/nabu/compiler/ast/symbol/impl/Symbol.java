@@ -63,11 +63,14 @@ public abstract class Symbol implements Element {
         if (owner == null || owner instanceof PackageSymbol packageSymbol
                 && packageSymbol.isUnnamed()) {
             return name;
-        } else {
-            final var separator = owner.getKind().isDeclaredType() ? '$' : '.';
-            final var ownerName = owner.getFlatName();
-            return ownerName + separator + name;
         }
+
+        if (owner instanceof PackageSymbol packageSymbol) {
+            return packageSymbol.getFlatName() + '.' + name;
+        }
+
+        // Geneste klasse: platte naam van de eigen klasse.
+        return owner.getFlatName() + '$' + name;
     }
 
     public static String createFlatName(final String packageName) {

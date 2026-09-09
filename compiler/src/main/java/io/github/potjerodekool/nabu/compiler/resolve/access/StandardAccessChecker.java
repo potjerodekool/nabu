@@ -22,8 +22,8 @@ public final class StandardAccessChecker implements AccessChecker {
         }
     }
 
-    private boolean isAccessible(final VariableElement variableElement,
-                                 final TypeElement classSymbol) {
+private boolean isAccessible(final VariableElement variableElement,
+                                  final TypeElement classSymbol) {
         if (variableElement.getKind() != ElementKind.FIELD) {
             return true;
         }
@@ -31,9 +31,25 @@ public final class StandardAccessChecker implements AccessChecker {
         final var declaringClass = (TypeElement) variableElement.getEnclosingElement();
 
         if (variableElement.isPrivate()) {
-            return classSymbol.getQualifiedName().equals(declaringClass.getQualifiedName());
+            return classSymbol.getQualifiedName().equals(declaringClass.getQualifiedName())
+                    || sameTopLevelClass(declaringClass, classSymbol);
         } else {
             return true;
         }
+    }
+
+    private boolean sameTopLevelClass(final TypeElement classA,
+                                      final TypeElement classB) {
+        return topLevelOf(classA).equals(topLevelOf(classB));
+    }
+
+    private Object topLevelOf(final TypeElement classSymbol) {
+        var current = classSymbol;
+
+        while (current.getEnclosingElement() instanceof TypeElement enclosing) {
+            current = enclosing;
+        }
+
+        return current.getQualifiedName();
     }
 }

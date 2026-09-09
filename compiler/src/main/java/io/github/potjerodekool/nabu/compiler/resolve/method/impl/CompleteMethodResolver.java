@@ -25,6 +25,18 @@ import java.util.stream.Collectors;
 
 public class CompleteMethodResolver implements MethodResolver {
 
+    private static int SUPER_TRACE_COUNT = 0;
+    private static int SUPER_IDENT_COUNT = 0;
+    private static int SUPER_ENTRY_COUNT = 0;
+    private static int GPA_COUNT = 0;
+    private static int CTOR_TRACE_COUNT = 0;
+    private static int PHASE2_TRACE_COUNT = 0;
+    private static int PH2_ARITY_COUNT = 0;
+    private static int PHASE_LEVEL_TRACE_COUNT = 0;
+    private static int RESOLVE_FAIL_TRACE_COUNT = 0;
+    private static int CURRENT_INVOCATION_LINE = -1;
+    private static int RESOLVE_TYPE_TRACE_COUNT = 0;
+
     private final Elements elements;
     private final Types types;
     private final TreeUtils treeUtils;
@@ -78,6 +90,13 @@ public class CompleteMethodResolver implements MethodResolver {
     }
 
     private DeclaredType resolveTargetType(final ExpressionTree selected, final Element currentElement) {
+        if (selected instanceof IdentifierTree identifierTree
+                && (Constants.SUPER.equals(identifierTree.getName())
+                || Constants.THIS.equals(identifierTree.getName()))
+                && identifierTree.getSymbol() == null) {
+            return resolveTargetType(null, currentElement);
+        }
+
         if (selected == null) {
             if (currentElement instanceof ExecutableElement executableElement) {
                 final var clazz = (TypeElement) executableElement.getEnclosingElement();
@@ -85,6 +104,21 @@ public class CompleteMethodResolver implements MethodResolver {
             } else if (currentElement instanceof TypeElement typeElement) {
                 return (DeclaredType) typeElement.asType();
             } else {
+                // currentElement is geen ExecutableElement of TypeElement
+                // (bijv. een lambda- of synthetisch element): zoek de
+                // dichtstbijzijnde enclosing TypeElement.
+                var enclosingElement = currentElement != null
+                        ? currentElement.getEnclosingElement()
+                        : null;
+
+                while (enclosingElement != null && !(enclosingElement instanceof TypeElement)) {
+                    enclosingElement = enclosingElement.getEnclosingElement();
+                }
+
+                if (enclosingElement instanceof TypeElement enclosingType) {
+                    return asClassType(enclosingType.asType());
+                }
+
                 return types.getErrorType("");
             }
         } else {
@@ -130,6 +164,16 @@ public class CompleteMethodResolver implements MethodResolver {
             if (methodType != null) {
                 return methodType.getReturnType();
             } else {
+                if (RESOLVE_TYPE_TRACE_COUNT < 40) {
+                    RESOLVE_TYPE_TRACE_COUNT++;
+                    try (final var pw = new java.io.PrintWriter(
+                            new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                        pw.println("[RT-MICALL] line=" + methodInvocationTree.getLineNumber()
+                                + " sel=" + methodInvocationTree.getMethodSelector().toString());
+                    } catch (java.io.IOException e) {
+                        // ignore
+                    }
+                }
                 return new CUnknownType();
             }
         }
@@ -159,7 +203,24 @@ public class CompleteMethodResolver implements MethodResolver {
                                                    final Scope scope) {
         if ("super".equals(methodName)) {
             var clazz = (TypeElement) targetType.asElement();
-            final var searchType = (DeclaredType) clazz.getSuperclass();
+            final var searchType = clazz.getSuperclass() instanceof DeclaredType superDeclaredType
+                    ? superDeclaredType
+                    : null;
+
+            if (SUPER_TRACE_COUNT < 4) {
+                SUPER_TRACE_COUNT++;
+                final var ctorTypes = searchType == null ? "null-super" : String.valueOf(
+                        clazz.getSuperclass() == null ? "n/a" : clazz.getSuperclass().getKind()
+                );
+                final var argTypes = arguments.stream()
+                        .map(this::resolveType)
+                        .map(t -> t == null ? "null" : io.github.potjerodekool.nabu.util.TypePrinter.print(t))
+                        .toList();
+                System.err.println("[SUPER-PROBE] class=" + clazz.getQualifiedName()
+                        + " argTypes=" + argTypes
+                        + " superKind=" + ctorTypes);
+            }
+
             return doResolveMethod(
                     searchType,
                     "this",
@@ -187,7 +248,12 @@ public class CompleteMethodResolver implements MethodResolver {
                                                      final Scope scope) {
         final Optional<ExecutableType> methodTypeOptional;
 
+        if (type == null) {
+            return Optional.empty();
+        }
+
         final var clazz = type.asElement();
+
         final List<ExecutableElement> methods;
 
         if (Constants.THIS.equals(methodName)
@@ -197,6 +263,24 @@ public class CompleteMethodResolver implements MethodResolver {
             methods = ElementFilter.methodsIn(clazz.getEnclosedElements()).stream()
                     .filter(element -> methodFilter(element, methodName, onlyStaticCalls))
                     .toList();
+        }
+
+        if ((Constants.THIS.equals(methodName) || Constants.INIT.equals(methodName))
+                && CTOR_TRACE_COUNT < 2) {
+            CTOR_TRACE_COUNT++;
+            final var argTypes = arguments.stream()
+                    .map(this::resolveType)
+                    .map(t -> t == null ? "null" : io.github.potjerodekool.nabu.util.TypePrinter.print(t))
+                    .toList();
+            final var ctorSigs = methods.stream()
+                    .limit(3)
+                    .map(ExecutableElement::asType)
+                    .map(io.github.potjerodekool.nabu.util.TypePrinter::print)
+                    .toList();
+            System.err.println("[CTOR-PROBE] class=" + clazz.getSimpleName()
+                    + " candidates=" + methods.size()
+                    + " ctors=" + ctorSigs
+                    + " argTypes=" + argTypes);
         }
 
         final var methodTypes = new ArrayList<>(methods.stream()
@@ -532,10 +616,19 @@ public class CompleteMethodResolver implements MethodResolver {
                         isConstructorCall
                 );
 
+                if (Constants.SUPER.equals(methodName) && SUPER_IDENT_COUNT < 3) {
+                    SUPER_IDENT_COUNT++;
+                    System.err.println("[SUPER-IDENT] superType="
+                            + (searchType == null ? "null" : searchType.asTypeElement().getQualifiedName())
+                            + " ctorCall=" + isConstructorCall
+                            + " resolved=" + (executableType != null));
+                }
+
                 if (executableType != null) {
                     return Optional.of(executableType);
                 } else {
                     final var enclosingType = searchType.getEnclosingType();
+
                     if (enclosingType instanceof DeclaredType declaredEnclosing) {
                         searchType = declaredEnclosing;
                     } else {
@@ -579,21 +672,41 @@ public class CompleteMethodResolver implements MethodResolver {
     }
 
     private DeclaredType getTypeOf(final ExpressionTree expressionTree) {
-        if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
-            return getTypeOf(fieldAccessExpressionTree.getField());
+        TypeMirror type = null;
+
+        if (expressionTree instanceof MethodInvocationTree methodInvocationTree) {
+            if (methodInvocationTree.getMethodType() != null) {
+                type = methodInvocationTree.getMethodType().getReturnType();
+            }
+        } else if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            final var fieldType = fieldAccessExpressionTree.getField().getType();
+            if (fieldType instanceof DeclaredType) {
+                return (DeclaredType) fieldType;
+            }
+            final var selectedType = getTypeOf(fieldAccessExpressionTree.getSelected());
+            if (selectedType != null) {
+                return selectedType;
+            }
+            type = fieldAccessExpressionTree.getType();
         }
 
-        if (expressionTree.getSymbol() != null) {
-            final var type = expressionTree.getSymbol().asType();
-            return type instanceof VariableType variableType
-                    ? (DeclaredType) variableType.getInterferedType()
-                    : (DeclaredType) type;
-        } else {
-            final var type = expressionTree.getType();
-            return type instanceof VariableType variableType
-                    ? (DeclaredType) variableType.getInterferedType()
-                    : (DeclaredType) type;
+        if (type == null) {
+            type = expressionTree.getType();
         }
+
+        if (type == null && expressionTree.getSymbol() != null) {
+            type = expressionTree.getSymbol().asType();
+        }
+
+        if (type instanceof VariableType variableType) {
+            return variableType.getInterferedType() instanceof DeclaredType declaredType
+                    ? declaredType
+                    : null;
+        }
+
+        return type instanceof DeclaredType declaredType
+                ? declaredType
+                : null;
     }
 
     private Optional<ExecutableType> fallback(final MethodInvocationTree methodInvocationTree,
@@ -618,6 +731,18 @@ public class CompleteMethodResolver implements MethodResolver {
                                          final boolean isConstructorCall) {
         final var methodName = resolveMethodName(methodInvocationTree);
         final var arguments = methodInvocationTree.getArguments();
+        CURRENT_INVOCATION_LINE = methodInvocationTree.getLineNumber();
+
+        if ("super".equals(methodName) && SUPER_ENTRY_COUNT < 4) {
+            SUPER_ENTRY_COUNT++;
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[SUPER-ENTRY] searchType=" + searchType.asTypeElement().getQualifiedName()
+                        + " args=" + arguments.size());
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
 
         final var candidates = getPotentiallyApplicableMethods(
                 methodInvocationTree,
@@ -652,10 +777,49 @@ public class CompleteMethodResolver implements MethodResolver {
             );
         }
 
+        if ("super".equals(methodName) && arguments.size() > 0 && PHASE_LEVEL_TRACE_COUNT < 2) {
+            PHASE_LEVEL_TRACE_COUNT++;
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[PHASE-RESULT] method=" + methodName
+                        + " searchType=" + searchType.asTypeElement().getQualifiedName()
+                        + " candidates=" + candidates.size()
+                        + " strict=" + phase1Results.size()
+                        + " loose=" + phase2Results.size()
+                        + " varargs=" + phase3Results.size());
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
+
         final var argTypes = arguments.stream()
                 .map(treeUtils::typeOf)
                 .map(TypePrinter::print)
                 .collect(Collectors.joining(",", "(", ")"));
+
+        if (RESOLVE_FAIL_TRACE_COUNT < 60
+                && methodInvocationTree.getLineNumber() != -1) {
+            RESOLVE_FAIL_TRACE_COUNT++;
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[RFAIL] name=" + methodName
+                        + " selector=" + methodInvocationTree.getMethodSelector().toString()
+                        + " line=" + methodInvocationTree.getLineNumber() + ":" + methodInvocationTree.getColumnNumber()
+                        + " searchType=" + (searchType != null && searchType.asTypeElement() != null ? searchType.asTypeElement().getQualifiedName() : "null")
+                        + " strict=" + phase1Results.size()
+                        + " loose=" + phase2Results.size()
+                        + " var=" + phase3Results.size()
+                        + " candidates=" + candidates.stream()
+                            .map(c -> c.getMethodSymbol().getSimpleName()
+                                    + "(" + c.getParameterTypes().stream()
+                                        .map(TypePrinter::print)
+                                        .collect(Collectors.joining(","))
+                                    + ")" + (c.getMethodSymbol().isVarArgs() ? "varargs" : ""))
+                            .collect(Collectors.joining(" | ")));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
 
         return null;
     }
@@ -676,6 +840,24 @@ public class CompleteMethodResolver implements MethodResolver {
 
         final var methodCollection = new ArrayList<ExecutableType>();
         collectMethods(searchType, methodCollection, isConstructorCall);
+
+        if ("super".equals(methodName) && GPA_COUNT < 8
+                && searchType.asTypeElement().getQualifiedName().contains("ArgSpec")) {
+            GPA_COUNT++;
+            final var element = searchType.asTypeElement();
+            final var ctorCount = element.getEnclosedElements().stream()
+                    .filter(e -> e.getKind() == ElementKind.CONSTRUCTOR)
+                    .count();
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[GPA-PROBE] searchType=" + element.getQualifiedName()
+                        + " enclosed=" + element.getEnclosedElements().size()
+                        + " ctors=" + ctorCount
+                        + " collected=" + methodCollection.size());
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
 
         return methodCollection.stream()
                 .filter(method -> isPotentiallyApplicable(
@@ -748,6 +930,7 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         if (!AccessChecker.isAccessible(methodSymbol, caller)) {
+            traceAccessDenied(methodName, methodSymbol, caller, arguments);
             return false;
         }
 
@@ -796,6 +979,22 @@ public class CompleteMethodResolver implements MethodResolver {
             }
 
             return true;
+        }
+    }
+
+    private void traceAccessDenied(final String methodName,
+                                   final ExecutableElement methodSymbol,
+                                   final TypeElement caller,
+                                   final List<ExpressionTree> arguments) {
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+            pw.println("[ACCESS-DENIED] method=" + methodName
+                    + " owner=" + methodSymbol.getEnclosingElement()
+                    + " kind=" + methodSymbol.getKind()
+                    + " caller=" + caller.getQualifiedName()
+                    + " argCount=" + arguments.size());
+        } catch (java.io.IOException e) {
+            // ignore
         }
     }
 
@@ -1318,13 +1517,58 @@ public class CompleteMethodResolver implements MethodResolver {
             final var parameterTypes = method.getParameterTypes();
 
             if (parameterTypes.size() != argumentTypes.size()) {
+                if (PH2_ARITY_COUNT < 60) {
+                    PH2_ARITY_COUNT++;
+                    try (final var pw = new java.io.PrintWriter(
+                            new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                        pw.println("[PH2-ARITY] method=" + method.getMethodSymbol().getSimpleName()
+                                + " owner=" + method.getMethodSymbol().getEnclosingElement().getSimpleName()
+                                + " argCount=" + argumentTypes.size()
+                                + " paramCount=" + parameterTypes.size()
+                                + " argTypes=" + argumentTypes.stream()
+                                    .map(io.github.potjerodekool.nabu.util.TypePrinter::print)
+                                    .collect(Collectors.joining(",")));
+                    } catch (java.io.IOException e) {
+                        // ignore
+                    }
+                }
                 continue;
             }
 
             boolean isApplicable = true;
             for (int i = 0; i < argumentTypes.size(); i++) {
+                final var parameterIsTypeVariable =
+                        parameterTypes.get(i) instanceof TypeVariable;
+                final var targetAllowsAnything = parameterIsTypeVariable
+                        && !parameterTypes.get(i).isPrimitiveType();
+
+                if (isImplicitlyTypedLambda(arguments.get(i))
+                        || targetAllowsAnything) {
+                    continue;
+                }
+
                 if (!isLooselyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
                     isApplicable = false;
+                    if (PHASE2_TRACE_COUNT < 120) {
+                        PHASE2_TRACE_COUNT++;
+                        System.err.println("[PHASE2-PROBE] method=" + method.getMethodSymbol().getSimpleName()
+                                + " open=" + method.getMethodSymbol().getEnclosingElement().getSimpleName()
+                                + " argType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(argumentTypes.get(i))
+                                + " paramType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(parameterTypes.get(i)));
+                        try (final var pw = new java.io.PrintWriter(
+                                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                            pw.println("[PH2-FAIL] at=" + CURRENT_INVOCATION_LINE
+                                    + " method=" + method.getMethodSymbol().getSimpleName()
+                                    + " owner=" + method.getMethodSymbol().getEnclosingElement().getSimpleName()
+                                    + " argCount=" + argumentTypes.size()
+                                    + " paramCount=" + parameterTypes.size()
+                                    + " argIdx=" + i
+                                    + " argType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(argumentTypes.get(i))
+                                    + " paramType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(parameterTypes.get(i)));
+                        } catch (java.io.IOException e) {
+                            // ignore
+                        }
+                    }
                     break;
                 }
             }
@@ -1347,11 +1591,78 @@ public class CompleteMethodResolver implements MethodResolver {
             return true;
         }
 
+        if (containsTypeVariable(sourceType) || containsTypeVariable(targetType)) {
+            return true;
+        }
+
+        if (isAssignable(sourceType, targetType)) {
+            return true;
+        }
+
         if (isUnboxingCompatible(sourceType, targetType)) {
             return true;
         }
 
         return isBoxingCompatible(sourceType, targetType);
+    }
+
+    private boolean isAssignable(final TypeMirror sourceType, final TypeMirror targetType) {
+        if (!(sourceType instanceof DeclaredType sourceDeclared)
+                || !(targetType instanceof DeclaredType targetDeclared)) {
+            return false;
+        }
+
+        final var targetElement = targetDeclared.asTypeElement();
+
+        TypeMirror current = sourceDeclared;
+        while (current instanceof DeclaredType currentDeclared) {
+            final var currentElement = currentDeclared.asTypeElement();
+            if (io.github.potjerodekool.nabu.compiler.resolve.types.IsSubType.sameClass(
+                    currentElement,
+                    targetElement)) {
+                return true;
+            }
+
+            current = currentElement.getSuperclass();
+        }
+
+        for (final var interfaceType : sourceDeclared.asTypeElement().getInterfaces()) {
+            if (interfaceType instanceof DeclaredType interfaceDeclared
+                    && isAssignable(interfaceDeclared, targetDeclared)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean containsTypeVariable(final TypeMirror type) {
+        if (type == null) {
+            return false;
+        }
+
+        if (type instanceof TypeVariable) {
+            return true;
+        }
+
+        if (type instanceof DeclaredType declaredType) {
+            return declaredType.getTypeArguments().stream()
+                    .anyMatch(this::containsTypeVariable);
+        }
+
+        if (type instanceof ArrayType arrayType) {
+            return containsTypeVariable(arrayType.getComponentType());
+        }
+
+        if (type instanceof WildcardType wildcardType) {
+            return containsTypeVariable(wildcardType.getBound());
+        }
+
+        if (type instanceof VariableType variableType) {
+            return containsTypeVariable(variableType.getInterferedType());
+        }
+
+        return false;
     }
 
     boolean isUnboxingCompatible(final TypeMirror source, final TypeMirror target) {
@@ -1405,12 +1716,18 @@ public class CompleteMethodResolver implements MethodResolver {
                     continue;
                 }
 
-                final var varargType = ((ArrayType) parameterTypes.get(fixedParamCount)).getComponentType();
+                final var arrayParamType = parameterTypes.get(fixedParamCount);
+                final var varargType = ((ArrayType) arrayParamType).getComponentType();
 
-                for (int i = fixedParamCount; i < argumentTypes.size(); i++) {
-                    if (!isLooselyCompatible(argumentTypes.get(i), varargType)) {
-                        isApplicable = false;
-                        break;
+                if (argumentTypes.size() == fixedParamCount + 1
+                        && isLooselyCompatible(argumentTypes.get(fixedParamCount), arrayParamType)) {
+                    isApplicable = true;
+                } else {
+                    for (int i = fixedParamCount; i < argumentTypes.size(); i++) {
+                        if (!isLooselyCompatible(argumentTypes.get(i), varargType)) {
+                            isApplicable = false;
+                            break;
+                        }
                     }
                 }
 

@@ -365,6 +365,71 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitAnnotationInterfaceDeclaration(final Java20Parser.AnnotationInterfaceDeclarationContext ctx) {
+        final NestingKind nestingKind;
+
+        if (isTopLevel) {
+            nestingKind = NestingKind.TOP_LEVEL;
+            isTopLevel = false;
+        } else {
+            nestingKind = NestingKind.MEMBER;
+        }
+
+        var modifiers = parseModifiers(ctx.interfaceModifier());
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
+        final List<Tree> body = flatList(ctx.annotationInterfaceBody().accept(this));
+
+        if (!modifiers.hasFlag(Flags.ABSTRACT)) {
+            modifiers = modifiers.with(Flags.ABSTRACT);
+        }
+
+        modifiers = modifiers
+                .with(Flags.ANNOTATION + Flags.INTERFACE);
+
+        return new ClassDeclarationBuilder()
+                .lineNumber(ctx.getStart().getLine())
+                .columnNumber(ctx.getStart().getCharPositionInLine())
+                .kind(Kind.ANNOTATION)
+                .nestingKind(nestingKind)
+                .modifiers(modifiers)
+                .simpleName(identifier.getName())
+                .typeParameters(List.of())
+                .implemention(List.of())
+                .permits(List.of())
+                .enclosedElements(body)
+                .build();
+    }
+
+    @Override
+    public Object visitAnnotationInterfaceBody(final Java20Parser.AnnotationInterfaceBodyContext ctx) {
+        return ctx.annotationInterfaceMemberDeclaration().stream()
+                .flatMap(decl -> asStream(decl.accept(this)))
+                .toList();
+    }
+
+    @Override
+    public Object visitAnnotationInterfaceElementDeclaration(final Java20Parser.AnnotationInterfaceElementDeclarationContext ctx) {
+        final var modifiers = parseModifiers(ctx.annotationInterfaceElementModifier());
+
+        final var returnType = (ExpressionTree) ctx.unannType().accept(this);
+        final var name = (IdentifierTree) ctx.identifier().accept(this);
+
+        return new FunctionBuilder()
+                .lineNumber(ctx.getStart().getLine())
+                .columnNumber(ctx.getStart().getCharPositionInLine())
+                .kind(Kind.METHOD)
+                .modifiers(modifiers)
+                .typeParameters(List.of())
+                .returnType(returnType)
+                .simpleName(name.getName())
+                .receiver(null)
+                .parameters(List.of())
+                .thrownTypes(List.of())
+                .body(new CBlockStatementTree(List.of()))
+                .build();
+    }
+
+    @Override
     public Object visitInterfaceMethodDeclaration(final Java20Parser.InterfaceMethodDeclarationContext ctx) {
         var modifiers = parseModifiers(ctx.interfaceMethodModifier());
 
@@ -386,6 +451,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     public Object visitNormalClassDeclaration(final Java20Parser.NormalClassDeclarationContext ctx) {
         final NestingKind nestingKind;
 
+        final var simpleNameForProbe = ctx.typeIdentifier().getText();
         if (isTopLevel) {
             nestingKind = NestingKind.TOP_LEVEL;
             isTopLevel = false;
@@ -1543,6 +1609,15 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitEnumDeclaration(final Java20Parser.EnumDeclarationContext ctx) {
+        final NestingKind nestingKind;
+
+        if (isTopLevel) {
+            nestingKind = NestingKind.TOP_LEVEL;
+            isTopLevel = false;
+        } else {
+            nestingKind = NestingKind.MEMBER;
+        }
+
         final var modifiers = parseModifiers(ctx.classModifier());
         final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
         final List<ExpressionTree> classImplements = acceptList(ctx.classImplements());
@@ -1554,7 +1629,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         return TreeMaker.classDeclaration(
                 Kind.ENUM,
-                NestingKind.TOP_LEVEL,
+                nestingKind,
                 modifiers,
                 identifier.getName(),
                 enclosedElements,
@@ -2340,6 +2415,36 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                     ctx.getStart().getCharPositionInLine()
             );
         }
+    }
+
+    @Override
+    public Object visitExpressionName(final Java20Parser.ExpressionNameContext ctx) {
+        final List<Token> tokens = new ArrayList<>();
+
+        collectAmbiguousName(ctx.ambiguousName(), tokens);
+        tokens.add(ctx.identifier().getStart());
+
+        ExpressionTree result = identifier(tokens.get(0));
+
+        for (var i = 1; i < tokens.size(); i++) {
+            result = TreeMaker.fieldAccessExpressionTree(
+                    result,
+                    identifier(tokens.get(i)),
+                    tokens.get(i).getLine(),
+                    tokens.get(i).getCharPositionInLine() + 1
+            );
+        }
+
+        return result;
+    }
+
+    private void collectAmbiguousName(final Java20Parser.AmbiguousNameContext ctx,
+                                      final List<Token> tokens) {
+        if (ctx == null) {
+            return;
+        }
+        tokens.add(ctx.identifier().getStart());
+        collectAmbiguousName(ctx.ambiguousName(), tokens);
     }
 
     @Override

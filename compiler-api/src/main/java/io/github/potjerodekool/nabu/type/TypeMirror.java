@@ -127,7 +127,13 @@ public interface TypeMirror {
      * final var typeElement = (TypeElement) type.asElement();
      */
     default TypeElement asTypeElement() {
-        return (TypeElement) asElement();
+        final var element = asElement();
+
+        if (element instanceof TypeElement typeElement) {
+            return typeElement;
+        }
+
+        return null;
     }
 
     /**

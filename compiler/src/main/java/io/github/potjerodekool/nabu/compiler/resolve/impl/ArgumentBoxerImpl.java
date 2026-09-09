@@ -13,6 +13,8 @@ import static io.github.potjerodekool.nabu.util.CollectionUtils.forEachIndexed;
 
 public class ArgumentBoxerImpl implements ArgumentBoxer {
 
+    private static int BOX_ARGS_DEPTH = 0;
+
     private final Boxer boxer;
 
     public ArgumentBoxerImpl(final CompilerContext compilerContext) {
@@ -21,6 +23,19 @@ public class ArgumentBoxerImpl implements ArgumentBoxer {
 
     @Override
     public void boxArguments(final MethodInvocationTree methodInvocation) {
+        if (BOX_ARGS_DEPTH > 40) {
+            return;
+        }
+
+        BOX_ARGS_DEPTH++;
+        try {
+            boxArgumentsInternal(methodInvocation);
+        } finally {
+            BOX_ARGS_DEPTH--;
+        }
+    }
+
+    private void boxArgumentsInternal(final MethodInvocationTree methodInvocation) {
         final var methodType = methodInvocation.getMethodType();
 
         final var arguments = methodInvocation.getArguments();
@@ -31,6 +46,10 @@ public class ArgumentBoxerImpl implements ArgumentBoxer {
         forEachIndexed(arguments,
                 (i, arg) -> {
                     if (parameterCount == 0) {
+                        newArgs.add(arg);
+                        return;
+                    }
+                    if (arg.getLineNumber() < 0) {
                         newArgs.add(arg);
                         return;
                     }

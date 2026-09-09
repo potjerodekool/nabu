@@ -39,10 +39,33 @@ public final class AccessChecker {
                 return element.getPackageElement().equals(caller.getPackageElement());
             }
         } else if (element.isPrivate()) {
-            return element.getEnclosingElement() == caller;
+            if (element.getEnclosingElement() == caller) {
+                return true;
+            }
+
+            final var ownerTopLevel = topLevelName(element);
+            final var callerTopLevel = topLevelName(caller);
+            return ownerTopLevel != null && ownerTopLevel.equals(callerTopLevel);
         }
 
         return false;
+    }
+
+    private static String topLevelName(final Element element) {
+        Element current = element;
+
+        if (!(current instanceof TypeElement)) {
+            current = current.getEnclosingElement();
+        }
+
+        while (current instanceof TypeElement typeElement
+                && typeElement.getEnclosingElement() instanceof TypeElement) {
+            current = typeElement.getEnclosingElement();
+        }
+
+        return current instanceof TypeElement typeElement
+                ? typeElement.getQualifiedName()
+                : null;
     }
 
     private static boolean isSubclass(final Element caller, final TypeElement ownerClass) {

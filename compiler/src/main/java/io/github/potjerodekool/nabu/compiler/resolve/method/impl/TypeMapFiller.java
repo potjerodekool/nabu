@@ -51,11 +51,13 @@ class TypeMapFiller implements TypeVisitor<TypeMirror, TypeMirror> {
         } else if (otherType instanceof PrimitiveType otherPrimitiveType) {
 
         } else {
-            for (int index = 0; index < typeParameterCount; index++) {
-                final var typeParameter = typeParameters.get(index);
-                final var name = typeParameter.getSimpleName();
-                final var typeArg = typeArguments.get(index);
-                this.addType(name, typeArg);
+            if (typeArguments.size() == typeParameterCount) {
+                for (int index = 0; index < typeParameterCount; index++) {
+                    final var typeParameter = typeParameters.get(index);
+                    final var name = typeParameter.getSimpleName();
+                    final var typeArg = typeArguments.get(index);
+                    this.addType(name, typeArg);
+                }
             }
         }
 

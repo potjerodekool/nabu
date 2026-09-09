@@ -40,6 +40,10 @@ import java.util.stream.Collectors;
 
 public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Completer, TreeVisitor<Object, Scope> {
 
+    private static int SUPER_FILL_COUNT = 0;
+    private static int ARGSPEC_TRACE_COUNT = 0;
+    private static int RE_RESOLVE_COUNT = 0;
+
     private final Map<TypeElement, ClassDeclaration> symbolToTreeMap = new HashMap<>();
     private final Map<ClassDeclaration, CompilationUnit> treeToCompilationUnitMap = new HashMap<>();
 
@@ -65,6 +69,12 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         typeEnterMap.put(ElementKind.RECORD, new RecordTypeEnter(elements));
     }
 
+    public boolean isSourceEntered(final String qualifiedName) {
+        return symbolToTreeMap.keySet().stream()
+                .anyMatch(symbol -> symbol instanceof ClassSymbol classSymbol
+                        && classSymbol.getQualifiedName().toString().equals(qualifiedName));
+    }
+
     public void put(final TypeElement symbol,
                     final ClassDeclaration tree,
                     final CompilationUnit compilationUnit) {
@@ -85,19 +95,14 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 final var moduleElement = findModuleElement(currentClass);
                 final var compilationUnit = findCompilationUnit(currentClass);
 
-                if (compilationUnit == null) {
-                    System.out.println("[complete-null-unit] class=" + currentClass.getQualifiedName()
-                            + " flat=" + currentClass.getFlatName()
-                            + " src=" + (currentClass.getSourceFile() == null ? "null" : currentClass.getSourceFile().getFileName())
-                            + " nest=" + currentClass.getNestingKind());
-                }
+                if (compilationUnit != null) {
+                    final var packageDeclaration = compilationUnit.getPackageDeclaration();
+                    if (packageDeclaration != null && packageDeclaration.getPackageElement() == null) {
+                        packageDeclaration.setPackageElement((PackageElement) currentClass.getEnclosingElement());
+                    }
 
-                final var packageDeclaration = compilationUnit.getPackageDeclaration();
-                if (packageDeclaration != null && packageDeclaration.getPackageElement() == null) {
-                    packageDeclaration.setPackageElement((PackageElement) currentClass.getEnclosingElement());
+                    fillImports(moduleElement, compilationUnit);
                 }
-
-                fillImports(moduleElement, compilationUnit);
             }
 
             final var classDeclaration = this.symbolToTreeMap.get(symbol);
@@ -170,8 +175,40 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         TypeMirror superType;
 
         if (classDeclaration.getExtending() != null) {
+            completeEnclosingTypes(currentClass, scope);
             acceptTree(classDeclaration.getExtending(), scope);
             superType = classDeclaration.getExtending().getType();
+
+            if (SUPER_FILL_COUNT < 12 && superType instanceof io.github.potjerodekool.nabu.type.DeclaredType superDeclType
+                    && currentClass.getQualifiedName().contains("Builder")) {
+                SUPER_FILL_COUNT++;
+                final var elem = superDeclType.asTypeElement();
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[SUPER-FILL] class=" + currentClass.getQualifiedName()
+                            + " extendsElem=" + elem.getQualifiedName()
+                            + " enclosed=" + elem.getEnclosedElements().size()
+                            + " isClass=" + elem.getKind());
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
+
+            superType = reResolveNestedSuperClass(currentClass, classDeclaration, superType);
+
+            if (SUPER_FILL_COUNT < 12 && superType instanceof io.github.potjerodekool.nabu.type.DeclaredType afterDeclType
+                    && currentClass.getQualifiedName().contains("Builder")) {
+                SUPER_FILL_COUNT++;
+                final var afterElem = afterDeclType.asTypeElement();
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[SUPER-AFTER] class=" + currentClass.getQualifiedName()
+                            + " extendsElem=" + afterElem.getQualifiedName()
+                            + " enclosed=" + afterElem.getEnclosedElements().size());
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
         } else {
             final var superClassName = switch (currentClass.getKind()) {
                 case RECORD -> Constants.RECORD;
@@ -192,6 +229,137 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         }
 
         currentClass.setSuperClass(superType);
+    }
+
+    private void completeEnclosingTypes(final TypeElement currentClass,
+                                        final Scope scope) {
+        Element enclosing = currentClass.getEnclosingElement();
+
+        while (enclosing instanceof ClassSymbol classSymbol) {
+            classSymbol.complete();
+            enclosing = classSymbol.getEnclosingElement();
+        }
+    }
+
+    private boolean isBuilderDebugClass(final Symbol currentClass) {
+            return currentClass != null
+                    && currentClass.getQualifiedName().contains("$Builder");
+        }
+
+        private TypeMirror reResolveNestedSuperClass(final ClassSymbol currentClass,
+                                                 final ClassDeclaration classDeclaration,
+                                                 final TypeMirror superType) {
+        if (isBuilderDebugClass(currentClass)) {
+            final var name = nameOfExpression(classDeclaration.getExtending());
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[RERESOLVE] current=" + currentClass.getQualifiedName()
+                        + " extKind=" + (classDeclaration.getExtending() == null
+                        ? "null"
+                        : classDeclaration.getExtending().getClass().getSimpleName())
+                        + " name=" + name);
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
+
+        if (!(superType instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredType)) {
+            return superType;
+        }
+
+        final var element = declaredType.asElement();
+
+        if (element instanceof ClassSymbol classSymbol
+                && (classSymbol.getSourceFile() != null || classSymbol.getClassFile() != null)
+                && !classSymbol.getEnclosedElements().isEmpty()) {
+            return superType;
+        }
+
+        final var name = nameOfExpression(classDeclaration.getExtending());
+
+        if (name == null || name.isBlank()) {
+            return superType;
+        }
+
+        final var nestedName = String.join("$", name.split("\\."));
+
+        final var parts = nestedName.split("\\$");
+
+        final var anchor = parts[0];
+
+        ClassSymbol anchorSymbol = null;
+
+        for (Element ancestor = currentClass.getEnclosingElement();
+             ancestor != null && !(ancestor instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol) && !(ancestor instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol);
+             ancestor = ancestor.getEnclosingElement()) {
+            if (!(ancestor instanceof ClassSymbol typeElement)) {
+                continue;
+            }
+
+            if (containsTypeMember(typeElement, anchor)) {
+                anchorSymbol = typeElement;
+                break;
+            }
+        }
+
+        if (anchorSymbol == null) {
+            return superType;
+        }
+
+        final var targetName = anchorSymbol.getQualifiedName() + "$" + nestedName;
+
+        final var realSymbol = symbolToTreeMap.entrySet().stream()
+                .filter(entry -> entry.getKey() instanceof ClassSymbol classSymbol
+                        && classSymbol.getQualifiedName().contentEquals(targetName))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+
+        if (realSymbol != null) {
+            return ((ClassSymbol) realSymbol).asType();
+        }
+
+        return superType;
+    }
+
+    private boolean containsTypeMember(final ClassSymbol classSymbol, final String simpleName) {
+        final var it = classSymbol.getMembers().getSymbolsByName(simpleName).iterator();
+
+        while (it.hasNext()) {
+            if (it.next() instanceof ClassSymbol) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void logResolveDebug(final String message) {
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+            pw.println(message);
+        } catch (java.io.IOException e) {
+            // ignore
+        }
+    }
+
+    private String nameOfExpression(final ExpressionTree expressionTree) {
+        if (expressionTree instanceof io.github.potjerodekool.nabu.tree.expression.TypeApplyTree typeApply) {
+            return nameOfExpression(typeApply.getClazz());
+        }
+
+        if (expressionTree instanceof io.github.potjerodekool.nabu.tree.expression.IdentifierTree identifierTree) {
+            return identifierTree.getName();
+        }
+
+        if (expressionTree instanceof io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree fieldAccess) {
+            final var selected = nameOfExpression(fieldAccess.getSelected());
+            return selected == null
+                    ? fieldAccess.getField().getName()
+                    : selected + "." + fieldAccess.getField().getName();
+        }
+
+        return null;
     }
 
     private void fillInInterfaces(final Scope scope,
@@ -236,6 +404,29 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     public Void visitUnknown(final Tree tree,
                              final Scope currentClass) {
         return null;
+    }
+
+    private final java.util.Set<CompilationUnit> importsFilledUnits =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    /**
+     * Vult de importscopes van een compilatie-eenheid vroegtijdig (vóór de
+     * resolutie), onafhankelijk van lazy klassymbol-completion. Idempotent.
+     */
+    public void fillImportsForUnit(final CompilationUnit compilationUnit) {
+        if (compilationUnit == null || !importsFilledUnits.add(compilationUnit)) {
+            return;
+        }
+
+        var module = compilationUnit instanceof io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit unit
+                ? unit.getModuleElement()
+                : null;
+
+        if (module == null) {
+            module = symbolTable.getUnnamedModule();
+        }
+
+        fillImports(module, compilationUnit);
     }
 
     private void fillImports(final ModuleElement moduleElement,
@@ -362,6 +553,19 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                                            final CompilationUnit compilationUnit) {
         var clazz = loader.loadClass(moduleElement, classOrPackageName);
 
+        if (clazz == null && classOrPackageName.contains(".")) {
+            // Puntnotatie voor geneste klassen ("a.b.Outer.Inner") wordt via
+            // de platte naam ("a.b.Outer$Inner") gezocht.
+            final var parts = classOrPackageName.split("\\.");
+
+            for (var splitIndex = 1; splitIndex < parts.length && clazz == null; splitIndex++) {
+                final var pkg = String.join(".", java.util.Arrays.copyOfRange(parts, 0, splitIndex));
+                final var nestedName = String.join("$", java.util.Arrays.copyOfRange(parts, splitIndex, parts.length));
+
+                clazz = loader.loadClass(moduleElement, pkg + "." + nestedName);
+            }
+        }
+
         if (clazz != null) {
             compilationUnit.getNamedImportScope().define(clazz);
         } else {
@@ -376,17 +580,47 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     private PackageElement importStarImport(final ModuleElement moduleElement,
                                            final String classOrPackageName,
                                            final CompilationUnit compilationUnit) {
+        // Voltooi (en scan indien nodig) het pakket — bijv. java.util.*.
         final var packageSymbol = symbolTable.lookupPackage(
                 moduleElement,
                 classOrPackageName
         );
 
-        if (packageSymbol != null) {
+        if (packageSymbol != null && packageSymbol.exists()
+                && !packageSymbol.getMembers().elements().isEmpty()) {
             final var scope = compilationUnit.getStartImportScope();
 
             packageSymbol.getMembers().elements().stream()
                     .filter(Element::isType)
                     .forEach(scope::define);
+
+            return packageSymbol;
+        }
+
+        // Anders kan een star-import een klasse betreffen
+        // (bijv. import picocli.CommandLine.Model.*): definieer dan de
+        // geneste typen van die klasse in de start-importscope. Eenvoudige
+        // namen zonder echte binding (stub zoals een pseudo-'util'-klasse)
+        // worden verworpen.
+        final var containerClass = loadNestedClass(moduleElement, classOrPackageName);
+
+        if (containerClass instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol classSymbol
+                && (classSymbol.getSourceFile() != null
+                || classSymbol.getClassFile() != null
+                || (classSymbol.getMembers() != null && !classSymbol.getMembers().elements().isEmpty()))) {
+            final var scope = compilationUnit.getStartImportScope();
+
+            ElementFilter.elements(
+                            containerClass,
+                            element ->
+                                    element.getKind().isClass()
+                                            || element.getKind().isInterface()
+                                            || element.getKind() == ElementKind.ENUM
+                                            || element.getKind() == ElementKind.ANNOTATION_TYPE,
+                            TypeElement.class
+                    ).forEach(scope::define);
+
+            return null;
         }
 
         return packageSymbol;
@@ -411,7 +645,10 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final var type = (CClassType) currentClass.asType();
         type.setTypeArguments(typeArguments);
 
-        classDeclaration.getEnclosedElements().forEach(enclosedElement -> acceptTree(enclosedElement, scope));
+        classDeclaration.getEnclosedElements().stream()
+                .filter(enclosedElement -> !(enclosedElement instanceof ClassDeclaration))
+                .forEach(enclosedElement -> acceptTree(enclosedElement, scope));
+
         return classDeclaration;
     }
 
@@ -495,6 +732,33 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         function.getThrownTypes()
                 .forEach(thrownType -> acceptTree(thrownType, functionScope));
 
+        final var existingMethod = currentClass.getEnclosedElements().stream()
+                .filter(element -> element instanceof ExecutableElement)
+                .map(element -> (ExecutableElement) element)
+                .filter(element -> element.getSimpleName().equals(method.getSimpleName()))
+                .filter(element -> element.getKind() == method.getKind())
+                .filter(element -> element.getParameters().size() == method.getParameters().size())
+                .filter(element -> {
+                    final var existingParams = element.getParameters().stream()
+                            .map(Element::asType)
+                            .toList();
+                    final var newParams = method.getParameters().stream()
+                            .map(Element::asType)
+                            .toList();
+                    for (var i = 0; i < existingParams.size(); i++) {
+                        if (!types.isSameType(existingParams.get(i), newParams.get(i))) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .findFirst();
+
+        if (existingMethod.isPresent()) {
+            function.setMethodSymbol(existingMethod.get());
+            return function;
+        }
+
         currentClass.addEnclosedElement(method);
         function.setMethodSymbol(method);
 
@@ -518,6 +782,25 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final var annotations = variableDeclaratorStatement.getAnnotations().stream()
                 .map(annotationTree -> (AnnotationMirror) acceptTree(annotationTree, scope))
                 .toList();
+
+        final var name = variableDeclaratorStatement.getName().getName();
+        final var variableKind = ElementKind.valueOf(variableDeclaratorStatement.getKind().name());
+        final var isClassMember = variableKind == ElementKind.FIELD
+                || variableKind == ElementKind.ENUM_CONSTANT
+                || variableKind == ElementKind.RECORD_COMPONENT;
+
+        if (isClassMember) {
+            final var existing = currentClass.getEnclosedElements().stream()
+                    .filter(element -> element instanceof VariableSymbol)
+                    .filter(element -> element.getKind() == variableKind)
+                    .filter(element -> element.getSimpleName().equals(name))
+                    .findFirst();
+
+            if (existing.isPresent()) {
+                variableDeclaratorStatement.getName().setSymbol((VariableSymbol) existing.get());
+                return null;
+            }
+        }
 
         final var symbol = createVariable(variableDeclaratorStatement);
         symbol.setAnnotations(annotations);
@@ -608,6 +891,10 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     }
 
     protected ElementKind toElementKind(final Kind kind) {
+        if (kind == Kind.ANNOTATION) {
+            return ElementKind.ANNOTATION_TYPE;
+        }
+
         return ElementKind.valueOf(kind.name());
     }
 
@@ -646,11 +933,22 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     @Override
     public Object visitIdentifier(final IdentifierTree identifier,
                                   final Scope scope) {
+        final var currentClass = (ClassSymbol) scope.getCurrentClass();
         var type = scope.resolveType(identifier.getName());
 
-        if (type == null) {
-            final var currentClass = (ClassSymbol) scope.getCurrentClass();
+        if ("ArgSpec".equals(identifier.getName()) && ARGSPEC_TRACE_COUNT < 3
+                && currentClass != null && currentClass.getQualifiedName().contains("Builder")) {
+            ARGSPEC_TRACE_COUNT++;
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[ARGSPEC-TRACE] current=" + currentClass.getQualifiedName()
+                        + " scope=builtin:" + (type == null ? "null" : type.asTypeElement().getQualifiedName()));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
 
+        if (type == null) {
             final var compilationUnit = findCompilationUnit(currentClass);
 
             if (compilationUnit != null) {
@@ -660,6 +958,18 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
             if (type == null) {
                 type = resolveType(identifier.getName(), currentClass);
+
+                if ("ArgSpec".equals(identifier.getName()) && ARGSPEC_TRACE_COUNT < 6
+                        && currentClass.getQualifiedName().contains("Builder")) {
+                    ARGSPEC_TRACE_COUNT++;
+                    try (final var pw = new java.io.PrintWriter(
+                            new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                        pw.println("[ARGSPEC-TRACE] current=" + currentClass.getQualifiedName()
+                                + " memberwalk=" + (type == null ? "null" : type.asTypeElement().getQualifiedName()));
+                    } catch (java.io.IOException e) {
+                        // ignore
+                    }
+                }
             }
         }
 
@@ -673,7 +983,61 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
     private TypeMirror resolveType(final String name,
                                    final ClassSymbol currentClass) {
+        // Member types van de huidige klasse en enclosing klassen (met hun
+        // superklassen) hebben voorrang: bijv. 'CommandSpec' binnen
+        // CommandLine$Model$CommandSpec$Builder.
+        var enclosingClass = currentClass;        while (enclosingClass != null) {
+            final var enclosingSimpleName = enclosingClass.getSimpleName();
+
+            if (enclosingSimpleName != null && name.equals(enclosingSimpleName.toString())) {
+                return enclosingClass.asType();
+            }
+
+            var ancestor = enclosingClass;
+
+            while (ancestor != null) {
+                final var memberTypeOptional = ElementFilter.elements(
+                                ancestor,
+                                element ->
+                                        element.getKind().isClass()
+                                                || element.getKind().isInterface()
+                                                || element.getKind() == ElementKind.ENUM
+                                                || element.getKind() == ElementKind.ANNOTATION_TYPE,
+                                TypeElement.class
+                        ).stream()
+                        .filter(elem -> elem.getSimpleName().contentEquals(name))
+                        .findFirst();
+
+                if (memberTypeOptional.isPresent()) {
+                    return memberTypeOptional.get().asType();
+                }
+
+                final var superclass = ancestor.getSuperclass();
+
+                if (superclass instanceof io.github.potjerodekool.nabu.type.DeclaredType superType) {
+                    final var superElement = superType.asElement();
+
+                    if (superElement instanceof ClassSymbol superSymbol) {
+                        ancestor = superSymbol;
+                    } else {
+                        ancestor = null;
+                    }
+                } else {
+                    ancestor = null;
+                }
+            }
+
+            final var outerClass = enclosingClass.getEnclosingElement();
+
+            if (outerClass instanceof ClassSymbol enclosingSymbol) {
+                enclosingClass = enclosingSymbol;
+            } else {
+                enclosingClass = null;
+            }
+        }
+
         final var compilationUnit = findCompilationUnit(currentClass);
+
         TypeMirror type = null;
 
         if (compilationUnit != null) {
@@ -694,6 +1058,32 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         }
 
         return type;
+    }
+
+    private TypeElement loadNestedClass(final ModuleElement moduleElement,
+                                        final String fullName) {
+        var clazz = loader.loadClass(moduleElement, fullName);
+
+        if (clazz != null) {
+            return clazz;
+        }
+
+        // Puntnotatie voor geneste klassen ("a.b.Outer.Inner") wordt via de
+        // platte naam ("a.b.Outer$Inner") gezocht.
+        final var parts = fullName.split("\\.");
+
+        for (var splitIndex = 1; splitIndex < parts.length; splitIndex++) {
+            final var pkg = String.join(".", java.util.Arrays.copyOfRange(parts, 0, splitIndex));
+            final var nestedName = String.join("$", java.util.Arrays.copyOfRange(parts, splitIndex, parts.length));
+
+            final var candidate = loader.loadClass(moduleElement, pkg + "." + nestedName);
+
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private ModuleElement findModuleElement(final Element element) {

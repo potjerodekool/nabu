@@ -32,10 +32,13 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                         || Constants.CLONEABLE.equals(qualifiedName)
                         || Constants.SERIALIZABLE.equals(qualifiedName);
             } else if (componentType.isPrimitiveType()) {
-                final var qualifiedName = getQualifiedName((DeclaredType) otherType);
-                return Constants.OBJECT.equals(qualifiedName)
-                        || Constants.CLONEABLE.equals(qualifiedName)
-                        || Constants.SERIALIZABLE.equals(qualifiedName);
+                if (otherType instanceof DeclaredType otherDeclaredType) {
+                    final var qualifiedName = getQualifiedName(otherDeclaredType);
+                    return Constants.OBJECT.equals(qualifiedName)
+                            || Constants.CLONEABLE.equals(qualifiedName)
+                            || Constants.SERIALIZABLE.equals(qualifiedName);
+                }
+                return false;
             } else {
                 return false;
             }
@@ -58,6 +61,16 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
         return typeElement.getQualifiedName();
     }
 
+    public static boolean sameClass(final TypeElement clazz, final TypeElement otherClass) {
+        final var left = normalize(clazz.getQualifiedName());
+        final var right = normalize(otherClass.getQualifiedName());
+        return left.equals(right);
+    }
+
+    private static String normalize(final String qualifiedName) {
+        return qualifiedName == null ? "" : qualifiedName.replace('$', '.');
+    }
+
     @Override
     public Boolean visitDeclaredType(final DeclaredType declaredType,
                                      final TypeMirror otherType) {
@@ -75,7 +88,7 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
             final var clazz = (TypeElement) declaredType.asElement();
             final var otherClass = (TypeElement) otherDeclaredType.asElement();
 
-            if (clazz.getQualifiedName().equals(otherClass.getQualifiedName())) {
+            if (sameClass(clazz, otherClass)) {
                 if (declaredType.getTypeArguments().isEmpty()) {
                     return true;
                 } else {
@@ -257,6 +270,9 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
         boolean isSubType = false;
 
         if (otherType instanceof TypeVariable otherTypeVariable) {
+            if (typeVariable.asElement().equals(otherTypeVariable.asElement())) {
+                return true;
+            }
             if (typeVariable.getUpperBound() != null) {
                 if (otherTypeVariable.getUpperBound() != null) {
                     isSubType = typeVariable.getUpperBound().accept(this, otherTypeVariable.getUpperBound());

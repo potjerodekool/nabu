@@ -260,6 +260,40 @@ public class SymbolTable {
         return lookupPackage((ModuleSymbol) moduleSymbol, flatName, false);
     }
 
+    /**
+     * Zoekt alléén een bestaand pakket (maakt geen stub aan) en geeft null
+     * terug wanneer het pakket niet bestaat.
+     */
+    public PackageSymbol lookupExistingPackage(final ModuleElement moduleSymbol,
+                                               final String flatName) {
+        if (flatName == null || flatName.isEmpty()) {
+            return null;
+        }
+
+        final var module = (ModuleSymbol) moduleSymbol;
+        module.complete();
+
+        var packageSymbol = module.getVisiblePackages().get(flatName);
+
+        if (packageSymbol != null && packageSymbol.exists()) {
+            return packageSymbol;
+        }
+
+        packageSymbol = getPackage(module, flatName);
+
+        if (packageSymbol != null && packageSymbol.exists()) {
+            return packageSymbol;
+        }
+
+        final var unnamedPackageSymbol = getPackage(unnamedModule, flatName);
+
+        if (unnamedPackageSymbol != null && unnamedPackageSymbol.exists()) {
+            return unnamedPackageSymbol;
+        }
+
+        return null;
+    }
+
     private PackageSymbol lookupPackage(final ModuleSymbol moduleSymbol,
                                          final String flatName,
                                          final boolean onlyExisting) {

@@ -226,9 +226,20 @@ public class ClassFinder {
 
                 if (file.getKind().isSource()) {
                     if (clazz.getSourceFile() == null) {
-                        clazz.setClassFile(null);
-                        clazz.setSourceFile(file);
-                        getSourceParser(file.getKind()).ifPresent(it -> enterSource(clazz, it));
+                        final var packageName = packageSymbol.getFullName();
+                        final var qualifiedName = packageName.isEmpty()
+                                ? className
+                                : packageName + "." + className;
+
+                        if (compilerContext.getTypeEnter().isSourceEntered(qualifiedName)) {
+                            // Reeds ingevoerd via het compile-pad (andere module-context).
+                            // Markeer zodat de scan dit bestand niet steeds opnieuw parst.
+                            clazz.setSourceFile(file);
+                        } else {
+                            clazz.setClassFile(null);
+                            clazz.setSourceFile(file);
+                            getSourceParser(file.getKind()).ifPresent(it -> enterSource(clazz, it));
+                        }
                     }
                 } else if (clazz.getSourceFile() == null) {
                     clazz.setClassFile(file);

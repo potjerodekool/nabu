@@ -55,6 +55,12 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     @Override
     public TypeMirror getEnclosingType() {
+        if (outerType == null
+                && element instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol classSymbol
+                && classSymbol.getEnclosingElement() instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol enclosingClass) {
+            return enclosingClass.asType();
+        }
+
         return outerType;
     }
 

@@ -52,7 +52,8 @@ public class SymbolScope implements Scope {
                                             || element.getKind() == ElementKind.ENUM_CONSTANT,
                             VariableElement.class
                     ).stream()
-                    .filter(elem -> elem.getKind() == ElementKind.FIELD)
+                    .filter(elem -> elem.getKind() == ElementKind.FIELD
+                            || elem.getKind() == ElementKind.ENUM_CONSTANT)
                     .filter(elem -> elem.getSimpleName().equals(name))
                     .findFirst();
 
@@ -88,12 +89,62 @@ public class SymbolScope implements Scope {
 
     @Override
     public TypeMirror resolveType(final String name) {
-        return declaredType.getTypeArguments().stream()
+        final var typeVariable = declaredType.getTypeArguments().stream()
                 .filter(it -> it instanceof TypeVariable)
                 .filter(it -> it.asElement().getSimpleName().equals(name))
                 .map(it -> (TypeMirror) it)
-                .findFirst()
-                .orElseGet(() -> Scope.super.resolveType(name));
+                .findFirst();
+
+        if (typeVariable.isPresent()) {
+            return typeVariable.get();
+        }
+
+        var enclosing = getCurrentClass();
+
+        while (enclosing != null) {
+            var ancestor = enclosing;
+
+            while (ancestor != null) {
+                final var found = findMemberType(ancestor, name);
+
+                if (found.isPresent()) {
+                    return found.get().asType();
+                }
+
+                final var superclass = ancestor.getSuperclass();
+
+                if (superclass instanceof DeclaredType superType) {
+                    ancestor = (TypeElement) superType.asElement();
+                } else {
+                    ancestor = null;
+                }
+            }
+
+            final var outerClass = enclosing.getEnclosingElement();
+
+            if (outerClass instanceof TypeElement enclosingType) {
+                enclosing = enclosingType;
+            } else {
+                enclosing = null;
+            }
+        }
+
+        return Scope.super.resolveType(name);
+    }
+
+    private java.util.Optional<TypeElement> findMemberType(final TypeElement classSymbol,
+                                                           final String name) {
+        return ElementFilter.elements(
+                        classSymbol,
+                        element ->
+                                element.getKind().isClass()
+                                        || element.getKind().isInterface()
+                                        || element.getKind() == ElementKind.ENUM
+                                        || element.getKind() == ElementKind.ANNOTATION_TYPE,
+                        TypeElement.class
+                ).stream()
+                .filter(elem -> elem.getSimpleName().contentEquals(name))
+                .findFirst();
     }
 
     @Override

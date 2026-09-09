@@ -27,12 +27,10 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
                                  final String name) {
         final var flatName = Symbol.createFlatName(name);
 
-        final var alreadyEntered = symbolTable.findClasses(flatName).stream()
-                .filter(clazz -> !clazz.isError())
-                .findFirst();
+        final var alreadyEntered = findEntered(flatName);
 
-        if (alreadyEntered.isPresent()) {
-            return alreadyEntered.get();
+        if (alreadyEntered != null) {
+            return alreadyEntered;
         }
 
         // Een geneste klasse die als dot-naam wordt opgevraagd
@@ -47,6 +45,60 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
         }
 
         return loadBinary(moduleElement, flatName);
+    }
+
+    private TypeElement findEntered(final String flatName) {
+        var candidates = symbolTable.findClasses(flatName).stream()
+                .filter(clazz -> !clazz.isError())
+                .toList();
+
+        if (candidates.isEmpty() && flatName.contains(".") && !flatName.contains("$")) {
+            // Puntnotatie voor geneste klassen ("a.b.Outer.Inner"): probe de
+            // punt-na-dolar converte's van rechts naar links.
+            final var parts = flatName.split("\\.");
+            var candidate = flatName;
+            int dot;
+
+            while ((dot = candidate.lastIndexOf('.')) > -1 && candidates.isEmpty()) {
+                candidate = candidate.substring(0, dot) + "$" + candidate.substring(dot + 1);
+                candidates = symbolTable.findClasses(candidate).stream()
+                        .filter(clazz -> !clazz.isError())
+                        .toList();
+            }
+        }
+
+        if (candidates.isEmpty() && !flatName.contains(".") && !flatName.contains("$")) {
+            // Kwalificatiesloze naam die (impliciet) tot java.lang behoort.
+            final var javaLangCandidates = symbolTable.findClasses("java.lang." + flatName).stream()
+                    .filter(clazz -> !clazz.isError())
+                    .toList();
+
+            if (!javaLangCandidates.isEmpty()) {
+                return javaLangCandidates.stream()
+                        .max(java.util.Comparator.comparingInt(clazz ->
+                                (clazz.getSourceFile() != null ? 4 : 0)
+                                        + (clazz.getClassFile() != null ? 2 : 0)
+                                        + (clazz.getMembers() != null && !clazz.getMembers().elements().isEmpty() ? 1 : 0)))
+                        .orElse(javaLangCandidates.getFirst());
+            }
+
+            return null;
+        }
+
+        if (candidates.isEmpty()) {
+            return null;
+        }
+
+        // Kies de instantie die daadwerkelijk gebonden/voltooid is (bron- of
+        // class-file, leden aanwezig). Voor waren er meerdere instanties
+        // onder verschillende module-sleutels en werd willekeurig de eerste
+        // (eventueel lege) gekozen.
+        return candidates.stream()
+                .max(java.util.Comparator.comparingInt(clazz ->
+                        (clazz.getSourceFile() != null ? 4 : 0)
+                                + (clazz.getClassFile() != null ? 2 : 0)
+                                + (clazz.getMembers() != null && !clazz.getMembers().elements().isEmpty() ? 1 : 0)))
+                .orElse(candidates.getFirst());
     }
 
     private TypeElement loadNestedBinaryName(final ModuleElement moduleElement,

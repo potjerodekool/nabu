@@ -18,8 +18,16 @@ import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
+
+    private static int BOX_TRACE_COUNT = 0;
+    private static int BOX_DEPTH = 0;
+    private static int BOX_FRAME_DEPTH = 0;
+    private static int BOX_STACK_TRACE_COUNT = 0;
+    private static int BOX_REPEAT_COUNT = 0;
+    private static final Map<String, Integer> BOX_COUNTS = new java.util.HashMap<>();
 
     private final ClassElementLoader loader;
     private final Types types;
@@ -81,6 +89,11 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
             return boxIfNeeded(literalExpression, declaredType, literalExpression.getType());
         } else if (expressionTree instanceof IdentifierTree identifier) {
             final var symbol = identifier.getSymbol();
+
+            if (symbol == null) {
+                return expressionTree;
+            }
+
             final var varType = symbol.asType();
             return boxIfNeeded(identifier, declaredType, varType);
         } else {
@@ -101,8 +114,36 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
     public ExpressionTree visitDeclaredType(final ExpressionTree expressionTree,
                                             final DeclaredType declaredType,
                                             final TypeMirror otherType) {
+        if (expressionTree.getLineNumber() < 0) {
+            return expressionTree;
+        }
+
         if (otherType.getKind().isPrimitive()) {
-            return boxExpression(expressionTree, otherType.getKind());
+            if (BOX_TRACE_COUNT < 6) {
+                BOX_TRACE_COUNT++;
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[BOX] depth=" + BOX_DEPTH
+                            + " decl=" + declaredType.asTypeElement().getQualifiedName()
+                            + " otherKind=" + otherType.getKind()
+                            + " line=" + expressionTree.getLineNumber()
+                            + " col=" + expressionTree.getColumnNumber()
+                            + " expr=" + expressionTree);
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
+
+            if (BOX_DEPTH > 32) {
+                return expressionTree;
+            }
+
+            BOX_DEPTH++;
+            try {
+                return boxExpression(expressionTree, otherType.getKind());
+            } finally {
+                BOX_DEPTH--;
+            }
         } else if (!types.isBoxType(declaredType)) {
             return expressionTree;
         }
@@ -121,7 +162,63 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
     private ExpressionTree box(final ExpressionTree expression,
                                final String className) {
-        final var target = IdentifierTree.create(className);
+        if (BOX_FRAME_DEPTH > 32) {
+            return expression;
+        }
+
+        BOX_FRAME_DEPTH++;
+        try {
+            final var boxKey = className + "@" + expression.getLineNumber() + ":" + expression.getColumnNumber();
+            final var boxCount = BOX_COUNTS.getOrDefault(boxKey, 0) + 1;
+            BOX_COUNTS.put(boxKey, boxCount);
+
+            if (boxCount == 3 && BOX_REPEAT_COUNT < 3) {
+                BOX_REPEAT_COUNT++;
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[BOX-REPEAT] key=" + boxKey + " count=" + boxCount
+                            + " line=" + expression.getLineNumber()
+                            + " col=" + expression.getColumnNumber());
+                    final var stack = Thread.currentThread().getStackTrace();
+                    for (int i = 0; i < stack.length && i < 40; i++) {
+                        pw.println("  " + stack[i]);
+                    }
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
+
+            if (BOX_STACK_TRACE_COUNT < 2) {
+                BOX_STACK_TRACE_COUNT++;
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    final var stack = Thread.currentThread().getStackTrace();
+                    pw.println("[BOX-STACK] className=" + className
+                            + " line=" + expression.getLineNumber()
+                            + " col=" + expression.getColumnNumber());
+                    for (int i = 0; i < stack.length && i < 30; i++) {
+                        pw.println("  " + stack[i]);
+                    }
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
+
+            if (BOX_TRACE_COUNT < 12) {
+                BOX_TRACE_COUNT++;
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[BOX-FRAME] depth=" + BOX_FRAME_DEPTH
+                            + " className=" + className
+                            + " line=" + expression.getLineNumber()
+                            + " col=" + expression.getColumnNumber()
+                            + " expr=" + expression);
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
+
+            final var target = IdentifierTree.create(className);
         target.setSymbol(loader.loadClass(null, className));
 
         final var methodInvocation = TreeMaker.methodInvocationTree(
@@ -140,12 +237,19 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
             methodInvocation.setMethodType(methodType);
         });
 
-        return methodInvocation;
+            return methodInvocation;
+        } finally {
+            BOX_FRAME_DEPTH--;
+        }
     }
 
-    public ExpressionTree visitPrimitiveType(final ExpressionTree expressionTree,
-                                             final PrimitiveType primitiveType,
-                                             final TypeMirror otherType) {
+public ExpressionTree visitPrimitiveType(final ExpressionTree expressionTree,
+                                         final PrimitiveType primitiveType,
+                                         final TypeMirror otherType) {
+        if (expressionTree.getLineNumber() < 0) {
+            return expressionTree;
+        }
+
         if (otherType instanceof DeclaredType) {
             return boxExpression(expressionTree, primitiveType.getKind());
         } else if (otherType instanceof PrimitiveType otherPrimitiveType) {

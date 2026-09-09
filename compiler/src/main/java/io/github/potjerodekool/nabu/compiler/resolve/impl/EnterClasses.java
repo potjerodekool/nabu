@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ModuleSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
@@ -13,8 +14,11 @@ import io.github.potjerodekool.nabu.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.tree.PatternTreeVisitor;
 import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
+
+import java.util.ArrayList;
 
 public class EnterClasses implements PatternTreeVisitor<Void, Scope> {
 
@@ -105,6 +109,7 @@ public class EnterClasses implements PatternTreeVisitor<Void, Scope> {
         final var clazzDeclaration = (CClassDeclaration) classDeclaration;
 
         clazzDeclaration.setClassSymbol(clazz);
+        clazz.setError(false);
         packageElement.define(clazz);
 
         clazz.setCompleter(typeEnter);
@@ -114,6 +119,65 @@ public class EnterClasses implements PatternTreeVisitor<Void, Scope> {
                 classDeclaration,
                 scope.getCompilationUnit()
         );
+
+        enterNestedClasses(clazzDeclaration, clazz, scope);
+    }
+
+    private void enterNestedClasses(final CClassDeclaration classDeclaration,
+                                    final ClassSymbol owner,
+                                    final Scope scope) {
+        final var list = new ArrayList<>(classDeclaration.getEnclosedElements());
+
+        list.stream()
+                .filter(ClassDeclaration.class::isInstance)
+                .map(ClassDeclaration.class::cast)
+                .forEach(nested -> {
+                    final var module = (ModuleSymbol) scope.findModuleElement();
+
+                    final var clazz = SymbolTable.getInstance(compilerContext)
+                            .enterClass(
+                                    module,
+                                    nested.getSimpleName(),
+                                    owner
+                            );
+
+                    clazz.setKind(kindOf(nested));
+                    clazz.setNestingKind(computeNestingKind(nested, owner));
+                    clazz.setFlags(nested.getModifiers().getFlags());
+                    clazz.setSimpleName(nested.getSimpleName());
+
+                    final var nestedDeclaration = (CClassDeclaration) nested;
+
+                    nestedDeclaration.setClassSymbol(clazz);
+                    clazz.setError(false);
+                    owner.addEnclosedElement(clazz);
+                    clazz.setCompleter(typeEnter);
+
+                    typeEnter.put(
+                            clazz,
+                            nestedDeclaration,
+                            scope.getCompilationUnit()
+                    );
+
+                    enterNestedClasses(nestedDeclaration, clazz, scope);
+                });
+    }
+
+    private NestingKind computeNestingKind(final ClassDeclaration classDeclaration,
+                                           final ClassSymbol owner) {
+        if (owner == null) {
+            return NestingKind.TOP_LEVEL;
+        }
+
+        return NestingKind.MEMBER;
+    }
+
+    private ElementKind kindOf(final ClassDeclaration classDeclaration) {
+        if (classDeclaration.getKind() == Kind.ANNOTATION) {
+            return ElementKind.ANNOTATION_TYPE;
+        }
+
+        return ElementKind.valueOf(classDeclaration.getKind().name());
     }
 
 }

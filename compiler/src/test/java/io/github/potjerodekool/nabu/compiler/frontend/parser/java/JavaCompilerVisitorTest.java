@@ -413,6 +413,30 @@ class JavaCompilerVisitorTest {
     }
 
     @Test
+    void tryEmptyCatchRepro() throws IOException {
+        final String source = Files.readString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/Repro3.java"));
+        final var parser = new Java20Parser(
+                new CommonTokenStream(new Java20Lexer(CharStreams.fromString(source))));
+        parser.setBuildParseTree(true);
+        parser.removeErrorListeners();
+        final var compilationUnit = parser.compilationUnit();
+        final var fileObject = new PathFileObject(
+                new FileObject.Kind(".nabu", true),
+                Paths.get("Repro3.java")
+        );
+        final var probe = new FieldAccessSuffixProbeVisitor(fileObject);
+        try {
+            compilationUnit.accept(probe);
+        } catch (final Throwable t) {
+            throw t;
+        }
+        System.out.println("tryEmptyCatchRepro done");
+        final var builder2 = new StringBuilder();
+        collectClassNodes(compilationUnit, builder2);
+        Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/class-nodes3.txt"), builder2.toString());
+    }
+
+    @Test
     void fullPicocliCommandLineFileVisitorPasses() throws IOException {
         final var path = Path.of("C:/projects/incurbation/cli-demo/vendor/picocli-src/picocli/CommandLine.java");
         final var source = Files.readString(path);
@@ -420,7 +444,22 @@ class JavaCompilerVisitorTest {
                 new CommonTokenStream(new Java20Lexer(CharStreams.fromString(source))));
         parser.setBuildParseTree(true);
         parser.removeErrorListeners();
+        final var syntaxErrors = new java.util.ArrayList<String>();
+        parser.addErrorListener(new org.antlr.v4.runtime.BaseErrorListener() {
+            @Override
+            public void syntaxError(final org.antlr.v4.runtime.Recognizer<?, ?> recognizer,
+                                    final Object offendingSymbol,
+                                    final int line,
+                                    final int charPositionInLine,
+                                    final String msg,
+                                    final org.antlr.v4.runtime.RecognitionException e) {
+                syntaxErrors.add(line + ":" + charPositionInLine + " " + msg);
+            }
+        });
         final var compilationUnit = parser.compilationUnit();
+        Files.writeString(
+                Path.of("C:/Users/evert/AppData/Local/Temp/opencode/syntax-errors.txt"),
+                String.join("\n", syntaxErrors));
         final var fileObject = new PathFileObject(
                 new FileObject.Kind(".nabu", true),
                 Paths.get("CommandLine.java")
@@ -431,6 +470,27 @@ class JavaCompilerVisitorTest {
         } catch (final Throwable t) {
             System.out.println("VISITOR CRASH on line " + probe.lastPrimaryLine + " -> " + t);
             throw t;
+        }
+        final var builder = new StringBuilder();
+        collectClassNodes(compilationUnit, builder);
+        Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/class-nodes.txt"), builder.toString());
+    }
+
+    private void collectClassNodes(final org.antlr.v4.runtime.tree.ParseTree tree,
+                                   final StringBuilder builder) {
+        if (tree instanceof Java20Parser.NormalClassDeclarationContext classDecl) {
+            final int line = classDecl.getStart().getLine();
+            final var bodyDecl = classDecl.classBody().classBodyDeclaration();
+            final int lastMemberStop = bodyDecl == null || bodyDecl.isEmpty()
+                    ? -1
+                    : bodyDecl.get(bodyDecl.size() - 1).getStop().getLine();
+            builder.append(line).append(" : ").append(classDecl.typeIdentifier().getText())
+                    .append(" lastMemberStop=").append(lastMemberStop).append("\n");
+        } else if (tree.getChildCount() == 0) {
+            // leaf: skip
+        }
+        for (var i = 0; i < tree.getChildCount(); i++) {
+            collectClassNodes(tree.getChild(i), builder);
         }
     }
 

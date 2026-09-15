@@ -3,7 +3,6 @@ package io.github.potjerodekool.nabu.compiler.backend.java;
 import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.backend.ir.PhiElimination;
 import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
-import io.github.potjerodekool.nabu.resolve.jvm.AccessUtils;
 import io.github.potjerodekool.nabu.backend.jvm.Linearizer;
 import io.github.potjerodekool.nabu.backend.jvm.SlotAllocator;
 import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
@@ -39,6 +38,68 @@ class ClassFileByteCodeEmitter {
      * constante op de ClassFile-interface, daarom hier lokaal gedefinieerd.
      */
     private static final int ACC_RECORD = 0x0001_0000;
+
+    /**
+     * Converteert {@link Flags}-waarden naar JVMS §4.1/§4.6 access-flags
+     * (JVMS tabel 4.1-B). Lokale uitvoering: het AccessUtils-hulpprogram
+     * uit de compiler-module is hier niet op de classpath ("compiler
+     * classes are comming from the daemon").
+     */
+    private static int flagsToAccess(final long flags) {
+        int access = 0;
+        if (Flags.hasFlag(flags, Flags.PUBLIC)) {
+            access |= 0x0001;
+        }
+        if (Flags.hasFlag(flags, Flags.PRIVATE)) {
+            access |= 0x0002;
+        }
+        if (Flags.hasFlag(flags, Flags.PROTECTED)) {
+            access |= 0x0004;
+        }
+        if (Flags.hasFlag(flags, Flags.STATIC)) {
+            access |= 0x0008;
+        }
+        if (Flags.hasFlag(flags, Flags.FINAL)) {
+            access |= 0x0010;
+        }
+        if (Flags.hasFlag(flags, Flags.SUPER)) {
+            access |= 0x0020;
+        }
+        if (Flags.hasFlag(flags, Flags.VOLATILE)) {
+            access |= 0x0040;
+        }
+        if (Flags.hasFlag(flags, Flags.TRANSIENT)) {
+            access |= 0x0080;
+        }
+        if (Flags.hasFlag(flags, Flags.NATIVE)) {
+            access |= 0x0100;
+        }
+        if (Flags.hasFlag(flags, Flags.INTERFACE)) {
+            access |= 0x0200;
+        }
+        if (Flags.hasFlag(flags, Flags.ABSTRACT)) {
+            access |= 0x0400;
+        }
+        if (Flags.hasFlag(flags, Flags.STRICTFP)) {
+            access |= 0x0800;
+        }
+        if (Flags.hasFlag(flags, Flags.SYNTHETIC)) {
+            access |= 0x1000;
+        }
+        if (Flags.hasFlag(flags, Flags.ANNOTATION)) {
+            access |= 0x2000;
+        }
+        if (Flags.hasFlag(flags, Flags.ENUM)) {
+            access |= 0x4000;
+        }
+        if (Flags.hasFlag(flags, Flags.MODULE)) {
+            access |= 0x8000;
+        }
+        if (Flags.hasFlag(flags, Flags.RECORD)) {
+            access |= ACC_RECORD;
+        }
+        return access;
+    }
 
     private final Map<String, IRGlobal> globalMap = new HashMap<>();
 
@@ -202,7 +263,7 @@ class ClassFileByteCodeEmitter {
                     name,
                     fieldDesc,
                     fieldBuilder -> {
-                        fieldBuilder.withFlags(AccessUtils.flagsToAccess(field.flags()));
+                        fieldBuilder.withFlags(flagsToAccess(field.flags()));
                         AttributeFactories.annotations(fieldBuilder, field.annotations());
                         AttributeFactories.signature(fieldBuilder, field.genericSignature());
                     }
@@ -216,7 +277,7 @@ class ClassFileByteCodeEmitter {
             return;
         }
 
-        final var access = AccessUtils.flagsToAccess(function.getFlags());
+        final var access = flagsToAccess(function.getFlags());
         final boolean methodIsStatic = Flags.hasFlag(function.getFlags(), Flags.STATIC);
 
         final var methodName = emittedName(function);

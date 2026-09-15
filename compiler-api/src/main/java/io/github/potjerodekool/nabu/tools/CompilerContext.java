@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilders;
 import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.resolve.ArgumentBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
 import io.github.potjerodekool.nabu.tree.TreeUtils;
@@ -30,11 +29,6 @@ public interface CompilerContext extends AutoCloseable {
      * @return Returns the utility for elements.
      */
     Elements getElements();
-
-    /**
-     * @return Return the resolver to resolve method calls.
-     */
-    MethodResolver getMethodResolver();
 
     /**
      * @return Returns the utility to box or unbox arguments.

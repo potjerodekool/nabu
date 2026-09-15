@@ -64,7 +64,9 @@ public class OptimizationPipeline {
      */
     public static OptimizationPipeline defaultPipeline() {
         final List<OptimizationPass> passes = new ArrayList<>();
-        passes.add(new TypeInference());
+        // BISECT: passe-per-passe herinschakelen; alle vijf breken de
+        // slot-gebaseerde emissie (picocli CommandLine.copy() uninit).
+        // passes.add(new TypeInference());
         passes.add(new ConstantFolder());
         passes.add(new CopyPropagation());
         passes.add(new GlobalValueNumbering());

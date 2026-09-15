@@ -10,6 +10,8 @@ public class MyClass {
   // access flags 0x1
   public getValue()I
    L0
+    ICONST_0
+    ISTORE 1
     ALOAD 0
     GETFIELD MyClass.number : I
     ISTORE 1

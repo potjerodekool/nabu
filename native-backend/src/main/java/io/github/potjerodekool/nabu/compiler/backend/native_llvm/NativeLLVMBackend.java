@@ -78,7 +78,7 @@ public class NativeLLVMBackend implements Backend {
                 ? opts.targetTriple()
                 : Linker.guessTargetTriple(LLVMGetDefaultTargetTriple().getString());
 
-        Path outFile = resolveOutputFile(modules.get(0), outputObj);
+        Path outFile = resolveOutputFile(modules.getFirst(), outputObj);
         compileToObject(modules, opts, outFile, triple);
 
         // Alleen linken als er een main-functie aanwezig is
@@ -191,7 +191,7 @@ public class NativeLLVMBackend implements Backend {
                                  Path outputObj,
                                  String triple) throws CompileException {
         LLVMContextRef ctx     = LLVMContextCreate();
-        LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.get(0).name, ctx);
+        LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
 
         try {

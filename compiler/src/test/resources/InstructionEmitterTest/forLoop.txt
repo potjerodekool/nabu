@@ -9,9 +9,25 @@ public class MyClass {
    L0
     LINENUMBER 3 L0
     ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
+    ICONST_0
+    ISTORE 4
+    ICONST_0
+    ISTORE 5
+    ICONST_0
     ISTORE 1
    L1
-   FRAME FULL [MyClass I] []
+   FRAME FULL [MyClass I I I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
+    ICONST_0
+    ISTORE 4
+    ICONST_0
+    ISTORE 5
     ILOAD 1
     ISTORE 2
     ILOAD 2
@@ -19,27 +35,51 @@ public class MyClass {
     IF_ICMPGE L2
     GOTO L3
    L3
-   FRAME FULL [MyClass I I] []
+   FRAME FULL [MyClass I I I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
+    ICONST_0
+    ISTORE 4
+    ICONST_0
+    ISTORE 5
     GOTO L4
    L4
-   FRAME FULL [MyClass I I] []
-    ILOAD 1
+   FRAME FULL [MyClass I I I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
     ISTORE 3
-    ILOAD 3
-    ICONST_1
-    IADD
+    ICONST_0
+    ISTORE 4
+    ICONST_0
+    ISTORE 5
+    ILOAD 1
     ISTORE 4
     ILOAD 4
+    ICONST_1
+    IADD
+    ISTORE 5
+    ILOAD 5
     ISTORE 1
     GOTO L1
    L2
-   FRAME FULL [MyClass I I] []
+   FRAME FULL [MyClass I I I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
+    ICONST_0
+    ISTORE 4
+    ICONST_0
+    ISTORE 5
     RETURN
    L5
     LOCALVARIABLE this LMyClass; L0 L5 0
     LOCALVARIABLE i I L0 L5 1
     MAXSTACK = 2
-    MAXLOCALS = 5
+    MAXLOCALS = 6
 
   // access flags 0x1
   public <init>()V

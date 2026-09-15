@@ -75,6 +75,69 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                         && classSymbol.getQualifiedName().toString().equals(qualifiedName));
     }
 
+    public ClassSymbol findSourceSymbol(final String qualifiedName) {
+        return symbolToTreeMap.keySet().stream()
+                .filter(symbol -> symbol instanceof ClassSymbol classSymbol
+                        && classSymbol.getQualifiedName().toString().equals(qualifiedName))
+                .map(symbol -> (ClassSymbol) symbol)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public ClassDeclaration getSourceTree(final TypeElement symbol) {
+        return symbolToTreeMap.get(symbol);
+    }
+
+    public CompilationUnit getCompilationUnit(final ClassDeclaration tree) {
+        return treeToCompilationUnitMap.get(tree);
+    }
+
+    private TypeMirror findMemberTypeInTopLevelClass(final ClassSymbol currentClass,
+                                                     final String name) {
+        ClassSymbol topLevel = currentClass;
+        while (topLevel.getEnclosingElement() instanceof ClassSymbol enclosingSymbol) {
+            topLevel = enclosingSymbol;
+        }
+
+        return searchMemberTypes(topLevel, name);
+    }
+
+    private TypeMirror searchMemberTypes(final ClassSymbol type,
+                                         final String name) {
+        final var members = type.getEnclosedElements();
+        if (members == null) {
+            return null;
+        }
+
+        for (final var member : members) {
+            if (member instanceof ClassSymbol memberSymbol
+                    && (memberSymbol.getKind().isClass()
+                    || memberSymbol.getKind().isInterface()
+                    || memberSymbol.getKind() == ElementKind.ENUM
+                    || memberSymbol.getKind() == ElementKind.ANNOTATION_TYPE)) {
+                if (memberSymbol.getSimpleName().contentEquals(name)) {
+                    if ("IAnnotatedElement".equals(name) || "TypedMember".equals(name)) {
+                        try (final var pw = new java.io.PrintWriter(
+                                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                            pw.println("[DFS-mem] in=" + type.getQualifiedName()
+                                    + " found=" + memberSymbol.getQualifiedName()
+                                    + " encl=" + memberSymbol.getEnclosingElement().getQualifiedName()
+                                    + " memberClass=" + memberSymbol.getClass().getSimpleName());
+                        } catch (java.io.IOException e) {
+                            // ignore
+                        }
+                    }
+                    return memberSymbol.asType();
+                }
+                final var nested = searchMemberTypes(memberSymbol, name);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
     public void put(final TypeElement symbol,
                     final ClassDeclaration tree,
                     final CompilationUnit compilationUnit) {
@@ -369,12 +432,31 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final List<ExpressionTree> interfaces = classDeclaration.getImplementing();
 
         if (!interfaces.isEmpty()) {
+            if (currentClass.getQualifiedName().toString().contains("TypedMember")) {
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[fillIface] class=" + currentClass.getQualifiedName()
+                            + " implementing=" + interfaces);
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
             final var interfaceTypes = interfaces.stream()
                     .map(it -> acceptTree(it, scope))
                     .map(it -> (ExpressionTree) it)
                     .map(ExpressionTree::getType)
                     .map(this::canonicalizeDeclaredType)
                     .toList();
+
+            if (currentClass.getQualifiedName().toString().contains("TypedMember")) {
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[fillIface-res] class=" + currentClass.getQualifiedName()
+                            + " got=" + interfaceTypes);
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
 
             currentClass.setInterfaces(interfaceTypes);
         }
@@ -410,7 +492,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     /**
-     * Vult de importscopes van een compilatie-eenheid vroegtijdig (vóór de
+     * Vult de importscopes van een compilatie-eenheid vroegtijdig (vÃ³Ã³r de
      * resolutie), onafhankelijk van lazy klassymbol-completion. Idempotent.
      */
     public void fillImportsForUnit(final CompilationUnit compilationUnit) {
@@ -580,7 +662,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     private PackageElement importStarImport(final ModuleElement moduleElement,
                                            final String classOrPackageName,
                                            final CompilationUnit compilationUnit) {
-        // Voltooi (en scan indien nodig) het pakket — bijv. java.util.*.
+        // Voltooi (en scan indien nodig) het pakket â€” bijv. java.util.*.
         final var packageSymbol = symbolTable.lookupPackage(
                 moduleElement,
                 classOrPackageName
@@ -632,7 +714,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final var currentClass = (ClassSymbol) scope.getCurrentClass();
 
         final var annotations = classDeclaration.getModifiers().getAnnotations().stream()
-                .map(annotationTree -> (AnnotationMirror) acceptTree(annotationTree, scope))
+                .map(annotationTree -> (AnnotationMirror) acceptTree(annotationTree, annotationScope(scope, currentClass)))
                 .toList();
 
         final var typeArguments = classDeclaration.getTypeParameters().stream()
@@ -650,6 +732,22 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 .forEach(enclosedElement -> acceptTree(enclosedElement, scope));
 
         return classDeclaration;
+    }
+
+    private Scope annotationScope(final Scope scope,
+                                  final TypeElement currentClass) {
+        final var enclosingElement = currentClass.getEnclosingElement();
+
+        if (enclosingElement instanceof TypeElement enclosingType) {
+            return new SymbolScope(
+                    (DeclaredType) enclosingType.asType(),
+                    scope.getGlobalScope()
+            );
+        }
+
+        return scope.getGlobalScope() != null
+                ? scope.getGlobalScope()
+                : scope;
     }
 
     @Override
@@ -1036,6 +1134,11 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             }
         }
 
+        final var declarationScopeType = findMemberTypeInTopLevelClass(currentClass, name);
+        if (declarationScopeType != null) {
+            return declarationScopeType;
+        }
+
         final var compilationUnit = findCompilationUnit(currentClass);
 
         TypeMirror type = null;
@@ -1109,6 +1212,10 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             type = compilerContext.getTypes().getErrorType(name);
         }
 
+        unflagResolvedPlaceholder(type);
+
+        probeTypeEnterIdentifier(typeIdentifier, name, currentClass, scope, type);
+
         if (typeIdentifier.getTypeParameters() != null) {
             final var typeParams = typeIdentifier.getTypeParameters().stream()
                     .map(typeParam -> acceptTree(typeParam, scope))
@@ -1124,6 +1231,90 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         typeIdentifier.setType(type);
 
         return typeIdentifier;
+    }
+
+    private static void unflagResolvedPlaceholder(final DeclaredType type) {
+        final var element = type != null ? type.asTypeElement() : null;
+        final var isErrorType = type instanceof ErrorType;
+
+        if (element instanceof Symbol symbol
+                && symbol.isError()
+                && !isErrorType) {
+            // The symbol was created as an error placeholder earlier and
+            // reclaimed, but the stale error flag was still propagated to
+            // the resolved type. Now that resolution succeeded on the real
+            // source/declared class, the flag must not keep poisoning it.
+            symbol.setError(false);
+            logUnflag("CLEARED", type, element, isErrorType, symbol);
+        } else if (shouldDebugUnflag(type)) {
+            logUnflag(statusOf(element, isErrorType), type, element, isErrorType, element instanceof Symbol s ? s : null);
+        }
+    }
+
+    private static void logUnflag(final String status,
+                                  final DeclaredType type,
+                                  final Element element,
+                                  final boolean isErrorType,
+                                  final Symbol symbol) {
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+            pw.println("[UNFLAG] status=" + status
+                    + " typeClass=" + type.getClass().getName()
+                    + " isErrorType=" + isErrorType
+                    + " elemClass=" + (element == null ? "null" : element.getClass().getName())
+                    + " elem@=" + System.identityHashCode(element)
+                    + " elemIsError=" + (symbol != null && symbol.isError())
+                    + " typeIsError=" + type.isError()
+                    + " qn=" + (element == null ? "null" : ((io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol) element).getQualifiedName()));
+        } catch (java.io.IOException e) {
+            // ignore
+        }
+    }
+
+    private static boolean shouldDebugUnflag(final DeclaredType type) {
+        if (type == null || type.asTypeElement() == null) {
+            return false;
+        }
+        final var qn = type.asTypeElement().getQualifiedName();
+        return qn != null && (qn.contentEquals("picocli.CommandLine$AbstractHandler")
+                || qn.contentEquals("picocli.CommandLine$IParseResultHandler2")
+                || qn.contentEquals("picocli.CommandLine$IExceptionHandler2"));
+    }
+
+    private static String statusOf(final Element element, final boolean isErrorType) {
+        if (isErrorType) {
+            return "SKIP-ERRORTYPE";
+        }
+        if (element instanceof Symbol symbol && !symbol.isError()) {
+            return "NOOP-NOTERROR";
+        }
+        return "SKIP-NOTSIMBOL";
+    }
+
+    private static final java.util.Set<String> TYPE_ENTER_PROBED = java.util.Set.of(
+            "IParseResultHandler2", "IExceptionHandler2", "AbstractHandler", "CSI", "value");
+
+    private void probeTypeEnterIdentifier(final TypeApplyTree typeIdentifier,
+                                          final String name,
+                                          final ClassSymbol currentClass,
+                                          final Scope scope,
+                                          final DeclaredType type) {
+        if (!TYPE_ENTER_PROBED.contains(name)) {
+            return;
+        }
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+            pw.println("[TE-VISIT-TI] name=" + name
+                    + " tree@" + System.identityHashCode(typeIdentifier)
+                    + " line=" + typeIdentifier.getLineNumber()
+                    + " col=" + typeIdentifier.getColumnNumber()
+                    + " current=" + currentClass.getQualifiedName() + "@" + System.identityHashCode(currentClass)
+                    + " enclosed=" + (currentClass.getEnclosedElements() == null ? -1 : currentClass.getEnclosedElements().size())
+                    + " scopeChain=" + scope.getClass().getSimpleName()
+                    + " type=" + (type == null ? "null" : (type.isError() ? "ERROR" : type.toString())));
+        } catch (java.io.IOException e) {
+            // ignore
+        }
     }
 
     @Override

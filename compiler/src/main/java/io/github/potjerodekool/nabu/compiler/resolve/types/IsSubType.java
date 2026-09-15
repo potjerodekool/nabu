@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.types;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.util.impl.TypesImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.type.*;
@@ -87,6 +88,42 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
         if (other instanceof DeclaredType otherDeclaredType) {
             final var clazz = (TypeElement) declaredType.asElement();
             final var otherClass = (TypeElement) otherDeclaredType.asElement();
+
+            if (clazz instanceof ClassSymbol sourceClazz) {
+                sourceClazz.complete();
+            }
+            if (otherClass instanceof ClassSymbol sourceOtherClass) {
+                sourceOtherClass.complete();
+            }
+
+            final var clazzQn = clazz.getQualifiedName();
+            if (clazzQn != null
+                    && clazzQn.contains("TypedMember")
+                    && otherClass.getQualifiedName() != null
+                    && otherClass.getQualifiedName().contains("IAnnotatedElement")) {
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    final var db = new StringBuilder();
+                    db.append("[IST] clazzQn=").append(clazzQn)
+                            .append(" clazzClass=").append(clazz.getClass().getName())
+                            .append(" ifaces=[");
+                    for (final var i : clazz.getInterfaces()) {
+                        try {
+                            db.append(i instanceof DeclaredType it
+                                    ? ((TypeElement) it.asElement()).getQualifiedName()
+                                    : String.valueOf(i)).append(";");
+                        } catch (Exception e) {
+                            db.append("<err>;");
+                        }
+                    }
+                    db.append("] sup=").append(clazz.getSuperclass())
+                            .append(" srcQn=").append(clazz.getQualifiedName());
+                    pw.println(db.append(" otherClass=").append(otherClass.getClass().getName())
+                            .append(" otherQn=").append(otherClass.getQualifiedName()));
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
 
             if (sameClass(clazz, otherClass)) {
                 if (declaredType.getTypeArguments().isEmpty()) {

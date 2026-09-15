@@ -485,9 +485,18 @@ public class SymbolTable {
         if (clazz == null) {
             clazz = defineClass(className, owner);
             doEnterClass(moduleSymbol, clazz);
+        } else {
+            reclaimErrorPlaceholder(clazz);
         }
 
         return clazz;
+    }
+
+    private void reclaimErrorPlaceholder(final ClassSymbol clazz) {
+        if (clazz.isError()) {
+            clazz.setError(false);
+            clazz.setCompleter(initialCompleter);
+        }
     }
 }
 

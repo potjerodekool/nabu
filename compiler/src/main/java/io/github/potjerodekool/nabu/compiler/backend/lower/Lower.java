@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.Boxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
@@ -26,6 +26,9 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CArrayAccessExpressionT
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
 import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
+import io.github.potjerodekool.nabu.type.ArrayType;
+import io.github.potjerodekool.nabu.type.TypeKind;
+import io.github.potjerodekool.nabu.tree.Tag;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.PrimitiveType;
@@ -142,8 +145,15 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         left = wideningConverter.convert(left, right);
         right = wideningConverter.convert(right, left);
 
-        left = compilerContext.getTreeUtils().typeOf(right).accept(caster, left);
-        right = compilerContext.getTreeUtils().typeOf(left).accept(caster, right);
+        final var rightTypeAfterConversion = compilerContext.getTreeUtils().typeOf(right);
+        final var leftTypeAfterConversion = compilerContext.getTreeUtils().typeOf(left);
+
+        if (rightTypeAfterConversion == null || leftTypeAfterConversion == null) {
+            return binaryExpression;
+        }
+
+        left = rightTypeAfterConversion.accept(caster, left);
+        right = leftTypeAfterConversion.accept(caster, right);
 
         left = unboxIfNeeded(left, right);
         right = unboxIfNeeded(right, left);
@@ -166,6 +176,15 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         final var expression = (ExpressionTree) acceptTree(enhancedForStatement.getExpression(), scope);
         final var localVariable = (VariableDeclaratorTree) acceptTree(enhancedForStatement.getLocalVariable(), scope);
         final var statement = (StatementTree) acceptTree(enhancedForStatement.getStatement(), scope);
+
+        final var expressionType = expression != null ? expression.getType() : null;
+
+        if (expressionType instanceof ArrayType arrayType) {
+            // foreach over een array: index-gebaseerde lowering; de
+            // iterator-lowering is niet van toepassing omdat ArrayType
+            // geen iterator() heeft.
+            return lowerArrayEnhancedFor(expression, localVariable, statement);
+        }
 
         var methodInvocation = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
@@ -191,14 +210,19 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         });
         */
 
-        final var localVariableType = (DeclaredType) localVariable.getVariableType().getType();
+        final var localVariableType = localVariable.getVariableType().getType();
+
+        if (!(localVariableType instanceof DeclaredType localVariableDeclaredType)) {
+            return enhancedForStatement;
+        }
+
         final var iteratorName = generateVariableName();
         final var iteratorClassElement = loader.loadClass(
                 scope.findModuleElement(),
                 "java.util.Iterator"
         );
 
-        final var iteratorType = types.getDeclaredType(iteratorClassElement, localVariableType);
+        final var iteratorType = types.getDeclaredType(iteratorClassElement, localVariableDeclaredType);
 
         final var localVariableElement = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
@@ -240,7 +264,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         check.getMethodSelector().setType(resolvedHasNextMethod.getOwner().asType());
         check.setMethodType(resolvedHasNextMethod);
 
-        final var typeTree = createIdentifier(localVariableType);
+        final var typeTree = createIdentifier(localVariableDeclaredType);
 
         final var nextInvocation = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
@@ -280,7 +304,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
         if (statement instanceof BlockStatementTree blockStatement) {
             statements.addAll(blockStatement.getStatements());
-        } else {
+        } else if (statement != null) {
             statements.add(statement);
         }
 
@@ -294,6 +318,84 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 List.of(forInit),
                 check,
                 List.of(),
+                newBody,
+                -1,
+                -1
+        );
+    }
+
+    /**
+     * Lowering van een enhanced-for over een array: gamevariabelen worden
+     * via een index-loops opgezocht (JLS §14.14).
+     */
+    private Tree lowerArrayEnhancedFor(final ExpressionTree expression,
+                                       final VariableDeclaratorTree localVariable,
+                                       final StatementTree statement) {
+        final var arrayType = (ArrayType) expression.getType();
+        final var counterName = generateVariableName();
+        final var intType = types.getPrimitiveType(TypeKind.INT);
+
+        final var counterElement = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.LOCAL_VARIABLE)
+                .simpleName(counterName)
+                .type(intType)
+                .build();
+
+        final var forInitCounter = createIdentifier(counterName, counterElement);
+        forInitCounter.setType(intType);
+
+        final var forInitValue = TreeMaker.identifier(counterName, -1, -1);
+        forInitValue.setSymbol(counterElement);
+        forInitValue.setType(intType);
+
+        final var forInit = new VariableDeclaratorTreeBuilder()
+                .kind(Kind.LOCAL_VARIABLE)
+                .modifiers(new Modifiers())
+                .variableType(forInitCounter)
+                .name(forInitValue)
+                .value(TreeMaker.literalExpressionTree(0, -1, -1))
+                .build();
+
+        final var lengthField = TreeMaker.fieldAccessExpressionTree(
+                expression,
+                IdentifierTree.create("length"),
+                -1,
+                -1
+        );
+        lengthField.setType(intType);
+
+        final var checkCounter = createIdentifier(counterName, counterElement);
+        checkCounter.setType(intType);
+        final var check = TreeMaker.binaryExpressionTree(checkCounter, Tag.LT, lengthField, -1, -1);
+        check.setType(types.getPrimitiveType(TypeKind.BOOLEAN));
+
+        final var updateCounter = createIdentifier(counterName, counterElement);
+        updateCounter.setType(intType);
+        final var update = TreeMaker.unaryExpressionTree(Tag.POST_INC, updateCounter, -1, -1);
+
+        final var accessCounter = createIdentifier(counterName, counterElement);
+        accessCounter.setType(intType);
+        final var arrayAccess = new CArrayAccessExpressionTree(expression, accessCounter);
+        arrayAccess.setType(arrayType.getComponentType());
+
+        final var statements = new ArrayList<StatementTree>();
+        statements.add(localVariable.builder()
+                .variableType(localVariable.getVariableType())
+                .value(arrayAccess)
+                .build());
+
+        if (statement instanceof BlockStatementTree blockStatement) {
+            statements.addAll(blockStatement.getStatements());
+        } else if (statement != null) {
+            statements.add(statement);
+        }
+
+        final var newBody = TreeMaker.blockStatement(statements, -1, -1);
+
+        return TreeMaker.forStatement(
+                List.of(forInit),
+                check,
+                List.of(TreeMaker.expressionStatement(update, -1, -1)),
                 newBody,
                 -1,
                 -1
@@ -539,11 +641,19 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
         final var methodType = methodInvocation.getMethodType();
         final var arguments = methodInvocation.getArguments();
+
+        if (methodType == null || methodType.getParameterTypes() == null) {
+            return methodInvocation;
+        }
+
         final var paramTypes = methodType.getParameterTypes();
         final var newArguments = new ArrayList<ExpressionTree>();
         var argChanged = false;
 
         for (var i = 0; i < paramTypes.size(); i++) {
+            if (i >= arguments.size()) {
+                break;
+            }
             final var paramType = paramTypes.get(i);
             final var argument = arguments.get(i);
             final var newArgument = paramType.accept(boxer, argument);

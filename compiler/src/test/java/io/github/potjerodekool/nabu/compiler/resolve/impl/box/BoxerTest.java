@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl.box;
 
 import io.github.potjerodekool.nabu.compiler.type.impl.CPrimitiveType;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.type.PrimitiveType;

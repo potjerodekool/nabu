@@ -226,6 +226,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     private void reportUnresolvedSymbol(final String name,
                                         final Tree tree,
                                         final Scope scope) {
+        probeReport("rs", name, tree, scope);
         final var lineInfo = formatLineInfo(tree);
 
         listener.report(new DefaultDiagnostic(
@@ -244,6 +245,25 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
     private String formatLineInfo(final Tree tree) {
         return "at " + tree.getLineNumber() + ":" + tree.getColumnNumber();
+    }
+
+    private void probeReport(final String kind,
+                             final String name,
+                             final Tree tree,
+                             final Scope scope) {
+        final var t = tree instanceof io.github.potjerodekool.nabu.tree.expression.ExpressionTree e
+                ? e.getType() : null;
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+            pw.println("[REPORT] kind=" + kind + " tree=" + tree.getClass().getSimpleName()
+                    + " tree@" + System.identityHashCode(tree)
+                    + " line=" + tree.getLineNumber()
+                    + " col=" + tree.getColumnNumber()
+                    + " type=" + (t == null ? "null" : (t.isError() ? "ERROR" : t.toString())));
+            new Throwable("probe-stack").printStackTrace(pw);
+        } catch (java.io.IOException e) {
+            // ignore
+        }
     }
 
     private void reportNotAccessible(final Element element,
@@ -279,9 +299,47 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         );
     }
 
+    private static final java.util.Set<String> CHECKER_PROBED = java.util.Set.of(
+            "IParseResultHandler2", "IExceptionHandler2", "AbstractHandler", "CSI", "value");
+
+    private void probeChecker(final String where,
+                              final TypeApplyTree typeIdentifier) {
+        final var clazzTree = typeIdentifier.getClazz();
+        final var name = clazzTree instanceof io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree cid
+                ? cid.getName() : (clazzTree instanceof io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree fa
+                ? fa.toString() : clazzTree.getClass().getSimpleName());
+        if (!CHECKER_PROBED.contains(name)) {
+            return;
+        }
+        final var t = typeIdentifier.getType();
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+            pw.println("[CHECKER] " + where
+                    + " tree@" + System.identityHashCode(typeIdentifier)
+                    + " tree=" + typeIdentifier.getClass().getSimpleName()
+                    + " name=" + name
+                    + " line=" + typeIdentifier.getLineNumber()
+                    + " col=" + typeIdentifier.getColumnNumber()
+                    + " type=" + (t == null ? "null" : (t.isError() ? "ERROR" : t.toString()))
+                    + " text=" + treeText(typeIdentifier).replace("\n", " "));
+        } catch (java.io.IOException e) {
+            // ignore
+        }
+    }
+
+    private String treeText(final Tree tree) {
+        try {
+            return tree.toString().substring(0, Math.min(120, tree.toString().length()));
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
+        probeChecker("visitTypeIdentifier", typeIdentifier);
+
         if (isNullOrErrorType(typeIdentifier.getType())) {
             reportFailedToResolveType(
                     typeIdentifier.getClazz(),
@@ -294,6 +352,7 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
 
     private void reportFailedToResolveType(final ExpressionTree expressionTree,
                                            final Scope scope) {
+        probeReport("rt", null, expressionTree, scope);
         final var className = new StringBuilder();
         resolveClassName(expressionTree, className);
         final var lineInfo = formatLineInfo(expressionTree);
@@ -367,10 +426,8 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
         // ledige ClassDeclaration gerepresenteerd; die zijn geen anonieme klasse.
         final var classDeclaration = newClassExpression.getClassDeclaration();
 
-        if (classDeclaration != null
-                && (classDeclaration.getEnclosedElements() == null
-                || !classDeclaration.getEnclosedElements().isEmpty())) {
-            reportUnsupportedConstruct("Anonymous class bodies", newClassExpression, scope);
+        if (classDeclaration != null) {
+            acceptTree(classDeclaration, scope);
         }
 
         acceptTree(newClassExpression.getName(), scope);

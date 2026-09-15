@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.backend.ir;
 
 import io.github.potjerodekool.nabu.debug.SourceLocation;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 
 import java.util.*;
@@ -49,7 +50,50 @@ public class SsaBuilder {
         final var phiPlacements = new LinkedHashMap<String, List<PhiPlacement>>();
         final var allocaByName = new HashMap<String, IRInstruction.Alloca>();
 
+        // Exception-handler-blokken zijn via de dominator-tree (normale
+        // CFG-edges) niet bereikbaar; SSA-renaming mag geen stores van
+        // alloca's die daar gelezen worden verwijderen — anders blijven
+        // laadt zonder definitie achter in de handler-regionen.
+        final var handlerBlocks = new LinkedHashSet<String>();
+        for (final var block : function.blocks()) {
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.TryCatchRegion tc) {
+                    handlerBlocks.add(tc.handlerLabel());
+                }
+            }
+        }
+
+        final var promotableAllocas = new ArrayList<IRInstruction.Alloca>();
+        // Bereik van de dominator-tree-traversal (de rename voert alleen
+        // normale CFG-edges uit): laadt buiten deze verzameling (bv. in
+        // exception-handler-regio's) verliezen hun definitie als de
+        // store wordt verwijderd.
+        final var renameReachableBlocks = new LinkedHashSet<String>();
+        final var stack = new ArrayDeque<String>();
+        stack.push(function.entryBlock().label());
+        renameReachableBlocks.add(function.entryBlock().label());
+        while (!stack.isEmpty()) {
+            final var label = stack.pop();
+            final var block = findBlock(function, label);
+            if (block == null) continue;
+            for (final var childLabel : dominators.getChildren(label)) {
+                if (renameReachableBlocks.add(childLabel)) {
+                    stack.push(childLabel);
+                }
+            }
+        }
         for (final var alloca : allocas) {
+            if (loadsInHandlerBlock(function, IRValue.nameOf(alloca.result()), handlerBlocks)
+                    || !loadsInReachableBlocksOnly(function,
+                            IRValue.nameOf(alloca.result()),
+                            renameReachableBlocks)) {
+                // niet promoten
+                continue;
+            }
+            promotableAllocas.add(alloca);
+        }
+
+        for (final var alloca : promotableAllocas) {
             final var ptrName = IRValue.nameOf(alloca.result());
             allocaByName.put(ptrName, alloca);
 
@@ -72,7 +116,7 @@ public class SsaBuilder {
                     final var predBlock = findBlock(function, predLabel);
                     if (predBlock != null) {
                         incoming.add(new IRInstruction.Phi.Incoming(
-                                IRValue.undef(alloca.allocType()), predBlock));
+                                defaultInitializerFor(alloca.allocType()), predBlock));
                     }
                 }
 
@@ -112,11 +156,46 @@ public class SsaBuilder {
         }
 
         // Stap 6: SSA Renaming
-        final var allocaVersions = rename(function, allocas, phiPlacements);
+        final var allocaVersions = rename(function, promotableAllocas, phiPlacements);
         function.setAllocaVersions(allocaVersions);
 
         // Stap 7: Verwijder overgebleven alloca's die niet meer gebruikt worden
-        removeAllocas(function, allocas);
+        removeAllocas(function, promotableAllocas);
+    }
+
+    private static boolean loadsInHandlerBlock(final IRFunction function,
+                                               final String ptrName,
+                                               final Set<String> handlerBlocks) {
+        if (handlerBlocks.isEmpty()) {
+            return false;
+        }
+        for (final var block : function.blocks()) {
+            if (!handlerBlocks.contains(block.label())) {
+                continue;
+            }
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.Load load
+                        && isSamePointer(load.ptr(), ptrName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean loadsInReachableBlocksOnly(final IRFunction function,
+                                                      final String ptrName,
+                                                      final Set<String> reachableBlocks) {
+        for (final var block : function.blocks()) {
+            for (final var instr : block.instructions()) {
+                final boolean isLoad = instr instanceof IRInstruction.Load
+                        && isSamePointer(((IRInstruction.Load) instr).ptr(), ptrName);
+                if (isLoad && !reachableBlocks.contains(block.label())) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     // -------------------------------------------------------
@@ -248,6 +327,13 @@ public class SsaBuilder {
             if (instr instanceof IRInstruction.Store store) {
                 final var ptrName = extractStoreVariableName(store);
                 if (ptrName != null && trackedPtrNames.contains(ptrName)) {
+                    if (store.value() == null) {
+                        // Null-waarde-store (bv. een niet opgeloste
+                        // initializer): niet in de SSA-historie pushen.
+                        System.err.println("[SSA-NULL-STORE] var=" + ptrName
+                                + " loc=" + store.location());
+                        continue;
+                    }
                     // De opgeslagen waarde wordt de huidige SSA-versie
                     pushVersion(ptrName, store.value(), currentValue, versionHistory);
                     if (store.value() instanceof IRValue.Temp ssaTemp) {
@@ -477,4 +563,19 @@ public class SsaBuilder {
     // -------------------------------------------------------
 
     private record PhiPlacement(IRInstruction.Phi phi, IRInstruction.Alloca alloca) {}
+
+    /**
+     * Geeft een gedefinieerde standaard-initialisator voor het gegeven
+     * type; de eerder gebruikte {@code ConstUndef} veroorzaakte een
+     * voor-verifieerder uninitialized slot (de "found ." ASM-fout).
+     */
+    private static IRValue defaultInitializerFor(final IRType type) {
+        return switch (type) {
+            case IRType.Int t -> IRValue.ofInt(0, t.bits());
+            case IRType.Float t -> t.bits() == 64 ? IRValue.ofFloat(0.0) : IRValue.ofF32(0.0);
+            case IRType.Bool ignored -> IRValue.ofBool(false);
+            case IRType.Ptr t -> IRValue.nullPtr(t.pointee());
+            default -> IRValue.nullPtr(type);
+        };
+    }
 }

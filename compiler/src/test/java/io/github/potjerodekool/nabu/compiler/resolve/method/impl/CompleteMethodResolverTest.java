@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
@@ -31,7 +32,8 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
         return new CompleteMethodResolver(
                 getCompilerContext().getElements(),
                 getCompilerContext().getTypes(),
-                getCompilerContext().getTreeUtils()
+                getCompilerContext().getTreeUtils(),
+                ((CompilerContextImpl) getCompilerContext()).getTypeEnter()
         );
     }
 

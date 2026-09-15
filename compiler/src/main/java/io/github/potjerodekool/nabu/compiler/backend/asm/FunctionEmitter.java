@@ -19,6 +19,7 @@ import org.objectweb.asm.Type;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -153,10 +154,17 @@ public class FunctionEmitter {
     }
 
     private void emitThrow(final IRInstruction.Throw throwInst) {
-        final var type = BytecodeHelper.toInternalName(throwInst.type());
-        mv.visitTypeInsn(Opcodes.NEW, type);
-        mv.visitInsn(Opcodes.DUP);
-        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, type, "<init>", "()V", false);
+        if (throwInst.result() != null) {
+            // Er is een concreet exception-object (bv. herworp van een
+            // gevangen exception): gooi dat aanroepobject zelf.
+            emitValue(throwInst.result());
+        } else {
+            // Synthetische throw van een type: alloceer en initïaliseer.
+            final var type = BytecodeHelper.toInternalName(throwInst.type());
+            mv.visitTypeInsn(Opcodes.NEW, type);
+            mv.visitInsn(Opcodes.DUP);
+            mv.visitMethodInsn(Opcodes.INVOKESPECIAL, type, "<init>", "()V", false);
+        }
         mv.visitInsn(Opcodes.ATHROW);
     }
 
@@ -456,12 +464,33 @@ public class FunctionEmitter {
         if (conversionOpcode == Opcodes.NOP) {
             // Geen conversie nodig (bv. byte -> int, of gelijke types)
         } else if (conversionOpcode == Integer.MIN_VALUE) {
-            mv.visitTypeInsn(Opcodes.CHECKCAST, BytecodeHelper.toInternalName(cast.targetType()));
+            final var castInternalName = BytecodeHelper.toInternalName(cast.targetType());
+            final String safeCastName = isInternalName(castInternalName)
+                    ? castInternalName : "java/lang/Object";
+            mv.visitTypeInsn(Opcodes.CHECKCAST, safeCastName);
         } else {
             // Primitieve numerieke conversie (bv. I2F, F2I, L2D, ...)
             mv.visitInsn(conversionOpcode);
         }
         storeResult(cast.result());
+    }
+
+    /**
+     * Valideert een internal-name-string als geldige JVM-class-referentie.
+     * Method-descriptors (bv. van verkeerd gemappe Cast-targets) worden
+     * vermeden — anders keurt de ASM-verifier de classfile af met
+     * "found ." (uninitialized descriptor-wat).
+     */
+    private static boolean isInternalName(final String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        // Internal names beginnen met een letter of '_', gevolgd door
+        // letters, cijfers, '_' of '/'. method-descriptors bevatten ().
+        return !name.contains("(")
+                && !name.contains(")")
+                && !name.contains(";")
+                && name.matches("[\\w/$]+");
     }
 
     // Geef de JVM-conversie-opcode voor een primitieve cast; Opcodes.NOP voor
@@ -557,11 +586,28 @@ public class FunctionEmitter {
         }
 
         if (isConstructorCall(call)) {
-            emitConstructorCall(call, owner, descriptor);
+            if (isSelfConstructorCall(call)) {
+                // super()/this()-init op een bestaande receiver (%this):
+                // alleen receiver + args laden, geen NEW/DUP.
+                final var args = call.args();
+                emitValue(args.getFirst());
+                for (final var arg : args.subList(1, args.size())) {
+                    emitValue(arg);
+                }
+                mv.visitMethodInsn(
+                        Opcodes.INVOKESPECIAL,
+                        owner,
+                        "<init>",
+                        descriptor,
+                        false
+                );
+            } else {
+                emitConstructorCall(call, owner, descriptor);
+            }
             return;
         }
 
-        call.args().forEach(this::emitValue);
+        emitCallOperands(call, opcode);
 
         mv.visitMethodInsn(
                 opcode,
@@ -572,6 +618,104 @@ public class FunctionEmitter {
         );
 
         storeResult(call.result());
+    }
+
+    /**
+     * Emitteert de operands van een call. Gewone calls pushen de args flat;
+     * varargs-calls (laatste paramType is een array, en er worden méér args
+     * meegegeven dan de declaratie heeft) moeten de staart eerst in een
+     * array-object verzamelen vóór de invoke.
+     */
+    private void emitCallOperands(final IRInstruction.Call call, final int opcode) {
+        final var paramTypes = call.paramTypes();
+        final var args = call.args();
+        final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
+        // Varargs: laatste paramType is een array; de staart (inclusief een
+        // LEEGE staart) moet altijd in een array-object worden verzameld,
+        // anders verwacht de verifier een ontbrekend Object[]-argument.
+        final boolean isVarargs = !isStatic
+                && !paramTypes.isEmpty()
+                && BytecodeHelper.createDescriptor(paramTypes.getLast()).startsWith("[")
+                && args.size() >= paramTypes.size();
+
+        if (!isVarargs) {
+            args.forEach(this::emitValue);
+            return;
+        }
+
+        final int fixedArgs = (isStatic ? 0 : 1) + (paramTypes.size() - 1);
+        for (int i = 0; i < fixedArgs; i++) {
+            emitValue(args.get(i));
+        }
+        emitArrayValue(
+                args.subList(fixedArgs, args.size()),
+                BytecodeHelper.createDescriptor(paramTypes.getLast())
+        );
+    }
+
+    private void emitArrayValue(final List<? extends IRValue> elements, final String arrayDescriptor) {
+        final String componentInternalName = arrayDescriptor.startsWith("[L")
+                ? arrayDescriptor.substring(2, arrayDescriptor.length() - 1)
+                : "java/lang/Object";
+        // Reference-arrays (Object[], wrapper-arrays) verlangen een
+        // reference per element: primitieven worden geboxed
+        // (auto-boxing, JLS �5.1.7).
+        mv.visitIntInsn(elements.size() > 127 ? Opcodes.SIPUSH : Opcodes.BIPUSH, elements.size());
+        mv.visitTypeInsn(Opcodes.ANEWARRAY, componentInternalName);
+        for (int k = 0; k < elements.size(); k++) {
+            mv.visitInsn(Opcodes.DUP);
+            mv.visitIntInsn(k > 127 ? Opcodes.SIPUSH : Opcodes.BIPUSH, k);
+            final var element = elements.get(k);
+            emitValue(element);
+            if (boxOperand(element.type())) {
+                // De waarde is in de wrapper gezet; niets extra's
+            }
+            mv.visitInsn(Opcodes.AASTORE);
+        }
+    }
+
+    /**
+     * Box de bovenop de stack staande primitieve waarde naar zijn wrapper
+     * (auto-boxing). Geeft false terug wanneer er geen primitieve stond.
+     */
+    private boolean boxOperand(final IRType type) {
+        final String boxClass;
+        final String methodSignature;
+        if (type instanceof IRType.Int(int bits)) {
+            boxClass = switch (bits) {
+                case 8 -> "java/lang/Byte";
+                case 16 -> "java/lang/Short";
+                case 64 -> "java/lang/Long";
+                default -> "java/lang/Integer";
+            };
+            methodSignature = switch (bits) {
+                case 8 -> "(B)Ljava/lang/Byte;";
+                case 16 -> "(S)Ljava/lang/Short;";
+                case 64 -> "(J)Ljava/lang/Long;";
+                default -> "(I)Ljava/lang/Integer;";
+            };
+        } else if (type instanceof IRType.Float(int bits)) {
+            if (bits == 64) {
+                boxClass = "java/lang/Double";
+                methodSignature = "(D)Ljava/lang/Double;";
+            } else {
+                boxClass = "java/lang/Float";
+                methodSignature = "(F)Ljava/lang/Float;";
+            }
+        } else if (type instanceof IRType.Bool) {
+            boxClass = "java/lang/Boolean";
+            methodSignature = "(Z)Ljava/lang/Boolean;";
+        } else {
+            return false;
+        }
+        mv.visitMethodInsn(
+                Opcodes.INVOKESTATIC,
+                boxClass,
+                "valueOf",
+                methodSignature,
+                false
+        );
+        return true;
     }
 
     /**
@@ -647,6 +791,12 @@ public class FunctionEmitter {
         return false;
     }
 
+    private boolean throwInstReferences(final String name,
+                                        final IRInstruction.Throw throwInst) {
+        return throwInst.result() != null
+                && name.equals(IRValue.nameOf(throwInst.result()));
+    }
+
     private boolean referencesValue(final String name,
                                     final IRInstruction instr) {
         return switch (instr) {
@@ -668,6 +818,7 @@ public class FunctionEmitter {
                     referencesValue(name, c.callee()) || referencesValue(name, c.args());
             case IRInstruction.CondBranch c -> referencesValue(name, c.condition());
             case IRInstruction.Return r -> referencesValue(name, r.value());
+            case IRInstruction.Throw t -> throwInstReferences(name, t);
             case IRInstruction.Cast c -> referencesValue(name, c.source());
             case IRInstruction.InstanceOf i -> referencesValue(name, i.source());
             case IRInstruction.MonitorEnter m -> referencesValue(name, m.object());
@@ -713,6 +864,15 @@ public class FunctionEmitter {
         return call.function().endsWith("_init")
                 && call.returnType() == IRType.VOID
                 && call.callKind() == CallKind.SPECIAL;
+    }
+
+    /**
+     * Constructor-aanroep waarvan de receiver de al-bestaande this is
+     * (super()/this() van de eigen constructor). Dan is er geen NEW nodig.
+     */
+    private boolean isSelfConstructorCall(final IRInstruction.Call call) {
+        return !call.args().isEmpty()
+                && "%this".equals(IRValue.nameOf(call.args().getFirst()));
     }
 
     private void emitIndirectCall(final IRInstruction.IndirectCall call) {
@@ -808,9 +968,7 @@ public class FunctionEmitter {
 
     private int resolveJumpOpcode(final IRInstruction.BinaryOp binaryOp) {
         final var leftType = binaryOp.left().type();
-        final var right = binaryOp.right();
-
-        if (right instanceof IRValue.ConstNull) {
+        final var right = binaryOp.right();        if (right instanceof IRValue.ConstNull) {
             return switch (binaryOp.op()) {
                 case EQ -> Opcodes.IFNULL;
                 case NEQ -> Opcodes.IFNONNULL;
@@ -823,8 +981,16 @@ public class FunctionEmitter {
             return switch (binaryOp.op()) {
                 case EQ -> Opcodes.IF_ACMPEQ;
                 case NEQ -> Opcodes.IF_ACMPNE;
-                default -> throw new UnsupportedOperationException(
-                        "Unsupported comparison op: " + binaryOp.op());
+                default -> {
+                    System.err.println("[CMP-REF-FAIL-LOC] owner=" + ownerInternalName
+                            + " loc=" + binaryOp.location()
+                            + " op=" + binaryOp.op()
+                            + " leftType=" + leftType
+                            + " left=" + binaryOp.left()
+                            + " right=" + binaryOp.right());
+                    throw new UnsupportedOperationException(
+                            "Unsupported comparison op: " + binaryOp.op());
+                }
             };
         }
 
@@ -841,7 +1007,7 @@ public class FunctionEmitter {
             };
         }
 
-        return switch (binaryOp.op()) {
+        final int fallbackResult = switch (binaryOp.op()) {
             case LT -> Opcodes.IF_ICMPLT;
             case LTE -> Opcodes.IF_ICMPLE;
             case EQ -> Opcodes.IF_ICMPEQ;
@@ -849,8 +1015,11 @@ public class FunctionEmitter {
             case GT -> Opcodes.IF_ICMPGT;
             case NEQ -> Opcodes.IF_ICMPNE;
             default -> throw new UnsupportedOperationException(
-                    "Unsupported comparison op: " + binaryOp.op());
+                    "Unsupported comparison op: " + binaryOp.op()
+                    + " leftType=" + leftType + " left=" + binaryOp.left()
+                    + " right=" + binaryOp.right());
         };
+        return fallbackResult;
     }
 
     private boolean isReferenceType(final IRType type) {
@@ -1291,6 +1460,7 @@ public class FunctionEmitter {
     private int resolveAndOpcode(final IRValue left) {
         return switch (left.type()) {
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LAND : Opcodes.IAND;
+            case IRType.Bool ignored -> Opcodes.IAND;
             default -> throw new UnsupportedOperationException("Unsupported and type: " + left.type());
         };
     }
@@ -1298,6 +1468,7 @@ public class FunctionEmitter {
     private int resolveOrOpcode(final IRValue left) {
         return switch (left.type()) {
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LOR : Opcodes.IOR;
+            case IRType.Bool ignored -> Opcodes.IOR;
             default -> throw new UnsupportedOperationException("Unsupported or type: " + left.type());
         };
     }
@@ -1305,6 +1476,7 @@ public class FunctionEmitter {
     private int resolveXorOpcode(final IRValue left) {
         return switch (left.type()) {
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LXOR : Opcodes.IXOR;
+            case IRType.Bool ignored -> Opcodes.IXOR;
             default -> throw new UnsupportedOperationException("Unsupported xor type: " + left.type());
         };
     }
@@ -1312,6 +1484,7 @@ public class FunctionEmitter {
     private int resolveBitAndOpcode(final IRValue left) {
         return switch (left.type()) {
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LAND : Opcodes.IAND;
+            case IRType.Bool ignored -> Opcodes.IAND;
             default -> throw new UnsupportedOperationException("Unsupported bitand type: " + left.type());
         };
     }
@@ -1319,6 +1492,7 @@ public class FunctionEmitter {
     private int resolveBitOrOpcode(final IRValue left) {
         return switch (left.type()) {
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LOR : Opcodes.IOR;
+            case IRType.Bool ignored -> Opcodes.IOR;
             default -> throw new UnsupportedOperationException("Unsupported bitor type: " + left.type());
         };
     }
@@ -1326,6 +1500,7 @@ public class FunctionEmitter {
     private int resolveBitXorOpcode(final IRValue left) {
         return switch (left.type()) {
             case IRType.Int intType -> intType.bits() == 64 ? Opcodes.LXOR : Opcodes.IXOR;
+            case IRType.Bool ignored -> Opcodes.IXOR;
             default -> throw new UnsupportedOperationException("Unsupported bitxor type: " + left.type());
         };
     }
@@ -1339,12 +1514,21 @@ public class FunctionEmitter {
         final var start = getOrCreateLabel(startLabelName);
         final var end = getOrCreateLabel("END");
         final var allocaVersions = function.allocaVersions();
+        // JVMS: identieke (name, slot)-entries in de LocalVariableTable
+        // maken de classfile ongeldig ("Duplicated LocalVariableTable
+        // attribute entry"). Hergebruikte namen (bv. `ex` in meerdere
+        // catch-blokken) én slot-overlap mogen per (naam, slot) maar één
+        // keer geëmitteerd worden; de eerste definitie wint.
+        final var seenLocalVars = new HashSet<String>();
 
         for (final var param : function.params) {
             if (param instanceof IRValue.Temp(String name, IRType type)) {
                 final var paramName = SlotAllocator.normalize(name);
                 final var index = slots.getSlot(name);
                 final var paramDescriptor = BytecodeHelper.createDescriptor(type);
+                if (!seenLocalVars.add(paramName + ":" + index)) {
+                    continue;
+                }
 
                 mv.visitLocalVariable(
                         paramName,
@@ -1369,6 +1553,9 @@ public class FunctionEmitter {
 
             final var index = slots.getSlot(slotName);
             final var descriptor = BytecodeHelper.createDescriptor(localVar.type());
+            if (!seenLocalVars.add(localVar.sourceName() + ":" + index)) {
+                continue;
+            }
 
             mv.visitLocalVariable(
                     localVar.sourceName(),

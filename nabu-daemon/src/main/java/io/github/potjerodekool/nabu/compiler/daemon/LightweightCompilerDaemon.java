@@ -2,8 +2,6 @@ package io.github.potjerodekool.nabu.compiler.daemon;
 
 import java.io.*;
 import java.net.*;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.logging.Logger;

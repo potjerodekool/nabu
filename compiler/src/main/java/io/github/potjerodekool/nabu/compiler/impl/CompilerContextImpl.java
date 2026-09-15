@@ -13,7 +13,7 @@ import io.github.potjerodekool.nabu.lang.spi.LanguageParser;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.ArgumentBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.resolve.spi.ElementResolver;
 import io.github.potjerodekool.nabu.tools.*;
@@ -64,7 +64,7 @@ public class CompilerContextImpl implements CompilerContext {
 
         this.elements = new ElementsImpl(this);
         //this.methodResolver = new MethodResolverImpl(elements, getTypes());
-        this.methodResolver = new CompleteMethodResolver(elements, types, getTreeUtils());
+        this.methodResolver = new CompleteMethodResolver(elements, types, getTreeUtils(), get(TypeEnter.class));
 
         this.argumentBoxer = new ArgumentBoxerImpl(this);
 
@@ -149,7 +149,9 @@ public class CompilerContextImpl implements CompilerContext {
         return elements;
     }
 
-    @Override
+    /**
+     * @return Return the resolver to resolve method calls.
+     */
     public MethodResolver getMethodResolver() {
         return methodResolver;
     }

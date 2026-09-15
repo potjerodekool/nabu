@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
@@ -22,7 +23,7 @@ class BoxerTest extends AbstractCompilerTest {
     void setUp() {
         loader = getCompilerContext().getClassElementLoader();
         types = getCompilerContext().getTypes();
-        boxer = new Boxer(getCompilerContext());
+        boxer = new Boxer((CompilerContextImpl) getCompilerContext());
     }
 
     @Test

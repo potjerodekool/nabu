@@ -11,11 +11,11 @@ import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.IRGlobal;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.lang.model.element.*;
-import io.github.potjerodekool.nabu.resolve.jvm.AccessUtils;
-import io.github.potjerodekool.nabu.tools.JavaVersion;
+import io.github.potjerodekool.nabu.compiler.resolve.method.jvm.AccessUtils;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.objectweb.asm.*;
@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiFunction;
 
 /**
@@ -41,6 +42,7 @@ public class AsmByteCodeEmitter {
 
     private final ClassWriter cw;
     private final ClassVisitor classVisitor;
+    private final StringWriter traceBuffer = new StringWriter();
     private final Map<String, IRGlobal> globalMap = new HashMap<>();
     private String ownerInternalName;
 
@@ -59,7 +61,7 @@ public class AsmByteCodeEmitter {
         };
         this.classVisitor = new TraceClassVisitor(
                 cw,
-                new PrintWriter(new StringWriter())
+                new PrintWriter(traceBuffer)
         );
     }
 
@@ -235,35 +237,89 @@ public class AsmByteCodeEmitter {
 
             PhiElimination.run(function);
 
-            final var blocks = Linearizer.linearize(function.blocks());
-            final var emitter = new FunctionEmitter(methodVisitor, this, slots, ownerInternalName, blocks);
-
-            // Pre-scan voor TryCatchRegion-instructies en registreer de
-            // try-catch-blokken vóór de eerste instructie.
-            for (final var block : blocks) {
+            // Vóór de emissie worden ALLE slots toegewezen (zodat er geen slots
+            // meer luierg tijdens de emissie bijkomen), en elk basisblok start met
+            // een proloog van dummy-stores. Hierdoor heeft elk basisblok (en elke
+            // door ASM gemaakte xSTORE-split) dezelfde local-variable-count en
+            // opbouw. Dat is nodig omdat ASM's exception-handler-frame berekend
+            // wordt als de merge van de input-frames van ALLE blokken in de
+            // try-range: bij ongelijke local-counts loopt Frame.merge spaak
+            // ("Index out of bounds for length ...").
+            final var slotTypes = new HashMap<Integer, IRType>();
+            for (final var block : function.blocks()) {
+                for (final var instr : block.instructions()) {
+                    collectSlotUses(instr, slots, slotTypes);
+                }
+            }
+            final var handlerEntrySlots = new HashMap<String, String>();
+            for (final var block : function.blocks()) {
                 for (final var instr : block.instructions()) {
                     if (instr instanceof IRInstruction.TryCatchRegion tc) {
-                        final var startLabel = emitter.getOrCreateLabel(tc.tryStartLabel());
-                        final var endLabel = emitter.getOrCreateLabel(tc.tryEndLabel());
-                        final var handlerLabel = emitter.getOrCreateLabel(tc.handlerLabel());
-                        final var exceptionType = tc.exceptionType() != null
-                                ? BytecodeHelper.toInternalName(tc.exceptionType())
-                                : null;
-                        methodVisitor.visitTryCatchBlock(
-                                startLabel,
-                                endLabel,
-                                handlerLabel,
-                                exceptionType
-                        );
+                        handlerEntrySlots.put(tc.handlerLabel(), "exn." + tc.handlerLabel());
+                        final var exnType = new IRType.Ptr(IRType.I8, null);
+                        final var slot = slots.slotOf("exn." + tc.handlerLabel(), exnType);
+                        slotTypes.putIfAbsent(slot, exnType);
                     }
                 }
             }
 
+            // Phi-carried slots overslaan in de proloog: de waarde van een
+            // phi-temp (na PhiElimination een Store in elke predecessor)
+            // wordt bij de blok-entry leeggemaakt door de proloog-dumSTORE,
+            // waardoor loop-carried waarden verloren gaan (oneindige lussen).
+            final var prologueSkipSlots = new java.util.HashSet<Integer>();
+            for (final var block : function.blocks()) {
+                for (final var instr : block.instructions()) {
+                    if (instr instanceof IRInstruction.Store store
+                            && store.ptr() instanceof IRValue.Temp temp
+                            && temp.name().startsWith("%phi")) {
+                        prologueSkipSlots.add(slots.slotOf(temp.name(), temp.type()));
+                    }
+                }
+            }
+
+            final var blocks = pruneUnreachable(Linearizer.linearize(function.blocks()));
+            // Elk slot dat in een blok gelezen wordt vóórdat er lokaal een
+            // schrijf gebeurt ("live-in") moet door de proloog met rust gelaten
+            // worden — die waarde komt van vlóór het blok.
+            prologueSkipSlots.addAll(collectLiveInSlots(blocks, slots, paramSlotCount(function, isStatic)));
+            final var emitter = new FunctionEmitter(methodVisitor, this, slots, ownerInternalName, blocks);
+
+            // TryCatchRegion-planning: per try-bereik worden de beschermde blokken
+            // (bereikbaar vanuit de try-start, exclusief handler-blokken en andere
+            // try-starts) bepaald; elke aaneengesloten reeks wordt als aparte
+            // exception-table range geregistreerd, met een end-label na het laatste
+            // blok van de reeks.
+            final var runEndLabels = new HashMap<String, List<Label>>();
+            planTryRegions(blocks, emitter, methodVisitor, runEndLabels);
+
             try {
                 for (final var block : blocks) {
                     emitter.emitBlock(block);
+
+                    // Proloog: definieer alle niet-parameter slots als dummy-waarde,
+                    // zodat ieder basisblok dezelfde lokale-frame-opbouw heeft.
+                    // Phi-carried slots worden overgeslagen (zie prologueSkipSlots).
+                    emitPrologue(methodVisitor, slots, slotTypes, paramSlotCount(function, isStatic), prologueSkipSlots);
+
+                    // Handler-entry: de JVM duwt de exception op de stack;
+                    // sla die op in het %exn.<handlerLabel>-slot dat de IR laadt,
+                    // zodat de stack netjes leeg is voor de blok-instructies.
+                    final var exnSlotName = handlerEntrySlots.get(block.label());
+                    if (exnSlotName != null) {
+                        methodVisitor.visitVarInsn(Opcodes.ASTORE, slots.getSlot(exnSlotName));
+                    }
+
                     for (final var instr : block.instructions()) {
                         emitter.emit(instr);
+                    }
+
+                    // Eind-labels van try-runs die in dit blok eindigen.
+                    final var ends = runEndLabels.get(block.label());
+                    if (ends != null) {
+                        for (final var endLabel : ends) {
+                            methodVisitor.visitLabel(endLabel);
+                        }
                     }
                 }
                 emitter.visitLabel("END");
@@ -272,6 +328,12 @@ public class AsmByteCodeEmitter {
                 methodVisitor.visitMaxs(-1, -1);
             } catch (final Exception e) {
                 System.err.println("[AsmByteCodeEmitter] Error in function: " + function.name);
+                System.err.println("----- ASM bytecode trace -----");
+                if (methodVisitor instanceof org.objectweb.asm.util.TraceMethodVisitor traceMethodVisitor) {
+                    traceMethodVisitor.p.print(new PrintWriter(System.err));
+                }
+                System.err.println(traceBuffer);
+                System.err.println("----- EOF trace -----");
                 blocks.forEach(AsmByteCodeEmitter::printBlock);
                 throw e;
             }
@@ -410,6 +472,459 @@ public class AsmByteCodeEmitter {
     private static void printBlock(final IRBasicBlock block) {
         System.out.println("  Block(" + block.label() + ") [" + block.getBlockType() + "]:");
         block.instructions().forEach(instr -> System.out.println("    " + instr));
+    }
+
+    /**
+     * Kent een slot toe aan een SSA-temp (en registreert het type), zodat alle
+     * slots vóór de emissie vastliggen.
+     */
+    private static void collectValue(final IRValue value,
+                                     final SlotAllocator slots,
+                                     final Map<Integer, IRType> slotTypes) {
+        if (value instanceof IRValue.Temp temp) {
+            final var slot = slots.slotOf(temp.name(), temp.type());
+            slotTypes.putIfAbsent(slot, temp.type());
+        }
+    }
+
+    /**
+     * Doorloopt alle IRValue-operanden van een instructie en kent aan elke
+     * SSA-temp een slot toe.
+     */
+    private static void collectSlotUses(final IRInstruction instr,
+                                        final SlotAllocator slots,
+                                        final Map<Integer, IRType> slotTypes) {
+        switch (instr) {
+            case IRInstruction.BinaryOp binaryOp -> {
+                collectValue(binaryOp.result(), slots, slotTypes);
+                collectValue(binaryOp.left(), slots, slotTypes);
+                collectValue(binaryOp.right(), slots, slotTypes);
+            }
+            case IRInstruction.Alloca alloca -> collectValue(alloca.result(), slots, slotTypes);
+            case IRInstruction.ArrayStore arrayStore -> {
+                collectValue(arrayStore.array(), slots, slotTypes);
+                collectValue(arrayStore.index(), slots, slotTypes);
+                collectValue(arrayStore.value(), slots, slotTypes);
+            }
+            case IRInstruction.ArrayLoad arrayLoad -> {
+                collectValue(arrayLoad.result(), slots, slotTypes);
+                collectValue(arrayLoad.array(), slots, slotTypes);
+                collectValue(arrayLoad.index(), slots, slotTypes);
+            }
+            case IRInstruction.ArrayLength arrayLength -> {
+                collectValue(arrayLength.result(), slots, slotTypes);
+                collectValue(arrayLength.array(), slots, slotTypes);
+            }
+            case IRInstruction.Load load -> {
+                collectValue(load.result(), slots, slotTypes);
+                collectValue(load.ptr(), slots, slotTypes);
+            }
+            case IRInstruction.Store store -> {
+                collectValue(store.ptr(), slots, slotTypes);
+                collectValue(store.value(), slots, slotTypes);
+            }
+            case IRInstruction.HeapAlloc heapAlloc -> collectValue(heapAlloc.result(), slots, slotTypes);
+            case IRInstruction.AllocaArray allocaArray -> {
+                collectValue(allocaArray.result(), slots, slotTypes);
+                collectValue(allocaArray.size(), slots, slotTypes);
+            }
+            case IRInstruction.Call call -> {
+                collectValue(call.result(), slots, slotTypes);
+                call.args().forEach(arg -> collectValue(arg, slots, slotTypes));
+            }
+            case IRInstruction.IndirectCall indirectCall -> {
+                collectValue(indirectCall.result(), slots, slotTypes);
+                collectValue(indirectCall.callee(), slots, slotTypes);
+                indirectCall.args().forEach(arg -> collectValue(arg, slots, slotTypes));
+            }
+            case IRInstruction.CondBranch condBranch -> collectValue(condBranch.condition(), slots, slotTypes);
+            case IRInstruction.Return returnInst -> collectValue(returnInst.value(), slots, slotTypes);
+            case IRInstruction.Cast cast -> {
+                collectValue(cast.result(), slots, slotTypes);
+                collectValue(cast.source(), slots, slotTypes);
+            }
+            case IRInstruction.InstanceOf instanceOf -> {
+                collectValue(instanceOf.result(), slots, slotTypes);
+                collectValue(instanceOf.source(), slots, slotTypes);
+            }
+            case IRInstruction.MonitorEnter monitorEnter -> collectValue(monitorEnter.object(), slots, slotTypes);
+            case IRInstruction.MonitorExit monitorExit -> collectValue(monitorExit.object(), slots, slotTypes);
+            case IRInstruction.Throw throwInst -> collectValue(throwInst.result(), slots, slotTypes);
+            case IRInstruction.Pop pop -> collectValue(pop.result(), slots, slotTypes);
+            case IRInstruction.Move move -> {
+                collectValue(move.result(), slots, slotTypes);
+                collectValue(move.value(), slots, slotTypes);
+            }
+            case IRInstruction.Phi phi -> {
+                collectValue(phi.result(), slots, slotTypes);
+                phi.incomingValues().forEach(incoming -> collectValue(incoming.value(), slots, slotTypes));
+            }
+            case IRInstruction.Branch br -> {
+            }
+            case IRInstruction.TryCatchRegion regionOnly -> {
+            }
+        }
+    }
+
+    /**
+     * Aantal JVM-slots dat de parameters van de functie innemen (slot 0 = "this"
+     * voor instantie-methoden).
+     */
+    private static int paramSlotCount(final IRFunction function, final boolean isStatic) {
+        int count = 0;
+        if (!isStatic) {
+            count += 1;
+        }
+        final var start = isStatic ? 0 : 1;
+        for (int i = start; i < function.params.size(); i++) {
+            count += SlotAllocator.slotSize(function.params.get(i).type());
+        }
+        return count;
+    }
+
+    /**
+     * Emitteert vóór de instructies van een basisblok een reeks dummy-stores voor
+     * alle niet-parameter slots. Daardoor heeft elk basisblok dezelfde
+     * local-frame-opbouw, wat noodzakelijk is voor ASM's frame-berekening bij
+     * exception-handlers.
+     */
+    /**
+     * Elders gedefinieerde slots die in een blok gelezen worden vóór de
+     * eerste lokale schrijf: die moeten door de prolog-dummy-stores met
+     * rust gelaten worden, anders gaat een loop-carried of cross-block
+     * waarde verloren (bv. phi-eliminatie-temps, veld-karbeleketens).
+     */
+    private static java.util.List<Integer> collectLiveInSlots(final List<IRBasicBlock> blocks,
+                                                              final SlotAllocator slots,
+                                                              final int paramSlotCount) {
+        final var liveIn = new java.util.HashSet<Integer>();
+
+        for (final var block : blocks) {
+            final var defined = new java.util.HashSet<Integer>();
+            for (int p = 0; p < paramSlotCount; p++) {
+                defined.add(p);
+            }
+
+            for (final var instr : block.instructions()) {
+                for (final var read : readValues(instr)) {
+                    final var slot = slotIndexOf(read, slots);
+                    if (slot >= 0 && !defined.contains(slot)) {
+                        liveIn.add(slot);
+                    }
+                }
+                for (final var write : writtenTemps(instr)) {
+                    final var slot = slotIndexOf(write, slots);
+                    if (slot >= 0) {
+                        defined.add(slot);
+                    }
+                }
+            }
+        }
+
+        return new java.util.ArrayList<>(liveIn);
+    }
+
+    private static List<IRValue> readValues(final IRInstruction instr) {
+        final var reads = new java.util.ArrayList<IRValue>();
+        switch (instr) {
+            case IRInstruction.BinaryOp op -> {
+                reads.add(op.left());
+                reads.add(op.right());
+            }
+            case IRInstruction.Load ld -> reads.add(ld.ptr());
+            case IRInstruction.Store st -> reads.add(st.value());
+            case IRInstruction.Move m -> reads.add(m.value());
+            case IRInstruction.Call call -> reads.addAll(call.args());
+            case IRInstruction.IndirectCall ic -> {
+                reads.add(ic.callee());
+                reads.addAll(ic.args());
+            }
+            case IRInstruction.CondBranch cb -> reads.add(cb.condition());
+            case IRInstruction.Return ret -> {
+                if (ret.value() != null) reads.add(ret.value());
+            }
+            case IRInstruction.Cast c -> reads.add(c.source());
+            case IRInstruction.InstanceOf i -> reads.add(i.source());
+            case IRInstruction.ArrayLoad al -> {
+                reads.add(al.array());
+                reads.add(al.index());
+            }
+            case IRInstruction.ArrayStore as -> {
+                reads.add(as.array());
+                reads.add(as.index());
+                reads.add(as.value());
+            }
+            case IRInstruction.ArrayLength al -> reads.add(al.array());
+            case IRInstruction.AllocaArray aa -> reads.add(aa.size());
+            case IRInstruction.MonitorEnter me -> reads.add(me.object());
+            case IRInstruction.MonitorExit mx -> reads.add(mx.object());
+            case IRInstruction.Throw t -> {
+                if (t.result() != null) reads.add(t.result());
+            }
+            default -> {}
+        }
+        return reads;
+    }
+
+    private static List<IRValue> writtenTemps(final IRInstruction instr) {
+        final var writes = new java.util.ArrayList<IRValue>();
+        switch (instr) {
+            case IRInstruction.BinaryOp op -> writes.add(op.result());
+            case IRInstruction.Load ld -> writes.add(ld.result());
+            case IRInstruction.Alloca al -> writes.add(al.result());
+            case IRInstruction.Store st -> writes.add(st.ptr());
+            case IRInstruction.Move m -> writes.add(m.result());
+            case IRInstruction.Call call -> {
+                if (call.result() != null) writes.add(call.result());
+            }
+            case IRInstruction.IndirectCall ic -> {
+                if (ic.result() != null) writes.add(ic.result());
+            }
+            case IRInstruction.ArrayLoad al -> writes.add(al.result());
+            case IRInstruction.ArrayLength al -> writes.add(al.result());
+            case IRInstruction.AllocaArray al -> writes.add(al.result());
+            case IRInstruction.Cast c -> writes.add(c.result());
+            case IRInstruction.InstanceOf i -> writes.add(i.result());
+            default -> {}
+        }
+        return writes;
+    }
+
+    private static int slotIndexOf(final IRValue value, final SlotAllocator slots) {
+        if (value instanceof IRValue.Temp temp) {
+            return slots.slotOf(temp.name(), temp.type());
+        }
+        return -1;
+    }
+
+    private static void emitPrologue(final MethodVisitor methodVisitor,
+                                     final SlotAllocator slots,
+                                     final Map<Integer, IRType> slotTypes,
+                                     final int paramSlotCount,
+                                     final java.util.Set<Integer> skipSlots) {
+        final var total = slots.size();
+        for (int slot = paramSlotCount; slot < total; slot++) {
+            if (skipSlots != null && skipSlots.contains(slot)) {
+                continue;
+            }
+            final var type = slotTypes.get(slot);
+            if (type == null) {
+                continue;
+            }
+            if (type instanceof IRType.Void) {
+                continue;
+            } else if (type instanceof IRType.Int intType && intType.bits() == 64) {
+                methodVisitor.visitInsn(Opcodes.LCONST_0);
+                methodVisitor.visitVarInsn(Opcodes.LSTORE, slot);
+            } else if (type instanceof IRType.Int || type instanceof IRType.Bool) {
+                methodVisitor.visitInsn(Opcodes.ICONST_0);
+                methodVisitor.visitVarInsn(Opcodes.ISTORE, slot);
+            } else if (type instanceof IRType.Float floatType && floatType.bits() == 64) {
+                methodVisitor.visitInsn(Opcodes.DCONST_0);
+                methodVisitor.visitVarInsn(Opcodes.DSTORE, slot);
+            } else if (type instanceof IRType.Float) {
+                methodVisitor.visitInsn(Opcodes.FCONST_0);
+                methodVisitor.visitVarInsn(Opcodes.FSTORE, slot);
+            } else {
+                methodVisitor.visitInsn(Opcodes.ACONST_NULL);
+                methodVisitor.visitVarInsn(Opcodes.ASTORE, slot);
+            }
+        }
+    }
+
+    /**
+     * Bepaalt voor elk TryCatchRegion het stel beschermde blokken en registreert
+     * elke aaneengesloten reeks (in emissie-volgorde) als een aparte
+     * exception-table range. De end-labels worden opgehangen achter het laatste
+     * blok van elke reeks via {@code runEndLabels}.
+     */
+    private void planTryRegions(final List<IRBasicBlock> blocks,
+                                final FunctionEmitter emitter,
+                                final MethodVisitor methodVisitor,
+                                final Map<String, List<Label>> runEndLabels) {
+        final var labelToBlock = new HashMap<String, IRBasicBlock>();
+        for (final var block : blocks) {
+            labelToBlock.put(block.label(), block);
+        }
+
+        final var regions = new java.util.LinkedHashSet<IRInstruction.TryCatchRegion>();
+        final var handlerLabels = new java.util.HashSet<String>();
+        final var tryStartLabels = new java.util.HashSet<String>();
+        for (final var block : blocks) {
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.TryCatchRegion region) {
+                    regions.add(region);
+                    handlerLabels.add(region.handlerLabel());
+                    tryStartLabels.add(region.tryStartLabel());
+                }
+            }
+        }
+
+        final var protectedCache = new HashMap<String, Set<String>>();
+
+        for (final var region : regions) {
+            if (!labelToBlock.containsKey(region.tryStartLabel())) {
+                System.err.println("[TRY-CATCH-SKIP] start-blok ontbreekt: "
+                        + "start=" + region.tryStartLabel() + " handler=" + region.handlerLabel());
+                continue;
+            }
+            final var protectedSet = protectedCache.computeIfAbsent(
+                    region.tryStartLabel(),
+                    s -> computeProtected(
+                            blocks, labelToBlock, s, region.tryEndLabel(), handlerLabels, tryStartLabels));
+            if (protectedSet.isEmpty()) {
+                System.err.println("[TRY-CATCH-SKIP] geen beschermde blokken: "
+                        + "start=" + region.tryStartLabel() + " handler=" + region.handlerLabel());
+                continue;
+            }
+
+            List<String> currentRun = null;
+            for (final var block : blocks) {
+                if (protectedSet.contains(block.label())) {
+                    if (currentRun == null) {
+                        currentRun = new java.util.ArrayList<>();
+                    }
+                    currentRun.add(block.label());
+                } else if (currentRun != null) {
+                    registerRun(emitter, methodVisitor, region, currentRun, runEndLabels);
+                    currentRun = null;
+                }
+            }
+            if (currentRun != null) {
+                registerRun(emitter, methodVisitor, region, currentRun, runEndLabels);
+            }
+        }
+    }
+
+    /**
+     * Registereert een aaneengesloten reeks beschermde blokken als exception-table
+     * range [start beschermd blok, end-label achter laatste beschermd blok].
+     */
+    private static void registerRun(final FunctionEmitter emitter,
+                                    final MethodVisitor methodVisitor,
+                                    final IRInstruction.TryCatchRegion region,
+                                    final List<String> run,
+                                    final Map<String, List<Label>> runEndLabels) {
+        final var startLabel = emitter.getOrCreateLabel(run.getFirst());
+        final var endLabel = new Label();
+        final var handlerLabel = emitter.getOrCreateLabel(region.handlerLabel());
+        final var exceptionType = region.exceptionType() != null
+                ? BytecodeHelper.toInternalName(region.exceptionType())
+                : null;
+        methodVisitor.visitTryCatchBlock(startLabel, endLabel, handlerLabel, exceptionType);
+        runEndLabels.computeIfAbsent(run.getLast(), k -> new java.util.ArrayList<>()).add(endLabel);
+    }
+
+    /**
+     * Bereikt de set beschermde blokken van een try-bereik: alle blokken die
+     * bereikbaar zijn vanuit de try-start, exclusief handler-blokken, het
+     * try-end-blok zelf en andere try-starts (geneste tries).
+     */
+    private static Set<String> computeProtected(final List<IRBasicBlock> blocks,
+                                                final Map<String, IRBasicBlock> labelToBlock,
+                                                final String tryStartLabel,
+                                                final String tryEndLabel,
+                                                final Set<String> handlerLabels,
+                                                final Set<String> tryStartLabels) {
+        final var order = new HashMap<String, Integer>();
+        for (int i = 0; i < blocks.size(); i++) {
+            order.put(blocks.get(i).label(), i);
+        }
+
+        final var result = new java.util.LinkedHashSet<String>();
+        final var work = new java.util.ArrayDeque<String>();
+        work.add(tryStartLabel);
+
+        while (!work.isEmpty()) {
+            final var label = work.poll();
+            if (result.contains(label)) {
+                continue;
+            }
+            final var block = labelToBlock.get(label);
+            if (block == null) {
+                continue;
+            }
+            if (label.equals(tryEndLabel)) {
+                continue;
+            }
+            if (handlerLabels.contains(label)) {
+                continue;
+            }
+            if (tryStartLabels.contains(label) && !label.equals(tryStartLabel)) {
+                continue;
+            }
+            result.add(label);
+
+            if (block.getTerminator() instanceof IRInstruction.Branch branch) {
+                if (!branch.targetLabel().equals(tryEndLabel)) {
+                    work.add(branch.targetLabel());
+                }
+            } else if (block.getTerminator() instanceof IRInstruction.CondBranch condBranch) {
+                if (!condBranch.trueLabel().equals(tryEndLabel)) {
+                    work.add(condBranch.trueLabel());
+                }
+                if (!condBranch.falseLabel().equals(tryEndLabel)) {
+                    work.add(condBranch.falseLabel());
+                }
+            } else if (!block.isTerminated()) {
+                final var nextIndex = order.getOrDefault(label, -1) + 1;
+                if (nextIndex < blocks.size()) {
+                    final var nextLabel = blocks.get(nextIndex).label();
+                    if (!nextLabel.equals(tryEndLabel)) {
+                        work.add(nextLabel);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Verwijdert blokken die onbereikbaar zijn vanuit het entry-blok of een
+     * exception-handler. Onbereikbare blokken (bijv. "try.end"-voortzetting
+     * achter een return/throw) doen de ASM-frameberekening ontsporen
+     * ("Frame.merge: Index out of bounds") en leveren niks op.
+     */
+    private static List<IRBasicBlock> pruneUnreachable(final List<IRBasicBlock> linearized) {
+        if (linearized.isEmpty()) {
+            return linearized;
+        }
+
+        final var reachable = new java.util.HashSet<String>();
+        reachable.add(linearized.getFirst().label());
+
+        // Handler-blokken zijn alleen via de exception-table bereikbaar.
+        for (final var b : linearized) {
+            for (final var instr : b.instructions()) {
+                if (instr instanceof IRInstruction.TryCatchRegion tc) {
+                    reachable.add(tc.handlerLabel());
+                }
+            }
+        }
+
+        var changed = true;
+        while (changed) {
+            changed = false;
+            for (var bi = 0; bi < linearized.size(); bi++) {
+                final var b = linearized.get(bi);
+                if (!reachable.contains(b.label())) {
+                    continue;
+                }
+                if (b.getTerminator() instanceof IRInstruction.Branch branch) {
+                    if (reachable.add(branch.targetLabel())) changed = true;
+                } else if (b.getTerminator() instanceof IRInstruction.CondBranch condBranch) {
+                    if (reachable.add(condBranch.trueLabel())) changed = true;
+                    if (reachable.add(condBranch.falseLabel())) changed = true;
+                } else if (!b.isTerminated() && bi + 1 < linearized.size()) {
+                    if (reachable.add(linearized.get(bi + 1).label())) changed = true;
+                }
+            }
+        }
+
+        return linearized.stream()
+                .filter(b -> reachable.contains(b.label()))
+                .toList();
     }
 
     public byte[] getBytecode() {

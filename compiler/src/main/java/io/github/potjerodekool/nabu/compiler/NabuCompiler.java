@@ -54,6 +54,11 @@ public class NabuCompiler implements Compiler {
 
     @Override
     public int compile(final CompilerOptions compilerOptions) {
+        compilerDiagnosticListener.report(new DefaultDiagnostic(
+                Diagnostic.Kind.NOTE,
+                "[NABU-MARKER-7]",
+                null
+        ));
         try (final var compilerContext = configure(compilerOptions)) {
             final var fullOptions = compilerContext.getCompilerOptions();
 
@@ -162,11 +167,11 @@ public class NabuCompiler implements Compiler {
 
                 for (final var module : visitor.getModules()) {
                     // Type-inferentie vóór SSA (per module)
-                    for (final var fn : module.functions()) {
-                        if (!fn.isExternal()) {
-                            new io.github.potjerodekool.nabu.backend.ir.optimize.TypeInference().run(fn);
-                        }
+                for (final var fn : module.functions()) {
+                    if (!fn.isExternal()) {
+                        new io.github.potjerodekool.nabu.backend.ir.optimize.TypeInference().run(fn);
                     }
+                }
                     SsaBuilder.run(module);
 
                     final var optimized = Optimizer.optimize(module);

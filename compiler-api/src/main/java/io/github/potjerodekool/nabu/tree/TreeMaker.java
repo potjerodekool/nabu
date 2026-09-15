@@ -21,9 +21,6 @@ import java.util.List;
  */
 public final class TreeMaker {
 
-    private static final java.util.concurrent.atomic.AtomicBoolean SYNTRACE_ENABLED =
-            new java.util.concurrent.atomic.AtomicBoolean(true);
-
     private TreeMaker() {
     }
 
@@ -153,9 +150,6 @@ public final class TreeMaker {
                                                             final List<ExpressionTree> arguments,
                                                             final int lineNumber,
                                                             final int columnNumber) {
-        if (lineNumber == -1 && columnNumber == -1 && SYNTRACE_ENABLED.getAndSet(false)) {
-            new Exception("[SYNCREATE-PROBE]").printStackTrace();
-        }
         return new CMethodInvocationTree(
                 methodSelector,
                 typeArguments,

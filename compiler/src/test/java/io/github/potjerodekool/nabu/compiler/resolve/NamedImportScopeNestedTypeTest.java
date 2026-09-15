@@ -2,12 +2,10 @@ package io.github.potjerodekool.nabu.compiler.resolve;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
 import io.github.potjerodekool.nabu.resolve.scope.NamedImportScope;
-import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Maakt de import-gedrag voor GENESTE klassen expliciet: de geïmporteerde

@@ -35,33 +35,79 @@ public class ClassScope implements Scope {
     public void define(final Element element) {
     }
 
+    private static final String PROBE_LOG =
+            "C:/Users/evert/AppData/Local/Temp/opencode/diag.log";
+    private static final java.util.Set<String> PROBED_NAMES = java.util.Set.of(
+            "IParseResultHandler2", "IExceptionHandler2", "AbstractHandler", "CSI", "value");
+
+    private static void probeResolve(final String method,
+                                     final String name,
+                                     final TypeElement enclosing,
+                                     final Element result) {
+        if (!PROBED_NAMES.contains(name)) {
+            return;
+        }
+        final var current = enclosing == null ? "null"
+                : enclosing.getQualifiedName() + "@" + System.identityHashCode(enclosing);
+        final var enclosed = enclosing == null ? -1
+                : enclosing.getEnclosedElements() == null ? -2
+                : enclosing.getEnclosedElements().size();
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter(PROBE_LOG, true))) {
+            pw.println("[CLASSSCOPE] m=" + method
+                    + " name=" + name
+                    + " enclosing=" + current
+                    + " enclosed=" + enclosed
+                    + " hit=" + (result != null ? result.getClass().getSimpleName() : "null"));
+        } catch (java.io.IOException e) {
+            // ignore
+        }
+    }
+
     @Override
     public Element resolve(final String name) {
-        var classSymbol = getCurrentClass();
+        var enclosing = getCurrentClass();
 
-        while (classSymbol != null) {
-            final var fieldOptional = ElementFilter.elements(
-                            classSymbol,
-                            element ->
-                                    element.getKind() == ElementKind.FIELD
-                                            || element.getKind() == ElementKind.ENUM_CONSTANT,
-                            VariableElement.class
-                    ).stream()
-                    .filter(Element::isStatic)
-                    .filter(elem -> elem.getSimpleName().equals(name))
-                    .findFirst();
+        while (enclosing != null) {
+            var ancestor = enclosing;
 
-            if (fieldOptional.isPresent()) {
-                return fieldOptional.get();
+            while (ancestor != null) {
+                final var fieldOptional = ElementFilter.elements(
+                                ancestor,
+                                element ->
+                                        element.getKind() == ElementKind.FIELD
+                                                || element.getKind() == ElementKind.ENUM_CONSTANT,
+                                VariableElement.class
+                        ).stream()
+                        .filter(Element::isStatic)
+                        .filter(elem -> elem.getSimpleName().equals(name))
+                        .findFirst();
+
+                if (fieldOptional.isPresent()) {
+                    probeResolve("resolve", name, enclosing, fieldOptional.get());
+                    return fieldOptional.get();
+                }
+
+                final var superclass = ancestor.getSuperclass();
+
+                if (superclass instanceof DeclaredType superType) {
+                    ancestor = (TypeElement) superType.asElement();
+                } else {
+                    ancestor = null;
+                }
             }
 
-            final var superclass = classSymbol.getSuperclass();
+            final var outerClass = enclosing.getEnclosingElement();
 
-            if (superclass instanceof DeclaredType superType) {
-                classSymbol = (TypeElement) superType.asElement();
+            if (outerClass instanceof TypeElement enclosingType) {
+                enclosing = enclosingType;
             } else {
-                classSymbol = null;
+                enclosing = null;
             }
+        }
+
+        if (enclosing == null) {
+            probeResolve("resolve", name, getCurrentClass(), null);
         }
 
         return parentScope != null ? parentScope.resolve(name) : null;
@@ -96,6 +142,7 @@ public class ClassScope implements Scope {
                         .findFirst();
 
                 if (memberTypeOptional.isPresent()) {
+                    probeResolve("resolveType", name, ancestor, memberTypeOptional.get());
                     return memberTypeOptional.get().asType();
                 }
 
@@ -115,6 +162,10 @@ public class ClassScope implements Scope {
             } else {
                 enclosing = null;
             }
+        }
+
+        if (enclosing == null) {
+            probeResolve("resolveType", name, getCurrentClass(), null);
         }
 
         return parentScope != null

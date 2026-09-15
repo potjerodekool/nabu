@@ -19,7 +19,7 @@ public class StartImportScope extends ImportScope {
     @Override
     public void define(final Element element) {
         if (element != null) {
-            elements.put(element.getSimpleName().toString(), element);
+            elements.put(element.getSimpleName(), element);
         }
     }
 
@@ -47,7 +47,7 @@ public class StartImportScope extends ImportScope {
     @Override
     public TypeMirror resolveType(final String name) {
         return resolveTypeElement(name)
-                .map(element -> element.asType())
+                .map(Element::asType)
                 .orElse(null);
     }
 

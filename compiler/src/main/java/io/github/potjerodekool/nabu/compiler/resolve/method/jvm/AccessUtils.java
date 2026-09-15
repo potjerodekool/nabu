@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.resolve.jvm;
+package io.github.potjerodekool.nabu.compiler.resolve.method.jvm;
 
 import io.github.potjerodekool.nabu.lang.Flags;
 import org.objectweb.asm.Opcodes;

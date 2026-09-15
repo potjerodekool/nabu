@@ -16,7 +16,6 @@ module io.github.potjerodekool.compiler.api {
     exports io.github.potjerodekool.nabu.resolve.spi;
     exports io.github.potjerodekool.nabu.tools.transform.spi;
     exports io.github.potjerodekool.nabu.tools.diagnostic;
-    exports io.github.potjerodekool.nabu.resolve.method;
     exports io.github.potjerodekool.nabu.util;
     exports io.github.potjerodekool.nabu.tree.element.builder;
     exports io.github.potjerodekool.nabu.tree.expression.builder;
@@ -30,7 +29,6 @@ module io.github.potjerodekool.compiler.api {
     exports io.github.potjerodekool.nabu.backend.ir.values;
     exports io.github.potjerodekool.nabu.backend.ir.instructions;
     exports io.github.potjerodekool.nabu.backend.ir.types;
-    exports io.github.potjerodekool.nabu.resolve.jvm;
     exports io.github.potjerodekool.nabu.backend;
     exports io.github.potjerodekool.nabu.debug;
     exports io.github.potjerodekool.nabu.backend.ir.optimize;

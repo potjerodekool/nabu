@@ -70,6 +70,15 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     // Try-catch ranges die verzameld worden voor de ASM-backends
     private final List<TryCatchRange> tryCatchRanges = new ArrayList<>();
 
+    // Veld-initializers die op klasseniveau (zonder actief basisblok)
+    // geregistreerd worden; de constructor(s) en <clinit> emitteren ze.
+    private final Map<Element, ExpressionTree> pendingFieldInitializers = new LinkedHashMap<>();
+
+    // Bronbestand van de verwerkte compilatie-eenheid (voor debuginfo van
+    // top-level én geneste klassen).
+    private String currentSourceFile;
+    private String currentSourcePath;
+
     public record TryCatchRange(String tryStart, String tryEnd, String handler, String exceptionType) {}
 
     // -------------------------------------------------------
@@ -108,12 +117,15 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 ? compilationUnit.getFileObject().getFileName()
                 : "<onbekend>";
 
-        compilationUnit.getClasses().stream()
-                .filter(it -> it.getNestingKind() == NestingKind.TOP_LEVEL)
-                .findFirst()
-                .orElseThrow(() -> {
-                    return new RuntimeException(new CompileException("No toplevel class"));
-                });
+        final var noTopLevel = compilationUnit.getClasses().stream()
+                .noneMatch(it -> it.getNestingKind() == NestingKind.TOP_LEVEL);
+        if (noTopLevel) {
+            System.err.println("[IR-CU] Compilatie-eenheid zonder top-level class (alleen geneste/anonieme): "
+                    + fileName + " ; klassen: "
+                    + compilationUnit.getClasses().stream()
+                            .map(it -> it.getKind() + ":" + it.getSimpleName())
+                            .toList());
+        }
 
         // Bronbestand registreren voor debuginfo
         int lastSlash = fileName.lastIndexOf('/');
@@ -121,32 +133,49 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         String file = lastSlash >= 0 ? fileName.substring(lastSlash + 1) : fileName;
 
         // Elke top-level class krijgt een eigen IRModule.
-        // Voorheen werd de hele CU in één module geëmit waardoor methodes en
+        // Voorheen werd de hele CU in ``n module geêmmit waardoor methodes en
         // constructors van meerdere classes in de eerste class terechtkwamen.
+        currentSourceFile = file;
+        currentSourcePath = dir;
         for (ClassDeclaration cls : compilationUnit.getClasses()) {
-            resetClassState();
-
-            final var classSymbol = cls.getClassSymbol();
-            final var moduleName = classSymbol.getQualifiedName();
-            long classFlags = Flags.parse(classSymbol.getModifiers());
-            if (classSymbol.getKind().isInterface()) {
-                classFlags |= Flags.INTERFACE;
+            try {
+                emitClassModule(cls);
+            } catch (final RuntimeException npe) {
+                npe.printStackTrace();
+                throw npe;
             }
-            if (classSymbol.getKind() == ElementKind.ENUM) {
-                // De parser zet alleen Kind.ENUM; de ACC_ENUM-vlag moet
-                // expliciet naar de IR-vlaggen vertaald worden.
-                classFlags |= Flags.ENUM;
-            }
-            builder = new IRBuilder(classFlags, moduleName);
-            module = builder.build();
-            module.setSourceFile(file, dir);
-
-            acceptTree(cls, builder);
-
-            modules.add(module);
         }
 
         return null;
+    }
+
+    /**
+     * Bouwt een eigen IRModule voor de gegeven klasse-declaratie (top-level
+     * én genest); geneste klassen (bv. picocli's Tracer, RunLast) krijgen
+     * hiermee net als top-level classes hun eigen module en classfile.
+     */
+    private void emitClassModule(final ClassDeclaration cls) {
+        resetClassState();
+        pendingFieldInitializers.clear();
+
+        final var classSymbol = cls.getClassSymbol();
+        final var moduleName = classSymbol.getQualifiedName();
+        long classFlags = Flags.parse(classSymbol.getModifiers());
+        if (classSymbol.getKind().isInterface()) {
+            classFlags |= Flags.INTERFACE;
+        }
+        if (classSymbol.getKind() == ElementKind.ENUM) {
+            // De parser zet alleen Kind.ENUM; de ACC_ENUM-vlag moet
+            // expliciet naar de IR-vlaggen vertaald worden.
+            classFlags |= Flags.ENUM;
+        }
+        builder = new IRBuilder(classFlags, moduleName);
+        module = builder.build();
+        module.setSourceFile(currentSourceFile, currentSourcePath);
+
+        acceptTree(cls, builder);
+
+        modules.add(module);
     }
 
     private void resetClassState() {
@@ -218,12 +247,23 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             }));
         }
 
-        // Traverseer methoden en constructors
+        // Velden eerst (zodat de pending-initializers geregistreerd zijn
+        // vóórdat de constructor/clinit ze emitteert), daarna methoden.
+        for (Tree member : classDeclaration.getEnclosedElements()) {
+            if (member instanceof VariableDeclaratorTree variableDeclaratorTree) {
+                acceptTree(variableDeclaratorTree, builder);
+            }
+        }
         for (Tree member : classDeclaration.getEnclosedElements()) {
             if (member instanceof Function function) {
                 acceptTree(function, builder);
-            } else if (member instanceof VariableDeclaratorTree variableDeclaratorTree) {
-                acceptTree(variableDeclaratorTree, builder);
+            }
+        }
+        // Geneste klassen krijgen elk hun eigen IRModule (actor: nested
+        // klassen zoals picocli's RunLast/Tracer leiden eigen classfiles).
+        for (Tree member : classDeclaration.getEnclosedElements()) {
+            if (member instanceof ClassDeclaration nestedClassDeclaration) {
+                emitClassModule(nestedClassDeclaration);
             }
         }
         return null;
@@ -321,8 +361,28 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             scope.define(pname, p);
         }
 
-        // Body
-        if (function.getBody() != null) {
+        // Body. Constructors: field-initializers na de super-invoke,
+        // vóór de rest van de body (JLS §8.3 / §8.8.7). <clinit> krijgt
+        // de static initializers.
+        final boolean isCtorFunction = methodSymbol.getKind() == ElementKind.CONSTRUCTOR;
+        final boolean isClinitFunction = fnName.contains("<clinit>");
+        final boolean emitFieldInits = isCtorFunction || isClinitFunction;
+
+        if (emitFieldInits && function.getBody() instanceof BlockStatementTree bodyBlock) {
+            final var statements = bodyBlock.getStatements();
+            int statementIndex = 0;
+            // Eerste statement: expliciete of implicite super()/this()-aanroep
+            if (!statements.isEmpty() && isConstructorInvocation(statements.getFirst())) {
+                acceptTree(statements.getFirst(), builder);
+                statementIndex = 1;
+            }
+
+            emitPendingFieldInitializers(isCtorFunction);
+
+            for (var i = statementIndex; i < statements.size(); i++) {
+                acceptTree(statements.get(i), builder);
+            }
+        } else if (function.getBody() != null) {
             acceptTree(function.getBody(), builder);
         }
 
@@ -338,6 +398,91 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         scope.popScope();
         builder.endFunction();
         return null;
+    }
+
+    /**
+     * Detecteert een expliciete of impliciete super()/this()-constructor-
+     * aanroep als eerste statement (zelfde detectie als TypeEnter, die
+     * de impliciete super-invoke als eerste statement toevoegt).
+     */
+    private boolean isConstructorInvocation(final StatementTree statement) {
+        if (!(statement instanceof ExpressionStatementTree expressionStatement)) {
+            return false;
+        }
+        if (!(expressionStatement.getExpression() instanceof MethodInvocationTree methodInvocationTree)) {
+            return false;
+        }
+        final var selector = methodInvocationTree.getMethodSelector();
+        if (selector instanceof IdentifierTree identifierTree) {
+            return "super".equals(identifierTree.getName())
+                    || "this".equals(identifierTree.getName());
+        }
+        if (selector instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            return "this".equals(fieldAccessExpressionTree.getField().getName());
+        }
+        return false;
+    }
+
+    /**
+     * Emitteert de veld-initializers van de verwerkte klasse: in een
+     * constructor de instantie-velden, in <clinit> de statische velden.
+     * Geëmitteerde initializers worden verwijderd zodat een andere
+     * constructor (via this()-delegatie) ze niet herhaalt.
+     */
+    private void emitPendingFieldInitializers(final boolean forInstanceFields) {
+        if (pendingFieldInitializers.isEmpty()) {
+            return;
+        }
+
+        final var thisTemp = builder.currentFunction() != null && !builder.currentFunction().params.isEmpty()
+                ? builder.currentFunction().params.getFirst()
+                : null;
+
+        final var emittedKeys = new ArrayList<Element>();
+        for (final var entry : pendingFieldInitializers.entrySet()) {
+            final var fieldSymbol = entry.getKey();
+            final boolean fieldIsStatic = fieldSymbol.isStatic();
+            // static-initializers -> <clinit>, instance-initializers -> <init>
+            if (fieldIsStatic == forInstanceFields) {
+                continue;
+            }
+            // Alleen velden van de verwerkte klasse
+            if (fieldSymbol.getEnclosingElement() != null
+                    && fieldSymbol.getEnclosingElement().getSimpleName() != null
+                    && !fieldSymbol.getEnclosingElement().getSimpleName().contentEquals(currentClassName)) {
+                continue;
+            }
+
+            builder.setLocation(
+                    currentClassName + ".nabu",
+                    0,
+                    0
+            );
+            IRValue value = acceptTree(entry.getValue(), builder);
+            if (value == null) {
+                continue;
+            }
+
+            if (fieldIsStatic) {
+                builder.emitStore(resolveField(fieldSymbol), value);
+            } else if (thisTemp != null) {
+                final var named = resolveField(fieldSymbol);
+                final var ownerType = TypeMirrorToIRType.map(fieldSymbol.getEnclosingElement().asType());
+                builder.emitStore(new IRValue.Values(
+                        thisTemp,
+                        new IRValue.Named(
+                                named.name(),
+                                named.type(),
+                                ownerType,
+                                false
+                        )
+                ), value);
+            }            emittedKeys.add(fieldSymbol);
+        }
+
+        for (final var key : emittedKeys) {
+            pendingFieldInitializers.remove(key);
+        }
     }
 
     // -------------------------------------------------------
@@ -366,12 +511,72 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         ExpressionTree expr = returnStatement.getExpression();
         if (expr == null) {
+            if (builder.currentBlockTerminated()) {
+                // Fallback: een laat-statement (bv. lege-body lus) heeft het
+                // blok al beëindigd; de return aan终点 in een volgblok.
+                final var downstream = builder.beginBlock("after.terminated");
+                builder.setCurrentBlock(downstream);
+            }
             builder.emitReturn(null);
         } else {
             IRValue value = acceptTree(expr, builder);
+            if (builder.currentBlockTerminated()) {
+                // De waarde-evaluatie rond de return be毛indigde het blok
+                // (bv. een gedede -conditie); verplaats de return naar een
+                // nieuw blok zodat de return zelf niet crasht.
+                final var downstream = builder.beginBlock("after.return");
+                builder.setCurrentBlock(downstream);
+            }
+            value = boxIfNeeded(value, builder.currentFunction().returnType);
+            // Auto-unboxing bij return aan een primitieve functie
+            // (bv. `int execute(...)` met `return helpExitCode;`)
+            if (builder.currentFunction() != null) {
+                value = unboxIfNeeded(value, builder.currentFunction().returnType);
+            }
             builder.emitReturn(value);
         }
         return null;
+    }
+
+    /**
+     * Bokst een primitieve waarde in wanneer de functie een wrapper
+     * (Integer/Long/Double/Float/Boolean/Character/Short/Byte) teruggeeft.
+     */
+    private IRValue boxIfNeeded(final IRValue value, final IRType returnType) {
+        if (value == null
+                || !(returnType instanceof IRType.Ptr ptr)
+                || ptr.jvmDescriptor() == null) {
+            return value;
+        }
+
+        final String boxClass;
+        if (value.type() instanceof IRType.Int(int bits)) {
+            boxClass = switch (bits) {
+                case 8 -> "java.lang.Byte";
+                case 16 -> "java.lang.Short";
+                case 64 -> "java.lang.Long";
+                default -> "java.lang.Integer";
+            };
+        } else if (value.type() instanceof IRType.Float(int bits)) {
+            boxClass = bits == 32 ? "java.lang.Float" : "java.lang.Double";
+        } else if (value.type() instanceof IRType.Bool) {
+            boxClass = "java.lang.Boolean";
+        } else {
+            return value;
+        }
+
+        final var expectedDescriptor = "L" + boxClass.replace('.', '/') + ";";
+        if (!expectedDescriptor.equals(ptr.jvmDescriptor())) {
+            return value;
+        }
+
+        return builder.emitCall(
+                CallKind.STATIC,
+                boxClass.replace('.', '_') + "_valueOf",
+                returnType,
+                List.of(value.type()),
+                List.of(value)
+        );
     }
 
     @Override
@@ -407,6 +612,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             // Initialisator
             if (varDecl.getValue() != null) {
                 IRValue initValue = acceptTree(varDecl.getValue(), builder);
+                // Auto-unboxing bij toewijzing aan een primitieve lokale
+                // (bv. `int exitCode = (Integer) obj;`)
+                if (initValue != null) {
+                    initValue = unboxIfNeeded(initValue, irType);
+                }
                 if (initValue != null) {
                     builder.emitStore(ptr, initValue);
                 }
@@ -414,11 +624,23 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         } else if (symbol.getKind() == ElementKind.PARAMETER) {
             //Ignore
         } else {
-            IRValue initValue = varDecl.getValue() != null ? acceptTree(varDecl.getValue(), builder) : null;
+            IRValue initValue = null;
+            if (varDecl.getValue() != null) {
+                if (builder.currentBlock() != null) {
+                    initValue = acceptTree(varDecl.getValue(), builder);
+                } else {
+                    // Klasseniveau: registreer de initializer; de
+                    // constructor(s) (<init>) en <clinit> emitteren hem.
+                    if (varDecl.getValue() instanceof ExpressionTree initExpression) {
+                        pendingFieldInitializers.put(symbol, initExpression);
+                    }
+                }
+            }
             final var owner = symbol.getEnclosingElement().asType();
             final var ownerType = TypeMirrorToIRType.map(owner);
 
-            builder.declareGlobal(name, irType, initValue, ownerType, symbol.isStatic());
+            final var globalName = symbol.getEnclosingElement().getSimpleName() + "_" + name;
+            builder.declareGlobal(globalName, irType, initValue, ownerType, symbol.isStatic());
 
             final var fieldFlags = symbol.getFlags();
             final var irField = IRField.field(
@@ -651,7 +873,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         // Body
         builder.setCurrentBlock(bodyBlk);
-        acceptTree(forStatement.getStatement(), builder);
+        if (forStatement.getStatement() != null) {
+            acceptTree(forStatement.getStatement(), builder);
+        }
         if (!builder.currentBlockTerminated())
             builder.emitBranch(updateBlk);
 
@@ -723,6 +947,18 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRValue right = acceptTree(binaryExpr.getRight(), builder);
         Op op = TagToIROp.map(tag);
 
+        if (left == null || right == null) {
+            System.err.println("[BIN-OP-NULL] operand niet emitteerbaar: " + binaryExpr.getLeft() + " " + tag + " " + binaryExpr.getRight());
+            return left != null ? left : right;
+        }
+
+        // Auto-unboxing: een wrapper-referentie (Integer/Long/...) tegen
+        // een primitieve operand (int/float/bool) wordt tooth's
+        // primitieve vorm gezet — anders volgt de emitter een
+        // String-concat of een verifieerder-fout bij compare-opcodes.
+        right = unboxIfNeeded(right, left.type());
+        left = unboxIfNeeded(left, right.type());
+
         return builder.emitBinaryOp(op, left, right);
     }
 
@@ -731,6 +967,12 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                                         IRBuilder param) {
         Tag tag = unary.getTag();
         IRValue operand = acceptTree(unary.getExpression(), builder);
+        // Een Boolean-box-operand (bv. `!oppositeValue` met een
+        // Boolean-referentie) wordt eerst naar een primitieve bool
+        // gezet, anders volgt de emitter een verifieerder-fout.
+        if (tag == Tag.NOT && operand != null) {
+            operand = unboxIfNeeded(operand, IRType.BOOL);
+        }
 
         return switch (tag) {
             case SUB -> {
@@ -1102,6 +1344,15 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
      * wordt aangeduid (voor assignments en post-increment/decrement).
      */
     private void emitStoreBack(ExpressionTree target, IRValue value) {
+        if (value == null) {
+            // De waarde kon niet geemitteerd worden (bv. een methode-
+            // aanroep met een onopgeloste methodType); dan blijft de
+            // variabele op zijn default staan — in plaats van een
+            // Store[ptr,null]-instructie die de verifier/SSA breekt.
+            System.err.println("[STOREBACK-NULL] target=" + target
+                    + " (initializer overgeslagen)");
+            return;
+        }
         if (target instanceof IdentifierTree id) {
             String name = id.getName();
             var ptr = scope.lookup(name);
@@ -1163,10 +1414,62 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     private IRValue emitCompoundAssignment(BinaryExpressionTree binaryExpr) {
         IRValue current = acceptTree(binaryExpr.getLeft(), builder);
         IRValue right = acceptTree(binaryExpr.getRight(), builder);
+        right = unboxIfNeeded(right, current.type());
         Op op = TagToIROp.compoundAssignmentOp(binaryExpr.getTag());
         IRValue result = builder.emitBinaryOp(op, current, right);
         emitStoreBack(binaryExpr.getLeft(), result);
         return result;
+    }
+
+    /**
+     * Het breedte-scorend achterhaald unboxing: een wrapper-waarde
+     * (Integer/Long/Double/...) wordt omgezet naar de primitieve
+     * operatie-toevoeging via intValue() etc. — anders volgt de
+     * BinOp-emitter een String-concat door de Ptr-operand.
+     */
+    private IRValue unboxIfNeeded(final IRValue value, final IRType targetType) {
+        if (value == null
+                || !(value.type() instanceof IRType.Ptr ptr)
+                || ptr.jvmDescriptor() == null
+                || !(targetType instanceof IRType.Int || targetType instanceof IRType.Float
+                || targetType instanceof IRType.Bool)) {
+            return value;
+        }
+
+        final var desc = ptr.jvmDescriptor();
+        final String unboxMethod = switch (desc) {
+            case "Ljava/lang/Integer;" -> "intValue";
+            case "Ljava/lang/Long;" -> "longValue";
+            case "Ljava/lang/Short;" -> "shortValue";
+            case "Ljava/lang/Byte;" -> "byteValue";
+            case "Ljava/lang/Character;" -> "charValue";
+            case "Ljava/lang/Float;" -> "floatValue";
+            case "Ljava/lang/Double;" -> "doubleValue";
+            case "Ljava/lang/Boolean;" -> "booleanValue";
+            default -> null;
+        };
+        if (unboxMethod == null) {
+            return value;
+        }
+
+        final IRType unboxedType;
+        if (desc.equals("Ljava/lang/Long;")) unboxedType = IRType.I64;
+        else if (desc.equals("Ljava/lang/Double;")) unboxedType = IRType.F64;
+        else if (desc.equals("Ljava/lang/Float;")) unboxedType = IRType.F32;
+        else if (desc.equals("Ljava/lang/Boolean;")) unboxedType = IRType.BOOL;
+        else if (desc.equals("Ljava/lang/Integer;")
+                || desc.equals("Ljava/lang/Short;")
+                || desc.equals("Ljava/lang/Byte;")
+                || desc.equals("Ljava/lang/Character;")) unboxedType = IRType.I32;
+        else return value;
+
+        return builder.emitCall(
+                CallKind.VIRTUAL,
+                "java.lang." + desc.substring(11, desc.length() - 1) + "_" + unboxMethod,
+                unboxedType,
+                List.of(),
+                List.of(value)
+        );
     }
 
     /**

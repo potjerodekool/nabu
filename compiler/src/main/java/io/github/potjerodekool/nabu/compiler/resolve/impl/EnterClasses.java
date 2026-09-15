@@ -9,6 +9,7 @@ import io.github.potjerodekool.nabu.lang.model.element.NestingKind;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.GlobalScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
+import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import io.github.potjerodekool.nabu.tree.PackageDeclaration;
 import io.github.potjerodekool.nabu.tree.PatternTreeVisitor;
@@ -16,9 +17,11 @@ import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
+import io.github.potjerodekool.nabu.tree.expression.NewClassExpression;
 import io.github.potjerodekool.nabu.tree.impl.CCompilationTreeUnit;
 
 import java.util.ArrayList;
+import java.util.Stack;
 
 public class EnterClasses implements PatternTreeVisitor<Void, Scope> {
 
@@ -121,6 +124,96 @@ public class EnterClasses implements PatternTreeVisitor<Void, Scope> {
         );
 
         enterNestedClasses(clazzDeclaration, clazz, scope);
+
+        enterAnonymousClasses(classDeclaration, clazz, scope);
+    }
+
+    /**
+     * Walks the entire class body (incl. function bodies and nested classes)
+     * to find anonymous class declarations ({@code new X() { ... }}) and enter
+     * them, mirroring javac's Enter phase.
+     *
+     * <p>The walk reuses the base {@link AbstractTreeVisitor} full recursion:
+     * the base dispatch descends into function bodies, expressions and nested
+     * classes, so this walker only has to track the enclosing class and
+     * override {@code visitNewClass} to enter an anonymous body.
+     */
+    private void enterAnonymousClasses(final ClassDeclaration classDeclaration,
+                                       final ClassSymbol owner,
+                                       final Scope scope) {
+        final var enclosingClasses = new Stack<ClassSymbol>();
+        final var counters = new java.util.HashMap<ClassSymbol, Integer>();
+
+        enclosingClasses.push(owner);
+
+        final var anonymousEnterer = new AbstractTreeVisitor<Void, Scope>() {
+
+            @Override
+            public Void visitClass(final ClassDeclaration clazzDeclaration,
+                                   final Scope scope) {
+                if (clazzDeclaration.getClassSymbol() instanceof ClassSymbol classSymbol
+                        && enclosingClasses.peek() != classSymbol) {
+                    enclosingClasses.push(classSymbol);
+                    counters.putIfAbsent(classSymbol, 0);
+                }
+
+                super.visitClass(clazzDeclaration, scope);
+
+                if (enclosingClasses.size() > 1) {
+                    enclosingClasses.pop();
+                }
+                return null;
+            }
+
+            @Override
+            public Void visitNewClass(final NewClassExpression newClassExpression,
+                                      final Scope scope) {
+                final var classDeclaration = newClassExpression.getClassDeclaration();
+
+                // Enum-constants are represented as a NewClassExpression with an
+                // artificial, empty ClassDeclaration; those are not anonymous.
+                if (classDeclaration != null
+                        && classDeclaration.getEnclosedElements() != null
+                        && !classDeclaration.getEnclosedElements().isEmpty()) {
+                    enterAnonymousClass(classDeclaration, enclosingClasses.peek(),
+                            counters, scope);
+                }
+
+                return super.visitNewClass(newClassExpression, scope);
+            }
+        };
+
+        anonymousEnterer.acceptTree(classDeclaration, scope);
+    }
+
+    private void enterAnonymousClass(final ClassDeclaration classDeclaration,
+                                     final ClassSymbol enclosing,
+                                     final java.util.HashMap<ClassSymbol, Integer> counters,
+                                     final Scope scope) {
+        final var module = (ModuleSymbol) scope.findModuleElement();
+        final var currentCount = counters.merge(enclosing, 1, Integer::sum);
+
+        final var clazz = SymbolTable.getInstance(compilerContext)
+                .enterClass(
+                        module,
+                        Integer.toString(currentCount),
+                        enclosing
+                );
+
+        clazz.setKind(ElementKind.CLASS);
+        clazz.setNestingKind(NestingKind.ANONYMOUS);
+        clazz.setEnclosingElement(enclosing);
+        clazz.setError(false);
+        clazz.setCompleter(typeEnter);
+
+        final var anonDeclaration = (CClassDeclaration) classDeclaration;
+        anonDeclaration.setClassSymbol(clazz);
+
+        typeEnter.put(
+                clazz,
+                anonDeclaration,
+                scope.getCompilationUnit()
+        );
     }
 
     private void enterNestedClasses(final CClassDeclaration classDeclaration,

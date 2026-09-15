@@ -1,8 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.resolve.ArgumentBoxer;
-import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
@@ -17,7 +16,7 @@ public class ArgumentBoxerImpl implements ArgumentBoxer {
 
     private final Boxer boxer;
 
-    public ArgumentBoxerImpl(final CompilerContext compilerContext) {
+    public ArgumentBoxerImpl(final CompilerContextImpl compilerContext) {
         this.boxer = new Boxer(compilerContext);
     }
 

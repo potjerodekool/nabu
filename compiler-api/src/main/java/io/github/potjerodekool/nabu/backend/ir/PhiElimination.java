@@ -48,12 +48,19 @@ public class PhiElimination {
 
         // Stap 2: Voor elke phi, maak temp + load en voeg stores toe aan predecessors
         final List<PhiReplacement> allReplacements = new ArrayList<>();
+        final Set<String> seenPhiResults = new HashSet<>();
 
         for (final var block : function.blocks()) {
             final var phis = phisByBlock.get(block.label());
             if (phis == null) continue;
 
             for (final var phi : phis) {
+                final var phiResultName = IRValue.nameOf(phi.result());
+                if (!seenPhiResults.add(block.label() + "|" + phiResultName)) {
+                    // Identieke phi-resultaatnamen (SSA-lus-bewakings-artefact) :
+                    // alleen de eerste variant afhandelen; de rest is een duplicaat.
+                    continue;
+                }
                 final var temp = new IRValue.Temp(
                         "%phi." + block.label() + "." + IRValue.nameOf(phi.result()),
                         phi.result().type()
@@ -199,6 +206,24 @@ public class PhiElimination {
                 yield (a != al.array() || i != al.index())
                         ? new IRInstruction.ArrayLoad(al.result(), a, i, al.elemType(), al.location())
                         : al;
+            }
+            case IRInstruction.ArrayStore as -> {
+                // Net als ArrayLoad moeten de array-/index-/value-operanden
+                // van een ArrayStore ook de phi-resultaatvervanging
+                // ondergaan; anders blijft de phi-temp verwijzen naar een
+                // slot zonder definitie (verifieerfout bij ASM).
+                var a = replaceIfPhi(as.array(), phiToLoad);
+                var i = replaceIfPhi(as.index(), phiToLoad);
+                var v = replaceIfPhi(as.value(), phiToLoad);
+                yield (a != as.array() || i != as.index() || v != as.value())
+                        ? new IRInstruction.ArrayStore(a, i, v, as.elemType(), as.location())
+                        : as;
+            }
+            case IRInstruction.AllocaArray aa -> {
+                var s = replaceIfPhi(aa.size(), phiToLoad);
+                yield (s != aa.size())
+                        ? new IRInstruction.AllocaArray(aa.result(), aa.allocType(), s, aa.location())
+                        : aa;
             }
             case IRInstruction.ArrayLength al -> {
                 var a = replaceIfPhi(al.array(), phiToLoad);

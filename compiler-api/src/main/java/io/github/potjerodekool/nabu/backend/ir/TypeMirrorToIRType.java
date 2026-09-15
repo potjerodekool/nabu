@@ -173,9 +173,19 @@ public final class TypeMirrorToIRType {
             case ARRAY -> {
                 if (type instanceof ArrayType arrayType) {
                     final var componentDesc = toJvmDescriptor(arrayType.getComponentType());
-                    yield "[" + componentDesc;
+                    yield "[" + (componentDesc == null ? "Ljava/lang/Object;" : componentDesc);
                 }
                 yield "[Ljava/lang/Object;";
+            }
+            case TYPEVAR -> {
+                if (type instanceof TypeVariable typeVariable
+                        && typeVariable.getUpperBound() != null) {
+                    final var boundDesc = toJvmDescriptor(typeVariable.getUpperBound());
+                    if (boundDesc != null) {
+                        yield boundDesc;
+                    }
+                }
+                yield "Ljava/lang/Object;";
             }
             default -> null;
         };

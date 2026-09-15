@@ -16,6 +16,7 @@ import io.github.potjerodekool.nabu.tools.FileManager.Location;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.ClazzReader;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 
 import java.io.IOException;
@@ -140,7 +141,64 @@ public class ClassFinder {
             fillInClassFromSource(classSymbol);
         } else if (classSymbol.getClassFile() != null) {
             fillInClassFromClass(classSymbol);
+        } else if (linkNestedClassDeclaration(classSymbol)) {
+            fillInClassFromSource(classSymbol);
         }
+    }
+
+    private boolean linkNestedClassDeclaration(final ClassSymbol classSymbol) {
+        final var names = new ArrayList<String>();
+        for (var element = (Symbol) classSymbol;
+             element instanceof ClassSymbol classSymbol1;
+             element = classSymbol1.getEnclosingElement()) {
+            names.add(0, classSymbol1.getSimpleName());
+        }
+
+        if (names.size() < 2) {
+            return false;
+        }
+
+        final var typeEnter = compilerContext.getTypeEnter();
+        final var topLevelName = classSymbol.getPackageElement().getQualifiedName() + "." + names.get(0);
+        final var topSymbol = typeEnter.findSourceSymbol(topLevelName);
+
+        if (topSymbol == null) {
+            return false;
+        }
+
+        final ClassDeclaration topTree = typeEnter.getSourceTree(topSymbol);
+
+        if (topTree == null) {
+            return false;
+        }
+
+        ClassDeclaration tree = topTree;
+
+        for (var i = 1; i < names.size(); i++) {
+            final var child = findChildClassDeclaration(tree, names.get(i));
+            if (child == null) {
+                return false;
+            }
+            tree = child;
+        }
+
+        typeEnter.put(
+                classSymbol,
+                tree,
+                typeEnter.getCompilationUnit(topTree)
+        );
+        return true;
+    }
+
+    private ClassDeclaration findChildClassDeclaration(final ClassDeclaration tree,
+                                                       final String simpleName) {
+        for (final var element : tree.getEnclosedElements()) {
+            if (element instanceof ClassDeclaration classDeclaration
+                    && simpleName.equals(classDeclaration.getSimpleName())) {
+                return classDeclaration;
+            }
+        }
+        return null;
     }
 
     private void fillInClassFromClass(final ClassSymbol classSymbol) {

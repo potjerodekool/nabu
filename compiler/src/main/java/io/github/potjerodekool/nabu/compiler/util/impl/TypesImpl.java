@@ -150,6 +150,51 @@ public class TypesImpl implements Types {
         if (typeArgs.length == 0) {
             return (DeclaredType) ((Symbol) typeElem).erasure(this);
         } else if (!typeElem.asType().isParameterized()) {
+            // Het as-type van de declared class heeft (nog) geen
+            // type-parameters. Dat kan komen doordat de klasse-symbool
+            // pas bezig is met zijn eigen completion (cirkel: fillInSuper
+            // van AbstractHandler roept getDeclaredType op terwijl de
+            // eigen type-parameters nog niet gezet zijn). Forceer eerst
+            // de completion en probeer het opnieuw.
+            if (typeElem instanceof Symbol symbol) {
+                symbol.complete();
+            }
+            if (typeElem.asType().isParameterized()) {
+                return getDeclaredTypeImpl(
+                        typeElem.asType().getEnclosingType(),
+                        typeElem,
+                        typeArgs
+                );
+            }
+            // type-parameters zijn definitief leeg: als het aantal
+            // argumenten overeenkomt met de declared type-parameters
+            // bouwen we gewoon door; anders is het echt een fout-type.
+            final var declaredParamCount = typeElem.getTypeParameters().size();
+            if (declaredParamCount == typeArgs.length && declaredParamCount > 0) {
+                return getDeclaredTypeImpl(
+                        typeElem.asType().getEnclosingType(),
+                        typeElem,
+                        typeArgs
+                );
+            }
+            if ("IParseResultHandler2".equals(typeElem.getSimpleName().toString())
+                    || "IExceptionHandler2".equals(typeElem.getSimpleName().toString())
+                    || "AbstractHandler".equals(typeElem.getSimpleName().toString())) {
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[GD2-RAW] elem=" + typeElem.getQualifiedName()
+                            + " args=" + java.util.Arrays.stream(typeArgs)
+                            .map(arg -> arg == null ? "null" : (arg.getClass().getSimpleName() + (arg.isError() ? ":ERROR" : "")))
+                            .collect(java.util.stream.Collectors.joining(","))
+                            + " elemAsTypeArgs=" + typeElem.asType().getTypeArguments().size()
+                            + " elemAsTypeParams=" + typeElem.getTypeParameters().size());
+                    java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+                            .limit(12)
+                            .forEach(frame -> pw.println("    at " + frame));
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
             return getErrorType(typeElem.getQualifiedName());
         }
 
@@ -192,10 +237,31 @@ public class TypesImpl implements Types {
 
         final var typeArguments = typeElem.asType().getTypeArguments();
 
+        if ("IParseResultHandler2".equals(typeElem.getSimpleName().toString())
+                || "IExceptionHandler2".equals(typeElem.getSimpleName().toString())
+                || "AbstractHandler".equals(typeElem.getSimpleName().toString())) {
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[GETDECLARED] elem=" + typeElem.getQualifiedName()
+                        + " nArgs=" + typeArgs.length
+                        + " nTypeArgs=" + typeArguments.size()
+                        + " args=" + java.util.Arrays.stream(typeArgs).map(arg -> arg == null ? "null" : (arg.getClass().getSimpleName() + (arg.isError() ? ":ERROR" : ""))).collect(java.util.stream.Collectors.joining(",")));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
+
         if (typeArgs.length != typeArguments.size()) {
             return getErrorType(enclosing != null
                     ? enclosing.getClassName()
                     : typeElem.getQualifiedName());
+        }
+
+        if (Arrays.stream(typeArgs).anyMatch(Objects::isNull)) {
+            // One or more type arguments were not (yet) attributed
+            // (e.g. a type variable of an enclosing generic method).
+            // Fall back to the raw declared type instead of forcing an error.
+            return (DeclaredType) symbol.erasure(this);
         }
 
         if (Arrays.stream(typeArgs)
@@ -254,6 +320,19 @@ public class TypesImpl implements Types {
 
     @Override
     public DeclaredType getErrorType(final String className) {
+        if (className != null) {
+            final var simple = className.substring(className.lastIndexOf('.') + 1);
+            if (simple.equals("AbstractHandler") || simple.equals("IParseResultHandler2")
+                    || simple.equals("IExceptionHandler2") || simple.equals("CSI") || simple.equals("value")) {
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[GETERRORTYPE] class=" + className);
+                    new Throwable("geterr").printStackTrace(pw);
+                } catch (java.io.IOException e) {
+                    // ignore
+                }
+            }
+        }
         final var packageNameEnd = className.lastIndexOf('.');
         final String simpleName;
         final Symbol enclosingElement;

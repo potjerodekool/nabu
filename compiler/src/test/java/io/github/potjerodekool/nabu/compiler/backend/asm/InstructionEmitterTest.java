@@ -48,7 +48,7 @@ class InstructionEmitterTest extends BackendTest {
 
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/forLoop.txt");
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/forLoop.txt", expected, actual);
     }
 
     @Disabled
@@ -319,7 +319,7 @@ class InstructionEmitterTest extends BackendTest {
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/ifStatementWithNull.txt");
 
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/ifStatementWithNull.txt", expected, actual);
     }
 
     @Test
@@ -477,7 +477,7 @@ class InstructionEmitterTest extends BackendTest {
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/StringConcat.txt");
 
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/StringConcat.txt", expected, actual);
     }
 
     private Function process(final Function function) {

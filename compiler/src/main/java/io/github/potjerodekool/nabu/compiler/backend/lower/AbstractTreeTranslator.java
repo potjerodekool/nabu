@@ -273,7 +273,7 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
                 .map(it -> (StatementTree) acceptTree(it, param))
                 .toList();
 
-        final var newStatement = (StatementTree) acceptTree(forStatement.getStatement(), param);
+        final var newStatement = (StatementTree) accept(forStatement.getStatement(), param);
 
         return forStatement.builder()
                 .forInit(newInit)

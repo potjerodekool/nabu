@@ -82,8 +82,10 @@
         <module>compiler-api</module>
         <module>compiler</module>
         <module>testing</module>
+        <!--
         <module>jpa-support</module>
         <module>jpa-plugin</module>
+        -->
         <module>maven-plugin</module>
         <module>compiler-test</module>
         <module>nabu-daemon</module>

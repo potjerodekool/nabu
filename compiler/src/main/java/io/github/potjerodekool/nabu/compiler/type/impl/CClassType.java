@@ -89,6 +89,7 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     public void setTypeArguments(final List<TypeMirror> typeArguments) {
         this.typeArguments = typeArguments != null ? new ArrayList<>(typeArguments) : null;
+        this.allParameters = null;
         validateTypeArguments();
     }
 
@@ -97,6 +98,7 @@ public class CClassType extends AbstractType implements DeclaredType {
             this.typeArguments = new ArrayList<>();
         }
         this.typeArguments.add(typeArgument);
+        this.allParameters = null;
         validateTypeArguments();
     }
 
@@ -106,17 +108,25 @@ public class CClassType extends AbstractType implements DeclaredType {
 
     @Override
     public String toString() {
-        final var name = element.getQualifiedName();
+        final var guard = AbstractType.enterToString(this);
+        try {
+            if (!guard.isActive()) {
+                return element.getQualifiedName();
+            }
+            final var name = element.getQualifiedName();
 
-        if (!element.getTypeParameters().isEmpty()) {
-            final var typeArgs = getTypeArguments().stream()
-                    .map(Object::toString)
-                    .collect(Collectors.joining(",", "(", ")"));
+            if (!element.getTypeParameters().isEmpty()) {
+                final var typeArgs = getTypeArguments().stream()
+                        .map(Object::toString)
+                        .collect(Collectors.joining(",", "(", ")"));
 
-            return name + typeArgs;
+                return name + typeArgs;
+            }
+
+            return name;
+        } finally {
+            guard.close();
         }
-
-        return name;
     }
 
     @Override

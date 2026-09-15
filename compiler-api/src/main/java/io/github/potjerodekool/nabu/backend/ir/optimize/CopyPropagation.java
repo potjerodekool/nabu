@@ -83,6 +83,19 @@ public class CopyPropagation implements OptimizationPass {
             if (mapping != null) {
                 return resolveCopies(mapping, copies);
             }
+        } else if (value instanceof IRValue.Values chains) {
+            final var inner = chains.values();
+            List<IRValue> newInner = null;
+            for (int i = 0; i < inner.size(); i++) {
+                final var resolved = resolveCopies(inner.get(i), copies);
+                if (resolved != inner.get(i)) {
+                    if (newInner == null) newInner = new ArrayList<>(inner);
+                    newInner.set(i, resolved);
+                }
+            }
+            if (newInner != null) {
+                return new IRValue.Values(newInner);
+            }
         }
         return value;
     }
@@ -228,6 +241,22 @@ public class CopyPropagation implements OptimizationPass {
         if (value instanceof IRValue.Temp temp) {
             final var resolved = resolveCopies(temp, copies);
             if (resolved != temp) return resolved;
+        } else if (value instanceof IRValue.Values chains) {
+            // Field-address ketens (IRValue.Values) bevatten SSA-temps;
+            // ook binnenin vervangen, anders verwijst de resterende
+            // keten naar een temp wiens Move verwijderd is (uninit slot).
+            final var inner = chains.values();
+            List<IRValue> newInner = null;
+            for (int i = 0; i < inner.size(); i++) {
+                final var replaced = replaceValue(inner.get(i), copies);
+                if (replaced != inner.get(i)) {
+                    if (newInner == null) newInner = new ArrayList<>(inner);
+                    newInner.set(i, replaced);
+                }
+            }
+            if (newInner != null) {
+                return new IRValue.Values(newInner);
+            }
         }
         return value;
     }

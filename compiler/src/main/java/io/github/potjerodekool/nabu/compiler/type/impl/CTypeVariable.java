@@ -90,14 +90,22 @@ public class CTypeVariable extends AbstractType implements TypeVariable {
 
     @Override
     public String toString() {
-        final var name = element.getSimpleName();
+        final var guard = AbstractType.enterToString(this);
+        try {
+            if (!guard.isActive()) {
+                return element.getSimpleName();
+            }
+            final var name = element.getSimpleName();
 
-        if (upperBound != null) {
-            return name + " extends " + upperBound;
-        } else if (lowerBound != null) {
-            return name + " super " + lowerBound;
-        } else {
-            return name;
+            if (upperBound != null) {
+                return name + " extends " + upperBound;
+            } else if (lowerBound != null) {
+                return name + " super " + lowerBound;
+            } else {
+                return name;
+            }
+        } finally {
+            guard.close();
         }
     }
 }

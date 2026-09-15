@@ -19,6 +19,11 @@ public class Caster implements TypeVisitor<ExpressionTree, ExpressionTree> {
                                              final ExpressionTree expressionTree) {
         if (expressionTree instanceof MethodInvocationTree methodInvocationTree) {
             final var methodType = methodInvocationTree.getMethodType();
+
+            if (methodType == null) {
+                return expressionTree;
+            }
+
             final var methodTypeReturnType = methodType.getReturnType();
 
             if (methodTypeReturnType.getKind() == TypeKind.DECLARED) {
@@ -80,7 +85,13 @@ public class Caster implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
         if (methodReturnType instanceof TypeVariable) {
             final var methodTypeReturnType = methodInvocationTree.getMethodType().getReturnType();
-            final var className = methodTypeReturnType.asTypeElement().getQualifiedName();
+
+            if (!(methodTypeReturnType instanceof DeclaredType methodReturnDeclaredType)
+                    || methodReturnDeclaredType.asTypeElement() == null) {
+                return methodInvocationTree;
+            }
+
+            final var className = methodReturnDeclaredType.asTypeElement().getQualifiedName();
             final var identifier = IdentifierTree.create(className);
             identifier.setType(methodTypeReturnType);
 

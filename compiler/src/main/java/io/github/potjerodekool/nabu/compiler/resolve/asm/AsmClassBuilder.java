@@ -1,6 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.resolve.asm;
 
-import io.github.potjerodekool.nabu.resolve.jvm.AccessUtils;
+import io.github.potjerodekool.nabu.compiler.resolve.method.jvm.AccessUtils;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.NestingKind;

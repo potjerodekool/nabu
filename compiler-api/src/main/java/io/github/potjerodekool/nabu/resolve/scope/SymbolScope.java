@@ -29,6 +29,37 @@ public class SymbolScope implements Scope {
     public void define(final Element element) {
     }
 
+    private static final String PROBE_LOG =
+            "C:/Users/evert/AppData/Local/Temp/opencode/diag.log";
+    private static final java.util.Set<String> PROBED_NAMES = java.util.Set.of(
+            "IParseResultHandler2", "IExceptionHandler2", "AbstractHandler", "CSI", "value");
+
+    private static void probeResolve(final String method,
+                                     final String name,
+                                     final TypeElement enclosing,
+                                     final Element result) {
+        if (!PROBED_NAMES.contains(name)) {
+            return;
+        }
+        final var current = enclosing == null ? "null"
+                : enclosing.getQualifiedName() + "@" + System.identityHashCode(enclosing);
+        final var enclosed = enclosing == null ? -1
+                : enclosing.getEnclosedElements() == null ? -2
+                : enclosing.getEnclosedElements().size();
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter(PROBE_LOG, true))) {
+            pw.println("[SYMBOLSCOPE] m=" + method
+                    + " name=" + name
+                    + " enclosing=" + current
+                    + " enclosed=" + enclosed
+                    + " hit=" + (result != null ? result.getClass().getSimpleName() : "null")
+                    + " qn=" + (result instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement te ? te.getQualifiedName() : (result == null ? "null" : result.toString()))
+                    + " err=" + (result instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement te2 && te2.isError()));
+        } catch (java.io.IOException e) {
+            // ignore
+        }
+    }
+
     @Override
     public Element resolve(final String name) {
         final var symbolResolverOptional = findSymbolResolver(declaredType);
@@ -45,17 +76,7 @@ public class SymbolScope implements Scope {
         var currentClass = getCurrentClass();
 
         while (currentClass != null) {
-            final var fieldOptional = ElementFilter.elements(
-                            currentClass,
-                            element ->
-                                    element.getKind() == ElementKind.FIELD
-                                            || element.getKind() == ElementKind.ENUM_CONSTANT,
-                            VariableElement.class
-                    ).stream()
-                    .filter(elem -> elem.getKind() == ElementKind.FIELD
-                            || elem.getKind() == ElementKind.ENUM_CONSTANT)
-                    .filter(elem -> elem.getSimpleName().equals(name))
-                    .findFirst();
+            final var fieldOptional = findField(currentClass, name);
 
             if (fieldOptional.isPresent()) {
                 return fieldOptional.get();
@@ -70,7 +91,67 @@ public class SymbolScope implements Scope {
             }
         }
 
+        if (currentClass == null) {
+            probeResolve("resolve", name, getCurrentClass(), null);
+        }
+
         return parentScope != null ? parentScope.resolve(name) : null;
+    }
+
+    private java.util.Optional<VariableElement> findField(final TypeElement classElement,
+                                                          final String name) {
+        final var fieldOptional = ElementFilter.elements(
+                        classElement,
+                        element ->
+                                element.getKind() == ElementKind.FIELD
+                                        || element.getKind() == ElementKind.ENUM_CONSTANT,
+                        VariableElement.class
+                ).stream()
+                .filter(elem -> elem.getKind() == ElementKind.FIELD
+                        || elem.getKind() == ElementKind.ENUM_CONSTANT)
+                .filter(elem -> elem.getSimpleName().equals(name))
+                .findFirst();
+
+        if (fieldOptional.isPresent()) {
+            return fieldOptional;
+        }
+
+        for (final var interfaceType : classElement.getInterfaces()) {
+            if (interfaceType instanceof DeclaredType interfaceDeclaredType
+                    && interfaceDeclaredType.asElement() instanceof TypeElement interfaceElement) {
+                final var interfaceField = findField(interfaceElement, name);
+
+                if (interfaceField.isPresent()) {
+                    return interfaceField;
+                }
+            }
+        }
+
+        final var globalScope = getGlobalScope();
+
+        if (globalScope == null) {
+            return java.util.Optional.empty();
+        }
+
+        final var compilerContext = globalScope.getCompilerContext();
+        final var loaded = compilerContext.getClassElementLoader()
+                .loadClass(findModuleElement(), classElement.getQualifiedName());
+
+        if (loaded == null || loaded == classElement) {
+            return java.util.Optional.empty();
+        }
+
+        return ElementFilter.elements(
+                        loaded,
+                        element ->
+                                element.getKind() == ElementKind.FIELD
+                                        || element.getKind() == ElementKind.ENUM_CONSTANT,
+                        VariableElement.class
+                ).stream()
+                .filter(elem -> elem.getKind() == ElementKind.FIELD
+                        || elem.getKind() == ElementKind.ENUM_CONSTANT)
+                .filter(elem -> elem.getSimpleName().equals(name))
+                .findFirst();
     }
 
     private Optional<ElementResolver> findSymbolResolver(final TypeMirror searchType) {
@@ -108,6 +189,7 @@ public class SymbolScope implements Scope {
                 final var found = findMemberType(ancestor, name);
 
                 if (found.isPresent()) {
+                    probeResolve("resolveType", name, enclosing, found.get());
                     return found.get().asType();
                 }
 
@@ -127,6 +209,10 @@ public class SymbolScope implements Scope {
             } else {
                 enclosing = null;
             }
+        }
+
+        if (enclosing == null) {
+            probeResolve("resolveType", name, getCurrentClass(), null);
         }
 
         return Scope.super.resolveType(name);

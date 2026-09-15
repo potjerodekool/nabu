@@ -1,10 +1,11 @@
 package io.github.potjerodekool.nabu.compiler.resolve.impl;
 
+import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.LongBoxer;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.box.ShortBoxer;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.tools.Constants;
 import io.github.potjerodekool.nabu.tree.TreeMaker;
@@ -38,7 +39,7 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
     private final EnumMap<TypeKind, String> primitiveTypeToBoxClassName = new EnumMap<>(TypeKind.class);
     private final EnumMap<TypeKind, String> unboxMethods = new EnumMap<>(TypeKind.class);
 
-    public Boxer(final CompilerContext compilerContext) {
+    public Boxer(final CompilerContextImpl compilerContext) {
         this.loader = compilerContext.getClassElementLoader();
         this.types = compilerContext.getTypes();
         this.methodResolver = compilerContext.getMethodResolver();

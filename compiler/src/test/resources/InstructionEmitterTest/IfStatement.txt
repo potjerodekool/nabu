@@ -9,42 +9,57 @@ public class MyClass {
     // parameter final  number
    L0
     LINENUMBER 3 L0
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
     ILOAD 1
     ICONST_5
     IF_ICMPLE L1
     GOTO L2
    L2
     LINENUMBER 4 L2
-   FRAME FULL [MyClass I] []
+   FRAME FULL [MyClass I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
     ICONST_1
     IRETURN
    L1
     LINENUMBER 5 L1
-   FRAME FULL [MyClass I] []
+   FRAME FULL [MyClass I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
     ILOAD 1
     ICONST_5
     IF_ICMPGE L3
     GOTO L4
    L4
     LINENUMBER 6 L4
-   FRAME FULL [MyClass I] []
+   FRAME FULL [MyClass I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
     ICONST_M1
     IRETURN
    L3
     LINENUMBER 8 L3
-   FRAME FULL [MyClass I] []
+   FRAME FULL [MyClass I I I] []
+    ICONST_0
+    ISTORE 2
+    ICONST_0
+    ISTORE 3
     ICONST_0
     IRETURN
    L5
-   FRAME FULL [] [java/lang/Throwable]
-    NOP
-    NOP
-    ATHROW
-   L6
-    LOCALVARIABLE this LMyClass; L0 L6 0
-    LOCALVARIABLE number I L0 L6 1
+    LOCALVARIABLE this LMyClass; L0 L5 0
+    LOCALVARIABLE number I L0 L5 1
     MAXSTACK = 2
-    MAXLOCALS = 2
+    MAXLOCALS = 4
 
   // access flags 0x1
   public <init>()V

@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.resolve.method;
+package io.github.potjerodekool.nabu.compiler.resolve.method;
 
 import io.github.potjerodekool.nabu.lang.model.element.Element;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;

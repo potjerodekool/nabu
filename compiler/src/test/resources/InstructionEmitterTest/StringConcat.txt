@@ -9,6 +9,8 @@ public class MyClass {
     // parameter final  name
    L0
     LINENUMBER 3 L0
+    ACONST_NULL
+    ASTORE 2
     ALOAD 1
     INVOKEDYNAMIC makeConcatWithConstants(Ljava/lang/String;)Ljava/lang/String; [
       // handle kind 0x6 : INVOKESTATIC

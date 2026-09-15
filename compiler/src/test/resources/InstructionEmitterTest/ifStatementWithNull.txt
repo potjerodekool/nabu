@@ -9,24 +9,30 @@ public class MyClass {
     // parameter final  i
    L0
     LINENUMBER 3 L0
+    ICONST_0
+    ISTORE 2
     ALOAD 1
     IFNONNULL L1
     GOTO L2
    L2
     LINENUMBER 4 L2
-   FRAME FULL [MyClass java/lang/Integer] []
+   FRAME FULL [MyClass java/lang/Integer I] []
+    ICONST_0
+    ISTORE 2
     ICONST_1
     IRETURN
    L1
     LINENUMBER 6 L1
-   FRAME FULL [MyClass java/lang/Integer] []
+   FRAME FULL [MyClass java/lang/Integer I] []
+    ICONST_0
+    ISTORE 2
     ICONST_0
     IRETURN
    L3
     LOCALVARIABLE this LMyClass; L0 L3 0
     LOCALVARIABLE i Ljava/lang/Integer; L0 L3 1
     MAXSTACK = 1
-    MAXLOCALS = 2
+    MAXLOCALS = 3
 
   // access flags 0x1
   public <init>()V

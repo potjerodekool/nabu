@@ -8,11 +8,12 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
 import io.github.potjerodekool.nabu.log.Logger;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
-import io.github.potjerodekool.nabu.resolve.method.MethodResolver;
+import io.github.potjerodekool.nabu.compiler.resolve.method.MethodResolver;
 import io.github.potjerodekool.nabu.resolve.scope.*;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.builder.impl.VariableSymbolBuilderImpl;
 import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.Completer;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
@@ -35,6 +36,8 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
     private static int MI_DEPTH = 0;
     private static int MI_TRACE_COUNT = 0;
+    private static int VARPROBE_TRACE_COUNT = 0;
+    private static int FAPROBE_TRACE_COUNT = 0;
     private static final Logger logger = Logger.getLogger(ResolverPhase.class.getName());
     private final CompilerContextImpl compilerContext;
     private final ClassElementLoader loader;
@@ -65,7 +68,24 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitCompilationUnit(final CompilationUnit compilationUnit,
                                        final Scope scope) {
-        return super.visitCompilationUnit(compilationUnit, createScope(compilationUnit));
+        final var globalScope = createScope(compilationUnit);
+        completeClassesBottomUp(compilationUnit.getClasses());
+        return super.visitCompilationUnit(compilationUnit, globalScope);
+    }
+
+    private void completeClassesBottomUp(final java.util.List<ClassDeclaration> classDeclarations) {
+        classDeclarations.forEach(classDeclaration -> {
+            classDeclaration.getEnclosedElements().forEach(enclosed -> {
+                if (enclosed instanceof ClassDeclaration nestedClass) {
+                    completeClassesBottomUp(java.util.List.of(nestedClass));
+                }
+            });
+            final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
+
+            if (clazz != null) {
+                clazz.complete();
+            }
+        });
     }
 
     private Scope createScope(final CompilationUnit compilationUnit) {
@@ -400,7 +420,8 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());
 
         var binaryType = switch (binaryExpression.getTag()) {
-            case ADD, SUB  -> {
+            case EQ, NE, LT, GT, LE, GE, AND, OR -> types.getPrimitiveType(TypeKind.BOOLEAN);
+            case ADD, SUB -> {
                 if (leftType != null && leftType.isPrimitiveType()) {
                     yield leftType;
                 } else if (rightType != null && rightType.isPrimitiveType()) {
@@ -437,15 +458,16 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     }
 
 
-
     @Override
     public Object visitTypeIdentifier(final TypeApplyTree typeIdentifier,
                                       final Scope scope) {
         var type = typeIdentifier.getType();
 
-        if (isErrorType(type)) {
-            type = null;
+        if (type != null && !isErrorType(type)) {
+            return defaultAnswer(typeIdentifier, scope);
         }
+
+        type = null;
 
         final var clazz = typeIdentifier.getClazz();
         final var name = TreeUtils.getClassName(clazz);
@@ -471,9 +493,51 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             );
         }
 
+        if (type.asTypeElement() instanceof Symbol symbol
+                && symbol.isError()
+                && !(type instanceof ErrorType)) {
+            symbol.setError(false);
+            if (type.asTypeElement() != null) {
+                final var qn = type.asTypeElement().getQualifiedName();
+                if (qn != null && (qn.contentEquals("picocli.CommandLine$AbstractHandler")
+                        || qn.contentEquals("picocli.CommandLine$IParseResultHandler2")
+                        || qn.contentEquals("picocli.CommandLine$IExceptionHandler2"))) {
+                    logResolverUnflag("CLEARED", type, symbol);
+                }
+            }
+        } else if (type.asTypeElement() != null) {
+            final var qn = type.asTypeElement().getQualifiedName();
+            if (type instanceof ErrorType
+                    || (qn != null && (qn.contentEquals("picocli.CommandLine$AbstractHandler")
+                    || qn.contentEquals("picocli.CommandLine$IParseResultHandler2")
+                    || qn.contentEquals("picocli.CommandLine$IExceptionHandler2")))) {
+                logResolverUnflag("SKIP:" + (type instanceof ErrorType ? "ERRORTYPE" : "NOOP"),
+                        type, type.asTypeElement() instanceof Symbol s ? s : null);
+            }
+        }
+
         typeIdentifier.setType(type);
 
         return defaultAnswer(typeIdentifier, scope);
+    }
+
+    private static void logResolverUnflag(final String status,
+                                          final TypeMirror type,
+                                          final Symbol symbol) {
+        final var element = type.asTypeElement();
+        try (final var pw = new java.io.PrintWriter(
+                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+            pw.println("[R-UNFLAG] status=" + status
+                    + " typeClass=" + type.getClass().getName()
+                    + " isErrorType=" + (type instanceof ErrorType)
+                    + " elemClass=" + (element == null ? "null" : element.getClass().getName())
+                    + " elem@=" + System.identityHashCode(element)
+                    + " elemIsError=" + (symbol != null && symbol.isError())
+                    + " typeIsError=" + type.isError()
+                    + " qn=" + (element == null ? "null" : element.getQualifiedName()));
+        } catch (java.io.IOException e) {
+            // ignore
+        }
     }
 
     private TypeMirror resolveType(final String name,
@@ -510,6 +574,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             }
         }
 
+        if (type == null && scope.getCurrentClass() instanceof ClassSymbol currentClass) {
+            type = findMemberTypeInTopLevelClass(currentClass, name);
+        }
+
         if (type == null) {
             final var resolvedClass = loader.loadClass(
                     scope.findModuleElement(),
@@ -522,6 +590,41 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         }
 
         return type;
+    }
+
+    private TypeMirror findMemberTypeInTopLevelClass(final ClassSymbol currentClass,
+                                                     final String name) {
+        ClassSymbol topLevel = currentClass;
+        while (topLevel.getEnclosingElement() instanceof ClassSymbol enclosingSymbol) {
+            topLevel = enclosingSymbol;
+        }
+
+        return searchMemberTypes(topLevel, name);
+    }
+
+    private TypeMirror searchMemberTypes(final ClassSymbol type,
+                                         final String name) {
+        final var members = type.getEnclosedElements();
+        if (members == null) {
+            return null;
+        }
+
+        for (final var member : members) {
+            if (member instanceof ClassSymbol memberSymbol
+                    && (memberSymbol.getKind().isClass()
+                    || memberSymbol.getKind().isInterface()
+                    || memberSymbol.getKind() == ElementKind.ENUM
+                    || memberSymbol.getKind() == ElementKind.ANNOTATION_TYPE)) {
+                if (memberSymbol.getSimpleName().contentEquals(name)) {
+                    return memberSymbol.asType();
+                }
+                final var nested = searchMemberTypes(memberSymbol, name);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
     }
 
     @Override
@@ -819,7 +922,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitPrimitiveType(final PrimitiveTypeTree primitiveType,
                                      final Scope scope) {
-        final var type  = switch (primitiveType.getKind()) {
+        final var type = switch (primitiveType.getKind()) {
             case BOOLEAN -> types.getPrimitiveType(TypeKind.BOOLEAN);
             case CHAR -> types.getPrimitiveType(TypeKind.CHAR);
             case BYTE -> types.getPrimitiveType(TypeKind.BYTE);
@@ -938,10 +1041,20 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         final var varElement = TreeUtils.getSymbol(selected);
 
-        if (varElement != null && "length".equals(fieldAccessExpression.getField().getName())) {
-            final var varType = varElement.asType();
+        if ("length".equals(fieldAccessExpression.getField().getName())) {
+            final var selectedRetType = selected.getType() != null
+                    ? selected.getType()
+                    : (selected instanceof MethodInvocationTree selectedInvocation
+                    && selectedInvocation.getMethodType() != null
+                    ? selectedInvocation.getMethodType().getReturnType()
+                    : compilerContext.getTreeUtils().typeOf(selected));
+            final var selectedVarType = selectedRetType != null
+                    ? selectedRetType
+                    : (varElement != null ? varElement.asType() : null);
 
-            if (varType instanceof ArrayType) {
+            if (selectedVarType instanceof ArrayType
+                    || (selected instanceof ArrayAccessExpressionTree
+                    && arrayAccessLeafType((ArrayAccessExpressionTree) selected) != null)) {
                 final var intType = types.getPrimitiveType(TypeKind.INT);
                 fieldAccessExpression.getField().setType(intType);
                 fieldAccessExpression.setType(intType);
@@ -955,11 +1068,46 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             selectedType = varElement.asType();
         }
 
+        if (FAPROBE_TRACE_COUNT < 5
+                && "length".equals(fieldAccessExpression.getField().getName())
+                && selected instanceof ArrayAccessExpressionTree aaTree) {
+            FAPROBE_TRACE_COUNT++;
+            final var aaExprType = aaTree.getExpression() != null
+                    ? (aaTree.getExpression().getType() != null ? aaTree.getExpression().getType().toString() : "unset")
+                    : "no-expr";
+            final var aaType = selectedType != null ? selectedType.toString() : "unset";
+            final var aaExprClass = aaTree.getExpression() != null
+                    ? aaTree.getExpression().getClass().getSimpleName()
+                    : "none";
+            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
+                    "C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[FAPROBE] len@aa selectedType=" + aaType
+                        + " exprType=" + aaExprType
+                        + " exprClass=" + aaExprClass
+                        + " idxType=" + (aaTree.getIndex() != null && aaTree.getIndex().getType() != null
+                        ? aaTree.getIndex().getType().toString() : "unset"));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
+
         if (selectedType != null && "class".equals(fieldAccessExpression.getField().getName())
-                && (selectedType instanceof ArrayType || asDeclaredType(selectedType) != null)) {
+                && (selectedType instanceof ArrayType || asDeclaredType(selectedType) != null || selectedType.isPrimitiveType())) {
+            TypeMirror classTypeArg = selectedType;
+            if (!(selectedType instanceof ArrayType)
+                    && !(selectedType instanceof DeclaredType)
+                    && selectedType.isPrimitiveType()) {
+                final var boxedName = boxedClassName(selectedType.getKind());
+                if (boxedName != null) {
+                    final var boxedClass = loader.loadClass(scope.findModuleElement(), boxedName);
+                    if (boxedClass != null) {
+                        classTypeArg = boxedClass.asType();
+                    }
+                }
+            }
             final var classLiteralType = types.getDeclaredType(
                     loader.loadClass(scope.findModuleElement(), Constants.CLAZZ),
-                    selectedType
+                    classTypeArg
             );
             fieldAccessExpression.getField().setType(classLiteralType);
             fieldAccessExpression.setType(classLiteralType);
@@ -1011,6 +1159,52 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitIdentifier(final IdentifierTree identifier,
                                   final Scope scope) {
+        if (VARPROBE_TRACE_COUNT < 120
+                && ("length".equals(identifier.getName()) || "CSI".equals(identifier.getName()))
+                && scope.getCurrentClass() != null
+                && !scope.getCurrentClass().getQualifiedName().equals("java.lang.String")
+                && !scope.getCurrentClass().getQualifiedName().equals("java.lang.StringBuilder")) {
+            final var scopeClass = scope != null && scope.getCurrentClass() != null
+                    ? scope.getCurrentClass().getQualifiedName()
+                    : "null";
+            final var symNow = identifier.getSymbol() != null ? identifier.getSymbol().getSimpleName() : "null";
+            final var resolvable = scope;
+            final var chain = new StringBuilder();
+            var sc = (io.github.potjerodekool.nabu.resolve.scope.Scope) resolvable;
+            while (sc != null) {
+                final var cc = sc.getCurrentClass();
+                chain.append(sc.getClass().getSimpleName())
+                        .append('(')
+                        .append(cc != null ? cc.getQualifiedName() : "-")
+                        .append(')').append("<-");
+                sc = sc.getParent();
+            }
+            final var ansiInfo = new StringBuilder();
+            var sc2 = (io.github.potjerodekool.nabu.resolve.scope.Scope) resolvable;
+            while (sc2 != null) {
+                final var cc2 = sc2.getCurrentClass();
+                if (cc2 != null && cc2.getQualifiedName().endsWith("Ansi")) {
+                    final var enclosed = ((io.github.potjerodekool.nabu.lang.model.element.TypeElement) cc2).getEnclosedElements();
+                    ansiInfo.append("AnsiMembers=").append(enclosed.size())
+                            .append(" CSI=").append(enclosed.stream()
+                                    .map(io.github.potjerodekool.nabu.lang.model.element.Element::getSimpleName)
+                                    .anyMatch(s -> s.equals("CSI")));
+                    break;
+                }
+                sc2 = sc2.getParent();
+            }
+            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
+                    "C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[VARPROBE] name=" + identifier.getName()
+                        + " scope(" + scopeClass + ")=" + resolvable.getClass().getSimpleName()
+                        + " sym=" + symNow + " chain=" + chain
+                        + " result=" + (resolvable.resolve(identifier.getName()) != null
+                        ? resolvable.resolve(identifier.getName()).getSimpleName() : "null")
+                        + " " + ansiInfo);
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
         var type = identifier.getType();
 
         if (isErrorType(type)) {
@@ -1043,7 +1237,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             identifier.setType(type);
             identifier.setSymbol(null);
         } else {
-            final var symbol = scope.resolve(identifier.getName());
+            var symbol = scope.resolve(identifier.getName());
+
+            if (symbol == null) {
+                symbol = resolveAfterEnclosingCompletion(identifier.getName(), scope);
+            }
 
             if (symbol != null) {
                 identifier.setSymbol(symbol);
@@ -1096,20 +1294,49 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             newClassExpression.setType(newClassExpression.getName().getType());
         }
 
+        final var classDeclaration = newClassExpression.getClassDeclaration();
+
+        if (classDeclaration != null) {
+            if (classDeclaration.getClassSymbol() instanceof ClassSymbol anonymousClass
+                    && anonymousClass.getCompleter() != null
+                    && anonymousClass.getCompleter() != Completer.NULL_COMPLETER) {
+                anonymousClass.complete();
+            }
+
+            acceptTree(classDeclaration, scope);
+        }
+
         return newClassExpression;
     }
 
     @Override
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Scope scope) {
-        if (MI_TRACE_COUNT < 60) {
+        final var ln = methodInvocation.getLineNumber();
+        final var selStr = methodInvocation.getMethodSelector().toString();
+        final var focus = (ln >= 1896 && ln <= 1900)
+                || (ln >= 2230 && ln <= 2240)
+                || (ln >= 3120 && ln <= 3130)
+                || (ln >= 6595 && ln <= 6610)
+                || (ln >= 11950 && ln <= 11995)
+                || (ln >= 13508 && ln <= 13525)
+                || (ln >= 13650 && ln <= 13670)
+                || (ln >= 6800 && ln <= 6865)
+                || (ln == -1 && selStr.contains("OptionSpec.builder"))
+                || (ln == -1 && selStr.contains("PositionalParamSpec.builder"))
+                || (ln == -1 && selStr.contains(".build"))
+                || (ln == -1 && (selStr.contains("buildArgForMember")
+                || selStr.contains("buildArgGroupForMember")
+                || selStr.contains("buildMixinForMember")));
+        if (MI_TRACE_COUNT < 4000 && focus) {
             MI_TRACE_COUNT++;
             try (final var pw = new java.io.PrintWriter(
                     new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
                 pw.println("[MI] depth=" + MI_DEPTH
-                        + " line=" + methodInvocation.getLineNumber()
+                        + " line=" + ln
                         + " col=" + methodInvocation.getColumnNumber()
-                        + " sel=" + methodInvocation.getMethodSelector());
+                        + " sel=" + methodInvocation.getMethodSelector()
+                        + " id=" + System.identityHashCode(methodInvocation));
             } catch (java.io.IOException e) {
                 // ignore
             }
@@ -1118,37 +1345,68 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         MI_DEPTH++;
         try {
             final var methodSelector = methodInvocation.getMethodSelector();
-        acceptTree(methodSelector, scope);
+            acceptTree(methodSelector, scope);
 
-        methodInvocation.getArguments().forEach(arg -> acceptTree(arg, scope));
-        methodInvocation.getTypeArguments().forEach(typeArgument ->
-                acceptTree(typeArgument, scope));
-
-        final var resolvedMetho0dTypeOptional = methodResolver.resolveMethod(methodInvocation, scope);
-
-        resolvedMetho0dTypeOptional.ifPresent(resolvedMethodType -> {
-            methodSelector.setType(resolvedMethodType.getOwner().asType());
-            methodInvocation.setMethodType(resolvedMethodType);
-            final var boxer = compilerContext.getArgumentBoxer();
-            boxer.boxArguments(methodInvocation);
-        });
-
-        if (resolvedMetho0dTypeOptional.isPresent()) {
-            final var arguments = methodInvocation.getArguments();
-            final var parameterTypes = methodInvocation.getMethodType().getParameterTypes();
-
-            for (var i = 0; i < arguments.size(); i++) {
-                if (i >= parameterTypes.size()) {
-                    break;
+            methodInvocation.getArguments().forEach(arg -> {
+                if (ln == 1898 || ln == 2233 || ln == 6802 || ln == 6601 || ln == 11955) {
+                    try (final var pw = new java.io.PrintWriter(
+                            new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                        pw.println("[ARGLIST] line=" + ln
+                                + " outerId=" + System.identityHashCode(methodInvocation)
+                                + " argClass=" + arg.getClass().getName()
+                                + " argId=" + System.identityHashCode(arg)
+                                + " argLine=" + arg.getLineNumber()
+                                + " isMI=" + (arg instanceof MethodInvocationTree)
+                                + " sel=" + (arg instanceof MethodInvocationTree mi2 ? mi2.getMethodSelector().toString() : "-"));
+                    } catch (java.io.IOException e) {
+                        // ignore
+                    }
                 }
-                final var argument = arguments.get(i);
-                final var parameterType = parameterTypes.get(i);
+                acceptTree(arg, scope);
+            });
+            methodInvocation.getTypeArguments().forEach(typeArgument ->
+                    acceptTree(typeArgument, scope));
 
-                if (argument instanceof LambdaExpressionTree lambdaExpression) {
-                    postResolve(lambdaExpression, parameterType, scope);
+            boolean resolvedMetho0d = false;
+            final var resolvedMetho0dTypeOptional = methodResolver.resolveMethod(methodInvocation, scope);
+
+            resolvedMetho0d = resolvedMetho0dTypeOptional.isPresent();
+
+            resolvedMetho0dTypeOptional.ifPresent(resolvedMethodType -> {
+                methodSelector.setType(resolvedMethodType.getOwner().asType());
+                methodInvocation.setMethodType(resolvedMethodType);
+                final var boxer = compilerContext.getArgumentBoxer();
+                boxer.boxArguments(methodInvocation);
+            });
+
+            if (MI_TRACE_COUNT < 4000 && focus) {
+                try (final var pw = new java.io.PrintWriter(
+                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                    pw.println("[MI-END] line=" + ln
+                            + " sel=" + methodInvocation.getMethodSelector()
+                            + " resolved=" + resolvedMetho0d
+                            + " set=" + (methodInvocation.getMethodType() != null));
+                } catch (java.io.IOException e) {
+                    // ignore
                 }
             }
-        }
+
+            if (resolvedMetho0dTypeOptional.isPresent()) {
+                final var arguments = methodInvocation.getArguments();
+                final var parameterTypes = methodInvocation.getMethodType().getParameterTypes();
+
+                for (var i = 0; i < arguments.size(); i++) {
+                    if (i >= parameterTypes.size()) {
+                        break;
+                    }
+                    final var argument = arguments.get(i);
+                    final var parameterType = parameterTypes.get(i);
+
+                    if (argument instanceof LambdaExpressionTree lambdaExpression) {
+                        postResolve(lambdaExpression, parameterType, scope);
+                    }
+                }
+            }
 
             return null;
         } finally {
@@ -1160,7 +1418,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitLiteralExpression(final LiteralExpressionTree literalExpression,
                                          final Scope scope) {
         final var loader = compilerContext.getClassElementLoader();
-        final var types =  compilerContext.getTypes();
+        final var types = compilerContext.getTypes();
 
         final TypeMirror type = switch (literalExpression.getLiteralKind()) {
             case INTEGER -> types.getPrimitiveType(TypeKind.INT);
@@ -1280,11 +1538,27 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         final var currentClass = scope.getCurrentClass();
 
-        final var resolvedMethod = ElementFilter.methodsIn(currentClass.getEnclosedElements()).stream()
+        final var annotationMethods = currentClass.getEnclosedElements();
+
+        final var resolvedMethod = ElementFilter.methodsIn(annotationMethods).stream()
                 .filter(method -> method.getSimpleName().equals(methodName))
                 .filter(method -> method.getParameters().isEmpty())
                 .findFirst()
                 .orElse(null);
+
+        if ("value".equals(methodName)) {
+            try (final var pw = new java.io.PrintWriter(
+                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
+                pw.println("[ANNOTARG] ann=" + currentClass.getQualifiedName()
+                        + " enclosed=" + annotationMethods.size()
+                        + " kinds=" + annotationMethods.stream()
+                        .map(e -> e.getKind() + ":" + e.getSimpleName()).toList()
+                        + " methodName=" + methodName
+                        + " resolved=" + (resolvedMethod != null));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
 
         acceptTree(assignmentExpressionTree.getRight(), scope);
 
@@ -1325,7 +1599,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         );
     }
 
-private Attribute createAttribute(final TypeMirror type) {
+    private Attribute createAttribute(final TypeMirror type) {
         if (type instanceof DeclaredType declaredType) {
             if (Constants.CLAZZ.equals(declaredType.asTypeElement().getQualifiedName())) {
                 return new CClassAttribute(type);
@@ -1382,4 +1656,87 @@ private Attribute createAttribute(final TypeMirror type) {
         }
         return type;
     }
+
+    private String boxedClassName(final TypeKind kind) {
+        switch (kind) {
+            case BOOLEAN:
+                return "java.lang.Boolean";
+            case BYTE:
+                return "java.lang.Byte";
+            case CHAR:
+                return "java.lang.Character";
+            case SHORT:
+                return "java.lang.Short";
+            case INT:
+                return "java.lang.Integer";
+            case LONG:
+                return "java.lang.Long";
+            case FLOAT:
+                return "java.lang.Float";
+            case DOUBLE:
+                return "java.lang.Double";
+            case VOID:
+                return "java.lang.Void";
+            default:
+                return null;
+        }
+    }
+
+    private TypeMirror arrayAccessLeafType(final ArrayAccessExpressionTree arrayAccessExpressionTree) {
+        final var expression = arrayAccessExpressionTree.getExpression();
+        final TypeMirror base;
+        if (expression instanceof ArrayAccessExpressionTree inner) {
+            base = arrayAccessLeafType(inner);
+        } else if (expression != null) {
+            base = expression.getType() != null
+                    ? expression.getType()
+                    : compilerContext.getTreeUtils().typeOf(expression);
+        } else {
+            base = null;
+        }
+        return base instanceof ArrayType arrayType
+                ? arrayType.getComponentType()
+                : base;
+    }
+
+    private Element resolveAfterEnclosingCompletion(final String name,
+                                                    final Scope scope) {
+        var current = scope;
+        while (current != null) {
+            final var cc = current.getCurrentClass();
+            if (cc != null && cc instanceof Symbol symbol) {
+                symbol.complete();
+            }
+            current = current.getParent();
+        }
+
+        final var symbol = scope.resolve(name);
+        if (symbol != null) {
+            return symbol;
+        }
+        for (var cls = scope.getCurrentClass(); cls != null; cls = cls.getEnclosingElement() instanceof TypeElement ? (TypeElement) cls.getEnclosingElement() : null) {
+            final var found = cls.getEnclosedElements().stream()
+                    .filter(e -> e.getKind() == ElementKind.FIELD || e.getKind() == ElementKind.ENUM_CONSTANT)
+                    .filter(e -> e.getSimpleName().equals(name))
+                    .findFirst()
+                    .orElse(null);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private TypeElement enclosingTypeOf(final TypeElement clazz) {
+        return clazz.getEnclosingElement() instanceof TypeElement te ? te : null;
+    }
+
+    private Element fieldsOf(final TypeElement clazz, final String name) {
+        return clazz.getEnclosedElements().stream()
+                .filter(e -> e.getKind() == ElementKind.FIELD || e.getKind() == ElementKind.ENUM_CONSTANT)
+                .filter(e -> e.getSimpleName().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
 }

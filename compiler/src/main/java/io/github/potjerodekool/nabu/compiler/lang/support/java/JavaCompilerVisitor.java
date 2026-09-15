@@ -1273,6 +1273,18 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitClassImplements(final Java20Parser.ClassImplementsContext ctx) {
+        return ctx.interfaceTypeList().accept(this);
+    }
+
+    @Override
+    public Object visitInterfaceTypeList(final Java20Parser.InterfaceTypeListContext ctx) {
+        return ctx.interfaceType().stream()
+                .map(it -> it.accept(this))
+                .toList();
+    }
+
+    @Override
     public Object visitClassType(final Java20Parser.ClassTypeContext ctx) {
         final var annotations = ctx.annotation().stream()
                 .map(it -> (AnnotationTree) it.accept(this))

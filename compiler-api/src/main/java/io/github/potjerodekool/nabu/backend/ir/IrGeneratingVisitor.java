@@ -1183,6 +1183,15 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         // Argumenten verwerken
         List<IRValue> args = new ArrayList<>();
 
+        if (System.getProperty("nabu.probe.newclass") != null
+                && !invocation.getArguments().isEmpty()) {
+            System.err.println("[CALL] method=" + methodName
+                    + " ownerSimple=" + (invocation.getMethodType().getMethodSymbol().getEnclosingElement().getSimpleName())
+                    + " paramTypes=" + methodType.getMethodSymbol().getParameters().stream()
+                    .map(p -> String.valueOf(p.asType()))
+                    .toList());
+        }
+
         // Voor instantie-aanroepen: voeg 'this' toe als eerste argument
         if (callKind != CallKind.STATIC && target != null) {
             IRValue receiver = acceptTree(target, builder);
@@ -1265,7 +1274,14 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 newClass.getColumnNumber()
         );
 
-        TypeMirror classMirror = newClass.getName().getType();
+        // Klassetype: liever het resolver-type van de hele expressie (dan)
+        // dan het naam-symbool — de naam-tree kan zonder type blijven
+        // (descriptor-loze Ptr), wat door de backends als String/omlauf
+        // geresolved raakt.
+        TypeMirror classMirror = newClass.getType();
+        if (classMirror == null || classMirror.getKind() == io.github.potjerodekool.nabu.type.TypeKind.VOID) {
+            classMirror = newClass.getName() != null ? newClass.getName().getType() : null;
+        }
 
         IRType objectType = TypeMirrorToIRType.map(classMirror);
 
@@ -1295,8 +1311,134 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 .map(IRValue::type)
                 .toList();
 
-        builder.emitCall(CallKind.SPECIAL, initName, IRType.VOID, paramTypes, args);
+        // JLS §4.6: de MethodRef-descriptor van een constructor-aanroep
+        // volgt de DECLARATIE-parameters (na type-erasure), niet de
+        // concreetere aanroepwaarden. Anders verifieert de JVM de aanroep
+        // niet (NoSuchMethodError op run-time).
+        final var declaredParamTypes = resolveDeclaredCtorParamTypes(classMirror, paramTypes);
+        final IRType[] effectiveParamTypes = declaredParamTypes != null
+                ? declaredParamTypes.toArray(IRType[]::new)
+                : paramTypes.toArray(IRType[]::new);
+
+        if (System.getProperty("nabu.probe.newclass") != null) {
+            System.err.println("[NEW-CLASS] cls=" + className
+                    + " loc=" + newClass.getLineNumber()
+                    + " mirror=" + classMirror
+                    + " exprType=" + newClass.getType()
+                    + " nameType=" + (newClass.getName() != null ? newClass.getName().getType() : null)
+                    + " argTypes=" + paramTypes);
+        }
+
+        builder.emitCall(CallKind.SPECIAL, initName, IRType.VOID, Arrays.asList(effectiveParamTypes), args);
         return obj;
+    }
+
+    /**
+     * Zoekt in de (resolver-type) klasse van een constructor-aanroep de
+     * DECLARATIE-parameters (na erasure) uit. Kiest de constructor met exact
+     * evenveel parameters als de aanroep; anders null (valt terug op de
+     * aanroep-argumenttypes).
+     */
+    private List<IRType> resolveDeclaredCtorParamTypes(final TypeMirror classMirror,
+                                                       final int argsCount) {
+        return resolveDeclaredCtorParamTypes(classMirror, argsCount, null);
+    }
+
+    private List<IRType> resolveDeclaredCtorParamTypes(final TypeMirror classMirror,
+                                                       final List<IRType> argTypes) {
+        if (argTypes == null) {
+            return resolveDeclaredCtorParamTypes(classMirror, argTypes.size(), null);
+        }
+        return resolveDeclaredCtorParamTypes(classMirror, argTypes.size(), argTypes);
+    }
+
+    private List<IRType> resolveDeclaredCtorParamTypes(final TypeMirror classMirror,
+                                                       final int argsCount,
+                                                       final List<IRType> argTypes) {
+        if (classMirror == null
+                || !(classMirror instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredType)) {
+            return null;
+        }
+        final var typeElement = declaredType.asTypeElement();
+        if (typeElement == null) {
+            return null;
+        }
+        final var ctors = io.github.potjerodekool.nabu.lang.model.element.ElementFilter.constructorsIn(
+                typeElement.getEnclosedElements());
+
+        List<IRType> best = null;
+        int bestScore = Integer.MAX_VALUE;
+        for (final var ctor : ctors) {
+            if (ctor.getParameters().size() != argsCount) {
+                continue;
+            }
+            final var paramTypes = ctor.getParameters().stream()
+                    .map(p -> TypeMirrorToIRType.map(p.asType()))
+                    .toList();
+            final var score = scoreCtorMatch(paramTypes, argTypes);
+            if (score < bestScore) {
+                bestScore = score;
+                best = paramTypes;
+                if (score == 0) {
+                    break;
+                }
+            }
+        }
+        return best;
+    }
+
+    /** 0 = perfect passend; hoger = mismatch tussen param- en argkind. */
+    private static int scoreCtorMatch(final List<IRType> paramTypes,
+                                      final List<IRType> argTypes) {
+        int score = 0;
+        if (argTypes != null) {
+            for (var i = 0; i < paramTypes.size(); i++) {
+                score += isCompatibleDescriptor(
+                        descOf(paramTypes.get(i)),
+                        descOf(argTypes.get(i))) ? 0 : 1;
+            }
+        }
+        return score;
+    }
+
+    private static String descOf(final IRType type) {
+        return switch (type) {
+            case IRType.Void ignored -> "V";
+            case IRType.Bool ignored -> "Z";
+            case IRType.Int(int bits) -> switch (bits) {
+                case 8 -> "B";
+                case 16 -> "S";
+                case 64 -> "J";
+                default -> "I";
+            };
+            case IRType.Float(int bits) -> bits == 32 ? "F" : "D";
+            case IRType.Ptr ptr -> {
+                final var desc = ptr.jvmDescriptor();
+                if (desc != null) {
+                    yield desc;
+                }
+                if (ptr.pointee() instanceof IRType.Ptr inner
+                        && inner.jvmDescriptor() != null) {
+                    yield inner.jvmDescriptor();
+                }
+                yield "Ljava/lang/Object;";
+            }
+            case IRType.Array arr -> "[" + descOf(arr.elem());
+            default -> "Ljava/lang/Object;";
+        };
+    }
+
+    private static boolean isCompatibleDescriptor(final String paramDesc,
+                                                  final String argDesc) {
+        if (paramDesc.equals(argDesc)) {
+            return true;
+        }
+        final boolean paramPrimitive = paramDesc.length() == 1 && "[VZBSSSFIJD]".indexOf(paramDesc.charAt(0)) >= 0;
+        final boolean argPrimitive = argDesc.length() == 1;
+        if (paramPrimitive != argPrimitive) {
+            return false;
+        }
+        return !paramPrimitive;
     }
 
     @Override

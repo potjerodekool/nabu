@@ -115,6 +115,21 @@ public class AsmMethodBuilder extends MethodVisitor {
                 .build();
 
         clazz.addEnclosedElement(method);
+        if (System.getProperty("nabu.probe.newclass") != null
+                && "(java/lang/String;".equals("{\"")) {
+            // placeholder never true
+        }
+        if (System.getProperty("nabu.probe.newclass") == null) {
+            final String cn = String.valueOf(clazz.getSimpleName());
+            if ("<init>".equals(name)
+                    && (cn.equals("CommandLine") || cn.equals("Main") || cn.equals("GreetCommand"))) {
+                System.err.println("[CTOR-BUILD] class=" + cn
+                        + " name=" + name
+                        + " descriptor=" + descriptor
+                        + " sigSig=" + signature
+                        + " argTypes=" + argumentTypes);
+            }
+        }
     }
 
     private VariableSymbol createParameter(final String name,

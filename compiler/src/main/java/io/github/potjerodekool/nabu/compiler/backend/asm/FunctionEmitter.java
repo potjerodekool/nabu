@@ -554,6 +554,12 @@ public class FunctionEmitter {
                 call.paramTypes(),
                 call.returnType()
         );
+        if (System.getProperty("nabu.probe.newclass") != null
+                && call.function().contains("CommandLine_init")) {
+            System.err.println("[EMIT-CTOR] fn=" + call.function()
+                    + " paramTypes=" + call.paramTypes()
+                    + " descriptor=" + descriptor);
+        }
 
         var functionName = call.function();
         final var sepIndex = functionName.lastIndexOf('_');
@@ -643,13 +649,28 @@ public class FunctionEmitter {
             return;
         }
 
+        final String varargsArrayDescriptor = BytecodeHelper.createDescriptor(paramTypes.getLast());
         final int fixedArgs = (isStatic ? 0 : 1) + (paramTypes.size() - 1);
+
+        // Javac-'array-form' van varargs: een los argument dat het
+        // volledige varargs-arraytype draagt (exact evenveel args als
+        // parameters) wordt één-op-één doorgegeven — niet gewrapped.
+        if (args.size() == paramTypes.size() + (isStatic ? 0 : 1)
+                && args.getLast().type() instanceof IRType.Ptr argPtr
+                && varargsArrayDescriptor.equals(argPtr.jvmDescriptor())) {
+            for (int i = fixedArgs - 1; i >= 0; i--) {
+                emitValue(args.get(i));
+            }
+            emitValue(args.getLast());
+            return;
+        }
+
         for (int i = 0; i < fixedArgs; i++) {
             emitValue(args.get(i));
         }
         emitArrayValue(
                 args.subList(fixedArgs, args.size()),
-                BytecodeHelper.createDescriptor(paramTypes.getLast())
+                varargsArrayDescriptor
         );
     }
 

@@ -278,9 +278,18 @@ public class AsmByteCodeEmitter {
                 }
             }
 
-            final var prologueSkipSlots = new java.util.HashSet<Integer>();
+            // Phi-slots worden NIET meer geskipt in de proloog: de phi-temp
+            // (na PhiElimination een Store in elke predecessor) wordt vóór de
+            // branch altijd gevolgd door een echte Store, zodat een
+            // proloog-default (0/null) op ieder basisblok veilig is en de
+            // exception-edge altijd een gedefinieerd frame heeft.
+            // Phi-slots worden NIET meer geskipt in de proloog: de phi-temp
+            // (na PhiElimination een Store in elke predecessor) wordt vóór de
+            // branch altijd gevolgd door een echte Store, zodat een
+            // proloog-default (0/null) op ieder basisblok veilig is en de
+            // exception-edge altijd een gedefinieerd frame heeft.
             var blocks = pruneUnreachable(Linearizer.linearize(function.blocks()));
-            prologueSkipSlots.addAll(phiSkipSlots);
+            final var prologueSkipSlots = new java.util.HashSet<Integer>();
             prologueSkipSlots.addAll(collectLiveInSlots(blocks, slots, paramSlotCount(function, isStatic), b -> true));
             final var emitter = new FunctionEmitter(methodVisitor, this, slots, ownerInternalName, blocks);
 

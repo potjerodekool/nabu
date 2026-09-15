@@ -47,7 +47,7 @@ class ASMBackendTest extends AbstractCompilerTest {
     @Order(1)
     void mainFunction() throws Exception {
         final var paramType = new IRValue.Temp("args", new IRType.Array(
-                new IRType.Ptr(new IRType.Ptr(IRType.I8)),
+                new IRType.Ptr(new IRType.Ptr(IRType.I8), "Ljava/lang/String;"),
                 0
         ));
 

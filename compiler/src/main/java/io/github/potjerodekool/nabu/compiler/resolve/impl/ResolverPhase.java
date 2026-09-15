@@ -420,7 +420,17 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());        var binaryType = switch (binaryExpression.getTag()) {
             case EQ, NE, LT, GT, LE, GE, AND, OR -> types.getPrimitiveType(TypeKind.BOOLEAN);
             case ADD, SUB -> {
-                if (leftType != null && leftType.isPrimitiveType()) {
+                final var module = scope.findModuleElement();
+                final var stringType = loader.loadClass(module, Constants.STRING).asType();
+                final boolean leftIsString = leftType != null
+                        && types.isSameType(leftType, stringType);
+                final boolean rightIsString = rightType != null
+                        && types.isSameType(rightType, stringType);
+
+                if (isStringConcatContext(binaryExpression, leftType, rightType, leftIsString, rightIsString)) {
+                    // String-concat: resultaat blijft String
+                    yield leftIsString ? leftType : stringType;
+                } else if (leftType != null && leftType.isPrimitiveType()) {
                     yield leftType;
                 } else if (rightType != null && rightType.isPrimitiveType()) {
                     yield rightType;
@@ -491,6 +501,23 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         conditionalExpression.setType(resultType);
         return defaultAnswer(conditionalExpression, scope);
+    }
+
+    /**
+     * String-concat-detectie voor ADD: een String-operand maakt de expressie
+     * een concatenatie (Java-semantiek: string-conversie). Zonder deze
+     * check werd `"x" + 1` als int getypeerd, waardoor de method-resolver
+     * de verkeerde overloads koos ('Argument 1: expected I, but found R').
+     */
+    private boolean isStringConcatContext(final BinaryExpressionTree binaryExpression,
+                                          final TypeMirror leftType,
+                                          final TypeMirror rightType,
+                                          final boolean leftIsString,
+                                          final boolean rightIsString) {
+        if (binaryExpression.getTag() != Tag.ADD) {
+            return false;
+        }
+        return leftIsString || rightIsString;
     }
 
 

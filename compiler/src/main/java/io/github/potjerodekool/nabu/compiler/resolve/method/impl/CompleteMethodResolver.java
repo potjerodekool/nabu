@@ -443,7 +443,19 @@ public class CompleteMethodResolver implements MethodResolver {
                 returnType,
                 parameterTypes,
                 thrownTypes
+
         );
+        if (System.getProperty("nabu.probe.ctor") != null
+                && method instanceof io.github.potjerodekool.nabu.lang.model.element.ExecutableElement ee
+                && "<init>".equals(ee.getSimpleName().toString())
+                && ee.getEnclosingElement() != null
+                && String.valueOf(ee.getEnclosingElement().getSimpleName()).contains("CommandLine")) {
+            System.err.println("[CTOR-T] elem=" + ee.getEnclosingElement().getSimpleName()
+                    + " origParams=" + methodType.getParameterTypes()
+                    + " newParams=" + parameterTypes
+                    + " args=" + argTypes
+                    + " ownerQ=" + ee.getEnclosingElement().asType());
+        }
 
         return new Pair<>(transformedMethodType, argTypes);
     }
@@ -516,6 +528,16 @@ public class CompleteMethodResolver implements MethodResolver {
         final var argumentCount = argumentTypes.size();
         var isVarArg = false;
         var index = 0;
+
+        // Javac-semantiek: een losse String[]-argument dat exact op de
+        // gehele varargs-parameter past (varargs-'array-form'), bv.
+        // `execute(String... args)` aangeroepen met `execute(args)`.
+        if (argumentCount == parameterCount
+                && lastParameterIndex >= 0
+                && isVarArgType(parameterTypes.getLast())
+                && types.isAssignable(argumentTypes.getLast(), parameterTypes.getLast())) {
+            return true;
+        }
 
         for (; index < argumentCount; index++) {
             final var argumentType = argumentTypes.get(index);
@@ -1035,6 +1057,7 @@ public class CompleteMethodResolver implements MethodResolver {
                 || "addValueToListInMap".equals(methodName)
                 || "addTrailingDefaultLine".equals(methodName)
                 || "validatePositionalParameters".equals(methodName)
+                || "execute".equals(methodName)
                 || "close".equals(methodName))
                 && GPA_DIAG_COUNT < 25) {
             GPA_DIAG_COUNT++;

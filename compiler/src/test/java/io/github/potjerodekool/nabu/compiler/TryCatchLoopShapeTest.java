@@ -83,6 +83,42 @@ class TryCatchLoopShapeTest {
     }
 
     @Test
+    void resolveExitCodeShape() throws IOException {
+        // 1:1-vorm van picocli CommandLine$AbstractParseResultHandler.resolveExitCode
+        // (generieke klasse <R>, List-generic + type-variable cast)
+        compile("package mini;\n" +
+                "public class Mini3<R> {\n" +
+                "    interface Gen { int code(); }\n" +
+                "    int resolve(int exitCodeOnSuccess, R executionResult, java.util.List<Gen> gens) {\n" +
+                "        int result = 0;\n" +
+                "        for (Gen generator : gens) {\n" +
+                "            try {\n" +
+                "                int exitCode = generator.code();\n" +
+                "                if ((exitCode > 0 && exitCode > result) || (exitCode < result && result <= 0)) {\n" +
+                "                    result = exitCode;\n" +
+                "                }\n" +
+                "            } catch (Exception ex) {\n" +
+                "                result = (result == 0) ? 1 : result;\n" +
+                "                ex.printStackTrace();\n" +
+                "            }\n" +
+                "        }\n" +
+                "        if (executionResult instanceof java.util.List) {\n" +
+                "            java.util.List<?> resultList = (java.util.List<?>) executionResult;\n" +
+                "            for (Object obj : resultList) {\n" +
+                "                if (obj instanceof Integer) {\n" +
+                "                    int exitCode2 = (Integer) obj;\n" +
+                "                    if ((exitCode2 > 0 && exitCode2 > result) || (exitCode2 < result && result <= 0)) {\n" +
+                "                        result = exitCode2;\n" +
+                "                    }\n" +
+                "                }\n" +
+                "            }\n" +
+                "        }\n" +
+                "        return result == 0 ? exitCodeOnSuccess : result;\n" +
+                "    }\n" +
+                "}\n");
+    }
+
+    @Test
     void loopOverListWithInstanceOfInt() throws IOException {
         compile("package mini;\n" +
                 "public class Mini2 {\n" +
@@ -116,3 +152,4 @@ class TryCatchLoopShapeTest {
                 "}\n");
     }
 }
+

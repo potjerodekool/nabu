@@ -89,8 +89,14 @@ public final class BytecodeHelper {
                 if (ptr.pointee() instanceof IRType.Function) {
                     yield "Ljava/lang/invoke/MethodHandle;";
                 }
-                if (ptr.pointee() instanceof IRType.Ptr) {
-                    yield "Ljava/lang/String;";
+                if (ptr.pointee() instanceof IRType.Ptr inner) {
+                    // Object-waarden zijn Ptr(Ptr(I8, descriptor)); neem de
+                    // descriptor van het innerlijke objecttype over, anders
+                    // valt de descriptor terug op String.
+                    final var innerDesc = inner.jvmDescriptor();
+                    if (innerDesc != null) {
+                        yield innerDesc;
+                    }
                 }
                 yield "Ljava/lang/Object;";
             }

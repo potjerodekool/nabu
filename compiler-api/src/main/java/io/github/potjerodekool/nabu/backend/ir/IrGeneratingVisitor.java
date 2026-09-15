@@ -1747,6 +1747,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         continueTargets.push(updateBlk);
         registerLabeledContinueTargets(updateBlk);
 
+        // beginBlock heeft de cursor op efor.exit gezet; emissions moeten in
+        // het entry-blok blijven (zelfde patroon als de klassieke for-lus).
+        builder.setCurrentBlock(entryBlk);
+
         // Array-variabele alloceren
         IRType collectionType = collection.type();
         IRValue arrayPtr;

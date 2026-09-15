@@ -149,7 +149,49 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     public void complete(final Symbol symbol) throws CompleteException {
         symbol.setCompleter(Completer.NULL_COMPLETER);
 
-        if (symbol instanceof ClassSymbol currentClass) {
+        if (!(symbol instanceof ClassSymbol currentClass)) {
+            completeImpl(symbol, null);
+            return;
+        }
+
+        final var depthState = completeDepth.get();
+        depthState.depth++;
+        if (depthState.depth > 200) {
+            throw new IllegalStateException("complete-recursie te diep: depth=" + depthState.depth
+                    + " source=" + currentClass.getSourceFile());
+        }
+        final var count = depthState.counts.merge(currentClass, 1, Integer::sum);
+        depthState.history.addLast(currentClass + " @" + System.identityHashCode(currentClass)
+                + " src=" + currentClass.getSourceFile());
+        try {
+            if (count > 20) {
+                throw new IllegalStateException("complete-cyclus: " + currentClass
+                        + " source=" + currentClass.getSourceFile()
+                        + " completesPerClass=" + count);
+            }
+            completeImpl(symbol, currentClass);
+        } catch (java.lang.StackOverflowError so) {
+            throw new IllegalStateException("SOF bij complete: depth=" + depthState.depth
+                    + " history=" + depthState.history
+                    + "\n" + so, so);
+        } finally {
+            depthState.history.removeLast();
+            depthState.counts.remove(currentClass);
+            depthState.depth--;
+        }
+    }
+
+    private static final ThreadLocal<DepthState> completeDepth =
+            ThreadLocal.withInitial(DepthState::new);
+
+    private static final class DepthState {
+        int depth;
+        final java.util.IdentityHashMap<Symbol, Integer> counts = new java.util.IdentityHashMap<>();
+        final java.util.ArrayDeque<String> history = new java.util.ArrayDeque<>();
+    }
+
+    private void completeImpl(final Symbol symbol,
+                              final ClassSymbol currentClass) {
             if (currentClass.getMembers() == null) {
                 currentClass.setMembers(new WritableScope());
             }
@@ -198,7 +240,6 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
                 lombok(classDeclaration, globalScope);
             }
-        }
     }
 
     private void completeClass(final ClassDeclaration classDeclaration,

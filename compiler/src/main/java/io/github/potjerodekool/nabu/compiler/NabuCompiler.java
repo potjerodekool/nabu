@@ -54,11 +54,6 @@ public class NabuCompiler implements Compiler {
 
     @Override
     public int compile(final CompilerOptions compilerOptions) {
-        compilerDiagnosticListener.report(new DefaultDiagnostic(
-                Diagnostic.Kind.NOTE,
-                "[NABU-MARKER-7]",
-                null
-        ));
         try (final var compilerContext = configure(compilerOptions)) {
             final var fullOptions = compilerContext.getCompilerOptions();
 

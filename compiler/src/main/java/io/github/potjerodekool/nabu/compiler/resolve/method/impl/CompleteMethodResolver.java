@@ -644,14 +644,6 @@ public class CompleteMethodResolver implements MethodResolver {
                         isConstructorCall
                 );
 
-                if (Constants.SUPER.equals(methodName) && SUPER_IDENT_COUNT < 3) {
-                    SUPER_IDENT_COUNT++;
-                    System.err.println("[SUPER-IDENT] superType="
-                            + (searchType == null ? "null" : searchType.asTypeElement().getQualifiedName())
-                            + " ctorCall=" + isConstructorCall
-                            + " resolved=" + (executableType != null));
-                }
-
                 if (executableType != null) {
                     return Optional.of(executableType);
                 } else {
@@ -1895,26 +1887,6 @@ void collectMethods(final DeclaredType declaredType,
 
                 if (!isLooselyCompatible(argumentTypes.get(i), parameterTypes.get(i))) {
                     isApplicable = false;
-                    if (PHASE2_TRACE_COUNT < 120) {
-                        PHASE2_TRACE_COUNT++;
-                        System.err.println("[PHASE2-PROBE] method=" + method.getMethodSymbol().getSimpleName()
-                                + " open=" + method.getMethodSymbol().getEnclosingElement().getSimpleName()
-                                + " argType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(argumentTypes.get(i))
-                                + " paramType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(parameterTypes.get(i)));
-                        try (final var pw = new java.io.PrintWriter(
-                                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                            pw.println("[PH2-FAIL] at=" + CURRENT_INVOCATION_LINE
-                                    + " method=" + method.getMethodSymbol().getSimpleName()
-                                    + " owner=" + method.getMethodSymbol().getEnclosingElement().getSimpleName()
-                                    + " argCount=" + argumentTypes.size()
-                                    + " paramCount=" + parameterTypes.size()
-                                    + " argIdx=" + i
-                                    + " argType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(argumentTypes.get(i))
-                                    + " paramType=" + io.github.potjerodekool.nabu.util.TypePrinter.print(parameterTypes.get(i)));
-                        } catch (java.io.IOException e) {
-                            // ignore
-                        }
-                    }
                     break;
                 }
             }

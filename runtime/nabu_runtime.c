@@ -24,6 +24,66 @@
 #endif
 
 /* -------------------------------------------------------
+ * Reflectie-metadata registry (fase 2): velden + annotaties
+ * ------------------------------------------------------- */
+
+#define NABU_MAX_REFLECTION 64
+
+static const nabu_reflection_info *nabu_reflection_table[NABU_MAX_REFLECTION];
+static int nabu_reflection_count = 0;
+
+int nabu_register_reflection(const nabu_reflection_info *info) {
+    if (info == NULL || info->type_name == NULL) {
+        return 0;
+    }
+    if (nabu_reflection_count >= NABU_MAX_REFLECTION) {
+        fprintf(stderr, "nabu: te veel reflectie-metadata entries\n");
+        abort();
+    }
+    nabu_reflection_table[nabu_reflection_count++] = info;
+    return 1;
+}
+
+const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name) {
+    if (internal_name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < nabu_reflection_count; i++) {
+        if (strcmp(nabu_reflection_table[i]->type_name, internal_name) == 0) {
+            return nabu_reflection_table[i];
+        }
+    }
+    return NULL;
+}
+
+long nabu_reflect_field_offset(const char *type_name, const char *field_name) {
+    const nabu_reflection_info *info = nabu_lookup_reflection(type_name);
+    if (info == NULL || field_name == NULL) {
+        return -1;
+    }
+    for (int i = 0; i < info->field_count; i++) {
+        if (strcmp(info->fields[i].name, field_name) == 0) {
+            return (long)info->fields[i].offset;
+        }
+    }
+    return -1;
+}
+
+const nabu_annotation_entry *nabu_get_annotation(const char *type_name,
+                                                 const char *annotation_type_name) {
+    const nabu_reflection_info *info = nabu_lookup_reflection(type_name);
+    if (info == NULL || annotation_type_name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < info->annotation_count; i++) {
+        if (strcmp(info->annotations[i].type_name, annotation_type_name) == 0) {
+            return &info->annotations[i];
+        }
+    }
+    return NULL;
+}
+
+/* -------------------------------------------------------
  * Itanium ABI exception throwing (Linux / macOS / MinGW)
  * ------------------------------------------------------- */
 

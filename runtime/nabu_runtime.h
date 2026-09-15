@@ -91,6 +91,68 @@ void *nabu_catch(void *unwind_exc);
 void *nabu_new_object(const char *type_name, size_t size);
 
 /**
+ * Reflectie-metadata (fase 2): veld- en annotatie-informatie voor klassen
+ * die via de native-image-config (reflect-config.json) zijn geregistreerd
+ * of runtime-operaties hebben.
+ *
+ * De backend emitteert per reflectie-geregistreerde klasse een
+ * nabu_reflection_info-const-global en roept bij opstart
+ * nabu_register_reflection aan.
+ */
+typedef struct nabu_field_info {
+    const char *name;         /* veldnaam */
+    const char *type_desc;    /* JVM-descriptor van het veldtype */
+    size_t      offset;       /* offset t.o.v. objectbegin */
+} nabu_field_info;
+
+typedef struct nabu_annotation_value {
+    const char *name;         /* attribuutnaam (mag NULL zijn) */
+    const char *text;         /* waarde als string (of ge-renderde array) */
+    int         is_string;    /* 1 = stringwaarde, 0 = numeriek/boolean */
+    double      num_value;    /* numerieke waarde (of 0/1 voor boolean) */
+} nabu_annotation_value;
+
+typedef struct nabu_annotation_entry {
+    const char *type_name;    /* interne naam van het annotatietype
+                                 (bv "picocli/CommandLine$Option") */
+    int         value_count;
+    const nabu_annotation_value *values;
+} nabu_annotation_entry;
+
+typedef struct nabu_reflection_info {
+    const char *type_name;    /* interne naam van de eigen klasse */
+    int         field_count;
+    const nabu_field_info *fields;
+    int         annotation_count;
+    const nabu_annotation_entry *annotations;
+} nabu_reflection_info;
+
+/**
+ * Registreert ('open declareert') een reflectie-metadata-tabel.
+ * Wordt door de backend per geregistreerde klasse aangeroepen (bij opstart
+ * vanuit de <clinit>-volgorde van de module).
+ * @param info De metadata-const (blijft geldig voor de levensduur van het proces)
+ * @return 1 bij succes
+ */
+int nabu_register_reflection(const nabu_reflection_info *info);
+
+/**
+ * Opzoeken van reflectie-metadata per interne naam; NULL als onbekend.
+ */
+const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name);
+
+/**
+ * Offset van een veld bij naam; -1 wanneer onbekend.
+ */
+long nabu_reflect_field_offset(const char *type_name, const char *field_name);
+
+/**
+ * Annotatie-entry opzoeken op klasse (of NULL).
+ */
+const nabu_annotation_entry *nabu_get_annotation(const char *type_name,
+                                                 const char *annotation_type_name);
+
+/**
  * Constructor van java.lang.Exception (runtime-definitie; vult geen velden).
  */
 void java_lang_Exception_init(void *self);

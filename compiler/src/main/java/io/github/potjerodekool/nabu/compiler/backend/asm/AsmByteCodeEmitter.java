@@ -267,22 +267,21 @@ public class AsmByteCodeEmitter {
             // phi-temp (na PhiElimination een Store in elke predecessor)
             // wordt bij de blok-entry leeggemaakt door de proloog-dumSTORE,
             // waardoor loop-carried waarden verloren gaan (oneindige lussen).
-            final var prologueSkipSlots = new java.util.HashSet<Integer>();
+            final var phiSkipSlots = new java.util.HashSet<Integer>();
             for (final var block : function.blocks()) {
                 for (final var instr : block.instructions()) {
                     if (instr instanceof IRInstruction.Store store
                             && store.ptr() instanceof IRValue.Temp temp
                             && temp.name().startsWith("%phi")) {
-                        prologueSkipSlots.add(slots.slotOf(temp.name(), temp.type()));
+                        phiSkipSlots.add(slots.slotOf(temp.name(), temp.type()));
                     }
                 }
             }
 
-            final var blocks = pruneUnreachable(Linearizer.linearize(function.blocks()));
-            // Elk slot dat in een blok gelezen wordt vóórdat er lokaal een
-            // schrijf gebeurt ("live-in") moet door de proloog met rust gelaten
-            // worden — die waarde komt van vlóór het blok.
-            prologueSkipSlots.addAll(collectLiveInSlots(blocks, slots, paramSlotCount(function, isStatic)));
+            final var prologueSkipSlots = new java.util.HashSet<Integer>();
+            var blocks = pruneUnreachable(Linearizer.linearize(function.blocks()));
+            prologueSkipSlots.addAll(phiSkipSlots);
+            prologueSkipSlots.addAll(collectLiveInSlots(blocks, slots, paramSlotCount(function, isStatic), b -> true));
             final var emitter = new FunctionEmitter(methodVisitor, this, slots, ownerInternalName, blocks);
 
             // TryCatchRegion-planning: per try-bereik worden de beschermde blokken
@@ -299,7 +298,7 @@ public class AsmByteCodeEmitter {
 
                     // Proloog: definieer alle niet-parameter slots als dummy-waarde,
                     // zodat ieder basisblok dezelfde lokale-frame-opbouw heeft.
-                    // Phi-carried slots worden overgeslagen (zie prologueSkipSlots).
+                    // Phi-carried en live-in slots worden overgeslagen.
                     emitPrologue(methodVisitor, slots, slotTypes, paramSlotCount(function, isStatic), prologueSkipSlots);
 
                     // Handler-entry: de JVM duwt de exception op de stack;
@@ -594,12 +593,16 @@ public class AsmByteCodeEmitter {
      * rust gelaten worden, anders gaat een loop-carried of cross-block
      * waarde verloren (bv. phi-eliminatie-temps, veld-karbeleketens).
      */
-    private static java.util.List<Integer> collectLiveInSlots(final List<IRBasicBlock> blocks,
-                                                              final SlotAllocator slots,
-                                                              final int paramSlotCount) {
+    private static java.util.Set<Integer> collectLiveInSlots(final List<IRBasicBlock> blocks,
+                                                             final SlotAllocator slots,
+                                                             final int paramSlotCount,
+                                                             final java.util.function.Predicate<IRBasicBlock> blockFilter) {
         final var liveIn = new java.util.HashSet<Integer>();
 
         for (final var block : blocks) {
+            if (!blockFilter.test(block)) {
+                continue;
+            }
             final var defined = new java.util.HashSet<Integer>();
             for (int p = 0; p < paramSlotCount; p++) {
                 defined.add(p);
@@ -621,7 +624,7 @@ public class AsmByteCodeEmitter {
             }
         }
 
-        return new java.util.ArrayList<>(liveIn);
+        return liveIn;
     }
 
     private static List<IRValue> readValues(final IRInstruction instr) {

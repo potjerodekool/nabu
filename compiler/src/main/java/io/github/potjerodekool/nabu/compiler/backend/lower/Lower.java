@@ -171,6 +171,50 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     }
 
     @Override
+    public Tree visitConditionalExpression(final ConditionalExpressionTree conditionalExpression,
+                                           final LowerScope scope) {
+        final var condition = (ExpressionTree) acceptTree(conditionalExpression.getCondition(), scope);
+
+        var trueExpression = (ExpressionTree) acceptTree(conditionalExpression.getTrueExpression(), scope);
+        var falseExpression = (ExpressionTree) acceptTree(conditionalExpression.getFalseExpression(), scope);
+
+        final var resultType = conditionalExpression.getType();
+
+        boolean usable = false;
+        if (resultType != null && scope != null) {
+            try {
+                usable = !resultType.isError();
+            } catch (NullPointerException e) {
+                usable = false;
+            }
+        }
+        if (usable) {
+            trueExpression = convertBranch(trueExpression, resultType);
+            falseExpression = convertBranch(falseExpression, resultType);
+        }
+
+        return conditionalExpression.builder()
+                .condition(condition)
+                .trueExpression(trueExpression)
+                .falseExpression(falseExpression)
+                .type(resultType)
+                .build();
+    }
+
+    private ExpressionTree convertBranch(final ExpressionTree branch,
+                                         final io.github.potjerodekool.nabu.type.TypeMirror targetType) {
+        if (branch == null) {
+            return branch;
+        }
+        final var branchType = compilerContext.getTreeUtils().typeOf(branch);
+        if (branchType == null || types.isSameType(branchType, targetType)) {
+            return branch;
+        }
+        final var converted = targetType.accept(caster, branch);
+        return converted != null ? converted : branch;
+    }
+
+    @Override
     public Tree visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement,
                                           final LowerScope scope) {
         final var expression = (ExpressionTree) acceptTree(enhancedForStatement.getExpression(), scope);

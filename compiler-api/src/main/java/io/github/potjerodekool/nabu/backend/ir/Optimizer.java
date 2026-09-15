@@ -15,6 +15,19 @@ public class Optimizer {
     }
 
     public static IRFunction optimize(IRFunction irFunction) {
+        // Conservatieve guard: functies met Phi-instructies (SSA-joins door
+        // if/loops/ternary/try-catch) worden NIET geoptimaliseerd. De eerste
+        // versies van ConstantFolder/CopyPropagation/GVN/DCE zijn onzuiter in
+        // combinatie met Phi's (dode register-referenties: 'Onbekend register',
+        // 'Expected I, but found .'). Pass-by-pass vekken in de pipeline loop
+        // is het onderzoekaandachtsveld (BISECT).
+        final var hasPhis = irFunction.blocks().stream()
+                .anyMatch(b -> b.instructions().stream()
+                        .anyMatch(i -> i instanceof IRInstruction.Phi));
+        if (hasPhis) {
+            return irFunction;
+        }
+
         // Stap 1: Verwijder onnodige branches (bestaande logica)
         irFunction = removeRedundantBranches(irFunction);
 

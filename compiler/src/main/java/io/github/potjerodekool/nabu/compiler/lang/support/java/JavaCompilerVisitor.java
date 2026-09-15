@@ -3036,6 +3036,31 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitConditionalExpression(final Java20Parser.ConditionalExpressionContext ctx) {
+        final var condition = (ExpressionTree) ctx.conditionalOrExpression().accept(this);
+
+        if (ctx.expression() != null) {
+            final var trueExpression = (ExpressionTree) ctx.expression().accept(this);
+            final ExpressionTree falseExpression;
+            if (ctx.conditionalExpression() != null) {
+                falseExpression = (ExpressionTree) ctx.conditionalExpression().accept(this);
+            } else {
+                falseExpression = (ExpressionTree) ctx.lambdaExpression().accept(this);
+            }
+
+            return TreeMaker.conditionalExpressionTree(
+                    condition,
+                    trueExpression,
+                    falseExpression,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
+
+        return condition;
+    }
+
+    @Override
     public Object visitInclusiveOrExpression(final Java20Parser.InclusiveOrExpressionContext ctx) {
         final var exclusiveOrExpression = (ExpressionTree) ctx.exclusiveOrExpression().accept(this);
 

@@ -107,6 +107,20 @@ public final class TreeMaker {
         );
     }
 
+    public static ConditionalExpressionTree conditionalExpressionTree(final ExpressionTree condition,
+                                                                      final ExpressionTree trueExpression,
+                                                                      final ExpressionTree falseExpression,
+                                                                      final int lineNumber,
+                                                                      final int columnNumber) {
+        return new CConditionalExpressionTree(
+                condition,
+                trueExpression,
+                falseExpression,
+                lineNumber,
+                columnNumber
+        );
+    }
+
     public static InstanceOfExpression instanceOfExpression(final ExpressionTree expression,
                                                             final Tree typeExpression,
                                                             final int lineNumber,

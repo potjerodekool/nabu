@@ -122,6 +122,16 @@ public class TreeWalker extends AbstractTreeVisitor<Object, Consumer<Tree
     }
 
     @Override
+    public Object visitConditionalExpression(final ConditionalExpressionTree conditionalExpression,
+                                             final Consumer<Tree> consumer) {
+        consumer.accept(conditionalExpression);
+        acceptTree(conditionalExpression.getCondition(), consumer);
+        acceptTree(conditionalExpression.getTrueExpression(), consumer);
+        acceptTree(conditionalExpression.getFalseExpression(), consumer);
+        return null;
+    }
+
+    @Override
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Consumer<Tree> consumer) {
         consumer.accept(fieldAccessExpression);

@@ -26,23 +26,29 @@ public class CopyPropagation implements OptimizationPass {
         boolean changed = false;
 
         for (final var block : function.blocks()) {
-            changed |= propagateBlock(block);
+            changed |= propagateBlock(block, function);
         }
 
         return changed;
     }
 
-    private boolean propagateBlock(final IRBasicBlock block) {
+    private boolean propagateBlock(final IRBasicBlock block,
+                                   final IRFunction function) {
         boolean changed = false;
         final Map<String, IRValue> copies = new LinkedHashMap<>();
 
-        // Stap 1: Verzamel alle moves in dit blok
+        // Stap 1: Verzamel alle moves in dit blok die alleen in dit blok
+        // gebruikt worden. Een Move wiens resultaat óók in een ander blok
+        // gelezen wordt mag NIET verwijderd worden: de cross-block uses
+        // zouden anders naar een niet-gedefinieerde temp verwijzen
+        // ('Onbekende register'/'uninitialized slot').
         final var instructions = block.instructions();
         final List<Integer> moveIndices = new ArrayList<>();
 
         for (int i = 0; i < instructions.size(); i++) {
             final var instr = instructions.get(i);
-            if (instr instanceof IRInstruction.Move move) {
+            if (instr instanceof IRInstruction.Move move
+                    && isUsedOnlyInBlock(move.result(), block, function)) {
                 final var src = resolveCopies(move.value(), copies);
                 copies.put(IRValue.nameOf(move.result()), src);
                 moveIndices.add(i);
@@ -98,6 +104,105 @@ public class CopyPropagation implements OptimizationPass {
             }
         }
         return value;
+    }
+
+    /**
+     * True als het resultaat uitsluitend in dit blok gebruikt wordt (ten
+     * minste één keer). Alleen dan mag de definiërende Move verwijderd en
+     * de copy doorgedrukt worden.
+     */
+    private boolean isUsedOnlyInBlock(final IRValue value,
+                                   final IRBasicBlock block,
+                                   final IRFunction function) {
+        if (!(value instanceof IRValue.Temp temp)) {
+            return false;
+        }
+        final var name = temp.name();
+
+        boolean usedInOtherBlock = false;
+        boolean usedInThisBlock = false;
+        for (final var other : function.blocks()) {
+            for (final var instr : other.instructions()) {
+                if (instr instanceof IRInstruction.Move move
+                        && IRValue.nameOf(instr.result()).equals(name)) {
+                    // De Move zelf is geen 'use'
+                    continue;
+                }
+                if (references(instr, name)) {
+                    if (other == block) {
+                        usedInThisBlock = true;
+                    } else {
+                        usedInOtherBlock = true;
+                    }
+                }
+            }
+        }
+        return !usedInOtherBlock;
+    }
+
+    private boolean references(final IRInstruction instr, final String tempName) {
+        for (final var read : readsOf(instr)) {
+            if (read instanceof IRValue.Temp t && t.name().equals(tempName)) {
+                return true;
+            } else if (read instanceof IRValue.Values values) {
+                for (final var inner : values.values()) {
+                    if (inner instanceof IRValue.Temp t && t.name().equals(tempName)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<IRValue> readsOf(final IRInstruction instr) {
+        final var reads = new java.util.ArrayList<IRValue>();
+        switch (instr) {
+            case IRInstruction.BinaryOp op -> {
+                reads.add(op.left());
+                reads.add(op.right());
+            }
+            case IRInstruction.Load ld -> reads.add(ld.ptr());
+            case IRInstruction.Store st -> {
+                reads.add(st.ptr());
+                reads.add(st.value());
+            }
+            case IRInstruction.Call call -> reads.addAll(call.args());
+            case IRInstruction.IndirectCall ic -> {
+                reads.add(ic.callee());
+                reads.addAll(ic.args());
+            }
+            case IRInstruction.CondBranch cb -> reads.add(cb.condition());
+            case IRInstruction.Return ret -> {
+                if (ret.value() != null) reads.add(ret.value());
+            }
+            case IRInstruction.Cast c -> reads.add(c.source());
+            case IRInstruction.InstanceOf i -> reads.add(i.source());
+            case IRInstruction.ArrayLoad al -> {
+                reads.add(al.array());
+                reads.add(al.index());
+            }
+            case IRInstruction.ArrayStore as -> {
+                reads.add(as.array());
+                reads.add(as.index());
+                reads.add(as.value());
+            }
+            case IRInstruction.ArrayLength al -> reads.add(al.array());
+            case IRInstruction.AllocaArray aa -> reads.add(aa.size());
+            case IRInstruction.MonitorEnter me -> reads.add(me.object());
+            case IRInstruction.MonitorExit mx -> reads.add(mx.object());
+            case IRInstruction.Throw t -> {
+                if (t.result() != null) reads.add(t.result());
+            }
+            case IRInstruction.Phi phi -> {
+                for (final var incoming : phi.incomingValues()) {
+                    reads.add(incoming.value());
+                }
+            }
+            case IRInstruction.Move m -> reads.add(m.value());
+            default -> {}
+        }
+        return reads;
     }
 
     private IRInstruction replaceInInstruction(final IRInstruction instr,

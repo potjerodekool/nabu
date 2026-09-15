@@ -110,6 +110,20 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
     }
 
     @Override
+    public Tree visitConditionalExpression(final ConditionalExpressionTree conditionalExpression,
+                                           final P param) {
+        final var condition = (ExpressionTree) acceptTree(conditionalExpression.getCondition(), param);
+        final var trueExpression = (ExpressionTree) acceptTree(conditionalExpression.getTrueExpression(), param);
+        final var falseExpression = (ExpressionTree) acceptTree(conditionalExpression.getFalseExpression(), param);
+
+        return conditionalExpression.builder()
+                .condition(condition)
+                .trueExpression(trueExpression)
+                .falseExpression(falseExpression)
+                .build();
+    }
+
+    @Override
     public Tree visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression, final P param) {
         final var selected = (ExpressionTree) acceptTree(fieldAccessExpression.getSelected(), param);
         final var field = (IdentifierTree) acceptTree(fieldAccessExpression.getField(), param);

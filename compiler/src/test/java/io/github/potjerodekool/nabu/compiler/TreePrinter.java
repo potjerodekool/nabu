@@ -365,6 +365,17 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     }
 
     @Override
+    public Object visitConditionalExpression(final ConditionalExpressionTree conditionalExpression,
+                                             final Object param) {
+        acceptTree(conditionalExpression.getCondition(), param);
+        write(" ? ");
+        acceptTree(conditionalExpression.getTrueExpression(), param);
+        write(" : ");
+        acceptTree(conditionalExpression.getFalseExpression(), param);
+        return null;
+    }
+
+    @Override
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Object param) {
         if (fieldAccessExpression.getSelected() != null) {

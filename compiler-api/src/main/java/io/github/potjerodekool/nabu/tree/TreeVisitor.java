@@ -105,6 +105,18 @@ public interface TreeVisitor<R, P> {
     }
 
     /**
+     * Visit conditional (ternary) expression.
+     *
+     * @param conditionalExpression A conditional expression.
+     * @param param A parameter.
+     * @return Returns a result.
+     */
+    default R visitConditionalExpression(ConditionalExpressionTree conditionalExpression,
+                                         P param) {
+        return visitUnknown(conditionalExpression, param);
+    }
+
+    /**
      * Visit field access expression.
      *
      * @param fieldAccessExpression A field access expression.

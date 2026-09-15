@@ -417,9 +417,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
         super.visitBinaryExpression(binaryExpression, scope);
         final var leftType = compilerContext.getTreeUtils().typeOf(binaryExpression.getLeft());
-        final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());
-
-        var binaryType = switch (binaryExpression.getTag()) {
+        final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());        var binaryType = switch (binaryExpression.getTag()) {
             case EQ, NE, LT, GT, LE, GE, AND, OR -> types.getPrimitiveType(TypeKind.BOOLEAN);
             case ADD, SUB -> {
                 if (leftType != null && leftType.isPrimitiveType()) {
@@ -455,6 +453,44 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         }
 
         return defaultAnswer(binaryExpression, scope);
+    }
+
+    @Override
+    public Object visitConditionalExpression(final ConditionalExpressionTree conditionalExpression,
+                                             final Scope scope) {
+        super.visitConditionalExpression(conditionalExpression, scope);
+
+        final var treeUtils = compilerContext.getTreeUtils();
+        final var trueType = treeUtils.typeOf(conditionalExpression.getTrueExpression());
+        final var falseType = treeUtils.typeOf(conditionalExpression.getFalseExpression());
+
+        if (trueType == null && falseType == null) {
+            return defaultAnswer(conditionalExpression, scope);
+        }
+
+        TypeMirror resultType;
+
+        if (trueType == null) {
+            resultType = falseType;
+        } else if (falseType == null || types.isSameType(trueType, falseType)) {
+            resultType = trueType;
+        } else if (types.isSubType(trueType, falseType)) {
+            resultType = falseType;
+        } else if (types.isSubType(falseType, trueType)) {
+            resultType = trueType;
+        } else if (trueType.isPrimitiveType()
+                && !falseType.isPrimitiveType()) {
+            // Boxed-andere kant: het resultaat is de primitieve kant
+            resultType = trueType;
+        } else if (!trueType.isPrimitiveType()
+                && falseType.isPrimitiveType()) {
+            resultType = falseType;
+        } else {
+            resultType = trueType;
+        }
+
+        conditionalExpression.setType(resultType);
+        return defaultAnswer(conditionalExpression, scope);
     }
 
 

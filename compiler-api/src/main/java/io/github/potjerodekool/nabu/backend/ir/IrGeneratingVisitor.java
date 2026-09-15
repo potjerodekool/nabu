@@ -1048,12 +1048,12 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             ElementKind kind = symbol.getKind();
 
             if (kind.isField()) {
-                // Statisch veld
+                // Statisch veld — resolveField produceert een Named(isStatic):
+                // de backend resolveert dit als GETSTATIC (werkt cross-module;
+                // de oude global-lookup faalde voor velden in andere
+                // batch-modules).
                 if (symbol.isStatic()) {
-                    String globalName = symbol.getEnclosingElement().getSimpleName()
-                            + "_" + name;
-                    var globalPtr = builder.lookup(globalName);
-                    return builder.emitLoad(globalPtr);
+                    return builder.emitLoad(resolveField(symbol));
                 }
                 // Instantieveld — laad via this
                 IRValue thisVal = scope.lookup("this").orElse(null);
@@ -1533,6 +1533,89 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final IRBuilder param) {
         final var value = acceptTree(instanceOfExpression.getExpression(), param);
         return builder.emitInstanceOf(value, TypeMirrorToIRType.map(patternInstanceOfType(instanceOfExpression)));
+    }
+
+    @Override
+    public IRValue visitConditionalExpression(final ConditionalExpressionTree conditionalExpression,
+                                              final IRBuilder param) {
+        builder.setLocation(
+                currentClassName + ".nabu",
+                conditionalExpression.getLineNumber(),
+                conditionalExpression.getColumnNumber()
+        );
+
+        final var condition = acceptTree(conditionalExpression.getCondition(), builder);
+        if (condition == null) {
+            return null;
+        }
+
+        // Resultaattype: het type van de conditionele expressie (set door de
+        // resolver); val terug op de true-tak.
+        var resultType = conditionalExpression.getType() != null
+                ? TypeMirrorToIRType.map(conditionalExpression.getType())
+                : null;
+
+        if (resultType == null) {
+            resultType = staticIRTypeOf(conditionalExpression.getTrueExpression());
+            if (resultType == null) {
+                resultType = staticIRTypeOf(conditionalExpression.getFalseExpression());
+            }
+        }
+
+        final var resultCell = builder.emitAlloca("ternary", resultType != null ? resultType : IRType.I32);
+
+        final var condBlk = builder.currentBlock();
+        final var trueBlk = builder.beginBlock("ternary.then");
+        final var falseBlk = builder.beginBlock("ternary.else");
+        final var mergeBlk = builder.beginBlock("ternary.merge");
+
+        // beginBlock heeft de cursor op merge gezet; de condBranch hoort in
+        // het conditieblok.
+        builder.setCurrentBlock(condBlk);
+        builder.emitCondBranch(condition, trueBlk, falseBlk);
+
+        // True-tak
+        builder.setCurrentBlock(trueBlk);
+        IRValue trueValue = acceptTree(conditionalExpression.getTrueExpression(), builder);
+        if (trueValue != null) {
+            trueValue = boxIfNeeded(trueValue, resultCell.type());
+            trueValue = unboxIfNeeded(trueValue, resultCell.type());
+            builder.emitStore(resultCell, trueValue);
+        }
+        if (!builder.currentBlockTerminated()) {
+            builder.emitBranch(mergeBlk);
+        }
+
+        // False-tak
+        builder.setCurrentBlock(falseBlk);
+        IRValue falseValue = acceptTree(conditionalExpression.getFalseExpression(), builder);
+        if (falseValue != null) {
+            falseValue = boxIfNeeded(falseValue, resultCell.type());
+            falseValue = unboxIfNeeded(falseValue, resultCell.type());
+            builder.emitStore(resultCell, falseValue);
+        }
+        if (!builder.currentBlockTerminated()) {
+            builder.emitBranch(mergeBlk);
+        }
+
+        // Merge: laad het resultaat
+        builder.setCurrentBlock(mergeBlk);
+        return builder.emitLoad(resultCell);
+    }
+
+    /**
+     * Bepaalt het IR-type van een tak-expressie statisch (alleen via het
+     * resolver-type), zonder instructies te emitten.
+     */
+    private IRType staticIRTypeOf(final ExpressionTree expression) {
+        if (expression == null) {
+            return null;
+        }
+        final var type = expression.getType();
+        if (type == null || type.isError()) {
+            return null;
+        }
+        return TypeMirrorToIRType.map(type);
     }
 
     @Override

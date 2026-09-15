@@ -27,6 +27,8 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case ReturnStatementTree returnStatementTree -> visitReturnStatement(returnStatementTree, param);
             case LambdaExpressionTree lambdaExpressionTree -> visitLambdaExpression(lambdaExpressionTree, param);
             case BinaryExpressionTree binaryExpressionTree -> visitBinaryExpression(binaryExpressionTree, param);
+            case ConditionalExpressionTree conditionalExpressionTree ->
+                    visitConditionalExpression(conditionalExpressionTree, param);
             case FieldAccessExpressionTree fieldAccessExpressionTree ->
                     visitFieldAccessExpression(fieldAccessExpressionTree, param);
             case MethodInvocationTree methodInvocationTree -> visitMethodInvocation(methodInvocationTree, param);
@@ -176,6 +178,14 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
         acceptTree(binaryExpression.getLeft(), param);
         acceptTree(binaryExpression.getRight(), param);
         return defaultAnswer(binaryExpression, param);
+    }
+
+    @Override
+    public R visitConditionalExpression(final ConditionalExpressionTree conditionalExpression, final P param) {
+        acceptTree(conditionalExpression.getCondition(), param);
+        acceptTree(conditionalExpression.getTrueExpression(), param);
+        acceptTree(conditionalExpression.getFalseExpression(), param);
+        return defaultAnswer(conditionalExpression, param);
     }
 
     @Override

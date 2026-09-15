@@ -79,6 +79,9 @@ public class Caster implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
     private ExpressionTree castMethodInvocationIfNeeded(final MethodInvocationTree methodInvocationTree) {
         final var methodType = methodInvocationTree.getMethodType();
+        if (methodType == null) {
+            return methodInvocationTree;
+        }
         final var methodReturnType = methodType
                 .getMethodSymbol()
                 .getReturnType();

@@ -299,14 +299,22 @@ public class AsmByteCodeEmitter {
                     // Proloog: definieer alle niet-parameter slots als dummy-waarde,
                     // zodat ieder basisblok dezelfde lokale-frame-opbouw heeft.
                     // Phi-carried en live-in slots worden overgeslagen.
-                    emitPrologue(methodVisitor, slots, slotTypes, paramSlotCount(function, isStatic), prologueSkipSlots);
+                    // In exception-handler blokken wordt NIETS overgeslagen:
+                    // de exception-edge kan het blok bereiken zonder dat een
+                    // normale voorganger de phi/live-in waarden heeft gezet
+                    // ('Expected I, but found .' in de verifier); de handler
+                    // krijgt dan bewust defaults (0/null) — correcte frames.
+                    final var handlerSlotName = handlerEntrySlots.get(block.label());
+                    final boolean isHandler = handlerSlotName != null;
+                    emitPrologue(methodVisitor, slots, slotTypes,
+                            paramSlotCount(function, isStatic),
+                            isHandler ? java.util.Set.of() : prologueSkipSlots);
 
                     // Handler-entry: de JVM duwt de exception op de stack;
                     // sla die op in het %exn.<handlerLabel>-slot dat de IR laadt,
                     // zodat de stack netjes leeg is voor de blok-instructies.
-                    final var exnSlotName = handlerEntrySlots.get(block.label());
-                    if (exnSlotName != null) {
-                        methodVisitor.visitVarInsn(Opcodes.ASTORE, slots.getSlot(exnSlotName));
+                    if (handlerSlotName != null) {
+                        methodVisitor.visitVarInsn(Opcodes.ASTORE, slots.getSlot(handlerSlotName));
                     }
 
                     for (final var instr : block.instructions()) {

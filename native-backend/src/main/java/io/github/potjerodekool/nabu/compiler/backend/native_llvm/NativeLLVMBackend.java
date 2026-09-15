@@ -36,6 +36,10 @@ import static org.bytedeco.llvm.global.LLVM.*;
  */
 public class NativeLLVMBackend implements Backend {
 
+    private final io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry
+            reflectionRegistry =
+            new io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry();
+
     static {
         LLVMInitializeAllTargetInfos();
         LLVMInitializeAllTargets();
@@ -70,6 +74,7 @@ public class NativeLLVMBackend implements Backend {
                         CompileOptions opts,
                         Path outputObj) throws CompileException {
         ensureMainEntry(modules);
+        loadNativeImageConfigs(outputObj);
 
         // Triple zoveel mogelijk één keer bepalen: expliciet (opties) of
         // afgeleid van de gevonden toolchain (MinGW → gnu-triple), omdat
@@ -92,12 +97,19 @@ public class NativeLLVMBackend implements Backend {
         Linker.link(outFile, exe, triple, opts.gcStrategy());
     }
 
-    private void ensureMainEntry(List<IRModule> modules) {
-        for (IRModule m : modules) {
-            if (m.functions().stream().anyMatch(f -> f.name.equals("main") && !f.isExternal())) {
-                return;
-            }
+    private void loadNativeImageConfigs(final Path outputObj) {
+        final var classPathRoot = outputObj.toAbsolutePath().getParent();
+        if (classPathRoot == null) {
+            return;
         }
+        final var configs = io.github.potjerodekool.nabu.compiler.backend.native_llvm.config
+                .NativeImageConfigScanner.scan(java.util.List.of(classPathRoot));
+        for (final var config : configs) {
+            reflectionRegistry.register(config);
+        }
+    }
+
+    private void ensureMainEntry(List<IRModule> modules) {
         for (IRModule m : modules) {
             boolean hasEntry = m.functions().stream()
                     .anyMatch(f -> !f.isExternal() && f.name.endsWith("_main"));

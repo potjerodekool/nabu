@@ -208,6 +208,7 @@ public class NativeLLVMBackend implements Backend {
 
         try {
             var emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
+            emitter.setReflectionRegistry(reflectionRegistry);
             emitter.emitAll(modules);
 
             LLVMSetTarget(llvmMod, new BytePointer(triple));

@@ -157,7 +157,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} --add-opens io.github.potjerodekool.nabu.compiler/io.github.potjerodekool.nabu.compiler.backend.asm=org.junit.platform.commons --add-opens io.github.potjerodekool.nabu.compiler/io.github.potjerodekool.nabu.compiler.resolve.method.impl=org.junit.platform.commons</argLine>
+                    <argLine>-Xss1g @{argLine} -javaagent:${org.mockito:mockito-core:jar} --add-opens io.github.potjerodekool.nabu.compiler/io.github.potjerodekool.nabu.compiler.backend.asm=org.junit.platform.commons --add-opens io.github.potjerodekool.nabu.compiler/io.github.potjerodekool.nabu.compiler.resolve.method.impl=org.junit.platform.commons</argLine>
                     <useModulePath>false</useModulePath>
                 </configuration>
             </plugin>

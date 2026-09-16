@@ -2,6 +2,7 @@
 #define NABU_RUNTIME_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,6 +116,7 @@ typedef struct nabu_annotation_value {
 typedef struct nabu_annotation_entry {
     const char *type_name;    /* interne naam van het annotatietype
                                  (bv "picocli/CommandLine$Option") */
+    const char *owner;        /* veldnaam bij veld-annotaties, NULL bij klasse-annotaties */
     int         value_count;
     const nabu_annotation_value *values;
 } nabu_annotation_entry;
@@ -143,14 +145,42 @@ const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name);
 
 /**
  * Offset van een veld bij naam; -1 wanneer onbekend.
+ * Retourneert intptr_t (64-bit op alle 64-bit targets) zodat de IR
+ * (i64) de waarde rechtstreeks overneemt — C `long` is op Windows
+ * x64 slechts 32-bit (LLP64) en zou -1 als 0x00000000FFFFFFFF lezen.
  */
-long nabu_reflect_field_offset(const char *type_name, const char *field_name);
+intptr_t nabu_reflect_field_offset(const char *type_name, const char *field_name);
 
 /**
- * Annotatie-entry opzoeken op klasse (of NULL).
+ * Annotatie-entry opzoeken op klasse (klasse-annotaties; owner == NULL) of NULL.
  */
 const nabu_annotation_entry *nabu_get_annotation(const char *type_name,
                                                  const char *annotation_type_name);
+
+/**
+ * Annotatie-entry opzoeken op veld (velden die van dit type gemerkt zijn) of NULL.
+ */
+const nabu_annotation_entry *nabu_get_field_annotation(const char *type_name,
+                                                       const char *field_name,
+                                                       const char *annotation_type_name);
+
+/**
+ * Getypte reflectieve veldtoegang (onderlegger voor een lite
+ * java.lang.reflect.Field). De offset komt uit de geregistreerde
+ * reflectie-metadata.
+ *
+ * Bij een onbekend type, veld of NULL-object retourneren de getters 0 / NULL.
+ */
+int   nabu_reflect_get_i32(void *obj, const char *type_name, const char *field_name);
+void  nabu_reflect_set_i32(void *obj, const char *type_name, const char *field_name, int value);
+int64_t nabu_reflect_get_i64(void *obj, const char *type_name, const char *field_name);
+void  nabu_reflect_set_i64(void *obj, const char *type_name, const char *field_name, int64_t value);
+float nabu_reflect_get_f32(void *obj, const char *type_name, const char *field_name);
+void  nabu_reflect_set_f32(void *obj, const char *type_name, const char *field_name, float value);
+double nabu_reflect_get_f64(void *obj, const char *type_name, const char *field_name);
+void  nabu_reflect_set_f64(void *obj, const char *type_name, const char *field_name, double value);
+void  *nabu_reflect_get_ref(void *obj, const char *type_name, const char *field_name);
+void  nabu_reflect_set_ref(void *obj, const char *type_name, const char *field_name, void *value);
 
 /**
  * Constructor van java.lang.Exception (runtime-definitie; vult geen velden).

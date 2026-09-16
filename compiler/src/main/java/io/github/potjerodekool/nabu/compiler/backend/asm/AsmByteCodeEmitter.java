@@ -23,6 +23,7 @@ import org.objectweb.asm.util.TraceClassVisitor;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -191,13 +192,18 @@ public class AsmByteCodeEmitter {
                 function.returnType
         );
 
-        final var methodVisitor = classVisitor.visitMethod(
+        var methodVisitor = classVisitor.visitMethod(
                 access,
                 name,
                 descriptor,
                 function.genericSignature(),
                 null
         );
+        final var methodPrinter = new org.objectweb.asm.util.Textifier();
+        methodPrinter.visitMethod(access, name, descriptor, function.genericSignature(), null);
+        final var preWrap = methodVisitor;
+        methodVisitor = new org.objectweb.asm.util.TraceMethodVisitor(methodVisitor, methodPrinter);
+        final var tracedTextifier = methodPrinter;
 
         emitAnnotations(function.annotations(), methodVisitor::visitAnnotation);
 
@@ -345,9 +351,23 @@ public class AsmByteCodeEmitter {
             } catch (final Exception e) {
                 System.err.println("[AsmByteCodeEmitter] Error in function: " + function.name);
                 System.err.println("----- ASM bytecode trace -----");
+                try {
+                    Files.writeString(
+                            Path.of("C:/Users/evert/AppData/Local/Temp/opencode/trace-fail.txt"),
+                            traceBuffer.toString(),
+                            java.nio.file.StandardOpenOption.CREATE,
+                            java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                            java.nio.file.StandardOpenOption.WRITE);
+                } catch (final Exception ignored) {
+                }
                 if (methodVisitor instanceof org.objectweb.asm.util.TraceMethodVisitor traceMethodVisitor) {
                     traceMethodVisitor.p.print(new PrintWriter(System.err));
                 }
+                final var sw = new StringWriter();
+                tracedTextifier.print(new PrintWriter(sw));
+                System.err.println("----- method Textifier trace -----");
+                System.err.println(sw);
+                System.err.println("----- end method Textifier trace -----");
                 System.err.println(traceBuffer);
                 System.err.println("----- EOF trace -----");
                 blocks.forEach(AsmByteCodeEmitter::printBlock);
@@ -516,7 +536,19 @@ public class AsmByteCodeEmitter {
                 collectValue(binaryOp.left(), slots, slotTypes);
                 collectValue(binaryOp.right(), slots, slotTypes);
             }
-            case IRInstruction.Alloca alloca -> collectValue(alloca.result(), slots, slotTypes);
+            case IRInstruction.Alloca alloca -> {
+                if (alloca.result() instanceof IRValue.Temp temp) {
+                    // De slot-type voor een variabele-alloca is het element-type
+                    // (allocType), NIET het pointer-type van de ssa-temp: de
+                    // load/store-instructies adresseren dit slot met echte
+                    // waarden (bv. ICONST_0;ISTORE 4 voor een i32-variabele).
+                    // Temp.type() is altijd Ptr en zou de handler-proloog
+                    // ACONST_NULL/ASTORE (R) laten schrijven waardoor ILOAD
+                    // ongeldig wordt ('Expected I, but found R').
+                    final var slot = slots.slotOf(temp.name(), alloca.allocType());
+                    slotTypes.putIfAbsent(slot, alloca.allocType());
+                }
+            }
             case IRInstruction.ArrayStore arrayStore -> {
                 collectValue(arrayStore.array(), slots, slotTypes);
                 collectValue(arrayStore.index(), slots, slotTypes);

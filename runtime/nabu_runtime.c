@@ -56,14 +56,14 @@ const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name) {
     return NULL;
 }
 
-long nabu_reflect_field_offset(const char *type_name, const char *field_name) {
+intptr_t nabu_reflect_field_offset(const char *type_name, const char *field_name) {
     const nabu_reflection_info *info = nabu_lookup_reflection(type_name);
     if (info == NULL || field_name == NULL) {
         return -1;
     }
     for (int i = 0; i < info->field_count; i++) {
         if (strcmp(info->fields[i].name, field_name) == 0) {
-            return (long)info->fields[i].offset;
+            return (intptr_t)info->fields[i].offset;
         }
     }
     return -1;
@@ -76,11 +76,117 @@ const nabu_annotation_entry *nabu_get_annotation(const char *type_name,
         return NULL;
     }
     for (int i = 0; i < info->annotation_count; i++) {
-        if (strcmp(info->annotations[i].type_name, annotation_type_name) == 0) {
-            return &info->annotations[i];
+        const nabu_annotation_entry *entry = &info->annotations[i];
+        if (entry->owner == NULL
+                && strcmp(entry->type_name, annotation_type_name) == 0) {
+            return entry;
         }
     }
     return NULL;
+}
+
+const nabu_annotation_entry *nabu_get_field_annotation(const char *type_name,
+                                                       const char *field_name,
+                                                       const char *annotation_type_name) {
+    const nabu_reflection_info *info = nabu_lookup_reflection(type_name);
+    if (info == NULL || field_name == NULL || annotation_type_name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < info->annotation_count; i++) {
+        const nabu_annotation_entry *entry = &info->annotations[i];
+        if (entry->owner != NULL
+                && strcmp(entry->owner, field_name) == 0
+                && strcmp(entry->type_name, annotation_type_name) == 0) {
+            return entry;
+        }
+    }
+    return NULL;
+}
+
+/* -------------------------------------------------------
+ * Reflectie: getypte veldtoegang (onderlegger voor een lite
+ * java.lang.reflect.Field). De offset komt uit de geregistreerde
+ * reflectie-metadata.
+ * ------------------------------------------------------- */
+
+static size_t nabu_field_offset_for(void *obj,
+                                    const char *type_name,
+                                    const char *field_name) {
+    if (obj == NULL || type_name == NULL || field_name == NULL) {
+        return (size_t)-1;
+    }
+    intptr_t offset = nabu_reflect_field_offset(type_name, field_name);
+    return offset < 0 ? (size_t)-1 : (size_t)offset;
+}
+
+int nabu_reflect_get_i32(void *obj, const char *type_name, const char *field_name) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return 0;
+    int value;
+    memcpy(&value, (char *)obj + off, sizeof(value));
+    return value;
+}
+
+void nabu_reflect_set_i32(void *obj, const char *type_name, const char *field_name, int value) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return;
+    memcpy((char *)obj + off, &value, sizeof(value));
+}
+
+int64_t nabu_reflect_get_i64(void *obj, const char *type_name, const char *field_name) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return 0;
+    int64_t value;
+    memcpy(&value, (char *)obj + off, sizeof(value));
+    return value;
+}
+
+void nabu_reflect_set_i64(void *obj, const char *type_name, const char *field_name, int64_t value) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return;
+    memcpy((char *)obj + off, &value, sizeof(value));
+}
+
+float nabu_reflect_get_f32(void *obj, const char *type_name, const char *field_name) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return 0.0f;
+    float value;
+    memcpy(&value, (char *)obj + off, sizeof(value));
+    return value;
+}
+
+void nabu_reflect_set_f32(void *obj, const char *type_name, const char *field_name, float value) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return;
+    memcpy((char *)obj + off, &value, sizeof(value));
+}
+
+double nabu_reflect_get_f64(void *obj, const char *type_name, const char *field_name) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return 0.0;
+    double value;
+    memcpy(&value, (char *)obj + off, sizeof(value));
+    return value;
+}
+
+void nabu_reflect_set_f64(void *obj, const char *type_name, const char *field_name, double value) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return;
+    memcpy((char *)obj + off, &value, sizeof(value));
+}
+
+void *nabu_reflect_get_ref(void *obj, const char *type_name, const char *field_name) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return NULL;
+    void *value;
+    memcpy(&value, (char *)obj + off, sizeof(value));
+    return value;
+}
+
+void nabu_reflect_set_ref(void *obj, const char *type_name, const char *field_name, void *value) {
+    size_t off = nabu_field_offset_for(obj, type_name, field_name);
+    if (off == (size_t)-1) return;
+    memcpy((char *)obj + off, &value, sizeof(value));
 }
 
 /* -------------------------------------------------------

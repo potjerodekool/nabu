@@ -42,6 +42,9 @@ public class LLVMModuleEmitter {
 
     private final CompileOptions opts;
 
+    // Fase 2: reflectie-metadata-emissie (kan leeg/null zijn voor single-module tests)
+    private io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry reflectionRegistry;
+
     public LLVMModuleEmitter(LLVMContextRef ctx,
                              LLVMModuleRef mod,
                              LLVMBuilderRef builder,
@@ -60,8 +63,13 @@ public class LLVMModuleEmitter {
                 ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap);
     }
 
+public void setReflectionRegistry(
+            final io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry reflectionRegistry) {
+        this.reflectionRegistry = reflectionRegistry;
+    }
+
     /**
-     * Vertaalt één IRModule naar LLVM IR (single-module compilatie).
+     * Vertaalt ǸǸn IRModule naar LLVM IR (single-module compilatie).
      */
     public void emit(IRModule module) {
         emitAll(List.of(module));
@@ -95,6 +103,11 @@ public class LLVMModuleEmitter {
         // 3. Objectmodel (struct-layouts + type-info + vtable/itable) — na
         //    signaturen. Ouders vóór kinderen binnen één registerAll.
         this.classLayouts.registerAll(mod, modules);
+
+        // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
+        //     nabu_reflection_info-globals + @llvm.global_ctors-registratie.
+        new ReflectionInfoEmitter(ctx, mod, globalValueMap)
+                .emit(mod, this.classLayouts, modules, reflectionRegistry);
 
         // 4. Bodies
         for (var module : modules)

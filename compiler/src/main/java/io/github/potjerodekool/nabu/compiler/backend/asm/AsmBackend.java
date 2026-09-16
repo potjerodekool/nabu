@@ -62,6 +62,12 @@ public class AsmBackend implements Backend {
         } catch (final Exception e) {
             try {
                 dumpBlocks(module);
+                Files.writeString(
+                        java.nio.file.Path.of("C:/Users/evert/AppData/Local/Temp/opencode/picocli-bytecode.txt"),
+                        byteCodeToText(bytecode),
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                        java.nio.file.StandardOpenOption.WRITE);
             } catch (Exception ignored) {
             }
             throw new RuntimeException("Invalid bytecode generated: " + e.getMessage());
@@ -69,26 +75,29 @@ public class AsmBackend implements Backend {
     }
 
     private static void dumpBlocks(final IRModule module) {
+        final var sb = new StringBuilder("[IR-DUMP] MODULE " + module.name + "\n");
         for (final var fn : module.functions()) {
-            if (fn.isExternal() || !fn.name.contains("resolveExitCode")) {
+            sb.append("[IR-DUMP] FN ").append(fn.name)
+                    .append(" external=").append(fn.isExternal())
+                    .append(" constructor=").append(fn.isConstructor()).append("\n");
+            if (fn.isExternal()) {
                 continue;
             }
-            final var sb = new StringBuilder("[IR-DUMP] FN " + fn.name + "\n");
             for (final var block : fn.blocks()) {
                 sb.append("  BLOCK ").append(block.label()).append("\n");
                 for (final var ins : block.instructions()) {
                     sb.append("    ").append(ins).append("\n");
                 }
             }
-            try {
-                Files.writeString(
-                        java.nio.file.Path.of("C:/Users/evert/AppData/Local/Temp/opencode/picocli-ir-dump.txt"),
-                        sb.toString(),
-                        java.nio.file.StandardOpenOption.CREATE,
-                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
-                        java.nio.file.StandardOpenOption.WRITE);
-            } catch (Exception ignored) {
-            }
+        }
+        try {
+            Files.writeString(
+                    java.nio.file.Path.of("C:/Users/evert/AppData/Local/Temp/opencode/picocli-ir-dump.txt"),
+                    sb.toString(),
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                    java.nio.file.StandardOpenOption.WRITE);
+        } catch (Exception ignored) {
         }
     }
 

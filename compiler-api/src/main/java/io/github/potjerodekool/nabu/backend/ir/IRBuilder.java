@@ -197,11 +197,20 @@ public class IRBuilder {
                 right = emitCast(right, commonType);
             }
             operationResultType = commonType;
+        } else if (op == IRInstruction.BinaryOp.Op.ADD
+                && (isStringType(left.type()) || isStringType(right.type()))) {
+            // String-concat: het resultaat is een String (Ptr), ook als een
+            // van de operanden een primitieve waarde is (bv. count + "..*").
+            operationResultType = new IRType.Ptr(IRType.I8, "Ljava/lang/String;");
         }
 
         final var result = fresh(isComparison(op) ? IRType.BOOL : operationResultType);
         emit(new IRInstruction.BinaryOp(result, op, left, right, currentLocation));
         return result;
+    }
+
+    private static boolean isStringType(final IRType type) {
+        return type instanceof IRType.Ptr ptr && ptr.pointee() == IRType.I8;
     }
 
     // JLS 5.6.2 binary numeric promotion: als beide operanden numeriek zijn,
@@ -278,6 +287,11 @@ public class IRBuilder {
         final IRType resultType;
         if (type != null) {
             resultType = type;
+        } else if (ptr instanceof IRValue.Named named
+                && named.type() instanceof IRType.Ptr) {
+            // Referentie-veldtoegang (Named): de geladen waarde is een
+            // referentie (Ptr), niet de pointee (I8) van het veldtype.
+            resultType = named.type();
         } else if (ptr instanceof IRValue.Values values
                 && !values.values().isEmpty()
                 && values.values().getLast() instanceof IRValue.Named named

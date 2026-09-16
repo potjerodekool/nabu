@@ -409,7 +409,11 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitAnnotationInterfaceElementDeclaration(final Java20Parser.AnnotationInterfaceElementDeclarationContext ctx) {
-        final var modifiers = parseModifiers(ctx.annotationInterfaceElementModifier());
+        var modifiers = parseModifiers(ctx.annotationInterfaceElementModifier());
+
+        if (!modifiers.hasFlag(Flags.ABSTRACT)) {
+            modifiers = modifiers.with(Flags.ABSTRACT);
+        }
 
         final var returnType = (ExpressionTree) ctx.unannType().accept(this);
         final var name = (IdentifierTree) ctx.identifier().accept(this);
@@ -732,6 +736,9 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         final var arguments = new ArrayList<ExpressionTree>();
         final var typeArguments = new ArrayList<IdentifierTree>();
 
+        final var miLine = ctx.getStart() != null ? ctx.getStart().getLine() : -1;
+        final var miText = ctx.getText();
+
         for (int c = 0; c < ctx.getChildCount(); c++) {
             final var child = ctx.getChild(c);
 
@@ -762,6 +769,17 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .typeArguments(typeArguments);
 
         methodInvocationBuilder.methodSelector(expression);
+
+        if (miLine == 2335 || (miText != null && miText.contains("super.execute"))) {
+            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
+                    "C:/Users/evert/AppData/Local/Temp/opencode/parseprobe.log", true))) {
+                pw.println("[PARSEMI] line=" + miLine + " text=" + miText
+                        + " selector=" + (expression != null ? expression.getClass().getSimpleName() : "null")
+                        + " selectorStr=" + (expression != null ? expression.toString() : "null"));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
 
         return methodInvocationBuilder.build();
     }
@@ -2249,6 +2267,25 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitPrimaryNoNewArray(final Java20Parser.PrimaryNoNewArrayContext ctx) {
         final var firstChild = ctx.getChild(0);
+        final var pnnaLine = ctx.getStart() != null ? ctx.getStart().getLine() : -1;
+        final var pnnaText = ctx.getText();
+
+        if (pnnaLine == 2335 || (pnnaText != null && pnnaText.contains("super.execute"))) {
+            final var sb = new StringBuilder();
+            for (int i = 0; i < ctx.getChildCount(); i++) {
+                final var ch = ctx.getChild(i);
+                sb.append(i).append(":").append(ch.getClass().getSimpleName())
+                        .append("('").append(ch.getText()).append("') ");
+            }
+            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
+                    "C:/Users/evert/AppData/Local/Temp/opencode/parseprobe.log", true))) {
+                pw.println("[PARSENNA] line=" + pnnaLine + " text=" + pnnaText
+                        + " children=[" + sb + "]"
+                        + " pNNA=" + (ctx.pNNA() != null));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
 
         if (firstChild instanceof TerminalNode terminalNode
                 && ("this".equals(terminalNode.getText()) || "super".equals(terminalNode.getText()))) {
@@ -2256,6 +2293,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
             if (ctx.pNNA() != null) {
                 return chainPNNA(ctx.pNNA(), base);
+            }
+
+            if (ctx.getChildCount() > 1) {
+                // Alternatief: 'super' '.' identifier '(' argumentList? ')' of
+                // 'super' '.' identifier — bouw veld/methode-toegang op de base.
+                return combineSuffix(ctx, 1, base);
             }
 
             return base;
@@ -2288,13 +2331,19 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
 
 
-        ExpressionTree lastExpression = null;
+        return combineSuffix(ctx, 0, null);
+    }
+
+    private ExpressionTree combineSuffix(final Java20Parser.PrimaryNoNewArrayContext ctx,
+                                         final int startIndex,
+                                         final ExpressionTree seed) {
+        ExpressionTree lastExpression = seed;
         final var typeArguments = new ArrayList<IdentifierTree>();
         final var arguments = new ArrayList<ExpressionTree>();
         boolean isMethodCall = false;
         ExpressionTree arrayBase = null;
 
-        for (int c = 0; c < ctx.getChildCount(); c++) {
+        for (int c = startIndex; c < ctx.getChildCount(); c++) {
             final var child = ctx.getChild(c);
 
             switch (child) {
@@ -2553,6 +2602,16 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitReturnStatement(final Java20Parser.ReturnStatementContext ctx) {
         final ExpressionTree expression = accept(ctx.expression());
+        if (ctx.getStart() != null && ctx.getStart().getLine() == 2335) {
+            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
+                    "C:/Users/evert/AppData/Local/Temp/opencode/parseprobe.log", true))) {
+                pw.println("[PARSERET] line=2335 exprClass="
+                        + (expression != null ? expression.getClass().getSimpleName() : "null")
+                        + " exprStr=" + (expression != null ? expression.toString() : "null"));
+            } catch (java.io.IOException e) {
+                // ignore
+            }
+        }
         return TreeMaker.returnStatement(
                 expression,
                 ctx.getStart().getLine(),

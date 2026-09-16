@@ -40,6 +40,11 @@ public final class CallKindResolver {
 
         ElementKind kind = symbol.getKind();
 
+        // Super-aanroep (super.execute(...)) — altijd invokespecial
+        if (isSuper(invocation)) {
+            return CallKind.SPECIAL;
+        }
+
         // Statische methode
         if (symbol.isStatic()) {
             return CallKind.STATIC;

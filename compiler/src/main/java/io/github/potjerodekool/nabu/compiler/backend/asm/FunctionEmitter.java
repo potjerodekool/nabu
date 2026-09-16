@@ -890,9 +890,15 @@ public class FunctionEmitter {
     /**
      * Constructor-aanroep waarvan de receiver de al-bestaande this is
      * (super()/this() van de eigen constructor). Dan is er geen NEW nodig.
+     *
+     * Een `new X(this)`-expressie heeft WEL een HeapAlloc gepusht op
+     * pendingConstructorAllocs (en de `%this` is daar een gewoon argument,
+     * geen receiver); alleen als er géén alloc pending is, is dit een
+     * echte self()/super()-delegatie binnen de constructor.
      */
     private boolean isSelfConstructorCall(final IRInstruction.Call call) {
-        return !call.args().isEmpty()
+        return pendingConstructorAllocs.isEmpty()
+                && !call.args().isEmpty()
                 && "%this".equals(IRValue.nameOf(call.args().getFirst()));
     }
 
@@ -1103,7 +1109,7 @@ public class FunctionEmitter {
             } else {
                 mv.visitLdcInsn(constIntValue);
             }
-        } else if (type.bits() == 32) {
+        } else {
             final var intValue = Long.valueOf(constIntValue).intValue();
             switch (intValue) {
                 case -1 -> mv.visitInsn(Opcodes.ICONST_M1);
@@ -1114,15 +1120,15 @@ public class FunctionEmitter {
                 case 4 -> mv.visitInsn(Opcodes.ICONST_4);
                 case 5 -> mv.visitInsn(Opcodes.ICONST_5);
                 default -> {
-                    if (intValue >= Short.MIN_VALUE && intValue <= Short.MAX_VALUE) {
+                    if (intValue >= Byte.MIN_VALUE && intValue <= Byte.MAX_VALUE) {
+                        mv.visitIntInsn(Opcodes.BIPUSH, intValue);
+                    } else if (intValue >= Short.MIN_VALUE && intValue <= Short.MAX_VALUE) {
                         mv.visitIntInsn(Opcodes.SIPUSH, intValue);
                     } else {
-                        mv.visitIntInsn(Opcodes.BIPUSH, intValue);
+                        mv.visitLdcInsn(intValue);
                     }
                 }
             }
-        } else {
-            mv.visitLdcInsn(constIntValue);
         }
     }
 
@@ -1329,9 +1335,16 @@ public class FunctionEmitter {
         if (name.startsWith("@")) {
             name = name.substring(1);
         }
-        final var sepIndex = name.lastIndexOf('_');
-        if (sepIndex > -1) {
-            return name.substring(sepIndex + 1);
+        // Owner-informatie wordt gedragen door ownerType/global.ownerType:
+        // dan is de naam gewoon de veldnaam. Splitsen op '_' alleen voor de
+        // legacy 'owner_veldname'-codering (owner in de naam, geen ownerType).
+        final var ownerFromName = (global == null || global.ownerType() == null)
+                && named.ownerType() == null;
+        if (ownerFromName) {
+            final var sepIndex = name.lastIndexOf('_');
+            if (sepIndex > -1) {
+                return name.substring(sepIndex + 1);
+            }
         }
         return name;
     }

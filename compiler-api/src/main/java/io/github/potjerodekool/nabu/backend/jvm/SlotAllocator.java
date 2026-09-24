@@ -69,6 +69,13 @@ public final class SlotAllocator {
     }
 
     /**
+     * De genormaliseerde namen van alle toegekende slots.
+     */
+    public java.util.Set<String> slotNames() {
+        return java.util.Collections.unmodifiableSet(slots.keySet());
+    }
+
+    /**
      * Aantal gebruikte slots (inclusief categorie-2 slots die 2 nemen).
      */
     public int size() {

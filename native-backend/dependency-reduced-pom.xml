@@ -178,11 +178,11 @@
     </dependency>
   </dependencies>
   <properties>
-    <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
     <maven.compiler.source>21</maven.compiler.source>
-    <javacpp.version>1.5.13</javacpp.version>
     <maven.compiler.target>21</maven.compiler.target>
-    <javacpp.platform>windows-x86_64</javacpp.platform>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
+    <javacpp.version>1.5.13</javacpp.version>
+    <javacpp.platform>windows-x86_64</javacpp.platform>
   </properties>
 </project>

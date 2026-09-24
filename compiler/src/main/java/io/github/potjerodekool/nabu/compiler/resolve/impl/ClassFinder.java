@@ -303,7 +303,8 @@ public class ClassFinder {
                     clazz.setClassFile(file);
                 }
 
-                if (samePackage(packageSymbol, clazz.getEnclosingElement())) {
+                if (samePackage(packageSymbol, clazz.getEnclosingElement())
+                        && !className.contains("$")) {
                     members.define(clazz);
                 }
             }

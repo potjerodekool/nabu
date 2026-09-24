@@ -5,7 +5,9 @@ import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.impl.CCatchTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
+import io.github.potjerodekool.nabu.tree.statement.builder.TryStatementTreeBuilder;
 
 public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree, P>
         implements TreeVisitor<Tree, P> {
@@ -370,4 +372,39 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
         return visitUnknown(typeParameterTree, param);
     }
 
+    @Override
+    public Tree visitTryStatement(final TryStatementTree tryStatement,
+                                  final P param) {
+        final var newBody = (BlockStatementTree) accept(tryStatement.getBody(), param);
+        final var newCatchers = tryStatement.getCatchers().stream()
+                .map(it -> (CatchTree) acceptTree(it, param))
+                .toList();
+        final var newFinalizer = (BlockStatementTree) accept(tryStatement.getFinalizer(), param);
+        final var newResources = tryStatement.getResources().stream()
+                .map(it -> acceptTree(it, param))
+                .toList();
+
+        return new TryStatementTreeBuilder()
+                .body(newBody)
+                .catchers(newCatchers)
+                .finalizer(newFinalizer)
+                .resources(newResources)
+                .lineNumber(tryStatement.getLineNumber())
+                .columnNumber(tryStatement.getColumnNumber())
+                .build();
+    }
+
+    @Override
+    public Tree visitCatch(final CatchTree catchTree,
+                           final P param) {
+        final var newVariable = (VariableDeclaratorTree) accept(catchTree.getVariable(), param);
+        final var newBody = (BlockStatementTree) accept(catchTree.getBody(), param);
+
+        return new CCatchTree(
+                newVariable,
+                newBody,
+                catchTree.getLineNumber(),
+                catchTree.getColumnNumber()
+        );
+    }
 }

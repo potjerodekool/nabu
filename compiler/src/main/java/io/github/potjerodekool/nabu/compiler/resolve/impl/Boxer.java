@@ -23,12 +23,8 @@ import java.util.Map;
 
 public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
-    private static int BOX_TRACE_COUNT = 0;
     private static int BOX_DEPTH = 0;
     private static int BOX_FRAME_DEPTH = 0;
-    private static int BOX_STACK_TRACE_COUNT = 0;
-    private static int BOX_REPEAT_COUNT = 0;
-    private static final Map<String, Integer> BOX_COUNTS = new java.util.HashMap<>();
 
     private final ClassElementLoader loader;
     private final Types types;
@@ -120,21 +116,6 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
         }
 
         if (otherType.getKind().isPrimitive()) {
-            if (BOX_TRACE_COUNT < 6) {
-                BOX_TRACE_COUNT++;
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[BOX] depth=" + BOX_DEPTH
-                            + " decl=" + declaredType.asTypeElement().getQualifiedName()
-                            + " otherKind=" + otherType.getKind()
-                            + " line=" + expressionTree.getLineNumber()
-                            + " col=" + expressionTree.getColumnNumber()
-                            + " expr=" + expressionTree);
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
-
             if (BOX_DEPTH > 32) {
                 return expressionTree;
             }
@@ -169,56 +150,6 @@ public class Boxer implements TypeVisitor<ExpressionTree, ExpressionTree> {
 
         BOX_FRAME_DEPTH++;
         try {
-            final var boxKey = className + "@" + expression.getLineNumber() + ":" + expression.getColumnNumber();
-            final var boxCount = BOX_COUNTS.getOrDefault(boxKey, 0) + 1;
-            BOX_COUNTS.put(boxKey, boxCount);
-
-            if (boxCount == 3 && BOX_REPEAT_COUNT < 3) {
-                BOX_REPEAT_COUNT++;
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[BOX-REPEAT] key=" + boxKey + " count=" + boxCount
-                            + " line=" + expression.getLineNumber()
-                            + " col=" + expression.getColumnNumber());
-                    final var stack = Thread.currentThread().getStackTrace();
-                    for (int i = 0; i < stack.length && i < 40; i++) {
-                        pw.println("  " + stack[i]);
-                    }
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
-
-            if (BOX_STACK_TRACE_COUNT < 2) {
-                BOX_STACK_TRACE_COUNT++;
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    final var stack = Thread.currentThread().getStackTrace();
-                    pw.println("[BOX-STACK] className=" + className
-                            + " line=" + expression.getLineNumber()
-                            + " col=" + expression.getColumnNumber());
-                    for (int i = 0; i < stack.length && i < 30; i++) {
-                        pw.println("  " + stack[i]);
-                    }
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
-
-            if (BOX_TRACE_COUNT < 12) {
-                BOX_TRACE_COUNT++;
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[BOX-FRAME] depth=" + BOX_FRAME_DEPTH
-                            + " className=" + className
-                            + " line=" + expression.getLineNumber()
-                            + " col=" + expression.getColumnNumber()
-                            + " expr=" + expression);
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
-
             final var target = IdentifierTree.create(className);
         target.setSymbol(loader.loadClass(null, className));
 
@@ -270,7 +201,30 @@ public ExpressionTree visitPrimitiveType(final ExpressionTree expressionTree,
 
         if (expressionType instanceof DeclaredType) {
             primitiveTypeCheck(primitiveType.getKind());
-            final var methodName = unboxMethods.get(primitiveType.getKind());
+            // De unbox-methode volgt uit de DECLARERENDE wrapper van de
+            // expressie (Character.charValue, Integer.intValue, ...), niet
+            // uit het sorte uit het requested primitieve kind: een
+            // `Character`-waarde die als `int`-parameter dient (bv.
+            // `tok.commentChar(parser.atFileCommentChar())` in picocli) moet
+            // via `charValue()` unboxen — Character heeft géén intValue(),
+            // en een verkeerde methode breekt de emissie.
+            final String methodName;
+            if (expressionType instanceof DeclaredType declaredType
+                    && declaredType.asElement() instanceof TypeElement wrapperType) {
+                methodName = switch (wrapperType.getSimpleName().toString()) {
+                    case "Character" -> "charValue";
+                    case "Integer" -> "intValue";
+                    case "Long" -> "longValue";
+                    case "Short" -> "shortValue";
+                    case "Byte" -> "byteValue";
+                    case "Float" -> "floatValue";
+                    case "Double" -> "doubleValue";
+                    case "Boolean" -> "booleanValue";
+                    default -> unboxMethods.get(primitiveType.getKind());
+                };
+            } else {
+                methodName = unboxMethods.get(primitiveType.getKind());
+            }
             return unbox(expressionTree, methodName);
         } else {
             return expressionTree;

@@ -51,6 +51,7 @@ public class NamedImportScope extends ImportScope {
     @Override
     public TypeMirror resolveType(final String name) {
         return resolveByName(name)
+                .filter(it -> it instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement)
                 .map(Element::asType)
                 .orElse(null);
     }

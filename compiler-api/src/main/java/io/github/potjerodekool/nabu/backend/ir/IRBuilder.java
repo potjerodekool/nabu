@@ -143,6 +143,14 @@ public class IRBuilder {
             currentBlock = beginBlock("entry");
         }
 
+        // Java-{@code native}-methoden: geen body, dus geen entry-block.
+        // Markeer ze als extern zodat de backend een extern symbool
+        // declareert (geen body-emissie) en de call-naam via pass 2.5
+        // aan het C-symbool in nabu_runtime gekoppeld wordt.
+        if (Flags.hasFlag(flags, Flags.NATIVE)) {
+            currentFunction.markExternal();
+        }
+
         pushScope();
         for (IRValue p : params) {
             final var paramName = IRValue.nameOf(p);

@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
+import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;
@@ -100,6 +101,30 @@ public void setReflectionRegistry(
             for (IRFunction fn : module.functions())
                 functions.declareSignature(fn);
 
+        // 2.5 Laat-externe callee's: calls naar functies die in geen enkele
+        //     te-compileren module als IRFunction gedeclareerd zijn (bv.
+        //     interface-calls java.util.Iterator_hasNext). Zonder declaratie
+        //     kunnen latere stappen (vtable/itable) geen functiepointer
+        //     oplossen.
+        for (var module : modules) {
+            for (IRFunction fn : module.functions()) {
+                if (fn.isExternal()) {
+                    continue;
+                }
+                for (var block : fn.blocks()) {
+                    for (IRInstruction instr : block.instructions()) {
+                        if (instr instanceof IRInstruction.Call call
+                                && call.function() != null
+                                && !call.function().endsWith("_super")
+                                && !call.function().endsWith("_init")
+                                && !globalValueMap.containsKey("@" + call.function())) {
+                            functions.declareSignature(call);
+                        }
+                    }
+                }
+            }
+        }
+
         // 3. Objectmodel (struct-layouts + type-info + vtable/itable) — na
         //    signaturen. Ouders vóór kinderen binnen één registerAll.
         this.classLayouts.registerAll(mod, modules);
@@ -110,15 +135,20 @@ public void setReflectionRegistry(
                 .emit(mod, this.classLayouts, modules, reflectionRegistry);
 
         // 4. Bodies
-        for (var module : modules)
-            for (IRFunction fn : module.functions())
+        for (var module : modules) {
+            for (IRFunction fn : module.functions()) {
+                // Dezelfde voorstap als het ASM-backend: phi's zijn SSA-
+                // artefacten; vóór de emissie vervangen door per-
+                // predecessor Stores (anders verwijst een phi-incoming
+                // naar een temp die in een ander blok gedefinieerd is).
+                if (!fn.isExternal()) {
+                    io.github.potjerodekool.nabu.backend.ir.PhiElimination.run(fn);
+                }
                 functions.emitBody(fn);
+            }
+        }
     }
 
-    /**
-     * Declareert runtime helpers als externe functies.
-     * Gebaseerd op de gekozen GC-strategie.
-     */
     private void declareRuntimeHelpers() {
         LLVMTypeRef i8ptr = LLVMPointerTypeInContext(ctx, 0);
         LLVMTypeRef i64   = LLVMInt64TypeInContext(ctx);

@@ -60,8 +60,7 @@ public abstract class AbstractCompilerTest {
 
         final var optionBuilder = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
-                .option(CompilerOption.SOURCE_PATH, rootPath + "/src/test/resources/classes")
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods");
+                .option(CompilerOption.SOURCE_PATH, rootPath + "/src/test/resources/classes");
 
         final var classPath = getClassPath();
 

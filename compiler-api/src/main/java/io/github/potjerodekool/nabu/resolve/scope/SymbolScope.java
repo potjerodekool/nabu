@@ -29,37 +29,6 @@ public class SymbolScope implements Scope {
     public void define(final Element element) {
     }
 
-    private static final String PROBE_LOG =
-            "C:/Users/evert/AppData/Local/Temp/opencode/diag.log";
-    private static final java.util.Set<String> PROBED_NAMES = java.util.Set.of(
-            "IParseResultHandler2", "IExceptionHandler2", "AbstractHandler", "CSI", "value");
-
-    private static void probeResolve(final String method,
-                                     final String name,
-                                     final TypeElement enclosing,
-                                     final Element result) {
-        if (!PROBED_NAMES.contains(name)) {
-            return;
-        }
-        final var current = enclosing == null ? "null"
-                : enclosing.getQualifiedName() + "@" + System.identityHashCode(enclosing);
-        final var enclosed = enclosing == null ? -1
-                : enclosing.getEnclosedElements() == null ? -2
-                : enclosing.getEnclosedElements().size();
-        try (final var pw = new java.io.PrintWriter(
-                new java.io.FileWriter(PROBE_LOG, true))) {
-            pw.println("[SYMBOLSCOPE] m=" + method
-                    + " name=" + name
-                    + " enclosing=" + current
-                    + " enclosed=" + enclosed
-                    + " hit=" + (result != null ? result.getClass().getSimpleName() : "null")
-                    + " qn=" + (result instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement te ? te.getQualifiedName() : (result == null ? "null" : result.toString()))
-                    + " err=" + (result instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement te2 && te2.isError()));
-        } catch (java.io.IOException e) {
-            // ignore
-        }
-    }
-
     @Override
     public Element resolve(final String name) {
         final var symbolResolverOptional = findSymbolResolver(declaredType);
@@ -89,10 +58,6 @@ public class SymbolScope implements Scope {
             } else {
                 currentClass = null;
             }
-        }
-
-        if (currentClass == null) {
-            probeResolve("resolve", name, getCurrentClass(), null);
         }
 
         return parentScope != null ? parentScope.resolve(name) : null;
@@ -189,7 +154,6 @@ public class SymbolScope implements Scope {
                 final var found = findMemberType(ancestor, name);
 
                 if (found.isPresent()) {
-                    probeResolve("resolveType", name, enclosing, found.get());
                     return found.get().asType();
                 }
 
@@ -209,10 +173,6 @@ public class SymbolScope implements Scope {
             } else {
                 enclosing = null;
             }
-        }
-
-        if (enclosing == null) {
-            probeResolve("resolveType", name, getCurrentClass(), null);
         }
 
         return Scope.super.resolveType(name);

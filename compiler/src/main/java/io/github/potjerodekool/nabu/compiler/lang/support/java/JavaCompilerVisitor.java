@@ -736,9 +736,6 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         final var arguments = new ArrayList<ExpressionTree>();
         final var typeArguments = new ArrayList<IdentifierTree>();
 
-        final var miLine = ctx.getStart() != null ? ctx.getStart().getLine() : -1;
-        final var miText = ctx.getText();
-
         for (int c = 0; c < ctx.getChildCount(); c++) {
             final var child = ctx.getChild(c);
 
@@ -769,17 +766,6 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .typeArguments(typeArguments);
 
         methodInvocationBuilder.methodSelector(expression);
-
-        if (miLine == 2335 || (miText != null && miText.contains("super.execute"))) {
-            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
-                    "C:/Users/evert/AppData/Local/Temp/opencode/parseprobe.log", true))) {
-                pw.println("[PARSEMI] line=" + miLine + " text=" + miText
-                        + " selector=" + (expression != null ? expression.getClass().getSimpleName() : "null")
-                        + " selectorStr=" + (expression != null ? expression.toString() : "null"));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
 
         return methodInvocationBuilder.build();
     }
@@ -1953,7 +1939,20 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             value = ctx.CharacterLiteral().getText().charAt(1);
         } else if (ctx.FloatingPointLiteral() != null) {
             node = ctx.FloatingPointLiteral();
-            value = Float.parseFloat(node.getText());
+            final var text = node.getText().replace("_", "");
+
+            // JLS §3.10.2: een 'f'/'F'-suffix maakt er een float; een
+            // 'd'/'D'-suffix of het ontbreken van een suffix maakt er een
+            // double (0.5 is dus een double, niet een float).
+            final char last = text.charAt(text.length() - 1);
+
+            if (last == 'f' || last == 'F') {
+                value = Float.parseFloat(text.substring(0, text.length() - 1));
+            } else if (last == 'd' || last == 'D') {
+                value = Double.parseDouble(text.substring(0, text.length() - 1));
+            } else {
+                value = Double.parseDouble(text);
+            }
         } else {
             return null;
         }
@@ -2267,25 +2266,6 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitPrimaryNoNewArray(final Java20Parser.PrimaryNoNewArrayContext ctx) {
         final var firstChild = ctx.getChild(0);
-        final var pnnaLine = ctx.getStart() != null ? ctx.getStart().getLine() : -1;
-        final var pnnaText = ctx.getText();
-
-        if (pnnaLine == 2335 || (pnnaText != null && pnnaText.contains("super.execute"))) {
-            final var sb = new StringBuilder();
-            for (int i = 0; i < ctx.getChildCount(); i++) {
-                final var ch = ctx.getChild(i);
-                sb.append(i).append(":").append(ch.getClass().getSimpleName())
-                        .append("('").append(ch.getText()).append("') ");
-            }
-            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
-                    "C:/Users/evert/AppData/Local/Temp/opencode/parseprobe.log", true))) {
-                pw.println("[PARSENNA] line=" + pnnaLine + " text=" + pnnaText
-                        + " children=[" + sb + "]"
-                        + " pNNA=" + (ctx.pNNA() != null));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
 
         if (firstChild instanceof TerminalNode terminalNode
                 && ("this".equals(terminalNode.getText()) || "super".equals(terminalNode.getText()))) {
@@ -2602,16 +2582,6 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitReturnStatement(final Java20Parser.ReturnStatementContext ctx) {
         final ExpressionTree expression = accept(ctx.expression());
-        if (ctx.getStart() != null && ctx.getStart().getLine() == 2335) {
-            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
-                    "C:/Users/evert/AppData/Local/Temp/opencode/parseprobe.log", true))) {
-                pw.println("[PARSERET] line=2335 exprClass="
-                        + (expression != null ? expression.getClass().getSimpleName() : "null")
-                        + " exprStr=" + (expression != null ? expression.toString() : "null"));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
         return TreeMaker.returnStatement(
                 expression,
                 ctx.getStart().getLine(),

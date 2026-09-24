@@ -38,9 +38,7 @@ class PicocliVendorBatchTest {
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, "C:\\projects\\nabu\\compiler\\src\\test\\resources")
                 .option(CompilerOption.SOURCE_PATH,
-                        greetNabu + File.pathSeparator + vendorSource.toString())
-                .option(CompilerOption.MODULE_SOURCE_PATH,
-                        "C:\\projects\\nabu\\compiler\\src\\test\\resources\\jmods")
+                        greetNabu + File.pathSeparator + vendorSource)
                 .option(CompilerOption.CLASS_OUTPUT, outDir.toString())
                 .option(CompilerOption.SOURCE_OUTPUT, "C:\\projects\\incurbation\\cli-demo\\target\\probe-gen")
                 .option(CompilerOption.BACKEND, "ASM")

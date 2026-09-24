@@ -31,7 +31,6 @@ class NabuCompilerIntegrationTest {
         return new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, sourcePath)
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
                 .build();
     }
 
@@ -134,7 +133,6 @@ class NabuCompilerIntegrationTest {
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, rootPath + "/src/test/resources/classes")
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
                 .option(CompilerOption.CLASS_OUTPUT, rootPath + "/target/test-output")
                 .build();
 
@@ -162,7 +160,6 @@ class NabuCompilerIntegrationTest {
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, tempDir.toString())
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
                 .option(CompilerOption.CLASS_OUTPUT, tempDir.resolve("out").toString())
                 .build();
 
@@ -199,7 +196,6 @@ class NabuCompilerIntegrationTest {
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, tempDir.toString())
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
                 .option(CompilerOption.CLASS_OUTPUT, out.toString())
                 .build();
 

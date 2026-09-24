@@ -656,6 +656,64 @@ public class ClassLayouts {
         return null;
     }
 
+    /**
+     * Vindt (bij benadering) de layout van de DECLARERENDE klasse van een
+     * veld met de gegeven naam (+ fieldIndex wanneer >= 0), wanneer de
+     * ownerType-pointer het layout niet direct vastlegt (bv. degeneratie
+     * naar een opaque ptr bij Nabu-sources zonder geresolved klasse-type).
+     * Bij fieldIndex < 0 winnen velden met een exacte indexvspecificatie de
+     * match; anders bepaalt de fieldnaam de match.
+     */
+    public FieldOwner findField(String fieldName, int fieldIndex) {
+        FieldOwner nameOnlyMatch = null;
+        for (final Map.Entry<String, IRModule> entry : modulesByInternalName.entrySet()) {
+            final IRModule module = entry.getValue();
+            int index = 0;
+            for (final IRField field : module.fields()) {
+                if (fieldName.equals(field.name())
+                        && (fieldIndex == index)) {
+                    final ClassLayout layout = byInternalName.get(entry.getKey());
+                    if (layout != null) {
+                        return new FieldOwner(layout, index);
+                    }
+                }
+                if (nameOnlyMatch == null
+                        && fieldName.equals(field.name())
+                        && byInternalName.get(entry.getKey()) != null) {
+                    nameOnlyMatch = new FieldOwner(byInternalName.get(entry.getKey()), index);
+                }
+                index++;
+            }
+        }
+        return nameOnlyMatch;
+    }
+
+    /** De intern-namen van alle geregistreerde layouts (diagnose). */
+    public java.util.List<String> registeredNames() {
+        return new java.util.ArrayList<>(byInternalName.keySet());
+    }
+
+    /** De reg-genormaliseerde module-namen (diagnose). */
+    public java.util.List<String> registeredModules() {
+        return new java.util.ArrayList<>(modulesByInternalName.keySet());
+    }
+
+    /** Layout + de geconcreteerde veld-index van een veld-match. */
+    public record FieldOwner(ClassLayout layout, int fieldIndex) {
+    }
+
+    /**
+     * Vindt (bij benadering) de layout van de DECLARERENDE klasse van een
+     * veld met de gegeven naam + fieldIndex, wanneer de ownerType-pointer
+     * het layout niet direct vastlegt (bv. degeneratie naar een opaque ptr
+     * bij Nabu-sources zonder geresolved klasse-type). Volgorde is het
+     * batch-register zal de beste match op dezelfde fieldIndex+naam vinden.
+     */
+    public ClassLayout findLayoutForField(String fieldName, int fieldIndex) {
+        final FieldOwner owner = findField(fieldName, fieldIndex);
+        return owner != null ? owner.layout() : null;
+    }
+
     public static String normalizeInternalName(String name) {
         if (name == null) return null;
         return fromDescriptor(name);

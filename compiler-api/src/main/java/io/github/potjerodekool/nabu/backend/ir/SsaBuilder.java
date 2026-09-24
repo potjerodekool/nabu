@@ -330,8 +330,6 @@ public class SsaBuilder {
                     if (store.value() == null) {
                         // Null-waarde-store (bv. een niet opgeloste
                         // initializer): niet in de SSA-historie pushen.
-                        System.err.println("[SSA-NULL-STORE] var=" + ptrName
-                                + " loc=" + store.location());
                         continue;
                     }
                     // De opgeslagen waarde wordt de huidige SSA-versie

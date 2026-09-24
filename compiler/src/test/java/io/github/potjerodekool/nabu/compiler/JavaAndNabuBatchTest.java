@@ -55,7 +55,6 @@ class JavaAndNabuBatchTest {
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, srcDir.toString())
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
                 .option(CompilerOption.CLASS_OUTPUT, outDir.toString())
                 .option(CompilerOption.SOURCE_OUTPUT, tempDir.resolve("generated").toString())
                 .option(CompilerOption.BACKEND, "ASM")

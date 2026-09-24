@@ -43,7 +43,6 @@ public class AsmByteCodeEmitter {
 
     private final ClassWriter cw;
     private final ClassVisitor classVisitor;
-    private final StringWriter traceBuffer = new StringWriter();
     private final Map<String, IRGlobal> globalMap = new HashMap<>();
     private String ownerInternalName;
 
@@ -60,10 +59,7 @@ public class AsmByteCodeEmitter {
                 }
             }
         };
-        this.classVisitor = new TraceClassVisitor(
-                cw,
-                new PrintWriter(traceBuffer)
-        );
+        this.classVisitor = cw;
     }
 
     public IRGlobal getGlobal(final String name) {
@@ -143,6 +139,7 @@ public class AsmByteCodeEmitter {
         module.fields().forEach(this::emitField);
 
         for (final var function : module.functions()) {
+            activeReturnIRType = function.returnType;
             emitFunction(function);
         }
 
@@ -199,11 +196,6 @@ public class AsmByteCodeEmitter {
                 function.genericSignature(),
                 null
         );
-        final var methodPrinter = new org.objectweb.asm.util.Textifier();
-        methodPrinter.visitMethod(access, name, descriptor, function.genericSignature(), null);
-        final var preWrap = methodVisitor;
-        methodVisitor = new org.objectweb.asm.util.TraceMethodVisitor(methodVisitor, methodPrinter);
-        final var tracedTextifier = methodPrinter;
 
         emitAnnotations(function.annotations(), methodVisitor::visitAnnotation);
 
@@ -243,7 +235,7 @@ public class AsmByteCodeEmitter {
 
             PhiElimination.run(function);
 
-            // Vóór de emissie worden ALLE slots toegewezen (zodat er geen slots
+            // VÃ³Ã³r de emissie worden ALLE slots toegewezen (zodat er geen slots
             // meer luierg tijdens de emissie bijkomen), en elk basisblok start met
             // een proloog van dummy-stores. Hierdoor heeft elk basisblok (en elke
             // door ASM gemaakte xSTORE-split) dezelfde local-variable-count en
@@ -285,19 +277,27 @@ public class AsmByteCodeEmitter {
             }
 
             // Phi-slots worden NIET meer geskipt in de proloog: de phi-temp
-            // (na PhiElimination een Store in elke predecessor) wordt vóór de
+            // (na PhiElimination een Store in elke predecessor) wordt vÃ³Ã³r de
             // branch altijd gevolgd door een echte Store, zodat een
             // proloog-default (0/null) op ieder basisblok veilig is en de
             // exception-edge altijd een gedefinieerd frame heeft.
             // Phi-slots worden NIET meer geskipt in de proloog: de phi-temp
-            // (na PhiElimination een Store in elke predecessor) wordt vóór de
+            // (na PhiElimination een Store in elke predecessor) wordt vÃ³Ã³r de
             // branch altijd gevolgd door een echte Store, zodat een
             // proloog-default (0/null) op ieder basisblok veilig is en de
             // exception-edge altijd een gedefinieerd frame heeft.
             var blocks = pruneUnreachable(Linearizer.linearize(function.blocks()));
-            final var prologueSkipSlots = new java.util.HashSet<Integer>();
-            prologueSkipSlots.addAll(collectLiveInSlots(blocks, slots, paramSlotCount(function, isStatic), b -> true));
+            final var prologueSkipByBlock = new java.util.HashMap<IRBasicBlock, java.util.Set<Integer>>();
+            PROLOGUE_LIVE_IN_BY_BLOCK.clear();
+            for (final var block : blocks) {
+                final var liveIn = collectLiveInSlots(block, slots, paramSlotCount(function, isStatic));
+                prologueSkipByBlock.put(
+                        block,
+                        liveIn);
+                PROLOGUE_LIVE_IN_BY_BLOCK.put(block, liveIn);
+            }
             final var emitter = new FunctionEmitter(methodVisitor, this, slots, ownerInternalName, blocks);
+            activeFunctionEmitter = emitter;
 
             // TryCatchRegion-planning: per try-bereik worden de beschermde blokken
             // (bereikbaar vanuit de try-start, exclusief handler-blokken en andere
@@ -307,8 +307,41 @@ public class AsmByteCodeEmitter {
             final var runEndLabels = new HashMap<String, List<Label>>();
             planTryRegions(blocks, emitter, methodVisitor, runEndLabels);
 
+            // Elke fall-through edge in een handler-entry blok moet EXPLICIET
+            // worden: een implicite val-through (normaal, met een LEEG stack)
+            // naar het entry-label van een catch-handler resulteert in een
+            // ongeldige frame-merge (lege stack vs. de JVM-caught exception
+            // die de catch-edge pusht). ASM's COMPUTE_ALL_FRAMES loopt daar
+            // vast: NegativeArraySizeException (-1) / ArrayIndexOutOfBounds(-1)
+            // in Frame.merge/getConcreteOutputType. Oplossing: per handler-entry
+            // krijgt een body-fallback label dat nÃ¡ de 'astore exn' wordt bezet;
+            // een voorgaand blok zonder terminator springt expliciet GOTO daarin.
+            final java.util.Map<String, Label> fallBodyByHandler = new HashMap<>();
+            for (final var b : blocks) {
+                if (handlerEntrySlots.containsKey(b.label())) {
+                    fallBodyByHandler.put(b.label(),
+                            emitter.newLabelFor("fallbody[" + b.label() + "]"));
+                }
+            }
+            activeFallBodyByHandler = fallBodyByHandler;
+
             try {
+                var prevEndsWithFallthrough = false;
+                Label pendingFallBody = null;
                 for (final var block : blocks) {
+                    final var handlerSlotName = handlerEntrySlots.get(block.label());
+                    final boolean isHandler = handlerSlotName != null;
+
+                    // Expliciete sprong: een voorgaand blok zonder terminator
+                    // valt impliciet door naar de entry-label van het
+                    // volgende blok. Mag NIET met een handler-entry gebeuren:
+                    // stuur dat pad expliciet naar het body-fallback label.
+                    if (prevEndsWithFallthrough && isHandler) {
+                        methodVisitor.visitJumpInsn(Opcodes.GOTO, pendingFallBody);
+                        pendingFallBody = null;
+                    }
+                    prevEndsWithFallthrough = false;
+
                     emitter.emitBlock(block);
 
                     // Proloog: definieer alle niet-parameter slots als dummy-waarde,
@@ -318,23 +351,41 @@ public class AsmByteCodeEmitter {
                     // de exception-edge kan het blok bereiken zonder dat een
                     // normale voorganger de phi/live-in waarden heeft gezet
                     // ('Expected I, but found .' in de verifier); de handler
-                    // krijgt dan bewust defaults (0/null) — correcte frames.
-                    final var handlerSlotName = handlerEntrySlots.get(block.label());
-                    final boolean isHandler = handlerSlotName != null;
+                    // krijgt dan bewust defaults (0/null) â€” correcte frames.
+                    // [Prologue-slimming] Slots die dit blok NIET aanraakt
+                    // (naam komt nergens in de blok-instructies voor) krijgen
+                    // geen dummy-store: pure bytecode-overhead die grote picocli-
+                    // methoden boven de JVM-limiet (MethodTooLargeException)
+                    // jaagt. Voor het frame-model is dit veilig: het blok leest
+                    // of schrijft die lokale nergens; een evt. TOP-merge op dat
+                    // lokale wordt pas relevant in latere blokken, en die
+                    // definiÃ«ren het lokale zelfhandig in hun eigen proloog.
                     emitPrologue(methodVisitor, slots, slotTypes,
                             paramSlotCount(function, isStatic),
-                            isHandler ? java.util.Set.of() : prologueSkipSlots);
+                            computePrologSkip(block, slots, slotTypes, isHandler,
+                                    paramSlotCount(function, isStatic)));
 
                     // Handler-entry: de JVM duwt de exception op de stack;
                     // sla die op in het %exn.<handlerLabel>-slot dat de IR laadt,
                     // zodat de stack netjes leeg is voor de blok-instructies.
                     if (handlerSlotName != null) {
                         methodVisitor.visitVarInsn(Opcodes.ASTORE, slots.getSlot(handlerSlotName));
+                        // Body-fallback: het normale (fall-through) pad landt hier,
+                        // nÃ¡ de exception-astore, zodat de catch-edge de enige
+                        // in-edge van het entry-label blijft.
+                        methodVisitor.visitLabel(fallBodyByHandler.get(block.label()));
+                        prevEndsWithFallthrough = false;
                     }
 
                     for (final var instr : block.instructions()) {
                         emitter.emit(instr);
                     }
+
+                    // Een blok dat zonder terminator (Branch/CondBranch/Return/Throw)
+                    // eindigt valt impliciet door naar het volgende label. Vlag dit
+                    // voor het opvolgende blok; als dat een handler-entry is, wordt
+                    // de val expliciet naar het body-fallback label gemaakt.
+                    prevEndsWithFallthrough = !endsWithTerminator(block);
 
                     // Eind-labels van try-runs die in dit blok eindigen.
                     final var ends = runEndLabels.get(block.label());
@@ -350,27 +401,7 @@ public class AsmByteCodeEmitter {
                 methodVisitor.visitMaxs(-1, -1);
             } catch (final Exception e) {
                 System.err.println("[AsmByteCodeEmitter] Error in function: " + function.name);
-                System.err.println("----- ASM bytecode trace -----");
-                try {
-                    Files.writeString(
-                            Path.of("C:/Users/evert/AppData/Local/Temp/opencode/trace-fail.txt"),
-                            traceBuffer.toString(),
-                            java.nio.file.StandardOpenOption.CREATE,
-                            java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
-                            java.nio.file.StandardOpenOption.WRITE);
-                } catch (final Exception ignored) {
-                }
-                if (methodVisitor instanceof org.objectweb.asm.util.TraceMethodVisitor traceMethodVisitor) {
-                    traceMethodVisitor.p.print(new PrintWriter(System.err));
-                }
-                final var sw = new StringWriter();
-                tracedTextifier.print(new PrintWriter(sw));
-                System.err.println("----- method Textifier trace -----");
-                System.err.println(sw);
-                System.err.println("----- end method Textifier trace -----");
-                System.err.println(traceBuffer);
-                System.err.println("----- EOF trace -----");
-                blocks.forEach(AsmByteCodeEmitter::printBlock);
+                e.printStackTrace(System.err);
                 throw e;
             }
             methodVisitor.visitEnd();
@@ -505,15 +536,23 @@ public class AsmByteCodeEmitter {
         }
     }
 
-    private static void printBlock(final IRBasicBlock block) {
-        System.out.println("  Block(" + block.label() + ") [" + block.getBlockType() + "]:");
-        block.instructions().forEach(instr -> System.out.println("    " + instr));
-    }
-
     /**
      * Kent een slot toe aan een SSA-temp (en registreert het type), zodat alle
-     * slots vóór de emissie vastliggen.
+     * slots vÃ³Ã³r de emissie vastliggen.
      */
+    private static boolean isReferenceKind(final IRValue value) {
+        if (value == null || value instanceof IRValue.Temp) {
+            return false;
+        }
+        return switch (value) {
+            case IRValue.ConstNull ignored -> true;
+            case IRValue.ConstString ignored -> true;
+            case IRValue.ConstClass ignored -> true;
+            case IRValue.FunctionRef ignored -> true;
+            default -> value.type() instanceof IRType.Ptr || value.type() instanceof IRType.Array;
+        };
+    }
+
     private static void collectValue(final IRValue value,
                                      final SlotAllocator slots,
                                      final Map<Integer, IRType> slotTypes) {
@@ -570,6 +609,10 @@ public class AsmByteCodeEmitter {
             case IRInstruction.Store store -> {
                 collectValue(store.ptr(), slots, slotTypes);
                 collectValue(store.value(), slots, slotTypes);
+                if (store.ptr() instanceof IRValue.Temp temp
+                        && isReferenceKind(store.value())) {
+                    slotTypes.put(slots.slotOf(temp.name(), temp.type()), store.value().type());
+                }
             }
             case IRInstruction.HeapAlloc heapAlloc -> collectValue(heapAlloc.result(), slots, slotTypes);
             case IRInstruction.AllocaArray allocaArray -> {
@@ -631,44 +674,48 @@ public class AsmByteCodeEmitter {
     }
 
     /**
-     * Emitteert vóór de instructies van een basisblok een reeks dummy-stores voor
+     * Emitteert vÃ³Ã³r de instructies van een basisblok een reeks dummy-stores voor
      * alle niet-parameter slots. Daardoor heeft elk basisblok dezelfde
      * local-frame-opbouw, wat noodzakelijk is voor ASM's frame-berekening bij
      * exception-handlers.
      */
     /**
-     * Elders gedefinieerde slots die in een blok gelezen worden vóór de
+     * Elders gedefinieerde slots die in een blok gelezen worden vÃ³Ã³r de
      * eerste lokale schrijf: die moeten door de prolog-dummy-stores met
      * rust gelaten worden, anders gaat een loop-carried of cross-block
      * waarde verloren (bv. phi-eliminatie-temps, veld-karbeleketens).
      */
-    private static java.util.Set<Integer> collectLiveInSlots(final List<IRBasicBlock> blocks,
+    /**
+     * Bepaalt per basisblok welke slots "live-in" zijn: slots die elders
+     * gedefinieerd zijn en vÃ³Ã³r de eerste definitie in dit blok gelezen
+     * worden. Die slots moet de proloog met rust laten, anders gaat een
+     * loop-carried of cross-block waarde verloren (bv. phi-eliminatie-temps).
+     * Let op: per blok, NIET als unie over alle blokken. Een globale unie
+     * zou ook leegvallen op blokken die het slot zelf niet als live-in
+     * hebben (bv. een lege exit-blok), waardoor die blok de proloog het
+     * slot niet definieert en een fall-through de verifier-fout
+     * 'Expected ... , but found .' oplevert.
+     */
+    private static java.util.Set<Integer> collectLiveInSlots(final IRBasicBlock block,
                                                              final SlotAllocator slots,
-                                                             final int paramSlotCount,
-                                                             final java.util.function.Predicate<IRBasicBlock> blockFilter) {
+                                                             final int paramSlotCount) {
         final var liveIn = new java.util.HashSet<Integer>();
+        final var defined = new java.util.HashSet<Integer>();
+        for (int p = 0; p < paramSlotCount; p++) {
+            defined.add(p);
+        }
 
-        for (final var block : blocks) {
-            if (!blockFilter.test(block)) {
-                continue;
-            }
-            final var defined = new java.util.HashSet<Integer>();
-            for (int p = 0; p < paramSlotCount; p++) {
-                defined.add(p);
-            }
-
-            for (final var instr : block.instructions()) {
-                for (final var read : readValues(instr)) {
-                    final var slot = slotIndexOf(read, slots);
-                    if (slot >= 0 && !defined.contains(slot)) {
-                        liveIn.add(slot);
-                    }
+        for (final var instr : block.instructions()) {
+            for (final var read : readValues(instr)) {
+                final var slot = slotIndexOf(read, slots);
+                if (slot >= 0 && !defined.contains(slot)) {
+                    liveIn.add(slot);
                 }
-                for (final var write : writtenTemps(instr)) {
-                    final var slot = slotIndexOf(write, slots);
-                    if (slot >= 0) {
-                        defined.add(slot);
-                    }
+            }
+            for (final var write : writtenTemps(instr)) {
+                final var slot = slotIndexOf(write, slots);
+                if (slot >= 0) {
+                    defined.add(slot);
                 }
             }
         }
@@ -748,6 +795,47 @@ public class AsmByteCodeEmitter {
         }
         return -1;
     }
+
+    /**
+     * Bepaalt de skip-set voor de proloog van een blok:
+     * - slots die het blok nergens aanraakt (nummer NIET in de IR-tekst)
+     *   -> geen dummy-store;
+     * - niet-handler: plus de live-in slots (die dragen waarden van
+     *   de voorgangers en mogen niet overschreven worden).
+     */
+    /**
+     * [Prologue-slimming vol. 2] Normale blokken krijgen GEEN proloog-dummy-stores:
+     * het IR is SSA-getransformeerd - elke SSA-waarde wordt in een voorganger
+     * ge-STOORED (phi-eliminatie) vÃ³Ã³r dat dit blok de waarde leest, en de
+     * JVM-verifier merged de locals normaal (null/TOP-tolerant). Dit halveert de
+     * bytecode-grootte (de MethodTooLargeException bij picocli's grote
+     * registerBuiltInConverters). Handler-entry blokken behouden de VOLLEDIGE
+     * proloog: de exception-edge trÃ©kkt het blok zonder dat normale voorgangers
+     * phi/live-in waarden gezet hebben. N.B.: als een normaal blok een slot
+     * leest dat - via een iet-verwante SSA-waarde - door GEEN enkele voorganger
+     * werd gezet, vangt de verifier dat met een 'Expected I, but found.'-fout;
+     * die indicator is dan laatstedge reductie-bom van deze struik.
+     */
+    private static java.util.Set<Integer> computePrologSkip(
+            final IRBasicBlock block,
+            final SlotAllocator slots,
+            final Map<Integer, IRType> slotTypes,
+            final boolean isHandler,
+            final int paramSlotCount) {
+        final java.util.HashSet<Integer> skip = new java.util.HashSet<>();
+        if (!isHandler) {
+            // Terug naar de bewezen-veilige variant: alleen de live-in slots
+            // geskipt; alle andere slots krijgen hun proloog-default.
+            final var liveIn = PROLOGUE_LIVE_IN_BY_BLOCK.get(block);
+            if (liveIn != null) {
+                skip.addAll(liveIn);
+            }
+        }
+        return skip;
+    }
+
+    private static final Map<IRBasicBlock, java.util.Set<Integer>> PROLOGUE_LIVE_IN_BY_BLOCK =
+            new HashMap<>();
 
     private static void emitPrologue(final MethodVisitor methodVisitor,
                                      final SlotAllocator slots,
@@ -849,7 +937,54 @@ public class AsmByteCodeEmitter {
     }
 
     /**
-     * Registereert een aaneengesloten reeks beschermde blokken als exception-table
+     * Elke handler-entry's label mag UITSLUITEND via de exception-edge bereikbaar
+     * zijn; alle normale sprongen (Branch/CondBranch) die op een handler-entry
+     * label uitkomen worden naar het body-fallback label (n&aacute;&aacute; de 'astore exn')
+     * omgeleid, zodat het normale pad nooit de exception-astore raakt.
+     */
+    private java.util.Map<String, Label> activeFallBodyByHandler = new HashMap<>();
+
+    private FunctionEmitter activeFunctionEmitter;
+
+    /**
+     * De return-I Roger-type van de functie die momenteel wordt geÃ«mitteerd;
+     * gebruikt door FunctionEmitter voor de auto-boxing van een primitieve
+     * IR-waarde bij een referentie-returntype (JLS 5.1.7) - bv. picocli's
+     * CharacterConverter.convert: return van char in IR, Character als
+     * method-returntype.
+     */
+    IRType activeReturnIRType;
+
+    public Label branchTargetLabel(final String branchTargetLabel) {
+        final var fallBody = activeFallBodyByHandler.get(branchTargetLabel);
+        if (fallBody != null) {
+            return fallBody;
+        }
+        return activeFunctionEmitter.getOrCreateLabel(branchTargetLabel);
+    }
+
+    /**
+     * True Indien het laatste IR-instructie van dit blok een terminator is
+     * (Branch/CondBranch/Return/Throw). Zo niet, valt het blok impliciet
+     * door naar het opvolgende label - wat bij handler-entry blokken
+     * expliciet moet worden gemaakt (zie de comment in emitFunction).
+     */
+    private static boolean endsWithTerminator(final IRBasicBlock block) {
+        final var instructions = block.instructions();
+        if (instructions.isEmpty()) {
+            return false;
+        }
+        return switch (instructions.get(instructions.size() - 1)) {
+            case IRInstruction.Branch ignored -> true;
+            case IRInstruction.CondBranch ignored -> true;
+            case IRInstruction.Return ignored -> true;
+            case IRInstruction.Throw ignored -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Registreert een aaneengesloten reeks beschermde blokken als exception-table
      * range [start beschermd blok, end-label achter laatste beschermd blok].
      */
     private static void registerRun(final FunctionEmitter emitter,
@@ -858,7 +993,7 @@ public class AsmByteCodeEmitter {
                                     final List<String> run,
                                     final Map<String, List<Label>> runEndLabels) {
         final var startLabel = emitter.getOrCreateLabel(run.getFirst());
-        final var endLabel = new Label();
+        final var endLabel = emitter.newLabelFor("runEnd[" + run.getLast() + "]");
         final var handlerLabel = emitter.getOrCreateLabel(region.handlerLabel());
         final var exceptionType = region.exceptionType() != null
                 ? BytecodeHelper.toInternalName(region.exceptionType())

@@ -3,15 +3,14 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;
 import org.bytedeco.llvm.LLVM.*;
-
 import java.lang.ref.Reference;
 import java.util.*;
-
 import static org.bytedeco.llvm.global.LLVM.*;
 
 /**
@@ -103,6 +102,9 @@ public class FunctionEmitter {
         PointerPointer<Pointer> paramTypes = types.toPointerPointer(paramArray);
         LLVMTypeRef   fnType  = LLVMFunctionType(retType, paramTypes,
                                     fn.params.size(), 0);
+        final List<IRType> paramKey = fn.params.stream()
+                .map(IRValue::type)
+                .toList();
         LLVMValueRef  llvmFn  = LLVMAddFunction(mod,
                                     new BytePointer(fn.name), fnType);
 
@@ -118,6 +120,42 @@ public class FunctionEmitter {
             LLVMSetLinkage(llvmFn, LLVMExternalLinkage);
 
         globalValueMap.put("@" + fn.name, llvmFn);
+        // Overload-sleutel: dezelfde fn onder `<naam>#<params>` registreren
+        // (Range.min()/Range.min(int) deelden voorheen één LLVM-signature,
+        // waardoor GetParam(i) van de latere overload garbage opleverde).
+        globalValueMap.put("@" + FnKeys.fnKey(fn.name, paramKey), llvmFn);
+    }
+
+    /**
+     * Declareert een externe callee die als (ad-hoc) call in een IR-module
+     * voorkomt zonder eigen IRFunction-declaratie (bv. interface-calls
+     * java.util.Iterator_hasNext). De signatuur volgt de call-instructie.
+     */
+    public void declareSignature(IRInstruction.Call call) {
+        final String fnName = call.function();
+
+        LLVMTypeRef[] paramArray = new LLVMTypeRef[call.paramTypes().size()];
+        for (int i = 0; i < paramArray.length; i++) {
+            paramArray[i] = types.map(call.paramTypes().get(i));
+        }
+        LLVMTypeRef retType = types.map(call.returnType());
+
+        PointerPointer<Pointer> paramTypes = types.toPointerPointer(paramArray);
+        LLVMTypeRef fnType = LLVMFunctionType(retType, paramTypes,
+                paramArray.length, 0);
+        LLVMValueRef llvmFn = LLVMAddFunction(mod,
+                new BytePointer(fnName), fnType);
+
+        Reference.reachabilityFence(paramTypes);
+        Reference.reachabilityFence(paramArray);
+
+        if (llvmFn == null || llvmFn.isNull())
+            throw new IllegalStateException(
+                "LLVMAddFunction mislukt voor: " + fnName);
+
+        LLVMSetLinkage(llvmFn, LLVMExternalLinkage);
+        globalValueMap.put("@" + fnName, llvmFn);
+        globalValueMap.put("@" + FnKeys.fnKey(fnName, call.paramTypes()), llvmFn);
     }
 
     // -------------------------------------------------------
@@ -131,10 +169,17 @@ public class FunctionEmitter {
     public void emitBody(IRFunction fn) {
         if (fn.isExternal()) return;
 
-        LLVMValueRef llvmFn = globalValueMap.get("@" + fn.name);
+        final List<IRType> paramKey = fn.params.stream()
+                .map(IRValue::type)
+                .toList();
+        final var overloadKey = FnKeys.fnKey(fn.name, paramKey);
+        LLVMValueRef llvmFn = globalValueMap.get("@" + overloadKey);
+        if (llvmFn == null || llvmFn.isNull()) {
+            llvmFn = globalValueMap.get("@" + fn.name);
+        }
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
-                "Functie niet gedeclareerd: " + fn.name);
+                "Functie niet gedeclareerd: " + overloadKey);
 
         // Schone lokale staat per functie
         Map<String, LLVMValueRef> localMap = new HashMap<>();
@@ -144,9 +189,21 @@ public class FunctionEmitter {
         instructions.setFunctionEmitter(this);
 
         // Parameters koppelen
+        final int declaredParams = LLVMCountParams(llvmFn);
+        if (declaredParams != fn.params.size()) {
+            throw new IllegalStateException(
+                    "Overload-naming-collision: " + overloadKey
+                            + " declares " + declaredParams + " params, verwacht "
+                            + fn.params.size());
+        }
         for (int i = 0; i < fn.params.size(); i++) {
             LLVMValueRef param     = LLVMGetParam(llvmFn, i);
             String       paramName = IRValue.nameOf(fn.params.get(i));
+            if (param == null || param.isNull()) {
+                throw new IllegalStateException(
+                        "LLVMGetParam(" + i + ") null voor " + fn.name
+                                + " (declaredParamCount=" + declaredParams + ")");
+            }
             LLVMSetValueName2(param,
                 new BytePointer(paramName), paramName.length());
             localMap.put(paramName, param);
@@ -181,6 +238,38 @@ public class FunctionEmitter {
             }
         }
 
+        // Phi-slot allocas: SSA-phi-artefacten (`%phi...`-temps) draaien via
+        // gedeelde stackslots (wat het ASM-backend via slot-allocatie doet).
+        // Zonder een alloca kan de Store/Load op zo'n temp niet resolven.
+        Map<String, LLVMTypeRef> phiSlots = new HashMap<>();
+        for (IRBasicBlock block : fn.blocks()) {
+            for (var instr : block.instructions()) {
+                collectPhiTemps(instr, phiSlots);
+            }
+        }
+        if (!phiSlots.isEmpty()) {
+            LLVMBasicBlockRef entryBlock = blockMap.get(fn.blocks().get(0).label());
+            // Boven aan het entry-blok plaatsen (het entry kan al terminator
+            // bevatten na optimizer-reductie; post-terminator-geinstrueer brengt
+            // de LLVM-builder in native disarray).
+            LLVMValueRef firstInstr = LLVMGetFirstInstruction(entryBlock);
+            if (firstInstr != null && !firstInstr.isNull()) {
+                LLVMPositionBuilder(builder, entryBlock, firstInstr);
+            } else {
+                LLVMPositionBuilderAtEnd(builder, entryBlock);
+            }
+            for (var entry : phiSlots.entrySet()) {
+                LLVMValueRef slotPtr = LLVMBuildAlloca(
+                        builder, entry.getValue(),
+                        new BytePointer("." + entry.getKey()));
+                localMap.put(entry.getKey(), slotPtr);
+                instructions.setLocalValueMap(localMap);
+            }
+            if (firstInstr != null && !firstInstr.isNull()) {
+                LLVMPositionBuilderAtEnd(builder, entryBlock);
+            }
+        }
+
         // Personality functie instellen als er try-regio's zijn
         if (!handlerLabels.isEmpty()) {
             LLVMValueRef personality = globalValueMap.get("@__gcc_personality_v0");
@@ -206,6 +295,51 @@ public class FunctionEmitter {
                 instructions.emit(instr);
             }
         }
+    }
+
+    /** Verzamelt alle `%phi...`-temps van een instructie met hun IRType. */
+    private void collectPhiTemps(final IRInstruction instr,
+                                 final Map<String, LLVMTypeRef> into) {
+        switch (instr) {
+            case IRInstruction.Store st -> addPhiValue(st.ptr(), into);
+            case IRInstruction.Load ld -> addPhiValue(ld.ptr(), into);
+            case IRInstruction.BinaryOp op -> {
+                addPhiValue(op.left(), into);
+                addPhiValue(op.right(), into);
+            }
+            case IRInstruction.Call call -> addPhiValues(call.args(), into);
+            case IRInstruction.Cast c -> addPhiValue(c.source(), into);
+            case IRInstruction.Phi phi -> {
+                addPhiValue(phi.result(), into);
+                for (var incoming : phi.incomingValues()) {
+                    addPhiValue(incoming.value(), into);
+                }
+            }
+            case IRInstruction.Move m -> { addPhiValue(m.value(), into); }
+            case IRInstruction.Return r -> addPhiValue(r.value(), into);
+            case IRInstruction.CondBranch cb -> addPhiValue(cb.condition(), into);
+            default -> {
+            }
+        }
+    }
+
+    private void addPhiValue(final IRValue value,
+                             final Map<String, LLVMTypeRef> into) {
+        if (value == null) return;
+        if (value instanceof IRValue.Temp t
+                && t.name().startsWith("%phi")
+                && !into.containsKey(t.name())
+                && t.type() != null) {
+            LLVMTypeRef slotType = types.map(t.type() instanceof IRType.Ptr p
+                    ? p.pointee() : t.type());
+            into.put(t.name(), slotType);
+        }
+    }
+
+    private void addPhiValues(final List<? extends IRValue> values,
+                              final Map<String, LLVMTypeRef> into) {
+        if (values == null) return;
+        for (var v : values) addPhiValue(v, into);
     }
 
     /**

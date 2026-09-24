@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.backend.ir;
 import io.github.potjerodekool.nabu.backend.asm.JvmSignatureBuilder;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.BinaryOp.Op;
+import io.github.potjerodekool.nabu.backend.ir.optimize.TypeInference;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.lang.Flags;
@@ -33,9 +34,9 @@ import java.util.*;
  * Vertaalt de Nabu AST naar een IRModule.
  * <p>
  * Implementeert TreeVisitor<IRValue, IRBuilder>:
- * - R = IRValue â€” elke visit-methode geeft de IR-waarde terug
+ * - R = IRValue ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â elke visit-methode geeft de IR-waarde terug
  * die de expressie vertegenwoordigt (null voor statements)
- * - P = IRBuilder â€” de actieve builder wordt als parameter doorgegeven
+ * - P = IRBuilder ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â de actieve builder wordt als parameter doorgegeven
  * <p>
  * Gebruik:
  * var visitor = new IrGeneratingVisitor();
@@ -53,6 +54,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     // Naam van de klasse die nu verwerkt wordt (voor this-verwijzingen)
     private String currentClassName;
+
+    // TypeElement van de klasse die nu verwerkt wordt (voor outer-instance
+    // resolution: JLS Ã‚Â§8.8 synthetic outer `this$0`-keten).
+    private TypeElement currentTypeElement;
 
     // Teller voor unieke lambda-functienamen
     private int lambdaCounter = 0;
@@ -76,7 +81,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     private final Map<Element, ExpressionTree> pendingFieldInitializers = new LinkedHashMap<>();
 
     // Bronbestand van de verwerkte compilatie-eenheid (voor debuginfo van
-    // top-level Ã©n geneste klassen).
+    // top-level ÃƒÆ’Ã‚Â©n geneste klassen).
     private String currentSourceFile;
     private String currentSourcePath;
 
@@ -134,7 +139,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         String file = lastSlash >= 0 ? fileName.substring(lastSlash + 1) : fileName;
 
         // Elke top-level class krijgt een eigen IRModule.
-        // Voorheen werd de hele CU in ``n module geÃªmmit waardoor methodes en
+        // Voorheen werd de hele CU in ``n module geÃƒÆ’Ã‚Âªmmit waardoor methodes en
         // constructors van meerdere classes in de eerste class terechtkwamen.
         currentSourceFile = file;
         currentSourcePath = dir;
@@ -152,10 +157,17 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     /**
      * Bouwt een eigen IRModule voor de gegeven klasse-declaratie (top-level
-     * Ã©n genest); geneste klassen (bv. picocli's Tracer, RunLast) krijgen
+     * ÃƒÆ’Ã‚Â©n genest); geneste klassen (bv. picocli's Tracer, RunLast) krijgen
      * hiermee net als top-level classes hun eigen module en classfile.
      */
     private void emitClassModule(final ClassDeclaration cls) {
+        // State van de (eventuele) outer classe bewaren: een nested-class-emissie
+        // vervangt de visitor-module/builder-fields, en de outer-loops in
+        // visitClass draaien nÃƒÂ¡ de nested-emissie nog door in hun eigen module.
+        final var previousModule = module;
+        final var previousBuilder = builder;
+        final var previousPendingFieldInits = new LinkedHashMap<>(pendingFieldInitializers);
+
         resetClassState();
         pendingFieldInitializers.clear();
 
@@ -176,11 +188,23 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         acceptTree(cls, builder);
 
+        // Een nested-class-emissie diep in de geneste-modules-loop VERVANGT
+        // de visitor-module/builder-fields; zonder herstel verdwijnt de
+        // module van de OUTER klasse en wordt de innerlijke dubbel
+        // geregistreerd (bv. picocli's Model$CaseAwareLinkedMap vs
+        // Ã¢â‚¬Â¦$CaseAwareKeySet).
         modules.add(module);
+        module = previousModule;
+        builder = previousBuilder;
+        if (previousPendingFieldInits != null) {
+            pendingFieldInitializers.clear();
+            pendingFieldInitializers.putAll(previousPendingFieldInits);
+        }
     }
 
     private void resetClassState() {
         currentClassName = null;
+        currentTypeElement = null;
         lambdaCounter = 0;
         scope.reset();
         breakTargets.clear();
@@ -189,6 +213,151 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         labeledContinueTargets.clear();
         pendingLabels.clear();
         tryCatchRanges.clear();
+    }
+
+    /**
+     * IRNamed voor het synthetic outer-instance veld `this$0` van de
+     * class die nu verwerkt wordt (ownerType = current class).
+     */
+    private IRValue.Named syntheticOuterFieldNamed() {
+        final var currentClass = currentTypeElement;
+        if (currentClass == null) {
+            return null;
+        }
+        final var outerElement = outerOf(currentClass);
+        return new IRValue.Named(
+                "this$0",
+                TypeMirrorToIRType.map(outerElement.asType()),
+                TypeMirrorToIRType.map(currentClass.asType()),
+                false
+        );
+    }
+
+    // element-side MEMBER (lang.model.element.NestingKind), los van de
+    // tree.element.NestingKind import hierboven.
+    private static final io.github.potjerodekool.nabu.lang.model.element.NestingKind
+            elementNestingMember = io.github.potjerodekool.nabu.lang.model.element.NestingKind.MEMBER;
+
+    private TypeElement currentTypeElementOf(final io.github.potjerodekool.nabu.lang.model.element.Element classElement) {
+        if (classElement instanceof TypeElement typeElement) {
+            return typeElement;
+        }
+        return null;
+    }
+
+    /** De enclosing class van een member class, of null. */
+    private TypeElement outerOf(final TypeElement typeElement) {
+        final var enclosing = typeElement.getEnclosingElement();
+        return enclosing instanceof TypeElement outerType
+                ? outerType : null;
+    }
+
+    /**
+     * True voor een niet-statische member class zonder enclosing instance
+     * (JLS Ã‚Â§8.1.3): enumeration/records/interfaces zijn impliciet statisch.
+     */
+    private boolean needsOuterInstance(final TypeElement typeElement) {
+        if (typeElement == null
+                || typeElement.getNestingKind() != elementNestingMember
+                || typeElement.isStatic()
+                || typeElement.getKind().isInterface()
+                || typeElement.getKind() == ElementKind.ENUM
+                || typeElement.getKind() == ElementKind.ANNOTATION_TYPE
+                || typeElement.getKind() == ElementKind.RECORD) {
+            return false;
+        }
+        final var outer = outerOf(typeElement);
+        return outer != null;
+    }
+
+    /**
+     * Bool voor constructeurs van member classes: elke <init> neemt de
+     * enclosing instance als eerste parameter (JLS Ã‚Â§8.8.7).
+     */
+    private boolean isOuterInstanceCtor(final Element methodSymbolElement) {
+        if (!(methodSymbolElement instanceof ExecutableElement executableElement)) {
+            return false;
+        }
+        if (executableElement.getKind() != ElementKind.CONSTRUCTOR) {
+            return false;
+        }
+        final var declaring = executableElement.getEnclosingElement();
+        if (!(declaring instanceof TypeElement typeElement)) {
+            return false;
+        }
+        if (typeElement.getNestingKind() != elementNestingMember
+                || typeElement.isStatic()
+                || typeElement.getKind() == ElementKind.ENUM
+                || typeElement.getKind() == ElementKind.RECORD
+                || typeElement.getKind().isInterface()) {
+            return false;
+        }
+        final var outer = outerOf(typeElement);
+        return outer != null;
+    }
+
+    /**
+     * Resolueert de enclosing-instance-waarde (JLS Ã‚Â§15.9.2) voor instanties
+     * van targetClass vanuit de huidige klasse-chain: chain[0] is de
+     * huidige class (waarde = `this`); elke volgende stap laadt het
+     * synthetic veld `this$0` van de vorige class. De constructor-context
+     * heeft de raw outer-param (`this$0`) al in scope Ã¢â‚¬â€ die wordt op
+     * de eerste stap gebruikt.
+     */
+    private IRValue enclosingInstanceValue(final TypeElement targetClass) {
+        if (targetClass == null
+                || currentTypeElement == null) {
+            return null;
+        }
+
+        final var thisValue = scope.lookup("this").orElse(null);
+        if (thisValue == null) {
+            return null;
+        }
+
+        final var targetName = qualifiedNameOf(targetClass);
+        var chainClass = currentTypeElement;
+        var value = thisValue;
+        while (chainClass != null) {
+            if (qualifiedNameOf(chainClass).equals(targetName)) {
+                return value;
+            }
+            final var outer = outerOf(chainClass);
+            if (outer == null) {
+                return null;
+            }
+            // Als de chain-class niet stond voor een synthetische
+            // this$0-veldlaag volgt er geen enclosing instance meer.
+            if (chainClass != currentTypeElement
+                    && !needsOuterInstance(chainClass)) {
+                return null;
+            }
+
+            IRValue stepValue = chainClass == currentTypeElement
+                    ? scope.lookup("this$0").orElse(null)
+                    : null;
+            if (stepValue == null) {
+                stepValue = builder.emitLoad(new IRValue.Values(
+                        value,
+                        new IRValue.Named(
+                                "this$0",
+                                TypeMirrorToIRType.map(outer.asType()),
+                                TypeMirrorToIRType.map(chainClass.asType()),
+                                false
+                        )
+                ));
+            }
+            value = stepValue;
+            chainClass = outer;
+        }
+
+        return null;
+    }
+
+    private String qualifiedNameOf(final TypeElement typeElement) {
+        return typeElement.getQualifiedName() != null
+                ? typeElement.getQualifiedName()
+                : String.valueOf(typeElement.getSimpleName());
     }
 
     // -------------------------------------------------------
@@ -201,6 +370,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         currentClassName = classDeclaration.getSimpleName();
 
         final var classSymbol = classDeclaration.getClassSymbol();
+        currentTypeElement = currentTypeElementOf(classSymbol);
         if (classSymbol != null) {
             final var annotationMirrors = classSymbol.getAnnotationMirrors();
             module.setAnnotations(annotationMirrors.stream()
@@ -230,6 +400,22 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             }
         }
 
+        // JLS Ã‚Â§8.8.1: een niet-statische member class draagt een synthetic
+        // outer-instance veld `this$0` (typed als de enclosing class). De
+        // constructors van de klasse vullen het veld; qualified-this
+        // (`Ansi.this`) leest het veld.
+        if (currentTypeElement != null
+                && needsOuterInstance(currentTypeElement)) {
+            final var outerElement = outerOf(currentTypeElement);
+            final var outerType = TypeMirrorToIRType.map(outerElement.asType());
+            module.emitField(IRField.field(
+                    Flags.PRIVATE | Flags.FINAL | Flags.SYNTHETIC,
+                    "this$0",
+                    outerType,
+                    null
+            ));
+        }
+
         if (classDeclaration.getKind() == Kind.RECORD) {
             final var compactConstructorOptional = TreeFilter.constructorsIn(classDeclaration.getEnclosedElements()).stream()
                     .filter(c -> c.hasFlag(Flags.COMPACT_RECORD_CONSTRUCTOR))
@@ -249,7 +435,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         }
 
         // Velden eerst (zodat de pending-initializers geregistreerd zijn
-        // vÃ³Ã³rdat de constructor/clinit ze emitteert), daarna methoden.
+        // vÃƒÆ’Ã‚Â³ÃƒÆ’Ã‚Â³rdat de constructor/clinit ze emitteert), daarna methoden.
         for (Tree member : classDeclaration.getEnclosedElements()) {
             if (member instanceof VariableDeclaratorTree variableDeclaratorTree) {
                 acceptTree(variableDeclaratorTree, builder);
@@ -304,6 +490,23 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             final var thisTypeMirror = methodSymbol.getEnclosingElement().asType();
             final var thisDescriptor = TypeMirrorToIRType.toJvmDescriptor(thisTypeMirror);
             params.addFirst(new IRValue.Temp("%this", new IRType.Ptr(IRType.I8, thisDescriptor)));
+        }
+
+        // JLS Ã‚Â§8.8.1: een niet-statische member class neemt de enclosing
+        // instance als eerste expliciete parameter op in iedere constructor:
+        // Text(int) -> Text(Ansi, int) (vt./javac-compatibel `this$0`).
+        final IRValue outerCtorParam;
+        if (isOuterInstanceCtor(methodSymbol)) {
+            final var outerElement = outerOf(
+                    (TypeElement) methodSymbol.getEnclosingElement());
+            final var outerParam = new IRValue.Temp(
+                    "%this$0",
+                    new IRType.Ptr(IRType.I8,
+                            TypeMirrorToIRType.toJvmDescriptor(outerElement.asType())));
+            params.add(1, outerParam);
+            outerCtorParam = outerParam;
+        } else {
+            outerCtorParam = null;
         }
 
         // Functienaam: klasse + methode (JVM-stijl intern)
@@ -363,7 +566,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         }
 
         // Body. Constructors: field-initializers na de super-invoke,
-        // vÃ³Ã³r de rest van de body (JLS Â§8.3 / Â§8.8.7). <clinit> krijgt
+        // vÃƒÆ’Ã‚Â³ÃƒÆ’Ã‚Â³r de rest van de body (JLS Ãƒâ€šÃ‚Â§8.3 / Ãƒâ€šÃ‚Â§8.8.7). <clinit> krijgt
         // de static initializers.
         final boolean isCtorFunction = methodSymbol.getKind() == ElementKind.CONSTRUCTOR;
         final boolean isClinitFunction = fnName.contains("<clinit>");
@@ -378,6 +581,20 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 statementIndex = 1;
             }
 
+            // JLS Ã‚Â§8.8.7: sla de enclosing instance op in het synthetic
+            // `this$0`-veld (na de super/this-invocation, vÃƒÂ³ÃƒÂ³r de rest van
+            // de body). Een this()-delegatie geeft dezelfde outer waarde
+            // mee, dus de store is idempotent.
+            if (outerCtorParam != null) {
+                final var thisTemp = builder.currentFunction() != null
+                        && !builder.currentFunction().params.isEmpty()
+                        ? builder.currentFunction().params.getFirst() : null;
+                if (thisTemp != null) {
+                    final var fieldNamed = syntheticOuterFieldNamed();
+                    builder.emitStore(new IRValue.Values(thisTemp, fieldNamed), outerCtorParam);
+                }
+            }
+
             emitPendingFieldInitializers(isCtorFunction);
 
             for (var i = statementIndex; i < statements.size(); i++) {
@@ -387,7 +604,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             acceptTree(function.getBody(), builder);
         }
 
-        // Impliciete void-return als het blok niet beÃ«indigd is
+        // Impliciete void-return als het blok niet beÃƒÆ’Ã‚Â«indigd is
         if (!(methodSymbol.isAbstract()
                  || methodSymbol.hasFlag(Flags.NATIVE))
                         && !builder.currentBlockTerminated()) {
@@ -427,7 +644,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     /**
      * Emitteert de veld-initializers van de verwerkte klasse: in een
      * constructor de instantie-velden, in <clinit> de statische velden.
-     * GeÃ«mitteerde initializers worden verwijderd zodat een andere
+     * GeÃƒÆ’Ã‚Â«mitteerde initializers worden verwijderd zodat een andere
      * constructor (via this()-delegatie) ze niet herhaalt.
      */
     private void emitPendingFieldInitializers(final boolean forInstanceFields) {
@@ -511,23 +728,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         );
 
         ExpressionTree expr = returnStatement.getExpression();
-        if (currentClassName.contains("RunFirst")) {
-            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
-                    "C:/Users/evert/AppData/Local/Temp/opencode/callprobe.log", true))) {
-                pw.println("[RETURNPROBE] " + currentClassName
-                        + " expr=" + (expr != null ? expr.getClass().getSimpleName() : "null")
-                        + " line=" + returnStatement.getLineNumber()
-                        + " idName=" + (expr instanceof io.github.potjerodekool.nabu.tree.expression.IdentifierTree id ? id.getName() : "-")
-                        + " idType=" + (expr != null && expr.getType() != null ? expr.getType().toString() : "unset")
-                        + " full=[" + (expr != null ? expr.toString() : "null") + "]");
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
         if (expr == null) {
             if (builder.currentBlockTerminated()) {
                 // Fallback: een laat-statement (bv. lege-body lus) heeft het
-                // blok al beÃ«indigd; de return aanç»ˆç‚¹ in een volgblok.
+                // blok al beÃƒÆ’Ã‚Â«indigd; de return aanÃƒÂ§Ã‚Â»Ã‹â€ ÃƒÂ§Ã¢â‚¬Å¡Ã‚Â¹ in een volgblok.
                 final var downstream = builder.beginBlock("after.terminated");
                 builder.setCurrentBlock(downstream);
             }
@@ -535,7 +739,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         } else {
             IRValue value = acceptTree(expr, builder);
             if (builder.currentBlockTerminated()) {
-                // De waarde-evaluatie rond de return beæ¯›indigde het blok
+                // De waarde-evaluatie rond de return beÃƒÂ¦Ã‚Â¯Ã¢â‚¬Âºindigde het blok
                 // (bv. een gedede -conditie); verplaats de return naar een
                 // nieuw blok zodat de return zelf niet crasht.
                 final var downstream = builder.beginBlock("after.return");
@@ -555,6 +759,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     /**
      * Bokst een primitieve waarde in wanneer de functie een wrapper
      * (Integer/Long/Double/Float/Boolean/Character/Short/Byte) teruggeeft.
+     * Het box-type wordt afgeleid uit de wrapper-descriptor van het
+     * doeltype: in het IR zijn byte/short/char allemaal I32, dus alleen de
+     * target-descriptor (bv. CLI Character i.p.v. Integer) bepaalt welke
+     * valueOf-methode moet worden aangeroepen.
      */
     private IRValue boxIfNeeded(final IRValue value, final IRType returnType) {
         if (value == null
@@ -563,24 +771,49 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             return value;
         }
 
+        final var desc = ptr.jvmDescriptor();
         final String boxClass;
-        if (value.type() instanceof IRType.Int(int bits)) {
-            boxClass = switch (bits) {
-                case 8 -> "java.lang.Byte";
-                case 16 -> "java.lang.Short";
-                case 64 -> "java.lang.Long";
-                default -> "java.lang.Integer";
-            };
-        } else if (value.type() instanceof IRType.Float(int bits)) {
-            boxClass = bits == 32 ? "java.lang.Float" : "java.lang.Double";
-        } else if (value.type() instanceof IRType.Bool) {
-            boxClass = "java.lang.Boolean";
-        } else {
-            return value;
+        final List<IRType> expectedPrimitives;
+        switch (desc) {
+            case "Ljava/lang/Byte;" -> {
+                boxClass = "java.lang.Byte";
+                expectedPrimitives = List.of(IRType.I8, IRType.I16, IRType.I32);
+            }
+            case "Ljava/lang/Short;" -> {
+                boxClass = "java.lang.Short";
+                expectedPrimitives = List.of(IRType.I16, IRType.I32);
+            }
+            case "Ljava/lang/Integer;" -> {
+                boxClass = "java.lang.Integer";
+                expectedPrimitives = List.of(IRType.I32, IRType.I16);
+            }
+            case "Ljava/lang/Character;" -> {
+                boxClass = "java.lang.Character";
+                // char is I16 in het IR; accepteer ook I32 (bv. na promotie)
+                expectedPrimitives = List.of(IRType.I16, IRType.I32);
+            }
+            case "Ljava/lang/Long;" -> {
+                boxClass = "java.lang.Long";
+                expectedPrimitives = List.of(IRType.I64, IRType.I32);
+            }
+            case "Ljava/lang/Float;" -> {
+                boxClass = "java.lang.Float";
+                expectedPrimitives = List.of(IRType.F32, IRType.I32, IRType.I16, IRType.I8);
+            }
+            case "Ljava/lang/Double;" -> {
+                boxClass = "java.lang.Double";
+                expectedPrimitives = List.of(IRType.F64, IRType.F32, IRType.I64, IRType.I32);
+            }
+            case "Ljava/lang/Boolean;" -> {
+                boxClass = "java.lang.Boolean";
+                expectedPrimitives = List.of(IRType.BOOL, IRType.I32, IRType.I16, IRType.I8);
+            }
+            default -> {
+                return value;
+            }
         }
 
-        final var expectedDescriptor = "L" + boxClass.replace('.', '/') + ";";
-        if (!expectedDescriptor.equals(ptr.jvmDescriptor())) {
+        if (!expectedPrimitives.contains(value.type())) {
             return value;
         }
 
@@ -591,6 +824,161 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 List.of(value.type()),
                 List.of(value)
         );
+    }
+
+    /**
+     * Past het argument aan op het gedeclareerde parametertype van de
+     * aangeroepen methode: passeert het onveranderd bij een primitieve
+     * parameter, en bokst een primitief argument (JLS 5.1.7) wanneer de
+     * parameter een referentietype is ("java.lang.Object" bijv. via
+     * Map.put(Object,Object)).
+     */
+    private IRValue boxArgIfNeeded(final IRValue value,
+                                   final TypeMirror argTypeMirror,
+                                   final TypeMirror paramType) {
+        if (value == null
+                || paramType == null
+                || paramType.getKind() == TypeKind.VOID
+                || paramType.getKind() == TypeKind.NULL) {
+            return value;
+        }
+
+        // JLS 5.1.8 (unboxing conversion): verwacht de parameter een
+        // PRIMITIEF type terwijl de waarde een wrapper is (bv.
+        // `tok.commentChar(Character)` -> `commentChar(int)`), dan moet de
+        // wrapper worden geunboxt; anders blijft de Ptr op de stack staan en
+        // mist de verifier het int-argument ("Cannot pop operand off an
+        // empty stack" bij StreamTokenizer.commentChar).
+        if (paramType.getKind().isPrimitive()) {
+            final IRType mapped = TypeMirrorToIRType.map(paramType);
+            IRValue widened = unboxIfNeeded(value, mapped);
+            // JLS 5.3 (method invocation conversion): primitieve verbreding.
+            // `Thread.sleep(25)` levert een int-constante maar de parameter
+            // is long; zonder I2L breekt de verifier ("expected J, but
+            // found I"). Idem float->double.
+            if (isWideningNeeded(widened.type(), mapped)) {
+                return builder.emitCast(widened, mapped);
+            }
+            return widened;
+        }
+
+        // Alleen boksen wanneer het argument momenteel een primitieve
+        // waarde is en de parameter een referentie verwacht.
+        if (value.type() instanceof IRType.Int(int bits)) {
+            final String boxClass = argTypeMirror != null
+                    && argTypeMirror.getKind() == TypeKind.CHAR
+                    ? "java.lang.Character"
+                    : boxClassForBits(bits);
+            final var boxDesc = "L" + boxClass.replace('.', '/') + ";";
+            return builder.emitCall(
+                    CallKind.STATIC,
+                    boxClass.replace('.', '_') + "_valueOf",
+                    new IRType.Ptr(IRType.I8, boxDesc),
+                    List.of(value.type()),
+                    List.of(value)
+            );
+        }
+
+        if (value.type() instanceof IRType.Float(int bits)) {
+            final String boxClass = bits == 32
+                    ? "java.lang.Float"
+                    : "java.lang.Double";
+            final var boxDesc = "L" + boxClass.replace('.', '/') + ";";
+            return builder.emitCall(
+                    CallKind.STATIC,
+                    boxClass.replace('.', '_') + "_valueOf",
+                    new IRType.Ptr(IRType.I8, boxDesc),
+                    List.of(value.type()),
+                    List.of(value)
+            );
+        }
+
+        if (value.type() instanceof IRType.Bool) {
+            final var boxDesc = "Ljava/lang/Boolean;";
+            return builder.emitCall(
+                    CallKind.STATIC,
+                    "java.lang.Boolean_valueOf",
+                    new IRType.Ptr(IRType.I8, boxDesc),
+                    List.of(IRType.BOOL),
+                    List.of(value)
+            );
+        }
+
+        return value;
+    }
+
+    /**
+     * Boxing op basis van het IR-type: de erasure-fallback wanneer de
+     * gesubstitueerde parameter onterecht primitief rapporteert maar de
+     * geÃƒÂ©mitteerde descriptor een referentie (Object) is.
+     */
+    private IRValue boxFromIRType(final IRValue value) {
+        final String boxClass;
+        final String boxMethodName;
+        final IRType argType;
+        if (value.type() instanceof IRType.Int(int bits)) {
+            boxClass = boxClassForBits(bits);
+            boxMethodName = boxClass.replace('.', '_') + "_valueOf";
+            argType = value.type();
+        } else if (value.type() instanceof IRType.Float(int bits)) {
+            boxClass = bits == 64 ? "java.lang.Double" : "java.lang.Float";
+            boxMethodName = boxClass.replace('.', '_') + "_valueOf";
+            argType = value.type();
+        } else if (value.type() instanceof IRType.Bool) {
+            boxClass = "java.lang.Boolean";
+            boxMethodName = "java.lang.Boolean_valueOf";
+            argType = IRType.BOOL;
+        } else {
+            return value;
+        }
+        return builder.emitCall(
+                CallKind.STATIC,
+                boxMethodName,
+                new IRType.Ptr(IRType.I8, "L" + boxClass.replace('.', '/') + ";"),
+                List.of(argType),
+                List.of(value)
+        );
+    }
+
+    private String boxClassForBits(final int bits) {
+        return switch (bits) {
+            case 8 -> "java.lang.Byte";
+            case 16 -> "java.lang.Short";
+            case 64 -> "java.lang.Long";
+            default -> "java.lang.Integer";
+        };
+    }
+
+    private boolean isWideningNeeded(final IRType valueType,
+                                     final IRType paramType) {
+        // JLS 5.3: primitieve verbreding. byte→short→int→long→float→double.
+        if (valueType instanceof IRType.Int valueInt
+                && paramType instanceof IRType.Int paramInt) {
+            return valueInt.bits() == 32 && paramInt.bits() == 64;
+        }
+        if (valueType instanceof IRType.Float valueFloat
+                && paramType instanceof IRType.Float paramFloat) {
+            return valueFloat.bits() == 32 && paramFloat.bits() == 64;
+        }
+        // int → float/double (int-constante 0 naar double-parameter).
+        if (valueType instanceof IRType.Int
+                && paramType instanceof IRType.Float) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isPrimitiveWidening(final IRType valueType,
+                                        final IRType targetType) {
+        if (!(valueType instanceof IRType.Int)
+                && !(valueType instanceof IRType.Float)) {
+            return false;
+        }
+        if (!(targetType instanceof IRType.Int)
+                && !(targetType instanceof IRType.Float)) {
+            return false;
+        }
+        return isWideningNeeded(valueType, targetType);
     }
 
     @Override
@@ -630,6 +1018,17 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 // (bv. `int exitCode = (Integer) obj;`)
                 if (initValue != null) {
                     initValue = unboxIfNeeded(initValue, irType);
+                }
+                if (initValue != null
+                        && isPrimitiveWidening(initValue.type(), irType)) {
+                    // JLS 5.2 assignment-conversion: `double result = 0;`
+                    // moet de int-constante naar double verbreden (anders
+                    // wordt de phi-incoming een ISTORE op een double-slot en
+                    // faalt de frame-merge bij de loop-back).
+                    initValue = builder.emitCast(initValue, irType);
+                }
+                if (initValue != null) {
+                    initValue = boxIfNeeded(initValue, irType);
                 }
                 if (initValue != null) {
                     builder.emitStore(ptr, initValue);
@@ -704,7 +1103,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 ifStatement.getColumnNumber()
         );
 
-        // Sla het huidige blok op vÃ³Ã³r beginBlock de cursor verplaatst
+        // Sla het huidige blok op vÃƒÆ’Ã‚Â³ÃƒÆ’Ã‚Â³r beginBlock de cursor verplaatst
         IRBasicBlock entryBlk = builder.currentBlock();
 
         IRBasicBlock thenBlk = builder.beginBlock("if.then");
@@ -881,7 +1280,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             IRValue cond = acceptTree(forStatement.getCondition(), builder);
             builder.emitCondBranch(cond, bodyBlk.label(), exitBlk.label());
         } else {
-            // for (;;) â€” oneindige lus
+            // for (;;) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â oneindige lus
             builder.emitBranch(bodyBlk);
         }
 
@@ -962,13 +1361,12 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         Op op = TagToIROp.map(tag);
 
         if (left == null || right == null) {
-            System.err.println("[BIN-OP-NULL] operand niet emitteerbaar: " + binaryExpr.getLeft() + " " + tag + " " + binaryExpr.getRight());
             return left != null ? left : right;
         }
 
         // Auto-unboxing: een wrapper-referentie (Integer/Long/...) tegen
         // een primitieve operand (int/float/bool) wordt tooth's
-        // primitieve vorm gezet â€” anders volgt de emitter een
+        // primitieve vorm gezet ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â anders volgt de emitter een
         // String-concat of een verifieerder-fout bij compare-opcodes.
         right = unboxIfNeeded(right, left.type());
         left = unboxIfNeeded(left, right.type());
@@ -1026,7 +1424,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         String name = identifier.getName();
 
-        // this / super â€” geef de this-parameter terug
+        // this / super ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â geef de this-parameter terug
         if ("this".equals(name) || "super".equals(name)) {
             var local = scope.lookup("this");
             if (local.isPresent()) {
@@ -1063,23 +1461,49 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             ElementKind kind = symbol.getKind();
 
             if (kind.isField()) {
-                // Statisch veld â€” resolveField produceert een Named(isStatic):
+                // Statisch veld ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â resolveField produceert een Named(isStatic):
                 // de backend resolveert dit als GETSTATIC (werkt cross-module;
                 // de oude global-lookup faalde voor velden in andere
                 // batch-modules).
                 if (symbol.isStatic()) {
                     return builder.emitLoad(resolveField(symbol));
                 }
-                // Instantieveld â€” laad via this
+                // Instantieveld ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â laad via this
                 IRValue thisVal = scope.lookup("this").orElse(null);
                 if (thisVal != null) {
                     return builder.emitLoad(emitFieldLoad(thisVal, symbol));
                 }
             }
 
-            // Klasse-naam of type-referentie â€” geen directe waarde
+            // Klasse-naam of type-referentie: een identifier die exact een
+            // enclosing class van de huidige class benoemt is een qualified
+            // this (`Ansi.this`, JLS Ã‚Â§15.8.4 Ã¢â‚¬â€ de `.this`-suffix is bij het
+            // parsen verstopt in de identifier) en moet de enclosing
+            // instance als waarde opleveren. Andere class-referenties
+            // leveren geen waarde op.
             if (kind.isDeclaredType()) {
+                if (symbol instanceof TypeElement identifierClass
+                        && currentTypeElement != null
+                        && !qualifiedNameOf(identifierClass)
+                                .equals(qualifiedNameOf(currentTypeElement))) {
+                    final var outerValue = enclosingInstanceValue(identifierClass);
+                    if (outerValue != null) {
+                        return outerValue;
+                    }
+                }
                 return null;
+            }
+        } else {
+            // Zonder symbol: het class-beeld van een qualified this is via
+            // het TYPE van de identifier te bepalen (Ansi.this Ã¢â€ â€™ class Ansi).
+            if (identifier.getType() instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredType
+                    && currentTypeElement != null
+                    && !qualifiedNameOf(declaredType.asTypeElement())
+                            .equals(qualifiedNameOf(currentTypeElement))) {
+                final var outerValue = enclosingInstanceValue(declaredType.asTypeElement());
+                if (outerValue != null) {
+                    return outerValue;
+                }
             }
         }
 
@@ -1129,18 +1553,55 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             IRValue globalPtr = builder.lookup(globalName);
 
             return builder.emitLoad(TypeMirrorToIRType.map(field.getSymbol().asType()), globalPtr);
-        } else if (fieldSymbol == null) {
+        }
+
+        // Qualified-this (`Ansi.this`): het "veld" is een class-referentie,
+        // geen VariableElement. De waarde is de enclosing instance van de
+        // geselecteerde class (JLS Ã‚Â§15.8.4) Ã¢â‚¬â€ via de synthetic `this$0`-
+        // keten van de huidige klasse.
+        if ("this".equals(field.getName())
+                && !(fieldSymbol instanceof VariableElement)
+                && selected != null) {
+            TypeElement targetClass = null;
+            if (fieldSymbol instanceof TypeElement fieldClass) {
+                targetClass = fieldClass;
+            } else {
+                final var selectedElement = (selected instanceof CIdentifierTree selectedId)
+                        ? selectedId.getSymbol() : null;
+                if (selectedElement instanceof TypeElement selectedTypeElement) {
+                    targetClass = selectedTypeElement;
+                } else if (fieldAccess.getType() instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredType) {
+                    final var typeElement = declaredType.asTypeElement();
+                    if (typeElement != null) {
+                        targetClass = typeElement;
+                    }
+                }
+            }
+            if (targetClass != null) {
+                // `this` van de zelfde class: gewone this
+                if (qualifiedNameOf(targetClass).equals(qualifiedNameOf(currentTypeElement))) {
+                    return scope.lookup("this").orElse(null);
+                }
+                final var outerValue = enclosingInstanceValue(targetClass);
+                if (outerValue != null) {
+                    return outerValue;
+                }
+                return null;
+            }
+        }
+
+        if (fieldSymbol == null) {
             final var selectedType = selected != null ? selected.getType() : null;
 
-            if ("length".equals(field.getName()) && isArrayType(selectedType)) {
-                IRValue obj = acceptTree(selected, builder);
-                return obj != null ? builder.emitArrayLength(obj) : null;
-            }
-
             if ("length".equals(field.getName())
-                    && selectedType == null
-                    && fieldAccess.getType() != null
-                    && fieldAccess.getType().getKind() == io.github.potjerodekool.nabu.type.TypeKind.INT) {
+                    && (isArrayType(selectedType)
+                            || fieldAccess.getType() != null
+                            && fieldAccess.getType().getKind() == io.github.potjerodekool.nabu.type.TypeKind.INT)) {
+                // Bij een .length-notatie op een (heid) array-access kan het
+                // geselecteerde type door de resolver de array-elementen
+                // substitueren (cells[col] -> Text i.p.v. Text[]); het fasetype
+                // (INT) is dan de enige betrouwbare hint. Het geselecteerde is
+                // in elk geval een array-referentie.
                 IRValue obj = acceptTree(selected, builder);
                 return obj != null ? builder.emitArrayLength(obj) : null;
             }
@@ -1165,7 +1626,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     @Override
     public IRValue visitMethodInvocation(MethodInvocationTree invocation,
-                                         IRBuilder param) {
+IRBuilder param) {
         builder.setLocation(
                 currentClassName + ".nabu",
                 invocation.getLineNumber(),
@@ -1174,23 +1635,12 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         ExecutableType methodType = invocation.getMethodType();
         if (methodType == null) {
-            if (currentClassName.contains("RunFirst")) {
-                try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
-                        "C:/Users/evert/AppData/Local/Temp/opencode/callprobe.log", true))) {
-                    final var sel = invocation.getMethodSelector();
-                    pw.println("[CALLPROBE] " + currentClassName + " methodType=null selector="
-                            + (sel != null ? sel.getClass().getSimpleName() : "null")
-                            + " line=" + invocation.getLineNumber());
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
             return null;
         }
 
         // De descriptor van een aanroep moet gebaseerd zijn op de
-        // verwijderde (erased) declaratietypes van de methode â€” niet op de
-        // gesubstitueerde types van deze aanroep (JLS Â§4.6 / JVMS Â§4.3).
+        // verwijderde (erased) declaratietypes van de methode ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â niet op de
+        // gesubstitueerde types van deze aanroep (JLS Ãƒâ€šÃ‚Â§4.6 / JVMS Ãƒâ€šÃ‚Â§4.3).
         final IRType returnType = TypeMirrorToIRType.mapReturnType(
                 methodType.getMethodSymbol().getReturnType());
 
@@ -1206,22 +1656,27 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         final var owner = invocation.getMethodType().getMethodSymbol()
                 .getEnclosingElement();
 
+        // Constructor-delegatie (`this(...)`): de callee is de eigen
+        // <init>; de IR-functienaam is `..._init` (de <init>-emaar).
+        if ("this".equals(methodName)
+                && methodType.getMethodSymbol() != null
+                && methodType.getMethodSymbol().getKind() == ElementKind.CONSTRUCTOR) {
+            methodName = "init";
+        }
+
         // Argumenten verwerken
         List<IRValue> args = new ArrayList<>();
 
-        if (System.getProperty("nabu.probe.newclass") != null
-                && !invocation.getArguments().isEmpty()) {
-            System.err.println("[CALL] method=" + methodName
-                    + " ownerSimple=" + (invocation.getMethodType().getMethodSymbol().getEnclosingElement().getSimpleName())
-                    + " paramTypes=" + methodType.getMethodSymbol().getParameters().stream()
-                    .map(p -> String.valueOf(p.asType()))
-                    .toList());
-        }
-
         // Voor instantie-aanroepen: voeg 'this' toe als eerste argument
         if (callKind != CallKind.STATIC && target != null) {
-            IRValue receiver = acceptTree(target, builder);
-            if (receiver != null) args.add(receiver);
+            if (CallKindResolver.isSuper(invocation)) {
+                // Super-aanroep: de receiver is 'this' (het super-identifi-
+                // fier heeft zelf geen waarde).
+                scope.lookup("this").ifPresent(args::add);
+            } else {
+                IRValue receiver = acceptTree(target, builder);
+                if (receiver != null) args.add(receiver);
+            }
         } else if (callKind != CallKind.STATIC) {
             // Impliciete this
             scope.lookup("this").ifPresent(args::add);
@@ -1231,18 +1686,84 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             ExpressionTree arg = invocation.getArguments().get(i);
             IRValue argVal = acceptTree(arg, builder);
 
-            if (argVal instanceof IRValue.FunctionRef fnRef
-                    && i < methodType.getParameterTypes().size()) {
-                final var paramType = methodType.getParameterTypes().get(i);
-                if (paramType instanceof io.github.potjerodekool.nabu.type.DeclaredType dt) {
-                    final var classElement = (TypeElement) dt.asElement();
-                    if (classElement.isFunctionalInterface()) {
-                        argVal = wrapWithSamConversion(fnRef, classElement, dt);
+if (argVal instanceof IRValue.FunctionRef fnRef
+                        && i < methodType.getParameterTypes().size()) {
+                    final var paramType = methodType.getParameterTypes().get(i);
+                    if (paramType instanceof io.github.potjerodekool.nabu.type.DeclaredType dt) {
+                        final var classElement = (TypeElement) dt.asElement();
+                        if (classElement.isFunctionalInterface()) {
+                            argVal = wrapWithSamConversion(fnRef, classElement, dt);
+                        }
                     }
                 }
-            }
 
-            if (argVal != null) args.add(argVal);
+if (argVal != null
+                        && i < methodType.getParameterTypes().size()) {
+                    argVal = boxArgIfNeeded(
+                            argVal,
+                            arg.getType(),
+                            methodType.getParameterTypes().get(i)
+                    );
+                }
+
+                // Erasure-fallback: de daadwerkelijk geÃƒÂ©mitteerde descriptor
+                // gebruikt de erased declaratietypes (paramTypes). Wanneer een
+                // generische methode (bv. ISetter.set(T)) een gesubstitueerde
+                // PRIMITIEVE parameter type aangeleverd krijgt terwijl de
+                // erasure een referentie is (Object), moet het argument alsnog
+                // geboxed worden, anders breekt de verifier.
+                if (argVal != null
+                        && i < paramTypes.size()
+                        && paramTypes.get(i) instanceof IRType.Ptr
+                        && !(argVal.type() instanceof IRType.Ptr)
+                        && !(argVal.type() instanceof IRType.Void)) {
+                    argVal = boxFromIRType(argVal);
+                }
+
+if (argVal != null) args.add(argVal);
+        }
+
+        // JLS Ã‚Â§8.8.7: een constructor-aanroep van een niet-statische member
+        // class levert de enclosing instance als eerste callee-argument
+        // (na de receiver). Super/this in Object-superclasses valt buiten
+        // deze regel (die classes zijn static/toplevel).
+        if (callKind == CallKind.SPECIAL
+                && isOuterInstanceCtor(invocation.getMethodType().getMethodSymbol())) {
+            final var calleeClass = (TypeElement) owner;
+            final var outerElement = outerOf(calleeClass);
+            final var outerType = TypeMirrorToIRType.map(outerElement.asType());
+            // De callee-outer-slot verlangt een instantie van de class die
+            // de callee omgeeft (= outerOf(callee)).
+            final var outerValue = enclosingInstanceValue(outerElement);
+            final IRValue outerVal = outerValue != null
+                    ? outerValue
+                    : new IRValue.ConstNull(new IRType.Ptr(IRType.I8,
+                            TypeMirrorToIRType.toJvmDescriptor(outerElement.asType())));
+            // Receiver zit op args[0] (impliciete this); daarna outer.
+            final int insertIndex = Math.min(1, args.size());
+            args.add(insertIndex, outerVal);
+            paramTypes = new ArrayList<>(paramTypes);
+            paramTypes.add(0, outerType);
+        }
+
+        // Lower-Boxer-fix: een resolution-level `.doubleValue()`/etc.-unbox
+        // op een receiver-tree die (na phi/minerale promotie) een
+        // PRIMITIEF IR-type wijst is geen wrapper-unbox maar een
+        // numerieke conversie Ã¢â‚¬â€ emitteer de cast, niet een
+        // INVOKEVIRTUAL op een primitieve stackwaarde (verifier-breach).
+        if (callKind == CallKind.VIRTUAL
+                && args.size() == 1
+                && isNumericUnboxMethod(methodName)
+                && owner != null
+                && String.valueOf(owner.getSimpleName()).contentEquals(wrapperForUnbox(methodName))) {
+            final var receiver = args.get(0);
+            final IRType desired = unboxPrimitiveType(methodName);
+            if (receiver != null
+                    && (receiver.type() instanceof IRType.Int
+                    || receiver.type() instanceof IRType.Float
+                    || receiver.type() instanceof IRType.Bool)) {
+                return builder.emitCast(receiver, desired);
+            }
         }
 
         // Volledig gekwalificeerde naam
@@ -1255,7 +1776,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             case STATIC, VIRTUAL, INTERFACE ->
                     builder.emitCall(callKind, fullName, returnType, paramTypes, args);
             case SPECIAL ->
-                // Constructor of super â€” gebruik ook emitCall
+                // Constructor of super ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â gebruik ook emitCall
                     builder.emitCall(callKind, fullName, returnType, paramTypes, args);
         };
 
@@ -1301,7 +1822,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         );
 
         // Klassetype: liever het resolver-type van de hele expressie (dan)
-        // dan het naam-symbool â€” de naam-tree kan zonder type blijven
+        // dan het naam-symbool ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â de naam-tree kan zonder type blijven
         // (descriptor-loze Ptr), wat door de backends als String/omlauf
         // geresolved raakt.
         TypeMirror classMirror = newClass.getType();
@@ -1328,31 +1849,68 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         }
         */
 
+        // JLS Ã‚Â§15.9: qualified instance creation (`ansi.new Text(...)`) Ã¢â‚¬â€
+        // de geselecteerde expressie is de enclosing instance.
+        IRValue qualifiedOuterValue = null;
+        if (newClass.getName() instanceof FieldAccessExpressionTree fieldNameAccess) {
+            qualifiedOuterValue = acceptTree(fieldNameAccess.getSelected(), builder);
+        }
+
         for (ExpressionTree arg : newClass.getArguments()) {
             IRValue argVal = acceptTree(arg, builder);
             if (argVal != null) args.add(argVal);
+        }
+
+        // JLS Ã‚Â§8.8.7: instantie-creatie van een niet-statische member class
+        // levert de enclosing instance als eerste callee-argument. Bij een
+        // qualified new is dat de geselecteerde expressie; anders wordt de
+        // enclosing instance uit de huidige klasse-chain geladen.
+        TypeElement targetClassElement = null;
+        if (classMirror instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredType) {
+            targetClassElement = declaredType.asTypeElement();
+        }
+        if (targetClassElement != null
+                && needsOuterInstance(targetClassElement)) {
+            final var outerElement = outerOf(targetClassElement);
+            final var outerType = TypeMirrorToIRType.map(outerElement.asType());
+            // De callee-outer-slot verlangt een instantie van de class die
+            // de target omgeeft; een qualified new geeft die expliciet.
+            final IRValue outerValue = qualifiedOuterValue != null
+                    ? qualifiedOuterValue
+                    : enclosingInstanceValue(outerElement);
+            args.add(0, outerValue != null
+                    ? outerValue
+                    : new IRValue.ConstNull(outerType));
         }
 
         final var paramTypes = args.stream()
                 .map(IRValue::type)
                 .toList();
 
-        // JLS Â§4.6: de MethodRef-descriptor van een constructor-aanroep
+        // JLS Ãƒâ€šÃ‚Â§4.6: de MethodRef-descriptor van een constructor-aanroep
         // volgt de DECLARATIE-parameters (na type-erasure), niet de
         // concreetere aanroepwaarden. Anders verifieert de JVM de aanroep
-        // niet (NoSuchMethodError op run-time).
-        final var declaredParamTypes = resolveDeclaredCtorParamTypes(classMirror, paramTypes);
-        final IRType[] effectiveParamTypes = declaredParamTypes != null
-                ? declaredParamTypes.toArray(IRType[]::new)
-                : paramTypes.toArray(IRType[]::new);
-
-        if (System.getProperty("nabu.probe.newclass") != null) {
-            System.err.println("[NEW-CLASS] cls=" + className
-                    + " loc=" + newClass.getLineNumber()
-                    + " mirror=" + classMirror
-                    + " exprType=" + newClass.getType()
-                    + " nameType=" + (newClass.getName() != null ? newClass.getName().getType() : null)
-                    + " argTypes=" + paramTypes);
+        // niet (NoSuchMethodError op run-time). De DECLARATIE bevat de
+        // synthetic outer-parameters niet, dus de match lopen met de
+        // arguments zonder die outer-slot.
+        final boolean outerPrepended = targetClassElement != null
+                && needsOuterInstance(targetClassElement);
+        final var declaredParamTypes = resolveDeclaredCtorParamTypes(
+                classMirror,
+                outerPrepended ? args.size() - 1 : args.size(),
+                outerPrepended ? paramTypes.subList(1, paramTypes.size()) : paramTypes);
+        final IRType[] effectiveParamTypes;
+        if (declaredParamTypes != null) {
+            if (outerPrepended) {
+                final var merged = new ArrayList<IRType>();
+                merged.add(paramTypes.getFirst());
+                merged.addAll(declaredParamTypes);
+                effectiveParamTypes = merged.toArray(IRType[]::new);
+            } else {
+                effectiveParamTypes = declaredParamTypes.toArray(IRType[]::new);
+            }
+        } else {
+            effectiveParamTypes = paramTypes.toArray(IRType[]::new);
         }
 
         builder.emitCall(CallKind.SPECIAL, initName, IRType.VOID, Arrays.asList(effectiveParamTypes), args);
@@ -1496,9 +2054,30 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRValue array = acceptTree(arrayAccess.getExpression(), builder);
         IRValue index = acceptTree(arrayAccess.getIndex(), builder);
 
-        if (array != null && array.type() instanceof IRType.Ptr ptrType) {
-            IRType elemType = ptrType.pointee();
-            return builder.emitArrayLoad(array, index, elemType);
+        if (array != null) {
+            // Het elementtype komt bij voorkeur uit het statische type van de
+            // array-access-expressie. Voor geneste arrays (Text[][]) is de
+            // pointee van het IR-type namelijk een generieke I8 in plaats van
+            // het werkelijke elementtype (Text). In dat laatste geval wordt
+            // het componenttype van de array-expressie gebruikt, en als
+            // fallback een opaque Ptr (de JVM ziet elk referentie-array-
+            // element als een objectreferentie, nooit als kale I8).
+            IRType elemType = arrayAccess.getType() != null
+                    ? TypeMirrorToIRType.map(arrayAccess.getType())
+                    : null;
+            if (elemType == null && arrayAccess.getExpression().getType() instanceof io.github.potjerodekool.nabu.type.ArrayType arrType) {
+                elemType = TypeMirrorToIRType.map(arrType.getComponentType());
+            }
+            if (elemType == null && array.type() instanceof IRType.Ptr ptrType
+                    && ptrType.pointee() instanceof IRType.Ptr) {
+                elemType = ptrType.pointee();
+            }
+            if (elemType == null) {
+                elemType = new IRType.Ptr(IRType.I8);
+            }
+            if (elemType != null) {
+                return builder.emitArrayLoad(array, index, elemType);
+            }
         }
         return null;
     }
@@ -1515,17 +2094,15 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (value == null) {
             // De waarde kon niet geemitteerd worden (bv. een methode-
             // aanroep met een onopgeloste methodType); dan blijft de
-            // variabele op zijn default staan â€” in plaats van een
+            // variabele op zijn default staan Ã¢â‚¬â€ in plaats van een
             // Store[ptr,null]-instructie die de verifier/SSA breekt.
-            System.err.println("[STOREBACK-NULL] target=" + target
-                    + " (initializer overgeslagen)");
             return;
         }
         if (target instanceof IdentifierTree id) {
             String name = id.getName();
             var ptr = scope.lookup(name);
             if (ptr.isPresent()) {
-                builder.emitStore(ptr.get(), value);
+                builder.emitStore(ptr.get(), boxIfNeeded(value, ptr.get().type()));
             } else if (id.getSymbol() instanceof VariableElement variableSymbol
                     && variableSymbol.isStatic()) {
                 // Statisch veld buiten de lokale scopes (bv. $VALUES uit de
@@ -1592,7 +2169,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     /**
      * Het breedte-scorend achterhaald unboxing: een wrapper-waarde
      * (Integer/Long/Double/...) wordt omgezet naar de primitieve
-     * operatie-toevoeging via intValue() etc. â€” anders volgt de
+     * operatie-toevoeging via intValue() etc. ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â anders volgt de
      * BinOp-emitter een String-concat door de Ptr-operand.
      */
     private IRValue unboxIfNeeded(final IRValue value, final IRType targetType) {
@@ -1625,10 +2202,10 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         else if (desc.equals("Ljava/lang/Double;")) unboxedType = IRType.F64;
         else if (desc.equals("Ljava/lang/Float;")) unboxedType = IRType.F32;
         else if (desc.equals("Ljava/lang/Boolean;")) unboxedType = IRType.BOOL;
+        else if (desc.equals("Ljava/lang/Character;")) unboxedType = IRType.I32;
         else if (desc.equals("Ljava/lang/Integer;")
                 || desc.equals("Ljava/lang/Short;")
-                || desc.equals("Ljava/lang/Byte;")
-                || desc.equals("Ljava/lang/Character;")) unboxedType = IRType.I32;
+                || desc.equals("Ljava/lang/Byte;")) unboxedType = IRType.I32;
         else return value;
 
         return builder.emitCall(
@@ -1642,7 +2219,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     /**
      * Laadt een veld van een object.
-     * Vereist GEP â€” veldindex wordt opgezocht via het Element.
+     * Vereist GEP ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â veldindex wordt opgezocht via het Element.
      * Voorlopig: laad als opaque pointer (veldoffsets worden bepaald bij codegen).
      */
     private IRValue emitFieldLoad(IRValue obj, Element fieldSymbol) {
@@ -1717,8 +2294,21 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             return null;
         }
 
-        // Resultaattype: het type van de conditionele expressie (set door de
-        // resolver); val terug op de tak-types.
+        final var condBlk = builder.currentBlock();
+        final var trueBlk = builder.beginBlock("ternary.then");
+        final IRValue trueValue = acceptTree(conditionalExpression.getTrueExpression(), builder);
+        final var trueTailBlk = builder.currentBlock();
+        final var falseBlk = builder.beginBlock("ternary.else");
+        final IRValue falseValue = acceptTree(conditionalExpression.getFalseExpression(), builder);
+        final var falseTailBlk = builder.currentBlock();
+        final var mergeBlk = builder.beginBlock("ternary.merge");
+
+        // Resultaattype: de statische types van de resolver hebben voorrang,
+        // daarna het resolver-type van de hele expressie, en tenslotte het
+        // gemeenschappelijke type van de daadwerkelijk gegenereerde tak-waarden
+        // (nodig voor null-/nieuw-expressies waarvan het statische type
+        // ontbreekt: anders wordt de cel I32 en smeert de phi-merge een
+        // Ptr/Int-combinatie die de bytecode-verifier afwijst).
         final var staticTrueType = staticIRTypeOf(conditionalExpression.getTrueExpression());
         final var staticFalseType = staticIRTypeOf(conditionalExpression.getFalseExpression());
         var resultType = unionTernaryTypes(staticTrueType, staticFalseType);
@@ -1729,67 +2319,31 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                     : null;
         }
         if (resultType == null) {
-            resultType = staticTrueType;
-            if (resultType == null) {
-                resultType = staticFalseType;
-            }
+            resultType = commonValueType(trueValue, falseValue);
         }
-        if ("Range".equals(currentClassName) || currentClassName.contains("Range")) {
-            try {
-                final var resInfo = "line=" + conditionalExpression.getLineNumber()
-                        + " condType=" + conditionalExpression.getType()
-                        + " res=" + resultType
-                        + " trueExprType=" + conditionalExpression.getTrueExpression().getType()
-                        + " falseExprType=" + conditionalExpression.getFalseExpression().getType();
-                java.nio.file.Files.writeString(
-                        java.nio.file.Path.of("C:/Users/evert/AppData/Local/Temp/opencode/ternary-probe.txt"),
-                        resInfo + "\n",
-                        java.nio.file.StandardOpenOption.CREATE,
-                        java.nio.file.StandardOpenOption.APPEND);
-            } catch (final Exception ignored) {
-            }
+        if (resultType == null) {
+            resultType = IRType.I32;
         }
 
-        final var resultCell = builder.emitAlloca("ternary." + ternaryCounter++, resultType != null ? resultType : IRType.I32);
-        if ("Range".equals(currentClassName) || currentClassName.contains("Range")) {
-            try {
-                java.nio.file.Files.writeString(
-                        java.nio.file.Path.of("C:/Users/evert/AppData/Local/Temp/opencode/ternary-probe.txt"),
-                        "line=" + conditionalExpression.getLineNumber() + " fn=" + currentClassName
-                                + " cell=" + resultCell.type() + "\n",
-                        java.nio.file.StandardOpenOption.CREATE,
-                        java.nio.file.StandardOpenOption.APPEND);
-            } catch (final Exception ignored) {
-            }
-        }
-
-        final var condBlk = builder.currentBlock();
-        final var trueBlk = builder.beginBlock("ternary.then");
-        final var falseBlk = builder.beginBlock("ternary.else");
-        final var mergeBlk = builder.beginBlock("ternary.merge");
-
-        // beginBlock heeft de cursor op merge gezet; de condBranch hoort in
-        // het conditieblok.
+        // beginBlock heeft de cursor op merge gezet; de cella en condBranch
+        // horen in het conditieblok.
         builder.setCurrentBlock(condBlk);
+        final var resultCell = builder.emitAlloca("ternary." + ternaryCounter++, resultType);
         builder.emitCondBranch(condition, trueBlk, falseBlk);
 
         // True-tak
-        builder.setCurrentBlock(trueBlk);
-        IRValue trueValue = acceptTree(conditionalExpression.getTrueExpression(), builder);
+        builder.setCurrentBlock(trueTailBlk);
         if (trueValue != null) {
-            trueValue = coerceToTernaryCell(trueValue, pointeeOf(resultCell.type()));
-            builder.emitStore(resultCell, trueValue);
+            builder.emitStore(resultCell, coerceToTernaryCell(trueValue, pointeeOf(resultCell.type())));
         }
         if (!builder.currentBlockTerminated()) {
             builder.emitBranch(mergeBlk);
         }
 
         // False-tak
-        builder.setCurrentBlock(falseBlk);
-        IRValue falseValue = acceptTree(conditionalExpression.getFalseExpression(), builder);
+        builder.setCurrentBlock(falseTailBlk);
         if (falseValue != null) {
-            falseValue = coerceToTernaryCell(falseValue, pointeeOf(resultCell.type()));
-            builder.emitStore(resultCell, falseValue);
+            builder.emitStore(resultCell, coerceToTernaryCell(falseValue, pointeeOf(resultCell.type())));
         }
         if (!builder.currentBlockTerminated()) {
             builder.emitBranch(mergeBlk);
@@ -1798,6 +2352,31 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         // Merge: laad het resultaat
         builder.setCurrentBlock(mergeBlk);
         return builder.emitLoad(resultCell);
+    }
+
+    /**
+     * Gemeenschappelijk type van twee gegenereerde tak-waarden; gebruikt de
+     *zelfde commonType-logica als de IR-type-inferentie. Valt terug op de
+     * type van de niet-null-waarde als één van beide null is. Twee Ptr-waarden
+     * met ongelijke pointees (bv. een Ptr(I8) null-literal en een genest
+     * Ptr(Ptr)-heapalloc) worden genormaliseerd naar een opaque referentie-cel,
+     * want op bytecode-niveau is elk Ptr een referentie-slot.
+     */
+    private static IRType commonValueType(final IRValue a, final IRValue b) {
+        if (a == null) {
+            return b != null ? b.type() : null;
+        }
+        if (b == null) {
+            return a.type();
+        }
+        final var common = TypeInference.commonType(a.type(), b.type());
+        if (common != null) {
+            return common;
+        }
+        if (a.type() instanceof IRType.Ptr || b.type() instanceof IRType.Ptr) {
+            return new IRType.Ptr(IRType.I8);
+        }
+        return null;
     }
 
     /**
@@ -1820,7 +2399,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     /**
      * Herkent het type van een null-literal: alleen typekind NULL.
-     * Een primitief type (bv. int) heeft geen element, maar is gÃ©Ã©n
+     * Een primitief type (bv. int) heeft geen element, maar is gÃƒÆ’Ã‚Â©ÃƒÆ’Ã‚Â©n
      * null-literal en wordt dus niet hierdoor herkend.
      */
     private boolean isNullLiteralType(final TypeMirror type) {
@@ -1858,7 +2437,71 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 && isPrimitiveIRType(trueType)) {
             return falseType;
         }
+        // JLS 5.6.2 numeric conditional: primitive + wrapper get integrated
+        // in een unboxende primitieve (de wrapper-arm wordt geunboxt in de
+        // cel Ã¢â‚¬â€ coerceToTernaryCell).
+        if (isPrimitiveIRType(trueType)
+                && isWrapperDescriptorOf(falseType, trueType)) {
+            return trueType;
+        }
+        if (isPrimitiveIRType(falseType)
+                && isWrapperDescriptorOf(trueType, falseType)) {
+            return falseType;
+        }
         return null;
+    }
+
+    private static boolean isWrapperDescriptorOf(final IRType primitiveType,
+                                                 final IRType referenceType) {
+        if (referenceType == null
+                || !(referenceType instanceof IRType.Ptr ptr)
+                || ptr.jvmDescriptor() == null) {
+            return false;
+        }
+        final var suffix = ptr.jvmDescriptor();
+        if (primitiveType instanceof IRType.Int(int bits)) {
+            final var compatible = switch (bits) {
+                case 8 -> Set.of("Ljava/lang/Byte;", "Ljava/lang/Character;",
+                        "Ljava/lang/Short;", "Ljava/lang/Integer;");
+                case 16 -> Set.of("Ljava/lang/Short;", "Ljava/lang/Character;",
+                        "Ljava/lang/Integer;");
+                case 64 -> Set.of("Ljava/lang/Long;", "Ljava/lang/Integer;");
+                default -> Set.of("Ljava/lang/Integer;");
+            };
+            return compatible.contains(suffix);
+        }
+        if (primitiveType instanceof IRType.Float(int bits)) {
+            return suffix.equals(bits == 32 ? "Ljava/lang/Float;" : "Ljava/lang/Double;");
+        }
+        return suffix.equals("Ljava/lang/Boolean;");
+    }
+
+    private static boolean isNumericUnboxMethod(final String methodName) {
+        return switch (methodName) {
+            case "intValue", "longValue", "shortValue", "byteValue",
+                    "charValue", "floatValue", "doubleValue", "booleanValue" -> true;
+            default -> false;
+        };
+    }
+
+    private static String wrapperForUnbox(final String methodName) {
+        return switch (methodName) {
+            case "intValue", "doubleValue", "floatValue", "longValue",
+                    "shortValue", "byteValue" -> "Integer";
+            case "charValue" -> "Character";
+            case "booleanValue" -> "Boolean";
+            default -> "";
+        };
+    }
+
+    private static IRType unboxPrimitiveType(final String methodName) {
+        return switch (methodName) {
+            case "longValue" -> IRType.I64;
+            case "doubleValue" -> IRType.F64;
+            case "floatValue" -> IRType.F32;
+            case "booleanValue" -> IRType.BOOL;
+            default -> IRType.I32;
+        };
     }
 
     private static boolean isStringType(final IRType type) {
@@ -1899,7 +2542,16 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (boxed != value) {
             return boxed;
         }
-        return unboxIfNeeded(boxed, elemType);
+        final var unboxed = unboxIfNeeded(boxed, elemType);
+        // Int-breedte uitlijnen (bv. CharacterÃ¢â€ â€™char i32 vs een i16-cel):
+        // de stack(aqwa)-representatie moet exact het cel-type matchen,
+        // anders smeert de phi-merge een Ptr/Int-combinatie.
+        if (unboxed.type() instanceof IRType.Int srcInt
+                && elemType instanceof IRType.Int cellInt
+                && srcInt.bits() != cellInt.bits()) {
+            return builder.emitCast(unboxed, elemType);
+        }
+        return unboxed;
     }
 
     /** Haalt het elementtype uit een cel-adres (een Ptr naar het elementtype). */
@@ -2232,7 +2884,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             }
         }
 
-        // Stap 2: Entry blok â†’ eerste vergelijkingsblok
+        // Stap 2: Entry blok ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ eerste vergelijkingsblok
         builder.setCurrentBlock(entryBlk);
         builder.emitBranch(cmpBlocks.get(0));
 
@@ -2289,7 +2941,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 acceptTree(body, builder);
             }
 
-            // Fall-through: als het blok niet beÃ«indigd is
+            // Fall-through: als het blok niet beÃƒÆ’Ã‚Â«indigd is
             if (!builder.currentBlockTerminated()) {
                 if (caseStmt.getCaseKind() == CaseStatement.CaseKind.RULE) {
                     // Rule-cases vallen niet door
@@ -2644,7 +3296,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         );
 
         // Member references worden vertaald naar een functiereferentie
-        // Bijv. Foo::bar â†’ een verwijzing naar de methode Foo_bar
+        // Bijv. Foo::bar ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ een verwijzing naar de methode Foo_bar
 
         ExpressionTree expr = memberReference.getExpression();
         String name = memberReference.getName();
@@ -2675,7 +3327,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     }
 
     // -------------------------------------------------------
-    // Annotation (runtime â€” geen IR-waarde)
+    // Annotation (runtime ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â geen IR-waarde)
     // -------------------------------------------------------
 
     @Override
@@ -2702,7 +3354,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitTypePattern(final TypePattern typePattern,
                                     final IRBuilder param) {
         // Type patterns worden al behandeld door visitInstanceOfExpression
-        // en visitSwitchStatement. Hier is de pattern zelf â€” geen runtime-waarde.
+        // en visitSwitchStatement. Hier is de pattern zelf ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â geen runtime-waarde.
         return null;
     }
 

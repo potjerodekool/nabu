@@ -1,7 +1,10 @@
 package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.MethodSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
+import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.VariableSymbol;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.lang.model.element.*;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
@@ -26,20 +29,6 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class CompleteMethodResolver implements MethodResolver {
-
-    private static int SUPER_TRACE_COUNT = 0;
-    private static int SUPER_IDENT_COUNT = 0;
-    private static int SUPER_ENTRY_COUNT = 0;
-    private static int GPA_COUNT = 0;
-    private static int CTOR_TRACE_COUNT = 0;
-    private static int PHASE2_TRACE_COUNT = 0;
-    private static int PH2_ARITY_COUNT = 0;
-    private static int PHASE_LEVEL_TRACE_COUNT = 0;
-    private static int RESOLVE_FAIL_TRACE_COUNT = 0;
-    private static int CURRENT_INVOCATION_LINE = -1;
-    private static int RESOLVE_TYPE_TRACE_COUNT = 0;
-    private static int PH1_DIAG_COUNT = 0;
-    private static int GPA_DIAG_COUNT = 0;
 
     private final Elements elements;
     private final Types types;
@@ -198,10 +187,6 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         final var symbol = expression.getSymbol();
-        if (symbol == null && expression.getType() == null) {
-            System.out.println("[resolve-type-null] expr=" + expression.getClass().getSimpleName()
-                    + " line=" + expression.getLineNumber() + " text=" + safeText(expression));
-        }
         if (symbol == null) {
             return new CUnknownType();
         }
@@ -220,20 +205,6 @@ public class CompleteMethodResolver implements MethodResolver {
             final var searchType = clazz.getSuperclass() instanceof DeclaredType superDeclaredType
                     ? superDeclaredType
                     : null;
-
-            if (SUPER_TRACE_COUNT < 4) {
-                SUPER_TRACE_COUNT++;
-                final var ctorTypes = searchType == null ? "null-super" : String.valueOf(
-                        clazz.getSuperclass() == null ? "n/a" : clazz.getSuperclass().getKind()
-                );
-                final var argTypes = arguments.stream()
-                        .map(this::resolveType)
-                        .map(t -> t == null ? "null" : io.github.potjerodekool.nabu.util.TypePrinter.print(t))
-                        .toList();
-                System.err.println("[SUPER-PROBE] class=" + clazz.getQualifiedName()
-                        + " argTypes=" + argTypes
-                        + " superKind=" + ctorTypes);
-            }
 
             return doResolveMethod(
                     searchType,
@@ -268,7 +239,7 @@ public class CompleteMethodResolver implements MethodResolver {
 
         final var clazz = type.asElement();
 
-        final List<ExecutableElement> methods;
+        List<ExecutableElement> methods;
 
         if (Constants.THIS.equals(methodName)
                 || Constants.INIT.equals(methodName)) {
@@ -279,22 +250,15 @@ public class CompleteMethodResolver implements MethodResolver {
                     .toList();
         }
 
-        if ((Constants.THIS.equals(methodName) || Constants.INIT.equals(methodName))
-                && CTOR_TRACE_COUNT < 2) {
-            CTOR_TRACE_COUNT++;
-            final var argTypes = arguments.stream()
-                    .map(this::resolveType)
-                    .map(t -> t == null ? "null" : io.github.potjerodekool.nabu.util.TypePrinter.print(t))
-                    .toList();
-            final var ctorSigs = methods.stream()
-                    .limit(3)
-                    .map(ExecutableElement::asType)
-                    .map(io.github.potjerodekool.nabu.util.TypePrinter::print)
-                    .toList();
-            System.err.println("[CTOR-PROBE] class=" + clazz.getSimpleName()
-                    + " candidates=" + methods.size()
-                    + " ctors=" + ctorSigs
-                    + " argTypes=" + argTypes);
+        if (clazz.getKind() == ElementKind.ENUM
+                && !Constants.THIS.equals(methodName)
+                && !Constants.INIT.equals(methodName)
+                && !containsMethod(methods, methodName)) {
+            final var implicitMethod = resolveImplicitEnumMethod((TypeElement) clazz, methodName, arguments);
+            if (implicitMethod.isPresent()) {
+                methods = new ArrayList<>(methods);
+                methods.add(implicitMethod.get());
+            }
         }
 
         final var methodTypes = new ArrayList<>(methods.stream()
@@ -359,6 +323,93 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         return methodTypeOptional;
+    }
+
+    private boolean containsMethod(final List<ExecutableElement> methods,
+                                   final String methodName) {
+        return methods.stream()
+                .anyMatch(method -> method.getSimpleName().equals(methodName));
+    }
+
+    /**
+     * Resolveert de impliciete enum-methoden {@code valueOf(String)},
+     * {@code values()} en {@code $values()}. Deze methoden worden pas in
+     * de lowering-fase (EnumCodeGenerator) aan de ClassSymbol toegevoegd,
+     * waardoor ze tijdens de resolutiefase ontbreken. Hier bouwen we een
+     * tijdelijke methode op die de handtekening dekt, zodat aanroepen als
+     * {@code Style.valueOf(...)} gewoon opgelost kunnen worden.
+     */
+    private Optional<ExecutableElement> resolveImplicitEnumMethod(final TypeElement clazz,
+                                                                  final String methodName,
+                                                                  final List<ExpressionTree> arguments) {
+        if ("$values".equals(methodName)) {
+            if (!arguments.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(createImplicitEnumMethod(
+                    clazz,
+                    methodName,
+                    types.getArrayType(clazz.asType()),
+                    Flags.PUBLIC,
+                    List.of()
+            ));
+        } else if ("values".equals(methodName)) {
+            if (!arguments.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(createImplicitEnumMethod(
+                    clazz,
+                    methodName,
+                    types.getArrayType(clazz.asType()),
+                    Flags.PUBLIC,
+                    List.of()
+            ));
+        } else if ("valueOf".equals(methodName)
+                && arguments.size() == 1) {
+            final var stringType = stringType(clazz);
+            if (stringType == null) {
+                return Optional.empty();
+            }
+            final var parameter = new VariableSymbol(
+                    ElementKind.PARAMETER,
+                    Flags.PUBLIC,
+                    "arg0",
+                    stringType,
+                    (Symbol) clazz,
+                    null
+            );
+            return Optional.of(createImplicitEnumMethod(
+                    clazz,
+                    methodName,
+                    clazz.asType(),
+                    Flags.PUBLIC,
+                    List.of(parameter)
+            ));
+        }
+        return Optional.empty();
+    }
+
+    private ExecutableElement createImplicitEnumMethod(final TypeElement clazz,
+                                                       final String methodName,
+                                                       final TypeMirror returnType,
+                                                       final long flags,
+                                                       final List<VariableElement> parameters) {
+        return new MethodSymbol(
+                ElementKind.METHOD,
+                flags + Flags.STATIC + Flags.SYNTHETIC,
+                methodName,
+                (Symbol) clazz,
+                null,
+                Collections.emptyList(),
+                returnType,
+                Collections.emptyList(),
+                parameters,
+                Collections.emptyList()
+        );
+    }
+
+    private TypeMirror stringType(final Element clazz) {
+        return typeEnter.getStringType();
     }
 
     private Optional<ExecutableType> bestMatch(final List<ExecutableType> candidates,
@@ -445,18 +496,6 @@ public class CompleteMethodResolver implements MethodResolver {
                 thrownTypes
 
         );
-        if (System.getProperty("nabu.probe.ctor") != null
-                && method instanceof io.github.potjerodekool.nabu.lang.model.element.ExecutableElement ee
-                && "<init>".equals(ee.getSimpleName().toString())
-                && ee.getEnclosingElement() != null
-                && String.valueOf(ee.getEnclosingElement().getSimpleName()).contains("CommandLine")) {
-            System.err.println("[CTOR-T] elem=" + ee.getEnclosingElement().getSimpleName()
-                    + " origParams=" + methodType.getParameterTypes()
-                    + " newParams=" + parameterTypes
-                    + " args=" + argTypes
-                    + " ownerQ=" + ee.getEnclosingElement().asType());
-        }
-
         return new Pair<>(transformedMethodType, argTypes);
     }
 
@@ -625,19 +664,6 @@ public class CompleteMethodResolver implements MethodResolver {
         currentScope = scope;
         final var selector = methodInvocationTree.getMethodSelector();
 
-        final var selStr = selector.toString();
-        if (selStr.contains(".build") || selStr.contains("builder(option)")) {
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[FA-ENTRY] sel=" + selStr
-                        + " selectorClass=" + selector.getClass().getSimpleName()
-                        + " line=" + methodInvocationTree.getLineNumber()
-                        + " id=" + System.identityHashCode(methodInvocationTree));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
-
         if (selector instanceof IdentifierTree identifierTree) {
             var searchType = (DeclaredType) scope.getCurrentClass().asType();
             final var methodName = identifierTree.getName();
@@ -728,20 +754,6 @@ public class CompleteMethodResolver implements MethodResolver {
                     }
                 }
                 logger.log(LogLevel.WARN,  String.format("Searchtype is NULL in FieldAccessExpressionTree branch, methodName %s, %s", methodName, fieldAccessExpressionTree));
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[FA-NULL] method=" + methodName
-                            + " selector=" + fieldAccessExpressionTree
-                            + " selClass=" + fieldAccessExpressionTree.getClass().getSimpleName()
-                            + " selected=" + fieldAccessExpressionTree.getSelected()
-                            + " selectedClass=" + (fieldAccessExpressionTree.getSelected() == null ? "null" : fieldAccessExpressionTree.getSelected().getClass().getSimpleName())
-                            + " selectedMT=" + (fieldAccessExpressionTree.getSelected() instanceof MethodInvocationTree smt
-                                    ? (smt.getMethodType() == null ? "UNSET" : TypePrinter.print(smt.getMethodType()))
-                                    : "-")
-                            + " outerLine=" + (methodInvocationTree.getLineNumber() == -1 ? "nested" : String.valueOf(fieldAccessExpressionTree.getLineNumber())));
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
                 return Optional.empty();
             }
 
@@ -777,23 +789,6 @@ public class CompleteMethodResolver implements MethodResolver {
                     scope,
                     isConstructorCall
             );
-
-            if ("build".equals(methodName) || "inherited".equals(methodName)
-                    || "useAnsi".equals(methodName) || "useOut".equals(methodName)
-                    || "colorScheme".equals(methodName) || "format".equals(methodName)
-                    || "clone".equals(methodName)) {
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[FA-RES] method=" + methodName
-                            + " searchType=" + (searchType != null && searchType.asTypeElement() != null
-                                    ? searchType.asTypeElement().getQualifiedName() : "null")
-                            + " resolved=" + (resolvedMethod != null)
-                            + " outerLine=" + methodInvocationTree.getLineNumber()
-                            + " sel=" + fieldAccessExpressionTree);
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
 
             if (resolvedMethod != null) {
                 return Optional.of(resolvedMethod);
@@ -836,6 +831,11 @@ public class CompleteMethodResolver implements MethodResolver {
             type = newClassExpression.getType();
             if (!(type instanceof DeclaredType)) {
                 type = getTypeOf(newClassExpression.getName());
+            }
+        } else if (expressionTree instanceof ArrayAccessExpressionTree arrayAccessExpressionTree) {
+            type = arrayAccessExpressionTree.getExpression().getType();
+            if (type instanceof ArrayType arrayType) {
+                type = arrayType.getComponentType();
             }
         }
 
@@ -907,18 +907,6 @@ public class CompleteMethodResolver implements MethodResolver {
                                          final boolean isConstructorCall) {
         final var methodName = resolveMethodName(methodInvocationTree);
         final var arguments = methodInvocationTree.getArguments();
-        CURRENT_INVOCATION_LINE = methodInvocationTree.getLineNumber();
-
-        if ("super".equals(methodName) && SUPER_ENTRY_COUNT < 4) {
-            SUPER_ENTRY_COUNT++;
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[SUPER-ENTRY] searchType=" + searchType.asTypeElement().getQualifiedName()
-                        + " args=" + arguments.size());
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
 
         final var candidates = getPotentiallyApplicableMethods(
                 methodInvocationTree,
@@ -953,86 +941,6 @@ public class CompleteMethodResolver implements MethodResolver {
             );
         }
 
-        if ("super".equals(methodName) && arguments.size() > 0 && PHASE_LEVEL_TRACE_COUNT < 2) {
-            PHASE_LEVEL_TRACE_COUNT++;
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[PHASE-RESULT] method=" + methodName
-                        + " searchType=" + searchType.asTypeElement().getQualifiedName()
-                        + " candidates=" + candidates.size()
-                        + " strict=" + phase1Results.size()
-                        + " loose=" + phase2Results.size()
-                        + " varargs=" + phase3Results.size());
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
-
-        final var argTypes = arguments.stream()
-                .map(treeUtils::typeOf)
-                .map(TypePrinter::print)
-                .collect(Collectors.joining(",", "(", ")"));
-
-        if (RESOLVE_FAIL_TRACE_COUNT < 60
-                && (methodInvocationTree.getLineNumber() != -1
-                    || "buildArgForMember".equals(methodName)
-                    || "buildArgGroupForMember".equals(methodName)
-                    || "buildMixinForMember".equals(methodName))) {
-            RESOLVE_FAIL_TRACE_COUNT++;
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[RFAIL] name=" + methodName
-                        + " selector=" + methodInvocationTree.getMethodSelector().toString()
-                        + " line=" + methodInvocationTree.getLineNumber() + ":" + methodInvocationTree.getColumnNumber()
-                        + " id=" + System.identityHashCode(methodInvocationTree)
-                        + " searchType=" + (searchType != null && searchType.asTypeElement() != null ? searchType.asTypeElement().getQualifiedName() : "null")
-                        + " strict=" + phase1Results.size()
-                        + " loose=" + phase2Results.size()
-                        + " var=" + phase3Results.size()
-                        + " argTypes=" + argTypes
-                        + " argClasses=" + arguments.stream().map(a -> a.getClass().getSimpleName()).toList()
-                        + " argMethodTypes=" + arguments.stream().map(a -> a instanceof MethodInvocationTree mi
-                                ? String.valueOf(mi.getMethodType() == null
-                                    ? ((mi.getMethodSelector() instanceof IdentifierTree it ? it.getName() : "?") + ":UNSET")
-                                    : TypePrinter.print(mi.getMethodType().getReturnType()))
-                                : "-").toList()
-                        + " candidates=" + candidates.stream()
-                            .map(c -> c.getMethodSymbol().getSimpleName()
-                                    + "(" + c.getParameterTypes().stream()
-                                        .map(TypePrinter::print)
-                                        .collect(Collectors.joining(","))
-                                    + ")" + (c.getMethodSymbol().isVarArgs() ? "varargs" : ""))
-                            .collect(Collectors.joining(" | ")));
-            if ("addMixin".equals(methodName) || "addSpecElement".equals(methodName)
-                    || "addParentCommandElement".equals(methodName)) {
-                final StringBuilder elTrail = new StringBuilder(" argTypeEl=");
-                for (final var t : arguments.stream().map(treeUtils::typeOf).toList()) {
-                    try {
-                        if (t instanceof DeclaredType dt && dt.asTypeElement() != null) {
-                            final var te = dt.asTypeElement();
-                            elTrail.append(te.getQualifiedName())
-                                    .append(" ifaces=[");
-                            for (final var i : te.getInterfaces()) {
-                                elTrail.append(i instanceof DeclaredType it
-                                        ? ((TypeElement) it.asElement()).getQualifiedName()
-                                        : i.toString()).append(";");
-                            }
-                            elTrail.append("] sup=").append(te.getSuperclass() == null ? "null" : te.getSuperclass().toString())
-                                    .append(" ");
-                        } else {
-                            elTrail.append(String.valueOf(t)).append(" ");
-                        }
-                    } catch (final Exception e) {
-                        elTrail.append("ERR").append(" ");
-                    }
-                }
-                pw.append(elTrail);
-            }
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
-
         return null;
     }
 
@@ -1053,35 +961,6 @@ public class CompleteMethodResolver implements MethodResolver {
         final var methodCollection = new ArrayList<ExecutableType>();
         collectMethods(searchType, methodCollection, isConstructorCall);
 
-        if (("executeUserObject".equals(methodName)
-                || "addValueToListInMap".equals(methodName)
-                || "addTrailingDefaultLine".equals(methodName)
-                || "validatePositionalParameters".equals(methodName)
-                || "execute".equals(methodName)
-                || "close".equals(methodName))
-                && GPA_DIAG_COUNT < 25) {
-            GPA_DIAG_COUNT++;
-            probeMethodCollection(methodCollection, methodName, arguments, currentClass, isConstructorCall);
-        }
-
-        if ("super".equals(methodName) && GPA_COUNT < 8
-                && searchType.asTypeElement().getQualifiedName().contains("ArgSpec")) {
-            GPA_COUNT++;
-            final var element = searchType.asTypeElement();
-            final var ctorCount = element.getEnclosedElements().stream()
-                    .filter(e -> e.getKind() == ElementKind.CONSTRUCTOR)
-                    .count();
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[GPA-PROBE] searchType=" + element.getQualifiedName()
-                        + " enclosed=" + element.getEnclosedElements().size()
-                        + " ctors=" + ctorCount
-                        + " collected=" + methodCollection.size());
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
-
         return methodCollection.stream()
                 .filter(method -> isPotentiallyApplicable(
                         methodName,
@@ -1093,41 +972,7 @@ public class CompleteMethodResolver implements MethodResolver {
                 .toList();
     }
 
-    private List<ExecutableType> probeMethodCollection(final List<ExecutableType> all,
-                                                       final String methodName,
-                                                       final List<ExpressionTree> arguments,
-                                                       final TypeElement caller,
-                                                       final boolean isConstructorCall) {
-        final var nameMatches = new ArrayList<ExecutableType>();
-        final var accessDenied = new ArrayList<ExecutableType>();
-        for (final var m : all) {
-            if (isConstructorCall || methodName.equals(m.getMethodSymbol().getSimpleName())) {
-                nameMatches.add(m);
-            }
-        }
-        for (final var m : nameMatches) {
-            if (!AccessChecker.isAccessible(m.getMethodSymbol(), caller)) {
-                accessDenied.add(m);
-            }
-        }
-        try (final var pw = new java.io.PrintWriter(
-                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-            pw.println("[GPA-DIAG] method=" + methodName
-                    + " caller=" + caller.getQualifiedName()
-                    + " total=" + all.size()
-                    + " nameMatches=" + nameMatches.size()
-                    + " accessDenied=" + accessDenied.size()
-                    + " deniedNames=" + accessDenied.stream()
-                        .map(m -> m.getMethodSymbol().getEnclosingElement().getSimpleName()
-                                + "." + m.getMethodSymbol().getSimpleName())
-                        .collect(Collectors.joining(",")));
-        } catch (java.io.IOException e) {
-            // ignore
-        }
-        return all;
-    }
-
-void collectMethods(final DeclaredType declaredType,
+    void collectMethods(final DeclaredType declaredType,
                     final List<ExecutableType> methodCollection,
                     final boolean isConstructorCall) {
         final var typeElement = resolveMemberSourceElement(declaredType.asTypeElement());
@@ -1158,21 +1003,6 @@ void collectMethods(final DeclaredType declaredType,
         }
 
         final var superClazz = typeElement.getSuperclass();
-        try (final var pw = new java.io.PrintWriter(
-                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-            final var qn = typeElement.getQualifiedName();
-            if (qn != null && (qn.toString().endsWith("$RunLast")
-                    || qn.toString().endsWith("$AbstractHandler")
-                    || qn.toString().endsWith("$RunAll")
-                    || qn.toString().endsWith("$DefaultExceptionHandler"))) {
-                pw.println("[SUP] class=" + qn
-                        + " enclosed=" + typeElement.getEnclosedElements().size()
-                        + " super=" + (superClazz == null ? "null" : superClazz.toString())
-                        + " ifaces=" + typeElement.getInterfaces().stream().map(i -> i.toString()).collect(Collectors.joining(",")));
-            }
-        } catch (java.io.IOException e) {
-            // ignore
-        }
         if (superClazz != null) {
             final var mappedType = mapType((DeclaredType) superClazz, map);
             collectMethods(mappedType, methodCollection, isConstructorCall);
@@ -1216,7 +1046,6 @@ void collectMethods(final DeclaredType declaredType,
         }
 
         if (!AccessChecker.isAccessible(methodSymbol, caller)) {
-            traceAccessDenied(methodName, methodSymbol, caller, arguments);
             return false;
         }
 
@@ -1268,22 +1097,6 @@ void collectMethods(final DeclaredType declaredType,
         }
     }
 
-    private void traceAccessDenied(final String methodName,
-                                   final ExecutableElement methodSymbol,
-                                   final TypeElement caller,
-                                   final List<ExpressionTree> arguments) {
-        try (final var pw = new java.io.PrintWriter(
-                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-            pw.println("[ACCESS-DENIED] method=" + methodName
-                    + " owner=" + methodSymbol.getEnclosingElement()
-                    + " kind=" + methodSymbol.getKind()
-                    + " caller=" + caller.getQualifiedName()
-                    + " argCount=" + arguments.size());
-        } catch (java.io.IOException e) {
-            // ignore
-        }
-    }
-
     private boolean isPotentiallyCompatible(final TypeMirror sourceType, final TypeMirror targetType) {
         if (sourceType == null) {
             return !targetType.isPrimitiveType();
@@ -1312,67 +1125,6 @@ void collectMethods(final DeclaredType declaredType,
         final var argumentTypes = arguments.stream()
                 .map(this::resolveType)
                 .toList();
-
-        final var isPh1Probe = arguments.stream()
-                .anyMatch(a -> a.getLineNumber() == 12701 || a.getLineNumber() == 12703)
-                || (arguments.size() > 0 && arguments.get(0).getLineNumber() == 1898)
-                || (arguments.size() > 0 && arguments.get(0).getLineNumber() == 6601);
-
-        if (isPh1Probe && PH1_DIAG_COUNT < 10) {
-            PH1_DIAG_COUNT++;
-            final var sb = new StringBuilder();
-            sb.append("[PH1] argTypes via resolveType=").append(argumentTypes.stream()
-                    .map((java.util.function.Function<TypeMirror, String>) t -> t == null ? "null" : TypePrinter.print(t))
-                    .collect(Collectors.joining(",")));
-            sb.append(" candidates=").append(candidates.stream()
-                    .map(c -> c.getMethodSymbol().getSimpleName() + "(" + c.getParameterTypes().stream()
-                            .map((java.util.function.Function<TypeMirror, String>) t -> TypePrinter.print(t))
-                            .collect(Collectors.joining(",")) + ")")
-                    .collect(Collectors.joining(" | ")));
-            for (var method : candidates) {
-                if (method.getMethodSymbol().isVarArgs()) continue;
-                final var parameterTypes = method.getParameterTypes();
-                if (parameterTypes.size() != argumentTypes.size()) continue;
-                for (int i = 0; i < argumentTypes.size(); i++) {
-                    final var a = argumentTypes.get(i);
-                    final var p = parameterTypes.get(i);
-                    sb.append(" isSame(").append(i).append(")=")
-                            .append(a != null && types.isSameType(a, p) ? "T" : "F")
-                            .append(" assign(").append(i).append(")=")
-                            .append(a != null && types.isAssignable(a, p) ? "T" : "F")
-                            .append(" strictClass=").append(a != null && !a.isPrimitiveType() && !p.isPrimitiveType()
-                                    && types.isSubType(a, p) ? "T" : "F");
-                    final String aq = a instanceof io.github.potjerodekool.nabu.type.DeclaredType ad
-                            && ad.asElement() instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement ael
-                            ? ael.getQualifiedName() : "?";
-                    final String pq = p instanceof io.github.potjerodekool.nabu.type.DeclaredType pd
-                            && pd.asElement() instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement pel
-                            ? pel.getQualifiedName() : "?";
-                    sb.append(" qn[").append(i).append("]=")
-                            .append(aq).append(" vs ").append(pq);
-                    if (p instanceof io.github.potjerodekool.nabu.type.DeclaredType pdt
-                            && pdt.asElement() instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement pel) {
-                        final var encChain = new java.util.ArrayList<String>();
-                        io.github.potjerodekool.nabu.lang.model.element.Element cur = pel.getEnclosingElement();
-                        while (cur != null) {
-                            encChain.add((cur.getSimpleName() != null ? cur.getSimpleName() : "?")
-                                    + (cur instanceof io.github.potjerodekool.nabu.lang.model.element.TypeElement ce
-                                    ? "@" + String.valueOf(ce.getQualifiedName()) : ""));
-                            cur = cur.getEnclosingElement();
-                        }
-                        sb.append(" pend=").append(pel.getClass().getSimpleName())
-                                .append(" nesting=").append(pel.getNestingKind())
-                                .append(" owners=").append(encChain);
-                    }
-                }
-            }
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println(sb);
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
 
         return candidates.stream()
                 .filter(method -> !method.getMethodSymbol().isVarArgs())
@@ -1878,21 +1630,6 @@ void collectMethods(final DeclaredType declaredType,
             final var parameterTypes = method.getParameterTypes();
 
             if (parameterTypes.size() != argumentTypes.size()) {
-                if (PH2_ARITY_COUNT < 60) {
-                    PH2_ARITY_COUNT++;
-                    try (final var pw = new java.io.PrintWriter(
-                            new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                        pw.println("[PH2-ARITY] method=" + method.getMethodSymbol().getSimpleName()
-                                + " owner=" + method.getMethodSymbol().getEnclosingElement().getSimpleName()
-                                + " argCount=" + argumentTypes.size()
-                                + " paramCount=" + parameterTypes.size()
-                                + " argTypes=" + argumentTypes.stream()
-                                    .map(io.github.potjerodekool.nabu.util.TypePrinter::print)
-                                    .collect(Collectors.joining(",")));
-                    } catch (java.io.IOException e) {
-                        // ignore
-                    }
-                }
                 continue;
             }
 
@@ -2097,9 +1834,5 @@ void collectMethods(final DeclaredType declaredType,
         }
 
         return applicableMethods;
-    }
-
-    private String safeText(final io.github.potjerodekool.nabu.tree.expression.ExpressionTree tree) {
-        return tree.getClass().getSimpleName();
     }
 }

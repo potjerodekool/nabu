@@ -36,7 +36,6 @@ class IncrementalCompilationIntegrationTest {
         return new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, sourceDir.toString())
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
                 .option(CompilerOption.CLASS_OUTPUT, outDir.toString())
                 .option(CompilerOption.SOURCE_OUTPUT, genDir.toString())
                 .option(CompilerOption.INCREMENTAL, "true")

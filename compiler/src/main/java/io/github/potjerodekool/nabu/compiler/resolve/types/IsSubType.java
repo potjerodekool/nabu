@@ -96,35 +96,6 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
                 sourceOtherClass.complete();
             }
 
-            final var clazzQn = clazz.getQualifiedName();
-            if (clazzQn != null
-                    && clazzQn.contains("TypedMember")
-                    && otherClass.getQualifiedName() != null
-                    && otherClass.getQualifiedName().contains("IAnnotatedElement")) {
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    final var db = new StringBuilder();
-                    db.append("[IST] clazzQn=").append(clazzQn)
-                            .append(" clazzClass=").append(clazz.getClass().getName())
-                            .append(" ifaces=[");
-                    for (final var i : clazz.getInterfaces()) {
-                        try {
-                            db.append(i instanceof DeclaredType it
-                                    ? ((TypeElement) it.asElement()).getQualifiedName()
-                                    : String.valueOf(i)).append(";");
-                        } catch (Exception e) {
-                            db.append("<err>;");
-                        }
-                    }
-                    db.append("] sup=").append(clazz.getSuperclass())
-                            .append(" srcQn=").append(clazz.getQualifiedName());
-                    pw.println(db.append(" otherClass=").append(otherClass.getClass().getName())
-                            .append(" otherQn=").append(otherClass.getQualifiedName()));
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
-
             if (sameClass(clazz, otherClass)) {
                 if (declaredType.getTypeArguments().isEmpty()) {
                     return true;

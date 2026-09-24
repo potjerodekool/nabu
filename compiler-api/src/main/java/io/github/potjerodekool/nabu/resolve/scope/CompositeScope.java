@@ -26,7 +26,12 @@ public class CompositeScope implements Scope {
 
     @Override
     public Element resolve(final String name) {
-        return null;
+        return this.scopes.stream()
+                .map(it -> Optional.ofNullable(it.resolve(name)))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .findFirst()
+                .orElse(null);
     }
 
     /**

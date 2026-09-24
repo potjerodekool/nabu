@@ -60,55 +60,37 @@ public class AsmBackend implements Backend {
         } catch (IOException e) {
             throw new CompileException("Error while writing bytecode.", e);
         } catch (final Exception e) {
-            try {
-                dumpBlocks(module);
-                Files.writeString(
-                        java.nio.file.Path.of("C:/Users/evert/AppData/Local/Temp/opencode/picocli-bytecode.txt"),
-                        byteCodeToText(bytecode),
-                        java.nio.file.StandardOpenOption.CREATE,
-                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
-                        java.nio.file.StandardOpenOption.WRITE);
-            } catch (Exception ignored) {
-            }
             throw new RuntimeException("Invalid bytecode generated: " + e.getMessage());
         }
     }
 
-    private static void dumpBlocks(final IRModule module) {
-        final var sb = new StringBuilder("[IR-DUMP] MODULE " + module.name + "\n");
-        for (final var fn : module.functions()) {
-            sb.append("[IR-DUMP] FN ").append(fn.name)
-                    .append(" external=").append(fn.isExternal())
-                    .append(" constructor=").append(fn.isConstructor()).append("\n");
-            if (fn.isExternal()) {
-                continue;
-            }
-            for (final var block : fn.blocks()) {
-                sb.append("  BLOCK ").append(block.label()).append("\n");
-                for (final var ins : block.instructions()) {
-                    sb.append("    ").append(ins).append("\n");
-                }
-            }
-        }
-        try {
-            Files.writeString(
-                    java.nio.file.Path.of("C:/Users/evert/AppData/Local/Temp/opencode/picocli-ir-dump.txt"),
-                    sb.toString(),
-                    java.nio.file.StandardOpenOption.CREATE,
-                    java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
-                    java.nio.file.StandardOpenOption.WRITE);
-        } catch (Exception ignored) {
-        }
-    }
-
     public static void validate(final byte[] bytecode) {
+        final String[] currentClass = {null};
+        final String[] currentMethod = {null};
         try {
             final var classReader = new ClassReader(bytecode);
             final var classWriter = new ClassWriter(classReader, ClassWriter.COMPUTE_MAXS);
             final var classValidator = new CheckClassAdapter(classWriter, true);
-            classReader.accept(classValidator, 0);
+            classReader.accept(new org.objectweb.asm.ClassVisitor(org.objectweb.asm.Opcodes.ASM9, classValidator) {
+                @Override
+                public void visit(final int version, final int access, final String name,
+                                  final String signature, final String superName,
+                                  final String[] interfaces) {
+                    currentClass[0] = name;
+                    super.visit(version, access, name, signature, superName, interfaces);
+                }
+
+                @Override
+                public org.objectweb.asm.MethodVisitor visitMethod(final int access, final String name,
+                                                                   final String descriptor, final String signature,
+                                                                   final String[] exceptions) {
+                    currentMethod[0] = name + descriptor;
+                    return super.visitMethod(access, name, descriptor, signature, exceptions);
+                }
+            }, 0);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("[FRAME-DEBUG] class=" + currentClass[0]
+                    + " method=" + currentMethod[0] + " :: " + e.getMessage(), e);
         }
     }
 

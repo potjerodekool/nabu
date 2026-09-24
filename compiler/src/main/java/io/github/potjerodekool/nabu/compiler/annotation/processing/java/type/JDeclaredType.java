@@ -8,7 +8,6 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVisitor;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class JDeclaredType extends JAbstractType<io.github.potjerodekool.nabu.type.DeclaredType> implements DeclaredType {
 
@@ -19,23 +18,6 @@ public class JDeclaredType extends JAbstractType<io.github.potjerodekool.nabu.ty
         this.typeArguments = getOriginal().getTypeArguments().stream()
                 .map(TypeWrapperFactory::wrap)
                 .toList();
-        boolean isSet = typeMirror.asElement().getSimpleName().equals("Set");
-        final var arguments = typeArguments.stream()
-                .map(t -> simpleName(t))
-                .collect(Collectors.joining(";"));
-
-        if (isSet && arguments.contains("Object")) {
-            System.out.println("Object");
-        }
-
-    }
-
-    private String simpleName(final TypeMirror typeMirror) {
-        if (typeMirror instanceof DeclaredType dt) {
-            return dt.asElement().getSimpleName().toString();
-        } else {
-            return "";
-        }
     }
 
     @Override

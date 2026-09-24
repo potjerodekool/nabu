@@ -69,8 +69,6 @@ class NabuCompilerBackendAcceptanceIT {
                 .option(CompilerOption.BACKEND, "LLVM")
                 .option(CompilerOption.SYSTEM,
                         new File(root, "compiler/src/test/resources").getAbsolutePath())
-                .option(CompilerOption.MODULE_SOURCE_PATH,
-                        new File(root, "compiler/src/test/resources/jmods").getAbsolutePath())
                 .build();
 
         int rc;

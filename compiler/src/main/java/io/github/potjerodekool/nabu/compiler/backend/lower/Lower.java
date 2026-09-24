@@ -223,11 +223,24 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
         final var expressionType = expression != null ? expression.getType() : null;
 
-        if (expressionType instanceof ArrayType arrayType) {
+        // Soms is de attribuut-type van een veldtoegang nog niet gezet
+        // (bv. een bloot veld-identifier in een anonieme klasse); de
+        // veld-identifier draagt dan zelf het symbool. Zonder type kan
+        // Lower niet bepalen of dit een array is -> verkeerde (iterator-)
+        // lowering die een ongeldige AALOAD/iterator-slot leest.
+        final var resolvedExpressionType = expressionType != null
+                ? expressionType
+                : (expression instanceof FieldAccessExpressionTree fae
+                        && fae.getField() != null
+                        && fae.getField().getSymbol() != null
+                        ? fae.getField().getSymbol().asType()
+                        : null);
+
+        if (resolvedExpressionType instanceof ArrayType arrayType) {
             // foreach over een array: index-gebaseerde lowering; de
             // iterator-lowering is niet van toepassing omdat ArrayType
             // geen iterator() heeft.
-            return lowerArrayEnhancedFor(expression, localVariable, statement);
+            return lowerArrayEnhancedFor(arrayType, expression, localVariable, statement);
         }
 
         var methodInvocation = TreeMaker.methodInvocationTree(
@@ -372,10 +385,11 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
      * Lowering van een enhanced-for over een array: gamevariabelen worden
      * via een index-loops opgezocht (JLS §14.14).
      */
-    private Tree lowerArrayEnhancedFor(final ExpressionTree expression,
+    private Tree lowerArrayEnhancedFor(final ArrayType arrayType,
+                                       final ExpressionTree expression,
                                        final VariableDeclaratorTree localVariable,
                                        final StatementTree statement) {
-        final var arrayType = (ArrayType) expression.getType();
+        final var arrayComponentType = arrayType.getComponentType();
         final var counterName = generateVariableName();
         final var intType = types.getPrimitiveType(TypeKind.INT);
 
@@ -420,7 +434,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         final var accessCounter = createIdentifier(counterName, counterElement);
         accessCounter.setType(intType);
         final var arrayAccess = new CArrayAccessExpressionTree(expression, accessCounter);
-        arrayAccess.setType(arrayType.getComponentType());
+        arrayAccess.setType(arrayComponentType);
 
         final var statements = new ArrayList<StatementTree>();
         statements.add(localVariable.builder()

@@ -413,30 +413,6 @@ class JavaCompilerVisitorTest {
     }
 
     @Test
-    void tryEmptyCatchRepro() throws IOException {
-        final String source = Files.readString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/Repro3.java"));
-        final var parser = new Java20Parser(
-                new CommonTokenStream(new Java20Lexer(CharStreams.fromString(source))));
-        parser.setBuildParseTree(true);
-        parser.removeErrorListeners();
-        final var compilationUnit = parser.compilationUnit();
-        final var fileObject = new PathFileObject(
-                new FileObject.Kind(".nabu", true),
-                Paths.get("Repro3.java")
-        );
-        final var probe = new FieldAccessSuffixProbeVisitor(fileObject);
-        try {
-            compilationUnit.accept(probe);
-        } catch (final Throwable t) {
-            throw t;
-        }
-        System.out.println("tryEmptyCatchRepro done");
-        final var builder2 = new StringBuilder();
-        collectClassNodes(compilationUnit, builder2);
-        Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/class-nodes3.txt"), builder2.toString());
-    }
-
-    @Test
     void fullPicocliCommandLineFileVisitorPasses() throws IOException {
         final var path = Path.of("C:/projects/incurbation/cli-demo/vendor/picocli-src/picocli/CommandLine.java");
         final var source = Files.readString(path);

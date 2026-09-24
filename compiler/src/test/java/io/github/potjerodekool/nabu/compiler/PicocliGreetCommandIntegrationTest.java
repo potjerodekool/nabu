@@ -54,7 +54,7 @@ class PicocliGreetCommandIntegrationTest {
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, tempDir.resolve("src").toString())
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
+
                 .option(CompilerOption.CLASS_PATH, picocliJar)
                 .option(CompilerOption.CLASS_OUTPUT, tempDir.resolve("out").toString())
                 .option(CompilerOption.SOURCE_OUTPUT, tempDir.resolve("generated").toString())
@@ -91,7 +91,6 @@ class PicocliGreetCommandIntegrationTest {
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, sourceDir.toString())
-                .option(CompilerOption.MODULE_SOURCE_PATH, rootPath + "/src/test/resources/jmods")
                 .option(CompilerOption.CLASS_PATH, picocliJar)
                 .option(CompilerOption.CLASS_OUTPUT, outDir.toString())
                 .option(CompilerOption.SOURCE_OUTPUT, tempDir.resolve("generated").toString())

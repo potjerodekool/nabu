@@ -37,10 +37,15 @@ public class GlobalScope implements Scope {
         final var members = getMembers();
 
         if (members != null) {
-            return members.resolve(name);
-        } else {
-            return null;
+            final var element = members.resolve(name);
+            if (element != null) {
+                return element;
+            }
         }
+
+        // Single static imports (`import static java.util.Locale.ENGLISH;`)
+        // in de named-import-scope; de package-members dekken die niet.
+        return compilationUnit.getCompositeImportScope().resolve(name);
     }
 
     private WritableScope getMembers() {

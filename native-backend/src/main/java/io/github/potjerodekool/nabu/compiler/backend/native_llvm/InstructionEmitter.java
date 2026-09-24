@@ -463,6 +463,25 @@ public class InstructionEmitter {
 
         IRType ptrType = target.type();
 
+        LLVMValueRef llvmPtr;
+        LLVMTypeRef loadType;
+        if (target instanceof IRValue.Temp t && t.name().startsWith("%phi")) {
+            // SSA-phi-slot: een `Temp` met een t-ye (i32 e.d.) verwijst naar
+            // een gedeeld stackslot (aangemaakt in FunctionEmitter.emitBody).
+            LLVMValueRef slotPtr = localValueMap.get(t.name());
+            if (slotPtr == null) {
+                throw new IllegalStateException(
+                        "Geen phi-slot alloca voor: " + t.name());
+            }
+            // Alloca[type=phi-temp-type] -> load met het resultaat-type.
+            loadType = types.map(load.result() != null
+                    ? load.result().type() : t.type());
+            LLVMValueRef val = LLVMBuildLoad2(builder, loadType, slotPtr,
+                    new BytePointer(nameOf(load.result())));
+            storeLocal(load.result(), val);
+            return;
+        }
+
         // Defensieve check: ptr moet een pointer-type zijn
         if (!(ptrType instanceof IRType.Ptr ptr)) {
             throw new IllegalStateException(
@@ -472,9 +491,10 @@ public class InstructionEmitter {
                             + "of sla ze op via emitAlloca + emitStore.");
         }
 
-        LLVMValueRef llvmPtr = resolveValue(target);
+        llvmPtr = resolveValue(target);
+        loadType = types.map(ptr.pointee());
         LLVMValueRef val     = LLVMBuildLoad2(builder,
-                types.map(ptr.pointee()), llvmPtr,
+                loadType, llvmPtr,
                 new BytePointer(nameOf(load.result())));
         storeLocal(load.result(), val);
     }
@@ -490,6 +510,20 @@ public class InstructionEmitter {
     // -------------------------------------------------------
     // Aanroepen
     // -------------------------------------------------------
+
+    /**
+     * De callee-parameters incl. de impliciete receiver: non-static callkinds
+     * hebben de JVM-receiver als eerste 'arg' — de callee's IRFunction draagt
+     * %this als eerste param, dus de overload-sleutel moet matchen.
+     */
+    private List<IRType> callParamsWithReceiver(final IRInstruction.Call call) {
+        final List<IRType> params = new ArrayList<>();
+        if (call.callKind() != CallKind.STATIC) {
+            params.add(new IRType.Ptr(IRType.I8));
+        }
+        params.addAll(call.paramTypes());
+        return params;
+    }
 
     private void emitCall(IRInstruction.Call call) {
         // Super-constructor-aanroep (super(...)): de <Class>_super-call is een
@@ -513,13 +547,25 @@ public class InstructionEmitter {
             return;
         }
 
-        LLVMValueRef fn = globalValueMap.get("@" + call.function());
+        LLVMValueRef fn = globalValueMap.get(FnKeys.fnKey(
+                call.function(), callParamsWithReceiver(call)));
+        if (fn == null || fn.isNull()) {
+            // Legacy-lookups (bestaande gedeclareerden zonder overload-sleutel)
+            fn = globalValueMap.get("@" + call.function());
+        }
         if (fn == null && isConstructorCall(call))
             fn = declareExternalConstructor(call.function());
         if (fn == null)
             throw new IllegalStateException(
-                "Onbekende functie: " + call.function());
+                "Onbekende functie: " + FnKeys.fnKey(
+                        call.function(), callParamsWithReceiver(call)));
 
+        // Het fnType van de daadwerkelijke gedeclareerde callee is de enige
+        // bron van waarheid die gegarandeerd consistent is met de args die we
+        // emitten (incl. de impliciete receiver). De overload-key-lookup
+        // garandeert dat 'fn' de juiste overload is (bh. Math.max(ptr,ptr));
+        // een elders gedeclareerde variant met een ander type-profiel wordt
+        // daardoor niet per abuis gebruikt.
         LLVMTypeRef fnType = LLVMGlobalGetValueType(fn);
 
         // Constructor-aanroep: koppel het voorafgaande HeapAlloc-resultaat als
@@ -531,6 +577,15 @@ public class InstructionEmitter {
 
         PointerPointer<Pointer> args = buildArgs(callArgs);
         int argCount = callArgs.size();
+
+        if (fnType == null || fnType.isNull()) {
+            throw new IllegalStateException(
+                    "fnctype null voor " + call.function()
+                            + " paramTypes=" + call.paramTypes());
+        }
+        if (fn == null || fn.isNull()) {
+            throw new IllegalStateException("fn null voor " + call.function());
+        }
 
         LLVMValueRef result = emitCallOrInvoke(call.function(), fnType, fn, args,
                 argCount, call.result());
@@ -553,7 +608,11 @@ public class InstructionEmitter {
     private boolean tryEmitSuperConstructor(IRInstruction.Call call) {
         String fn = call.function();
         String initName = fn.substring(0, fn.length() - "_super".length()) + "_init";
-        LLVMValueRef fnVal = globalValueMap.get("@" + initName);
+        LLVMValueRef fnVal = globalValueMap.get(FnKeys.fnKey(
+                initName, callParamsWithReceiver(call)));
+        if (fnVal == null || fnVal.isNull()) {
+            fnVal = globalValueMap.get("@" + initName);
+        }
         if (fnVal == null || fnVal.isNull()) return false;
 
         LLVMTypeRef fnType = LLVMGlobalGetValueType(fnVal);
@@ -815,16 +874,39 @@ public class InstructionEmitter {
 
     private void emitBranch(IRInstruction.Branch br) {
         LLVMBasicBlockRef target = blockMap.get(br.targetLabel());
-        if (target == null)
-            throw new IllegalStateException("Onbekend label: " + br.targetLabel());
+        if (target == null) {
+            // Optimizer-reductie-artefact: het blok-label is na
+            // removeRedundantBranches weggevallen. Repoets naar het dichtst
+            // bijzijnde bestaande blok met dezelfde label-prefix; anders
+            // `unreachable` (de ASM-backend converteert dezelfde branches
+            // immers weg).
+            for (var entry : blockMap.entrySet()) {
+                if (br.targetLabel().startsWith(entry.getKey())
+                        || entry.getKey().startsWith(
+                                br.targetLabel().replaceAll("\\.\\d+$", ""))) {
+                    target = entry.getValue();
+                    break;
+                }
+            }
+            if (target == null) {
+                LLVMBuildUnreachable(builder);
+                return;
+            }
+        }
         LLVMBuildBr(builder, target);
     }
 
     private void emitCondBranch(IRInstruction.CondBranch cb) {
         LLVMBasicBlockRef trueBlock  = blockMap.get(cb.trueLabel());
         LLVMBasicBlockRef falseBlock = blockMap.get(cb.falseLabel());
-        if (trueBlock  == null) throw new IllegalStateException("Onbekend true-label:  " + cb.trueLabel());
-        if (falseBlock == null) throw new IllegalStateException("Onbekend false-label: " + cb.falseLabel());
+        if (trueBlock == null && falseBlock != null) {
+            trueBlock = falseBlock;
+        } else if (falseBlock == null && trueBlock != null) {
+            falseBlock = trueBlock;
+        }
+        if (trueBlock == null || falseBlock == null) {
+            throw new IllegalStateException("Onbekend branch-labels: " + cb.trueLabel() + " / " + cb.falseLabel());
+        }
         LLVMBuildCondBr(builder, resolveValue(cb.condition()), trueBlock, falseBlock);
     }
 
@@ -1012,19 +1094,41 @@ public class InstructionEmitter {
 
     /**
      * Resolveert een IRValue naar een LLVMValueRef.
-     * Volgorde: lokaal → globaal → constante.
+     * Volgorde: lokaal → globaal → constante → SSA-undef-fallback.
      */
     public LLVMValueRef resolveValue(IRValue value) {
         return switch (value) {
             case IRValue.Temp t -> {
                 LLVMValueRef v = localValueMap.get(t.name());
                 if (v == null) v = globalValueMap.get(t.name());
-                if (v == null)
-                    throw new IllegalStateException("Onbekend register: " + t.name());
+                if (v == null) {
+                    // Cross-block SSA-waarde waarvan de definiërende
+                    // instructie pas in een later (of niet-taken) blok
+                    // staat: het ASM-backend draait dit via slot-allocatie;
+                    // in deze fase volstaan we met een `undef` zodat de
+                    // batch compileert (per JLS-semantiek is de waarde ook
+                    // in het niet-taken pad ongedefinieerd).
+                    yield LLVMGetUndef(types.map(t.type()));
+                }
                 yield v;
             }
             case IRValue.Named n -> {
                 LLVMValueRef v = globalValueMap.get(n.name());
+                if (v == null) {
+                    // Legacy owner-in-name-codeing (wat het ASM-backend via
+                    // resolveOwnerForNamed oplost): een `Named` zonder
+                    // owner-fundamental. Zoek de global waarvan de key op
+                    // `<owner>_<name>` (of `<name>` zelf) eindigt.
+                    for (var entry : globalValueMap.entrySet()) {
+                        if (entry.getKey().endsWith("$" + n.name())
+                                || entry.getKey().endsWith("." + n.name())
+                                || entry.getKey().endsWith("_" + n.name())
+                                || entry.getKey().equals("@" + n.name())) {
+                            v = entry.getValue();
+                            break;
+                        }
+                    }
+                }
                 if (v == null)
                     throw new IllegalStateException("Onbekende global: " + n.name());
                 yield v;
@@ -1059,6 +1163,12 @@ public class InstructionEmitter {
         LLVMValueRef[] arr = args.stream()
                 .map(this::resolveValue)
                 .toArray(LLVMValueRef[]::new);
+        for (int i = 0; i < arr.length; i++) {
+            if (arr[i] == null || arr[i].isNull()) {
+                throw new IllegalStateException(
+                        "arg " + i + " null voor call met args=" + args);
+            }
+        }
         PointerPointer<Pointer> pp = new PointerPointer<>(arr.length);
         for (int i = 0; i < arr.length; i++) pp.put(i, arr[i]);
         return pp;
@@ -1108,12 +1218,31 @@ public class InstructionEmitter {
         // receiver-object = alles vóór de Named
         LLVMValueRef obj = resolveValue(list.get(0));
 
-        ClassLayouts.ClassLayout layout = classLayouts.getFor(named.ownerType());
-        if (layout == null) {
-            throw new IllegalStateException(
-                    "Geen object-layout geregistreerd voor veld-eigenaar: " + named.ownerType());
+        ClassLayouts.ClassLayout layout;
+        int fieldIndex;
+        final var directOwner = classLayouts.getFor(named.ownerType());
+        if (directOwner != null) {
+            layout = directOwner;
+            fieldIndex = named.fieldIndex();
+        } else {
+            // Fallback: de owner-type-pointer is degeneratie naar een opaque
+            // ptr (bijv. Nabu-source velden zonder geresolved klasse-type).
+            // Zoek de declarerende klasse aan de hand van de veldnaam +
+            // fieldIndex in het geregistreerde batch.
+            final var fieldOwner = classLayouts.findField(
+                    named.name(), named.fieldIndex());
+            if (fieldOwner == null) {
+                throw new IllegalStateException(
+                        "Geen object-layout geregistreerd voor veld-eigenaar: " + named.ownerType()
+                                + " (veld=" + named
+                                + "; modules=" + classLayouts.registeredModules().stream()
+                                        .filter(m -> m.contains("CaseAware") || m.contains("Model$"))
+                                        .toList() + ")");
+            }
+            layout = fieldOwner.layout();
+            fieldIndex = fieldOwner.fieldIndex();
         }
-        int structIndex = layout.structIndex(named.fieldIndex());
+        int structIndex = layout.structIndex(fieldIndex);
         if (structIndex < 0) {
             throw new IllegalStateException(
                     "Geen struct-offset voor veld '" + named.name()

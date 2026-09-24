@@ -43,30 +43,6 @@ public class CTypeApplyTree extends CExpressionTree implements TypeApplyTree {
 
     @Override
     public void setType(final TypeMirror type) {
-        final var clazzText = getClazz().toString();
-        if (type != null && type.isError()
-                && (clazzText.contains("AbstractHandler")
-                || clazzText.contains("IParseResultHandler2")
-                || clazzText.contains("IExceptionHandler2"))) {
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[ERR-WRITER] tree@" + System.identityHashCode(this)
-                        + " line=" + getLineNumber()
-                        + " col=" + getColumnNumber()
-                        + " clazz=" + clazzText
-                        + " newType=" + (type.getClassName() == null ? type : type.getClassName()));
-                pw.println("    typeClass=" + type.getClass().getName()
-                        + " isErrorType=" + (type instanceof io.github.potjerodekool.nabu.type.ErrorType)
-                        + " elemClass=" + (type.asTypeElement() == null ? "null" : type.asTypeElement().getClass().getName())
-                        + " elem@=" + System.identityHashCode(type.asTypeElement())
-                        + " elemIsError=" + (type.asTypeElement() == null ? "null" : type.asTypeElement().isError()));
-                java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-                        .limit(18)
-                        .forEach(frame -> pw.println("    at " + frame));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
         super.setType(type);
     }
 

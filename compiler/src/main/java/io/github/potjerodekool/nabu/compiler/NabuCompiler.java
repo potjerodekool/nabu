@@ -116,15 +116,6 @@ public class NabuCompiler implements Compiler {
             }
 
             return result;
-        } catch (final StackOverflowError soe) {
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/soe.log", false))) {
-                pw.println("=== StackOverflowError ===");
-                soe.printStackTrace(pw);
-            } catch (final java.io.IOException ioe) {
-                soe.printStackTrace(System.err);
-            }
-            throw soe;
         } catch (final Exception e) {
             e.printStackTrace(System.err);
             throw new RuntimeException(e);
@@ -170,6 +161,7 @@ public class NabuCompiler implements Compiler {
                     SsaBuilder.run(module);
 
                     final var optimized = Optimizer.optimize(module);
+
                     allModules.add(optimized);
 
                     if (producedBySource != null) {

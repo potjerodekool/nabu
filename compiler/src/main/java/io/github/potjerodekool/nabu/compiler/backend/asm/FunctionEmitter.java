@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Emitteert de instructies van één functie naar ASM-bytecode.
+ * Emitteert de instructies van ├®├®n functie naar ASM-bytecode.
  *
  * Alle SSA-waarden worden via JVM-local-variable-slots geadresseerd
  * (zie {@link SlotAllocator}): elke instructie die een waarde produceert
@@ -82,6 +82,13 @@ public class FunctionEmitter {
         return labels.computeIfAbsent(SlotAllocator.normalize(blockLabel), k -> new Label());
     }
 
+    /**
+     * Maakt een vers label aan met de naam als dezelfde naam al bestaat.
+     */
+    public Label newLabelFor(final String name) {
+        return new Label();
+    }
+
     // -------------------------------------------------------
     // Instructies
     // -------------------------------------------------------
@@ -115,7 +122,7 @@ public class FunctionEmitter {
             case IRInstruction.ArrayLoad arrayLoad -> emitArrayLoad(arrayLoad);
             case IRInstruction.ArrayStore arrayStore -> emitArrayStore(arrayStore);
             case IRInstruction.Phi phi -> throw new IllegalStateException(
-                    "Phi-instructie moet geëlimineerd zijn vóór bytecode-emissie. " +
+                    "Phi-instructie moet ge├½limineerd zijn v├│├│r bytecode-emissie. " +
                     "Voer PhiElimination.run() uit op de functie.");
             case IRInstruction.Move move -> emitMove(move);
             case IRInstruction.ArrayLength arrayLength -> {
@@ -159,7 +166,7 @@ public class FunctionEmitter {
             // gevangen exception): gooi dat aanroepobject zelf.
             emitValue(throwInst.result());
         } else {
-            // Synthetische throw van een type: alloceer en initïaliseer.
+            // Synthetische throw van een type: alloceer en init├»aliseer.
             final var type = BytecodeHelper.toInternalName(throwInst.type());
             mv.visitTypeInsn(Opcodes.NEW, type);
             mv.visitInsn(Opcodes.DUP);
@@ -196,7 +203,7 @@ public class FunctionEmitter {
 
         if (isComparison(binaryOp.op())) {
             // Vergelijkingen produceren geen directe waarde; de operanden
-            // worden door de consument geëmitteerd (de eropvolgende
+            // worden door de consument ge├½mitteerd (de eropvolgende
             // CondBranch of een materialisatie van de boolean).
             pendingComparisons.put(IRValue.nameOf(binaryOp.result()), binaryOp);
             return;
@@ -359,21 +366,23 @@ public class FunctionEmitter {
                 final var isStatic = named.isStatic() || (global != null && global.isStatic());
 
                 emitValue(store.value());
+                final String fieldDescriptor = BytecodeHelper.createDescriptor(
+                        global != null ? global.type() : named.type());
+                boxForFieldDescriptor(fieldDescriptor, store.value().type());
 
                 if (isStatic) {
                     mv.visitFieldInsn(
                             Opcodes.PUTSTATIC,
                             resolveOwnerName(named, global),
                             resolveFieldName(named, global),
-                            BytecodeHelper.createDescriptor(
-                                    global != null ? global.type() : named.type())
+                            fieldDescriptor
                     );
                 } else {
                     mv.visitFieldInsn(
                             Opcodes.PUTFIELD,
                             BytecodeHelper.toInternalName(named.ownerType()),
                             named.name(),
-                            BytecodeHelper.createDescriptor(named.type())
+                            fieldDescriptor
                     );
                 }
             }
@@ -383,12 +392,14 @@ public class FunctionEmitter {
                 final var named = (IRValue.Named) values.values().getLast();
                 values.values().subList(0, values.values().size() - 1).forEach(this::emitValue);
                 emitValue(store.value());
+                final String fieldDescriptor = BytecodeHelper.createDescriptor(named.type());
+                boxForFieldDescriptor(fieldDescriptor, store.value().type());
 
                 mv.visitFieldInsn(
                         Opcodes.PUTFIELD,
                         BytecodeHelper.toInternalName(named.ownerType()),
                         named.name(),
-                        BytecodeHelper.createDescriptor(named.type())
+                        fieldDescriptor
                 );
             }
             case IRValue.Temp temp -> {
@@ -404,7 +415,7 @@ public class FunctionEmitter {
 
     /**
      * Heap-allocatie voor een nieuw object. De eigenlijke NEW+DUP wordt pas
-     * bij de constructor-aanroep (zie {@link #emitConstructorCall}) geëmitteerd,
+     * bij de constructor-aanroep (zie {@link #emitConstructorCall}) ge├½mitteerd,
      * omdat de referentie daar op de stack nodig is. Hier wordt alleen het
      * resultaat-slot geregistreerd.
      */
@@ -467,6 +478,14 @@ public class FunctionEmitter {
             final var castInternalName = BytecodeHelper.toInternalName(cast.targetType());
             final String safeCastName = isInternalName(castInternalName)
                     ? castInternalName : "java/lang/Object";
+            // JLS 5.1.7: een primitieve bron-waarde bij een reference-
+            // cast-target is een boxing-conversie (bv. de char-retourwaarde
+            // van Character.toLowerCase naar Character). Zonder boxing
+            // breekt de CHECKCAST ("Expected an object reference, but
+            // found I").
+            if (isPrimitive(cast.source().type()) && isReference(cast.targetType())) {
+                boxOperand(cast.source().type());
+            }
             mv.visitTypeInsn(Opcodes.CHECKCAST, safeCastName);
         } else {
             // Primitieve numerieke conversie (bv. I2F, F2I, L2D, ...)
@@ -478,7 +497,7 @@ public class FunctionEmitter {
     /**
      * Valideert een internal-name-string als geldige JVM-class-referentie.
      * Method-descriptors (bv. van verkeerd gemappe Cast-targets) worden
-     * vermeden — anders keurt de ASM-verifier de classfile af met
+     * vermeden ÔÇö anders keurt de ASM-verifier de classfile af met
      * "found ." (uninitialized descriptor-wat).
      */
     private static boolean isInternalName(final String name) {
@@ -554,12 +573,6 @@ public class FunctionEmitter {
                 call.paramTypes(),
                 call.returnType()
         );
-        if (System.getProperty("nabu.probe.newclass") != null
-                && call.function().contains("CommandLine_init")) {
-            System.err.println("[EMIT-CTOR] fn=" + call.function()
-                    + " paramTypes=" + call.paramTypes()
-                    + " descriptor=" + descriptor);
-        }
 
         var functionName = call.function();
         final var sepIndex = functionName.lastIndexOf('_');
@@ -574,7 +587,7 @@ public class FunctionEmitter {
                     && ptr.jvmDescriptor() != null
                     && ptr.jvmDescriptor().startsWith("[")) {
                 // Array.clone(): de MethodRef-owner is het arraytype zelf
-                // ([L...;) en niet de componentklasse (JVMS §6.5); anders
+                // ([L...;) en niet de componentklasse (JVMS ┬º6.5); anders
                 // keurt de verifier de bytecode af.
                 owner = BytecodeHelper.toInternalName(receiverType);
             } else {
@@ -628,37 +641,43 @@ public class FunctionEmitter {
 
     /**
      * Emitteert de operands van een call. Gewone calls pushen de args flat;
-     * varargs-calls (laatste paramType is een array, en er worden méér args
+     * varargs-calls (laatste paramType is een array, en er worden m├®├®r args
      * meegegeven dan de declaratie heeft) moeten de staart eerst in een
-     * array-object verzamelen vóór de invoke.
+     * array-object verzamelen v├│├│r de invoke.
      */
     private void emitCallOperands(final IRInstruction.Call call, final int opcode) {
         final var paramTypes = call.paramTypes();
         final var args = call.args();
-        final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
+final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
+        final String varargsArrayDescriptor = paramTypes.isEmpty()
+                ? null
+                : BytecodeHelper.createDescriptor(paramTypes.getLast());
+        final int fixedArgs = (isStatic ? 0 : 1) + (paramTypes.size() - 1);
+        // Javac-'array-form' van varargs: een los argument dat het
+        // volledige varargs-arraytype draagt (exact evenveel args als
+        // parameters) wordt ├®├®n-op-├®├®n doorgegeven ÔÇö niet gewrapped.
+        final boolean varargsArrayForm = !paramTypes.isEmpty()
+                && varargsArrayDescriptor.startsWith("[")
+                && args.size() == fixedArgs + 1
+                && args.getLast().type() instanceof IRType.Ptr argPtrF
+                && varargsArrayDescriptor.equals(argPtrF.jvmDescriptor());
         // Varargs: laatste paramType is een array; de staart (inclusief een
-        // LEEGE staart) moet altijd in een array-object worden verzameld,
-        // anders verwacht de verifier een ontbrekend Object[]-argument.
-        final boolean isVarargs = !isStatic
+        // LEEGE staart) moet in een array-object worden verzameld, anders
+        // verwacht de verifier een ontbrekend Object[]-argument. (Geldt ook
+        // voor STATIC calls, bv. String.format(String, Object...).)
+        final boolean isVarargs = !varargsArrayForm
                 && !paramTypes.isEmpty()
-                && BytecodeHelper.createDescriptor(paramTypes.getLast()).startsWith("[")
-                && args.size() >= paramTypes.size();
+                && varargsArrayDescriptor.startsWith("[")
+                && args.size() >= fixedArgs;
 
         if (!isVarargs) {
             args.forEach(this::emitValue);
             return;
         }
 
-        final String varargsArrayDescriptor = BytecodeHelper.createDescriptor(paramTypes.getLast());
-        final int fixedArgs = (isStatic ? 0 : 1) + (paramTypes.size() - 1);
-
-        // Javac-'array-form' van varargs: een los argument dat het
-        // volledige varargs-arraytype draagt (exact evenveel args als
-        // parameters) wordt één-op-één doorgegeven — niet gewrapped.
-        if (args.size() == paramTypes.size() + (isStatic ? 0 : 1)
-                && args.getLast().type() instanceof IRType.Ptr argPtr
-                && varargsArrayDescriptor.equals(argPtr.jvmDescriptor())) {
-            for (int i = fixedArgs - 1; i >= 0; i--) {
+        // 'array-form' reeds herkend: rechtstreeks doorgeven.
+        if (varargsArrayForm) {
+            for (int i = 0; i < fixedArgs; i++) {
                 emitValue(args.get(i));
             }
             emitValue(args.getLast());
@@ -680,7 +699,7 @@ public class FunctionEmitter {
                 : "java/lang/Object";
         // Reference-arrays (Object[], wrapper-arrays) verlangen een
         // reference per element: primitieven worden geboxed
-        // (auto-boxing, JLS �5.1.7).
+        // (auto-boxing, JLS ´┐¢5.1.7).
         mv.visitIntInsn(elements.size() > 127 ? Opcodes.SIPUSH : Opcodes.BIPUSH, elements.size());
         mv.visitTypeInsn(Opcodes.ANEWARRAY, componentInternalName);
         for (int k = 0; k < elements.size(); k++) {
@@ -740,8 +759,72 @@ public class FunctionEmitter {
     }
 
     /**
+     * Assignment-conversie (JLS 5.2): een primitieve waarde die in een
+     * REFERENTIE-veld wordt gestored (bv. char-literal in een
+     * {@code Character}-veld) moet eerst geboxed worden, anders breekt de
+     * verifier ("expected R, but found I"). De te gebruiken {@code valueOf}
+     * wordt afgeleid van de veld-descriptor (niet van het IR-type), zodat
+     * char vs. short correct onderscheiden wordt.
+     */
+    private void boxForFieldDescriptor(final String fieldDescriptor,
+                                       final IRType valueType) {
+        if (fieldDescriptor == null
+                || !fieldDescriptor.startsWith("L")
+                || !isPrimitive(valueType)) {
+            return;
+        }
+        final String wrapperInternal;
+        final String paramDescriptor;
+        switch (fieldDescriptor) {
+            case "Ljava/lang/Boolean;" -> {
+                if (!(valueType instanceof IRType.Bool)) return;
+                wrapperInternal = "java/lang/Boolean";
+                paramDescriptor = "Z";
+            }
+            case "Ljava/lang/Byte;" -> {
+                wrapperInternal = "java/lang/Byte";
+                paramDescriptor = "B";
+            }
+            case "Ljava/lang/Short;" -> {
+                wrapperInternal = "java/lang/Short";
+                paramDescriptor = "S";
+            }
+            case "Ljava/lang/Character;" -> {
+                wrapperInternal = "java/lang/Character";
+                paramDescriptor = "C";
+            }
+            case "Ljava/lang/Integer;" -> {
+                wrapperInternal = "java/lang/Integer";
+                paramDescriptor = "I";
+            }
+            case "Ljava/lang/Long;" -> {
+                wrapperInternal = "java/lang/Long";
+                paramDescriptor = "J";
+            }
+            case "Ljava/lang/Float;" -> {
+                wrapperInternal = "java/lang/Float";
+                paramDescriptor = "F";
+            }
+            case "Ljava/lang/Double;" -> {
+                wrapperInternal = "java/lang/Double";
+                paramDescriptor = "D";
+            }
+            default -> {
+                return;
+            }
+        }
+        mv.visitMethodInsn(
+                Opcodes.INVOKESTATIC,
+                wrapperInternal,
+                "valueOf",
+                "(" + paramDescriptor + ")L" + wrapperInternal + ";",
+                false
+        );
+    }
+
+    /**
      * Super-constructor-aanroep (super() of this.super()): het object bestaat
-     * al (this), dus er mag géén NEW/DUP komen. De 'this'-referentie zit al
+     * al (this), dus er mag g├®├®n NEW/DUP komen. De 'this'-referentie zit al
      * als eerste element in call.args() (impliciet toegevoegd in de IR).
      */
     private void emitSuperCall(final IRInstruction.Call call,
@@ -893,7 +976,7 @@ public class FunctionEmitter {
      *
      * Een `new X(this)`-expressie heeft WEL een HeapAlloc gepusht op
      * pendingConstructorAllocs (en de `%this` is daar een gewoon argument,
-     * geen receiver); alleen als er géén alloc pending is, is dit een
+     * geen receiver); alleen als er g├®├®n alloc pending is, is dit een
      * echte self()/super()-delegatie binnen de constructor.
      */
     private boolean isSelfConstructorCall(final IRInstruction.Call call) {
@@ -1008,20 +1091,27 @@ public class FunctionEmitter {
             return switch (binaryOp.op()) {
                 case EQ -> Opcodes.IF_ACMPEQ;
                 case NEQ -> Opcodes.IF_ACMPNE;
-                default -> {
-                    System.err.println("[CMP-REF-FAIL-LOC] owner=" + ownerInternalName
-                            + " loc=" + binaryOp.location()
-                            + " op=" + binaryOp.op()
-                            + " leftType=" + leftType
-                            + " left=" + binaryOp.left()
-                            + " right=" + binaryOp.right());
-                    throw new UnsupportedOperationException(
-                            "Unsupported comparison op: " + binaryOp.op());
-                }
+                default -> throw new UnsupportedOperationException(
+                        "Unsupported comparison op: " + binaryOp.op());
             };
         }
 
         if (leftType instanceof IRType.Int(int bits) && bits == 64) {
+            return switch (binaryOp.op()) {
+                case LT -> Opcodes.IFLT;
+                case LTE -> Opcodes.IFLE;
+                case EQ -> Opcodes.IFEQ;
+                case GTE -> Opcodes.IFGE;
+                case GT -> Opcodes.IFGT;
+                case NEQ -> Opcodes.IFNE;
+                default -> throw new UnsupportedOperationException(
+                        "Unsupported comparison op: " + binaryOp.op());
+            };
+        }
+
+        // float/double: DCMPL/FCMPL laat Ã©Ã©n int (vergelijkingsteken) op de
+        // stack achter; de juiste branch is IFxx (single-int), niet IF_ICMPxx.
+        if (leftType instanceof IRType.Float) {
             return switch (binaryOp.op()) {
                 case LT -> Opcodes.IFLT;
                 case LTE -> Opcodes.IFLE;
@@ -1047,6 +1137,16 @@ public class FunctionEmitter {
                     + " right=" + binaryOp.right());
         };
         return fallbackResult;
+    }
+
+    private boolean isPrimitive(final IRType type) {
+        return type instanceof IRType.Int
+                || type instanceof IRType.Float
+                || type instanceof IRType.Bool;
+    }
+
+    private boolean isReference(final IRType type) {
+        return isReferenceType(type);
     }
 
     private boolean isReferenceType(final IRType type) {
@@ -1551,8 +1651,8 @@ public class FunctionEmitter {
         // JVMS: identieke (name, slot)-entries in de LocalVariableTable
         // maken de classfile ongeldig ("Duplicated LocalVariableTable
         // attribute entry"). Hergebruikte namen (bv. `ex` in meerdere
-        // catch-blokken) én slot-overlap mogen per (naam, slot) maar één
-        // keer geëmitteerd worden; de eerste definitie wint.
+        // catch-blokken) ├®n slot-overlap mogen per (naam, slot) maar ├®├®n
+        // keer ge├½mitteerd worden; de eerste definitie wint.
         final var seenLocalVars = new HashSet<String>();
 
         for (final var param : function.params) {

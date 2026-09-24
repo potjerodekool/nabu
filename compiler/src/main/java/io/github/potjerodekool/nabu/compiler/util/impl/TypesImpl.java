@@ -177,24 +177,6 @@ public class TypesImpl implements Types {
                         typeArgs
                 );
             }
-            if ("IParseResultHandler2".equals(typeElem.getSimpleName().toString())
-                    || "IExceptionHandler2".equals(typeElem.getSimpleName().toString())
-                    || "AbstractHandler".equals(typeElem.getSimpleName().toString())) {
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[GD2-RAW] elem=" + typeElem.getQualifiedName()
-                            + " args=" + java.util.Arrays.stream(typeArgs)
-                            .map(arg -> arg == null ? "null" : (arg.getClass().getSimpleName() + (arg.isError() ? ":ERROR" : "")))
-                            .collect(java.util.stream.Collectors.joining(","))
-                            + " elemAsTypeArgs=" + typeElem.asType().getTypeArguments().size()
-                            + " elemAsTypeParams=" + typeElem.getTypeParameters().size());
-                    java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-                            .limit(12)
-                            .forEach(frame -> pw.println("    at " + frame));
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
             return getErrorType(typeElem.getQualifiedName());
         }
 
@@ -236,20 +218,6 @@ public class TypesImpl implements Types {
         symbol.complete();
 
         final var typeArguments = typeElem.asType().getTypeArguments();
-
-        if ("IParseResultHandler2".equals(typeElem.getSimpleName().toString())
-                || "IExceptionHandler2".equals(typeElem.getSimpleName().toString())
-                || "AbstractHandler".equals(typeElem.getSimpleName().toString())) {
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[GETDECLARED] elem=" + typeElem.getQualifiedName()
-                        + " nArgs=" + typeArgs.length
-                        + " nTypeArgs=" + typeArguments.size()
-                        + " args=" + java.util.Arrays.stream(typeArgs).map(arg -> arg == null ? "null" : (arg.getClass().getSimpleName() + (arg.isError() ? ":ERROR" : ""))).collect(java.util.stream.Collectors.joining(",")));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
 
         if (typeArgs.length != typeArguments.size()) {
             return getErrorType(enclosing != null
@@ -320,19 +288,6 @@ public class TypesImpl implements Types {
 
     @Override
     public DeclaredType getErrorType(final String className) {
-        if (className != null) {
-            final var simple = className.substring(className.lastIndexOf('.') + 1);
-            if (simple.equals("AbstractHandler") || simple.equals("IParseResultHandler2")
-                    || simple.equals("IExceptionHandler2") || simple.equals("CSI") || simple.equals("value")) {
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[GETERRORTYPE] class=" + className);
-                    new Throwable("geterr").printStackTrace(pw);
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
-        }
         final var packageNameEnd = className.lastIndexOf('.');
         final String simpleName;
         final Symbol enclosingElement;

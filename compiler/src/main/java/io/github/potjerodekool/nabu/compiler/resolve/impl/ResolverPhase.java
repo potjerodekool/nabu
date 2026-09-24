@@ -34,10 +34,6 @@ import java.util.stream.Collectors;
 
 public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
-    private static int MI_DEPTH = 0;
-    private static int MI_TRACE_COUNT = 0;
-    private static int VARPROBE_TRACE_COUNT = 0;
-    private static int FAPROBE_TRACE_COUNT = 0;
     private static final Logger logger = Logger.getLogger(ResolverPhase.class.getName());
     private final CompilerContextImpl compilerContext;
     private final ClassElementLoader loader;
@@ -560,47 +556,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 && symbol.isError()
                 && !(type instanceof ErrorType)) {
             symbol.setError(false);
-            if (type.asTypeElement() != null) {
-                final var qn = type.asTypeElement().getQualifiedName();
-                if (qn != null && (qn.contentEquals("picocli.CommandLine$AbstractHandler")
-                        || qn.contentEquals("picocli.CommandLine$IParseResultHandler2")
-                        || qn.contentEquals("picocli.CommandLine$IExceptionHandler2"))) {
-                    logResolverUnflag("CLEARED", type, symbol);
-                }
-            }
-        } else if (type.asTypeElement() != null) {
-            final var qn = type.asTypeElement().getQualifiedName();
-            if (type instanceof ErrorType
-                    || (qn != null && (qn.contentEquals("picocli.CommandLine$AbstractHandler")
-                    || qn.contentEquals("picocli.CommandLine$IParseResultHandler2")
-                    || qn.contentEquals("picocli.CommandLine$IExceptionHandler2")))) {
-                logResolverUnflag("SKIP:" + (type instanceof ErrorType ? "ERRORTYPE" : "NOOP"),
-                        type, type.asTypeElement() instanceof Symbol s ? s : null);
-            }
         }
 
         typeIdentifier.setType(type);
 
         return defaultAnswer(typeIdentifier, scope);
-    }
-
-    private static void logResolverUnflag(final String status,
-                                          final TypeMirror type,
-                                          final Symbol symbol) {
-        final var element = type.asTypeElement();
-        try (final var pw = new java.io.PrintWriter(
-                new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-            pw.println("[R-UNFLAG] status=" + status
-                    + " typeClass=" + type.getClass().getName()
-                    + " isErrorType=" + (type instanceof ErrorType)
-                    + " elemClass=" + (element == null ? "null" : element.getClass().getName())
-                    + " elem@=" + System.identityHashCode(element)
-                    + " elemIsError=" + (symbol != null && symbol.isError())
-                    + " typeIsError=" + type.isError()
-                    + " qn=" + (element == null ? "null" : element.getQualifiedName()));
-        } catch (java.io.IOException e) {
-            // ignore
-        }
     }
 
     private TypeMirror resolveType(final String name,
@@ -1131,29 +1091,6 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             selectedType = varElement.asType();
         }
 
-        if (FAPROBE_TRACE_COUNT < 5
-                && "length".equals(fieldAccessExpression.getField().getName())
-                && selected instanceof ArrayAccessExpressionTree aaTree) {
-            FAPROBE_TRACE_COUNT++;
-            final var aaExprType = aaTree.getExpression() != null
-                    ? (aaTree.getExpression().getType() != null ? aaTree.getExpression().getType().toString() : "unset")
-                    : "no-expr";
-            final var aaType = selectedType != null ? selectedType.toString() : "unset";
-            final var aaExprClass = aaTree.getExpression() != null
-                    ? aaTree.getExpression().getClass().getSimpleName()
-                    : "none";
-            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
-                    "C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[FAPROBE] len@aa selectedType=" + aaType
-                        + " exprType=" + aaExprType
-                        + " exprClass=" + aaExprClass
-                        + " idxType=" + (aaTree.getIndex() != null && aaTree.getIndex().getType() != null
-                        ? aaTree.getIndex().getType().toString() : "unset"));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
-
         if (selectedType != null && "class".equals(fieldAccessExpression.getField().getName())
                 && (selectedType instanceof ArrayType || asDeclaredType(selectedType) != null || selectedType.isPrimitiveType())) {
             TypeMirror classTypeArg = selectedType;
@@ -1222,52 +1159,6 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitIdentifier(final IdentifierTree identifier,
                                   final Scope scope) {
-        if (VARPROBE_TRACE_COUNT < 120
-                && ("length".equals(identifier.getName()) || "CSI".equals(identifier.getName()))
-                && scope.getCurrentClass() != null
-                && !scope.getCurrentClass().getQualifiedName().equals("java.lang.String")
-                && !scope.getCurrentClass().getQualifiedName().equals("java.lang.StringBuilder")) {
-            final var scopeClass = scope != null && scope.getCurrentClass() != null
-                    ? scope.getCurrentClass().getQualifiedName()
-                    : "null";
-            final var symNow = identifier.getSymbol() != null ? identifier.getSymbol().getSimpleName() : "null";
-            final var resolvable = scope;
-            final var chain = new StringBuilder();
-            var sc = (io.github.potjerodekool.nabu.resolve.scope.Scope) resolvable;
-            while (sc != null) {
-                final var cc = sc.getCurrentClass();
-                chain.append(sc.getClass().getSimpleName())
-                        .append('(')
-                        .append(cc != null ? cc.getQualifiedName() : "-")
-                        .append(')').append("<-");
-                sc = sc.getParent();
-            }
-            final var ansiInfo = new StringBuilder();
-            var sc2 = (io.github.potjerodekool.nabu.resolve.scope.Scope) resolvable;
-            while (sc2 != null) {
-                final var cc2 = sc2.getCurrentClass();
-                if (cc2 != null && cc2.getQualifiedName().endsWith("Ansi")) {
-                    final var enclosed = ((io.github.potjerodekool.nabu.lang.model.element.TypeElement) cc2).getEnclosedElements();
-                    ansiInfo.append("AnsiMembers=").append(enclosed.size())
-                            .append(" CSI=").append(enclosed.stream()
-                                    .map(io.github.potjerodekool.nabu.lang.model.element.Element::getSimpleName)
-                                    .anyMatch(s -> s.equals("CSI")));
-                    break;
-                }
-                sc2 = sc2.getParent();
-            }
-            try (final var pw = new java.io.PrintWriter(new java.io.FileWriter(
-                    "C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[VARPROBE] name=" + identifier.getName()
-                        + " scope(" + scopeClass + ")=" + resolvable.getClass().getSimpleName()
-                        + " sym=" + symNow + " chain=" + chain
-                        + " result=" + (resolvable.resolve(identifier.getName()) != null
-                        ? resolvable.resolve(identifier.getName()).getSimpleName() : "null")
-                        + " " + ansiInfo);
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
         var type = identifier.getType();
 
         if (isErrorType(type)) {
@@ -1296,29 +1187,36 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             type = resolveType(identifier.getName(), scope);
         }
 
-        if (type != null) {
+        // Een identifier die een TYPE aanduidt (geen waarde) krijgt alleen
+        // een type en geen symbool. Zodra er echter al een symbool aanwezig
+        // is, is het een waarde-referentie: het symbool moet dan behouden
+        // blijven en (opnieuw) geresolveerd worden. Anders wist een tweede
+        // resolutie-pas het symbool van veld-referenties, omdat het type dan
+        // immers al gezet is door de eerste pas.
+        if (type != null && identifier.getSymbol() == null) {
             identifier.setType(type);
             identifier.setSymbol(null);
-        } else {
-            var symbol = scope.resolve(identifier.getName());
+            return defaultAnswer(identifier, scope);
+        }
 
-            if (symbol == null) {
-                symbol = resolveAfterEnclosingCompletion(identifier.getName(), scope);
-            }
+        var symbol = scope.resolve(identifier.getName());
 
-            if (symbol != null) {
-                identifier.setSymbol(symbol);
-                if (identifier.getType() == null
-                        && symbol.asType() != null) {
-                    identifier.setType(symbol.asType());
-                }
-            } else if (identifier.getSymbol() == null) {
-                identifier.setSymbol(
-                        compilerContext.getElementBuilders()
-                                .createErrorSymbol(identifier.getName())
-                );
-                identifier.setType(types.getErrorType(identifier.getName()));
+        if (symbol == null) {
+            symbol = resolveAfterEnclosingCompletion(identifier.getName(), scope);
+        }
+
+        if (symbol != null) {
+            identifier.setSymbol(symbol);
+            if (identifier.getType() == null
+                    && symbol.asType() != null) {
+                identifier.setType(symbol.asType());
             }
+        } else if (identifier.getSymbol() == null) {
+            identifier.setSymbol(
+                    compilerContext.getElementBuilders()
+                            .createErrorSymbol(identifier.getName())
+            );
+            identifier.setType(types.getErrorType(identifier.getName()));
         }
 
         return defaultAnswer(identifier, scope);
@@ -1375,106 +1273,42 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitMethodInvocation(final MethodInvocationTree methodInvocation,
                                         final Scope scope) {
-        final var ln = methodInvocation.getLineNumber();
-        final var selStr = methodInvocation.getMethodSelector().toString();
-        final var focus = (ln >= 1896 && ln <= 1900)
-                || (ln >= 2230 && ln <= 2240)
-                || (ln >= 3120 && ln <= 3130)
-                || (ln >= 6595 && ln <= 6610)
-                || (ln >= 11950 && ln <= 11995)
-                || (ln >= 13508 && ln <= 13525)
-                || (ln >= 13650 && ln <= 13670)
-                || (ln >= 6800 && ln <= 6865)
-                || (ln == -1 && selStr.contains("OptionSpec.builder"))
-                || (ln == -1 && selStr.contains("PositionalParamSpec.builder"))
-                || (ln == -1 && selStr.contains(".build"))
-                || (ln == -1 && (selStr.contains("buildArgForMember")
-                || selStr.contains("buildArgGroupForMember")
-                || selStr.contains("buildMixinForMember")));
-        if (MI_TRACE_COUNT < 4000 && focus) {
-            MI_TRACE_COUNT++;
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[MI] depth=" + MI_DEPTH
-                        + " line=" + ln
-                        + " col=" + methodInvocation.getColumnNumber()
-                        + " sel=" + methodInvocation.getMethodSelector()
-                        + " id=" + System.identityHashCode(methodInvocation));
-            } catch (java.io.IOException e) {
-                // ignore
+        final var methodSelector = methodInvocation.getMethodSelector();
+        acceptTree(methodSelector, scope);
+
+        methodInvocation.getArguments().forEach(arg -> {
+            acceptTree(arg, scope);
+        });
+        methodInvocation.getTypeArguments().forEach(typeArgument ->
+                acceptTree(typeArgument, scope));
+
+        final var resolvedMethodTypeOptional = methodResolver.resolveMethod(methodInvocation, scope);
+
+        resolvedMethodTypeOptional.ifPresent(resolvedMethodType -> {
+            methodSelector.setType(resolvedMethodType.getOwner().asType());
+            methodInvocation.setMethodType(resolvedMethodType);
+            final var boxer = compilerContext.getArgumentBoxer();
+            boxer.boxArguments(methodInvocation);
+        });
+
+        if (resolvedMethodTypeOptional.isPresent()) {
+            final var arguments = methodInvocation.getArguments();
+            final var parameterTypes = methodInvocation.getMethodType().getParameterTypes();
+
+            for (var i = 0; i < arguments.size(); i++) {
+                if (i >= parameterTypes.size()) {
+                    break;
+                }
+                final var argument = arguments.get(i);
+                final var parameterType = parameterTypes.get(i);
+
+                if (argument instanceof LambdaExpressionTree lambdaExpression) {
+                    postResolve(lambdaExpression, parameterType, scope);
+                }
             }
         }
 
-        MI_DEPTH++;
-        try {
-            final var methodSelector = methodInvocation.getMethodSelector();
-            acceptTree(methodSelector, scope);
-
-            methodInvocation.getArguments().forEach(arg -> {
-                if (ln == 1898 || ln == 2233 || ln == 6802 || ln == 6601 || ln == 11955) {
-                    try (final var pw = new java.io.PrintWriter(
-                            new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                        pw.println("[ARGLIST] line=" + ln
-                                + " outerId=" + System.identityHashCode(methodInvocation)
-                                + " argClass=" + arg.getClass().getName()
-                                + " argId=" + System.identityHashCode(arg)
-                                + " argLine=" + arg.getLineNumber()
-                                + " isMI=" + (arg instanceof MethodInvocationTree)
-                                + " sel=" + (arg instanceof MethodInvocationTree mi2 ? mi2.getMethodSelector().toString() : "-"));
-                    } catch (java.io.IOException e) {
-                        // ignore
-                    }
-                }
-                acceptTree(arg, scope);
-            });
-            methodInvocation.getTypeArguments().forEach(typeArgument ->
-                    acceptTree(typeArgument, scope));
-
-            boolean resolvedMetho0d = false;
-            final var resolvedMetho0dTypeOptional = methodResolver.resolveMethod(methodInvocation, scope);
-
-            resolvedMetho0d = resolvedMetho0dTypeOptional.isPresent();
-
-            resolvedMetho0dTypeOptional.ifPresent(resolvedMethodType -> {
-                methodSelector.setType(resolvedMethodType.getOwner().asType());
-                methodInvocation.setMethodType(resolvedMethodType);
-                final var boxer = compilerContext.getArgumentBoxer();
-                boxer.boxArguments(methodInvocation);
-            });
-
-            if (MI_TRACE_COUNT < 4000 && focus) {
-                try (final var pw = new java.io.PrintWriter(
-                        new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                    pw.println("[MI-END] line=" + ln
-                            + " sel=" + methodInvocation.getMethodSelector()
-                            + " resolved=" + resolvedMetho0d
-                            + " set=" + (methodInvocation.getMethodType() != null));
-                } catch (java.io.IOException e) {
-                    // ignore
-                }
-            }
-
-            if (resolvedMetho0dTypeOptional.isPresent()) {
-                final var arguments = methodInvocation.getArguments();
-                final var parameterTypes = methodInvocation.getMethodType().getParameterTypes();
-
-                for (var i = 0; i < arguments.size(); i++) {
-                    if (i >= parameterTypes.size()) {
-                        break;
-                    }
-                    final var argument = arguments.get(i);
-                    final var parameterType = parameterTypes.get(i);
-
-                    if (argument instanceof LambdaExpressionTree lambdaExpression) {
-                        postResolve(lambdaExpression, parameterType, scope);
-                    }
-                }
-            }
-
-            return null;
-        } finally {
-            MI_DEPTH--;
-        }
+        return null;
     }
 
     @Override
@@ -1608,20 +1442,6 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 .filter(method -> method.getParameters().isEmpty())
                 .findFirst()
                 .orElse(null);
-
-        if ("value".equals(methodName)) {
-            try (final var pw = new java.io.PrintWriter(
-                    new java.io.FileWriter("C:/Users/evert/AppData/Local/Temp/opencode/diag.log", true))) {
-                pw.println("[ANNOTARG] ann=" + currentClass.getQualifiedName()
-                        + " enclosed=" + annotationMethods.size()
-                        + " kinds=" + annotationMethods.stream()
-                        .map(e -> e.getKind() + ":" + e.getSimpleName()).toList()
-                        + " methodName=" + methodName
-                        + " resolved=" + (resolvedMethod != null));
-            } catch (java.io.IOException e) {
-                // ignore
-            }
-        }
 
         acceptTree(assignmentExpressionTree.getRight(), scope);
 

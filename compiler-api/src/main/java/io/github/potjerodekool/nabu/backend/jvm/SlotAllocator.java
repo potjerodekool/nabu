@@ -28,8 +28,9 @@ public final class SlotAllocator {
     public int allocateParam(final String name,
                              final IRType type) {
         final var normalized = normalize(name);
+        final var key = normalized + "|" + typeKey(type);
         final var slot = nextSlot;
-        slots.put(normalized, slot);
+        slots.put(key, slot);
         nextSlot += slotSize(type);
         return slot;
     }
@@ -41,15 +42,32 @@ public final class SlotAllocator {
     public int slotOf(final String name,
                       final IRType type) {
         final var normalized = normalize(name);
-        final var existing = slots.get(normalized);
+        final var kind = typeKey(type);
+        final var key = normalized + "|" + kind;
+        final var existing = slots.get(key);
         if (existing != null) {
             return existing;
         }
 
         final var slot = nextSlot;
-        slots.put(normalized, slot);
+        slots.put(key, slot);
         nextSlot += slotSize(type);
         return slot;
+    }
+
+    private static String typeKey(final IRType type) {
+        if (type instanceof IRType.Int(int bits)) return "I" + bits;
+        if (type instanceof IRType.Float(int bits)) return "F" + bits;
+        if (type instanceof IRType.Bool) return "Z";
+        if (type instanceof IRType.Ptr ptr) return "R" + typeToString(ptr.pointee());
+        if (type instanceof IRType.Array arr) return "A" + typeToString(arr.elem());
+        return "O" + type.toString();
+    }
+
+    private static String typeToString(final IRType type) {
+        if (type == null) return "?";
+        if (type instanceof IRType.Ptr ptr) return "ptr(" + typeToString(ptr.pointee()) + ")";
+        return type.toString();
     }
 
     /**
@@ -57,22 +75,59 @@ public final class SlotAllocator {
      * slot nog niet toegekend is.
      */
     public int getSlot(final String name) {
-        final var slot = slots.get(normalize(name));
-        if (slot == null) {
-            throw new IllegalStateException("Geen slot toegekend voor '" + name + "'");
+        final var normalized = normalize(name);
+        for (final var entry : slots.entrySet()) {
+            if (entry.getKey().startsWith(normalized + "|")) {
+                return entry.getValue();
+            }
         }
-        return slot;
+        throw new IllegalStateException("Geen slot toegekend voor '" + name + "'");
+    }
+
+    public int getSlot(final String name, final IRType type) {
+        final var normalized = normalize(name);
+        final var key = normalized + "|" + typeKey(type);
+        final var slot = slots.get(key);
+        if (slot != null) {
+            return slot;
+        }
+        throw new IllegalStateException("Geen slot toegekend voor '" + name + "' met type " + type);
+    }
+
+    /**
+     * Zoekt een slot op zonder toe te kennen. Retourneert -1 als niet gevonden.
+     */
+    public int findSlot(final String name, final IRType type) {
+        final var normalized = normalize(name);
+        final var key = normalized + "|" + typeKey(type);
+        final var slot = slots.get(key);
+        return slot != null ? slot : -1;
     }
 
     public boolean hasSlot(final String name) {
-        return slots.containsKey(normalize(name));
+        final var normalized = normalize(name);
+        for (final var entry : slots.entrySet()) {
+            if (entry.getKey().startsWith(normalized + "|")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
      * De genormaliseerde namen van alle toegekende slots.
      */
     public java.util.Set<String> slotNames() {
-        return java.util.Collections.unmodifiableSet(slots.keySet());
+        final var result = new java.util.HashSet<String>();
+        for (final var key : slots.keySet()) {
+            final var idx = key.lastIndexOf('|');
+            if (idx > 0) {
+                result.add(key.substring(0, idx));
+            } else {
+                result.add(key);
+            }
+        }
+        return java.util.Collections.unmodifiableSet(result);
     }
 
     /**

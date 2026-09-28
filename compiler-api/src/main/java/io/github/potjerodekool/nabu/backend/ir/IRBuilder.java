@@ -296,14 +296,14 @@ public class IRBuilder {
         if (type != null) {
             resultType = type;
         } else if (ptr instanceof IRValue.Named named
-                && named.type() instanceof IRType.Ptr) {
+                && isReferenceType(named.type())) {
             // Referentie-veldtoegang (Named): de geladen waarde is een
             // referentie (Ptr), niet de pointee (I8) van het veldtype.
             resultType = named.type();
         } else if (ptr instanceof IRValue.Values values
                 && !values.values().isEmpty()
                 && values.values().getLast() instanceof IRValue.Named named
-                && named.type() instanceof IRType.Ptr) {
+                && isReferenceType(named.type())) {
             // Referentie-veldtoegang (Values(obj, Named)): de geladen waarde is een
             // referentie (Ptr), niet de pointee (I8) van het veldtype.
             resultType = named.type();
@@ -314,6 +314,18 @@ public class IRBuilder {
         var result = fresh(resultType);
         emit(new IRInstruction.Load(result, type, ptr, currentLocation));
         return result;
+    }
+
+    /**
+     * Een referentietype wordt in het IR als {@code Ptr(pointee, jvmDescriptor)}
+     * gerepresenteerd en is daarmee te herkennen aan de aanwezige
+     * jvmDescriptor. Een {@code Ptr} zonder descriptor is daarentegen een
+     * "adres-van": daar is de pointee de geladen waarde (bv. het
+     * declareGlobal-adres van een {@code int}-veld, waarvan de pointee
+     * {@code I32} is en niet {@code Ptr(I8)}).
+     */
+    private static boolean isReferenceType(final IRType type) {
+        return type instanceof IRType.Ptr ptr && ptr.jvmDescriptor() != null;
     }
 
     public void emitStore(IRValue ptr, IRValue value) {

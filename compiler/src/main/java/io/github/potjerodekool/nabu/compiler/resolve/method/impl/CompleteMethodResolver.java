@@ -292,6 +292,7 @@ public class CompleteMethodResolver implements MethodResolver {
         } else {
             final var classSymbol = (ClassSymbol) clazz;
 
+
             final var interfaceMethodOptional = classSymbol.getInterfaces().stream()
                     .map(interfaceType -> mapToType(type, interfaceType))
                     .map(interfaceType -> (DeclaredType) interfaceType)
@@ -342,10 +343,31 @@ public class CompleteMethodResolver implements MethodResolver {
     private Optional<ExecutableElement> resolveImplicitEnumMethod(final TypeElement clazz,
                                                                   final String methodName,
                                                                   final List<ExpressionTree> arguments) {
-        if ("$values".equals(methodName)) {
+        if ("$values".equals(methodName)
+                || "values".equals(methodName)) {
             if (!arguments.isEmpty()) {
                 return Optional.empty();
             }
+        } else if ("valueOf".equals(methodName)) {
+            if (arguments.size() != 1) {
+                return Optional.empty();
+            }
+        } else {
+            return Optional.empty();
+        }
+        return implicitEnumMethod(clazz, methodName);
+    }
+
+    /**
+     * Bouwt de impliciete enum-methoden {@code valueOf(String)},
+     * {@code values()} en {@code $values()}, zonder ariteitsfilter: de
+     * toepasbaarheidsfilter in {@link #getPotentiallyApplicableMethods}
+     * bepaalt zelf of de handtekening past.
+     */
+    private Optional<ExecutableElement> implicitEnumMethod(final TypeElement clazz,
+                                                           final String methodName) {
+        if ("$values".equals(methodName)
+                || "values".equals(methodName)) {
             return Optional.of(createImplicitEnumMethod(
                     clazz,
                     methodName,
@@ -353,19 +375,7 @@ public class CompleteMethodResolver implements MethodResolver {
                     Flags.PUBLIC,
                     List.of()
             ));
-        } else if ("values".equals(methodName)) {
-            if (!arguments.isEmpty()) {
-                return Optional.empty();
-            }
-            return Optional.of(createImplicitEnumMethod(
-                    clazz,
-                    methodName,
-                    types.getArrayType(clazz.asType()),
-                    Flags.PUBLIC,
-                    List.of()
-            ));
-        } else if ("valueOf".equals(methodName)
-                && arguments.size() == 1) {
+        } else if ("valueOf".equals(methodName)) {
             final var stringType = stringType(clazz);
             if (stringType == null) {
                 return Optional.empty();
@@ -983,8 +993,10 @@ public class CompleteMethodResolver implements MethodResolver {
 
         final var methods = isConstructorCall
                 ? ElementFilter.constructorsIn(typeElement.getEnclosedElements())
-                : ElementFilter.methodsIn(typeElement.getEnclosedElements()).stream()
-                .toList();
+                : withImplicitEnumMethods(
+                        typeElement,
+                        ElementFilter.methodsIn(typeElement.getEnclosedElements()).stream()
+                                .toList());
 
         final var map = SimpleTypeMapFiller.fill(declaredType);
         final var mapper = new SimpleTypeMapApplier(map, types);
@@ -1018,6 +1030,29 @@ public class CompleteMethodResolver implements MethodResolver {
 
     private DeclaredType mapType(final DeclaredType declaredType, final Map<String, TypeMirror> map) {
         return (DeclaredType) SimpleTypeMapApplier.apply(map, declaredType, types);
+    }
+
+    /**
+     * Voegt de impliciete enum-methoden toe aan de kandidatenlijst. Zonder
+     * deze toevoeging mist {@link #collectMethods} aanroepen van
+     * {@code valueOf(...)} / {@code values()} / {@code $values()}, omdat de
+     * methoden pas tijdens de lowering ({@code EnumCodeGenerator}) aan het
+     * {@code ClassSymbol} worden toegevoegd. Zonder resolutie blijft de
+     * method-aanroep ongetypeerd en levert de IR-generator {@code null} op.
+     */
+    private List<ExecutableElement> withImplicitEnumMethods(final TypeElement typeElement,
+                                                            final List<ExecutableElement> methods) {
+        if (typeElement.getKind() != ElementKind.ENUM) {
+            return methods;
+        }
+
+        final var result = new ArrayList<>(methods);
+        for (final var methodName : List.of("valueOf", "values", "$values")) {
+            if (result.stream().noneMatch(m -> methodName.equals(m.getSimpleName()))) {
+                implicitEnumMethod(typeElement, methodName).ifPresent(result::add);
+            }
+        }
+        return result;
     }
 
     private TypeElement resolveMemberSourceElement(final TypeElement typeElement) {

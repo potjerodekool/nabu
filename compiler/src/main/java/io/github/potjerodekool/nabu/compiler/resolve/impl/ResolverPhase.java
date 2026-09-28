@@ -1360,11 +1360,26 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitArrayType(final ArrayTypeTree arrayTypeTree, final Scope scope) {
         acceptTree(arrayTypeTree.getComponentType(), scope);
-        final var componentType = arrayTypeTree.getComponentType().getType();
+        TypeMirror componentType = arrayTypeTree.getComponentType().getType();
         final var types = compilerContext.getTypes();
-        final var arrayType = types.getArrayType(componentType);
-        arrayTypeTree.setType(arrayType);
+        // Elke dimensie voegt een array-type toe: `Text[][]` is
+        // getArrayType(getArrayType(Text)). Eén keer wrappen verliest de
+        // dimensie, waardoor de descriptor `[LText;` wordt i.p.v. `[[LText;`
+        // en een AALOAD op een niet-array eindigt
+        // ("Invalid stack frame value (must be an internal class name)").
+        for (int i = 0; i < dimensionCount(arrayTypeTree); i++) {
+            componentType = types.getArrayType(componentType);
+        }
+        arrayTypeTree.setType(componentType);
         return arrayTypeTree;
+    }
+
+    private static int dimensionCount(final ArrayTypeTree arrayTypeTree) {
+        final var dimensions = arrayTypeTree.getDimensions();
+        if (dimensions == null || dimensions.isEmpty()) {
+            return 1;
+        }
+        return dimensions.size();
     }
 
     @Override

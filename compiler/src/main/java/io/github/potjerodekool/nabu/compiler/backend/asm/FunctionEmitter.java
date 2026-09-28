@@ -17,6 +17,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -33,12 +34,17 @@ import java.util.Map;
  */
 public class FunctionEmitter {
 
+    private static final String OBJECT_INTERNAL_NAME = "java/lang/Object";
+    private static final String END_LABEL = "END";
+
     private final MethodVisitor mv;
     private final AsmByteCodeEmitter codeEmitter;
     private final SlotAllocator slots;
     private final String ownerInternalName;
     private final List<IRBasicBlock> blocks;
     private final Map<String, Label> labels = new HashMap<>();
+    private final HashSet<String> blockLabels;
+    private final Map<String, Integer> valueUses;
 
     private final Map<String, IRInstruction.BinaryOp> pendingComparisons = new HashMap<>();
     private final Deque<IRValue> pendingConstructorAllocs = new ArrayDeque<>();
@@ -55,6 +61,82 @@ public class FunctionEmitter {
         this.slots = slots;
         this.ownerInternalName = ownerInternalName;
         this.blocks = blocks;
+        this.blockLabels = new HashSet<>();
+        for (final var block : blocks) {
+            this.blockLabels.add(SlotAllocator.normalize(block.label()));
+        }
+        this.valueUses = countValueUses(blocks);
+    }
+
+    /**
+     * Telt per waarde-naam hoe vaak de waarde in de functie als operand
+     * voorkomt. Nodig om te bepalen of een vergelijking in de conditie van
+     * een sprong verwerkt mag worden: dat kan alleen als het resultaat
+     * nergens anders gebruikt wordt.
+     */
+    private static Map<String, Integer> countValueUses(final List<IRBasicBlock> blocks) {
+        final var counts = new HashMap<String, Integer>();
+        for (final var block : blocks) {
+            for (final var instr : block.instructions()) {
+                final var operands = new ArrayList<IRValue>();
+                collectOperands(instr, operands);
+                for (final var operand : operands) {
+                    if (operand instanceof IRValue.Temp || operand instanceof IRValue.Named) {
+                        counts.merge(IRValue.nameOf(operand), 1, Integer::sum);
+                    }
+                }
+            }
+        }
+        return counts;
+    }
+
+    private static void collectOperands(final IRInstruction instr, final List<IRValue> out) {
+        switch (instr) {
+            case IRInstruction.BinaryOp op -> {
+                out.add(op.left());
+                out.add(op.right());
+            }
+            case IRInstruction.Load ld -> out.add(ld.ptr());
+            case IRInstruction.Store st -> {
+                out.add(st.ptr());
+                if (st.value() != null) {
+                    out.add(st.value());
+                }
+            }
+            case IRInstruction.Call call -> out.addAll(call.args());
+            case IRInstruction.IndirectCall indirectCall -> {
+                out.add(indirectCall.callee());
+                out.addAll(indirectCall.args());
+            }
+            case IRInstruction.Cast cast -> out.add(cast.source());
+            case IRInstruction.CondBranch condBranch -> out.add(condBranch.condition());
+            case IRInstruction.Return ret -> {
+                if (ret.value() != null) {
+                    out.add(ret.value());
+                }
+            }
+            case IRInstruction.Move move -> out.add(move.value());
+            case IRInstruction.ArrayLoad arrayLoad -> {
+                out.add(arrayLoad.array());
+                out.add(arrayLoad.index());
+            }
+            case IRInstruction.ArrayStore arrayStore -> {
+                out.add(arrayStore.array());
+                out.add(arrayStore.index());
+                out.add(arrayStore.value());
+            }
+            case IRInstruction.AllocaArray allocArray -> out.add(allocArray.size());
+            case IRInstruction.ArrayLength arrayLength -> out.add(arrayLength.array());
+            case IRInstruction.InstanceOf instanceOf -> out.add(instanceOf.source());
+            case IRInstruction.Throw throwInst -> out.add(throwInst.result());
+            case IRInstruction.MonitorEnter monitorEnter -> out.add(monitorEnter.object());
+            case IRInstruction.MonitorExit monitorExit -> out.add(monitorExit.object());
+            case IRInstruction.Phi phi -> phi.incomingValues()
+                    .forEach(incoming -> out.add(incoming.value()));
+            case null, default -> {
+                // Geen operanden (Alloca, Branch, Pop, HeapAlloc, TryCatchRegion).
+            }
+        }
     }
 
     /**
@@ -89,6 +171,30 @@ public class FunctionEmitter {
         return new Label();
     }
 
+    /**
+     * Of er een basisblok met dit label bestaat in de ge-emitteeerde
+     * functie. Een sprong naar een label zonder blok kan niet: ASM
+     * krijgt bij {@code COMPUTE_ALL_FRAMES} dan een {@code Label} zonder
+     * {@code Frame} als CFG-succesor, wat een NPE in
+     * {@code Frame.merge} oplevert.
+     */
+    private boolean isEmittableTarget(final String blockLabel) {
+        final var normalized = SlotAllocator.normalize(blockLabel);
+        return blockLabels.contains(normalized) || END_LABEL.equals(normalized);
+    }
+
+    /**
+     * De compileer-tijdconstante waarde van een conditie, of
+     * {@code null} als de conditie runtime-afhankelijk is.
+     */
+    private static Boolean constantCondition(final IRValue condition) {
+        return switch (condition) {
+            case IRValue.ConstBool constBool -> constBool.value();
+            case IRValue.ConstInt constInt -> constInt.value() != 0;
+            default -> null;
+        };
+    }
+
     // -------------------------------------------------------
     // Instructies
     // -------------------------------------------------------
@@ -107,7 +213,7 @@ public class FunctionEmitter {
             case IRInstruction.Load load -> emitLoad(load);
             case IRInstruction.Call call -> emitCall(call);
             case IRInstruction.AllocaArray allocArray -> emitNewArray(allocArray);
-            case IRInstruction.Branch branch -> mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(branch.targetLabel()));
+            case IRInstruction.Branch branch -> emitBranch(branch);
             case IRInstruction.Cast cast -> emitCast(cast);
             case IRInstruction.CondBranch condBranch -> emitCondBranch(condBranch);
             case IRInstruction.IndirectCall indirectCall -> emitIndirectCall(indirectCall);
@@ -205,7 +311,16 @@ public class FunctionEmitter {
             // Vergelijkingen produceren geen directe waarde; de operanden
             // worden door de consument ge├½mitteerd (de eropvolgende
             // CondBranch of een materialisatie van de boolean).
-            pendingComparisons.put(IRValue.nameOf(binaryOp.result()), binaryOp);
+            // Dat mag alleen als het resultaat nergens anders gebruikt
+            // wordt: anders blijft het slot ongedefinieerd, want de
+            // gefuseerde vergelijking schrijft het resultaat nooit weg
+            // (verifieerfout "Expected I, but found .").
+            final var name = IRValue.nameOf(binaryOp.result());
+            if (valueUses.getOrDefault(name, 0) <= 1) {
+                pendingComparisons.put(name, binaryOp);
+            } else {
+                materializeComparisonResult(binaryOp);
+            }
             return;
         }
 
@@ -337,7 +452,8 @@ public class FunctionEmitter {
                             Opcodes.GETSTATIC,
                             resolveOwnerName(named, global),
                             resolveFieldName(named, global),
-                            BytecodeHelper.createDescriptor(load.result().type())
+                            BytecodeHelper.createDescriptor(
+                                    global != null ? global.type() : load.result().type())
                     );
                 } else {
                     mv.visitFieldInsn(
@@ -486,7 +602,15 @@ public class FunctionEmitter {
             if (isPrimitive(cast.source().type()) && isReference(cast.targetType())) {
                 boxOperand(cast.source().type());
             }
-            mv.visitTypeInsn(Opcodes.CHECKCAST, safeCastName);
+            // Een CHECKCAST naar java/lang/Object is semantisch een no-op
+            // (widening reference-conversie, JLS 5.1.5) en mag nooit
+            // emitteren: hij vernietigt de precieze statische type van de
+            // waarde in de frame. Bij 'Object[] o = ...; o[0]' levert
+            // AALOAD op een 'gecast naar Object'-waarde een ongeldig
+            // frame-type op ("Ljava/lang/Object;" als internal name).
+            if (!OBJECT_INTERNAL_NAME.equals(safeCastName)) {
+                mv.visitTypeInsn(Opcodes.CHECKCAST, safeCastName);
+            }
         } else {
             // Primitieve numerieke conversie (bv. I2F, F2I, L2D, ...)
             mv.visitInsn(conversionOpcode);
@@ -1018,6 +1142,20 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
     // -------------------------------------------------------
 
     private void emitCondBranch(final IRInstruction.CondBranch condBranch) {
+        // Een conditie die al op compileer-tijd vaststaat (bv. de
+        // constante-true conditie van 'for(;;)') hoeft geen vergelijking
+        // te materialiseren: emitteer alleen de genomen tak. De niet-genomen
+        // tak hoeft dan ook niet te bestaan; een verwijzing naar een
+        // onbestaand blok zou ASM's frameberekening doen crashen.
+        final var constant = constantCondition(condBranch.condition());
+        if (constant != null) {
+            final var target = constant ? condBranch.trueLabel() : condBranch.falseLabel();
+            if (isEmittableTarget(target)) {
+                mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(target));
+            }
+            return;
+        }
+
         final var trueLabel = getOrCreateLabel(condBranch.trueLabel());
 
         if (condBranch.condition() instanceof IRValue.Temp temp
@@ -1032,7 +1170,15 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
 
         // De false-tak kan niet als fall-through worden aangenomen (bv. bij
         // een back-edge naar een eerder blok): spring expliciet.
-        mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(condBranch.falseLabel()));
+        if (isEmittableTarget(condBranch.falseLabel())) {
+            mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(condBranch.falseLabel()));
+        }
+    }
+
+    private void emitBranch(final IRInstruction.Branch branch) {
+        if (isEmittableTarget(branch.targetLabel())) {
+            mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(branch.targetLabel()));
+        }
     }
 
     /**
@@ -1074,6 +1220,16 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         mv.visitLabel(trueLabel);
         mv.visitInsn(Opcodes.ICONST_1);
         mv.visitLabel(endLabel);
+    }
+
+    /**
+     * Materialiseert een vergelijking tot een boolean (0/1) en slaat die op
+     * in het slot van het resultaat, zodat verdere gebruikers de waarde uit
+     * het slot kunnen laden.
+     */
+    private void materializeComparisonResult(final IRInstruction.BinaryOp binaryOp) {
+        materializeComparison(binaryOp);
+        storeResult(binaryOp.result());
     }
 
     private int resolveJumpOpcode(final IRInstruction.BinaryOp binaryOp) {
@@ -1658,7 +1814,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         for (final var param : function.params) {
             if (param instanceof IRValue.Temp(String name, IRType type)) {
                 final var paramName = SlotAllocator.normalize(name);
-                final var index = slots.getSlot(name);
+                final var index = slots.getSlot(name, type);
                 final var paramDescriptor = BytecodeHelper.createDescriptor(type);
                 if (!seenLocalVars.add(paramName + ":" + index)) {
                     continue;
@@ -1685,6 +1841,11 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
 
             if (slotName == null || !slots.hasSlot(slotName)) continue;
 
+            // Het slot is toegewezen aan de alloca-TEMP (een pointer naar de
+            // variabele), terwijl de LocalVariableTable-entry de descriptor van
+            // de VARIABELE-waarde draagt. De slot-index is in beide gevallen
+            // dezelfde; de waarde wordt op naam opgezocht omdat de
+            // typeKey van de pointer de key is waaronder het slot staat.
             final var index = slots.getSlot(slotName);
             final var descriptor = BytecodeHelper.createDescriptor(localVar.type());
             if (!seenLocalVars.add(localVar.sourceName() + ":" + index)) {

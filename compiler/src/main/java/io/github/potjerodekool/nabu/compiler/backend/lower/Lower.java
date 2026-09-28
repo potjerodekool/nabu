@@ -32,6 +32,8 @@ import io.github.potjerodekool.nabu.tree.Tag;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.PrimitiveType;
+import io.github.potjerodekool.nabu.type.TypeMirror;
+import io.github.potjerodekool.nabu.type.TypeVariable;
 import io.github.potjerodekool.nabu.util.Types;
 
 import java.util.*;
@@ -269,7 +271,17 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
         final var localVariableType = localVariable.getVariableType().getType();
 
-        if (!(localVariableType instanceof DeclaredType localVariableDeclaredType)) {
+        TypeMirror iteratorElementType;
+        if (localVariableType instanceof DeclaredType localVariableDeclaredType) {
+            iteratorElementType = localVariableDeclaredType;
+        } else if (localVariableType instanceof TypeVariable typeVariable) {
+            // Voor type-variabelen (bv. K in `for (K key : set)`), gebruik de upper bound
+            // (erasure) voor de iterator en cast.
+            iteratorElementType = typeVariable.getUpperBound();
+            if (iteratorElementType == null) {
+                iteratorElementType = types.getObjectType();
+            }
+        } else {
             return enhancedForStatement;
         }
 
@@ -279,7 +291,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 "java.util.Iterator"
         );
 
-        final var iteratorType = types.getDeclaredType(iteratorClassElement, localVariableDeclaredType);
+        final var iteratorType = types.getDeclaredType(iteratorClassElement, iteratorElementType);
 
         final var localVariableElement = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE)
@@ -321,7 +333,10 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         check.getMethodSelector().setType(resolvedHasNextMethod.getOwner().asType());
         check.setMethodType(resolvedHasNextMethod);
 
-        final var typeTree = createIdentifier(localVariableDeclaredType);
+        // Voor de loop-variable declaratie en cast gebruiken we de iterator element type
+        // (de upper bound van de type-variable, of de concrete type).
+        // In bytecode wordt dit geëraseerd.
+        final var typeTree = createIdentifierFromType(iteratorElementType);
 
         final var nextInvocation = TreeMaker.methodInvocationTree(
                 new CFieldAccessExpressionTree(
@@ -351,7 +366,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 -1
         );
 
-        cast.setType(localVariableType);
+        cast.setType(iteratorElementType);
 
         final var statements = new ArrayList<StatementTree>();
         statements.add(localVariable.builder()
@@ -466,6 +481,34 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         final var identifier = IdentifierTree.create(className);
         identifier.setType(declaredType);
         return identifier;
+    }
+
+    private IdentifierTree createIdentifierFromType(final TypeMirror type) {
+        if (type instanceof DeclaredType declaredType) {
+            return createIdentifier(declaredType);
+        } else if (type instanceof PrimitiveType primitiveType) {
+            // Primitieve types hebben geen klasse; maak een identifier voor de wrapper
+            final var kind = primitiveType.getKind();
+            final var wrapperName = switch (kind) {
+                case BYTE -> "java.lang.Byte";
+                case SHORT -> "java.lang.Short";
+                case INT -> "java.lang.Integer";
+                case LONG -> "java.lang.Long";
+                case FLOAT -> "java.lang.Float";
+                case DOUBLE -> "java.lang.Double";
+                case CHAR -> "java.lang.Character";
+                case BOOLEAN -> "java.lang.Boolean";
+                default -> "java.lang.Object";
+            };
+            final var identifier = IdentifierTree.create(wrapperName);
+            identifier.setType(type);
+            return identifier;
+        } else {
+            // Fallback voor TypeVariable, WildcardType, etc.: gebruik Object
+            final var identifier = IdentifierTree.create("java.lang.Object");
+            identifier.setType(types.getObjectType());
+            return identifier;
+        }
     }
 
     private IdentifierTree createIdentifier(final String name,
@@ -673,6 +716,14 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     public Tree visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
                                                  final LowerScope scope) {
         var newValue = (ExpressionTree) accept(variableDeclaratorStatement.getValue(), scope);
+        // Een kale array-initializer (`int[] x = { 1, 2 };`) heeft geen
+        // elementtype in de bron. Zonder type zou de IR-gen VOID-arrays
+        // alloceren; de gedeclareerde variabele-type is hier het gezag.
+        if (newValue instanceof NewArrayExpression newArrayExpression
+                && newArrayExpression.getType() == null
+                && variableDeclaratorStatement.getVariableType().getType() instanceof ArrayType) {
+            newArrayExpression.setType(variableDeclaratorStatement.getVariableType().getType());
+        }
         //Add cast if needed.
         newValue = variableDeclaratorStatement
                 .getVariableType()

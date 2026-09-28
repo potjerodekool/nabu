@@ -37,7 +37,8 @@ public final class Linearizer {
                         ? null
                         : newInstructions.getLast();
 
-                if (previousInstruction instanceof IRInstruction.BinaryOp binaryOp) {
+                if (previousInstruction instanceof IRInstruction.BinaryOp binaryOp
+                        && isInvertible(binaryOp.op())) {
                     final var newBinop = invert(binaryOp);
                     newInstructions.removeLast();
                     newInstructions.add(newBinop);
@@ -51,8 +52,10 @@ public final class Linearizer {
                     );
                     newInstructions.add(newCondBranch);
                 } else {
-                    // Conditie kan niet consistent geïnverteerd worden:
-                    // behoud de oorspronkelijke true/false-volgorde.
+                    // Conditie kan niet consistent geïnverteerd worden: de
+                    // operand-berekening (bv. een SUB of een array-index)
+                    // heeft geen logische ontknopeling. Behoud de
+                    // oorspronkelijke true/false-volgorde.
                     newInstructions.add(instruction);
                 }
             } else {
@@ -81,6 +84,19 @@ public final class Linearizer {
         throw new UnsupportedOperationException("Cannot invert IRValue: " + value.getClass().getSimpleName());
     }
 
+    /**
+     * Of de operator een logische ontknopeling kent waarbij de
+     * vergelijkings-operanden onveranderd mogen blijven. Rekenkundige
+     * operatoren (SUB, ADD, ...) hebben dat niet: daar zou het
+     * omdraaien van de takken de berekende waarde veranderen.
+     */
+    private static boolean isInvertible(final IRInstruction.BinaryOp.Op op) {
+        return switch (op) {
+            case LT, LTE, EQ, GTE, GT, NEQ, AND, OR, XOR -> true;
+            default -> false;
+        };
+    }
+
     private static IRInstruction.BinaryOp invert(final IRInstruction.BinaryOp binaryOp) {
         final var newOp = switch (binaryOp.op()) {
             case LT -> IRInstruction.BinaryOp.Op.GTE;
@@ -92,7 +108,7 @@ public final class Linearizer {
             case AND -> IRInstruction.BinaryOp.Op.OR;
             case OR -> IRInstruction.BinaryOp.Op.AND;
             case XOR -> IRInstruction.BinaryOp.Op.XOR;
-            default -> throw new UnsupportedOperationException("Cannot invert op: " + binaryOp.op());
+            default -> throw new IllegalStateException("Not invertible: " + binaryOp.op());
         };
 
         return new IRInstruction.BinaryOp(binaryOp.result(), newOp, binaryOp.left(), binaryOp.right(), binaryOp.location());

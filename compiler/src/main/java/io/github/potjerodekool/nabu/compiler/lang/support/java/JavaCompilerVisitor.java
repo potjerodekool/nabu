@@ -1602,6 +1602,30 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitVariableInitializer(final Java20Parser.VariableInitializerContext ctx) {
+        if (ctx.arrayInitializer() != null) {
+            return ctx.arrayInitializer().accept(this);
+        }
+
+        return ctx.expression().accept(this);
+    }
+
+    @Override
+    public Object visitArrayInitializer(final Java20Parser.ArrayInitializerContext ctx) {
+        // Zonder deze override levert de ANTLR-default visitChildren het resultaat
+        // van het laatste child ('}') op, dus null. De initializer verdwijnt dan
+        // stilzwijgend, terwijl de variabele wel een Alloca krijgt
+        // (bv. `boolean[] showDefault = { option.flag() };`).
+        return TreeMaker.newArrayExpression(
+                null,
+                List.of(),
+                arrayInitializerElements(ctx),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
+    @Override
     public Object visitUnannArrayType(final Java20Parser.UnannArrayTypeContext ctx) {
         Tree componentType;
 

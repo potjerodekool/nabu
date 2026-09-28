@@ -922,9 +922,18 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     public Object visitArrayType(final ArrayTypeTree arrayTypeTree,
                                  final Scope scope) {
         acceptTree(arrayTypeTree.getComponentType(), scope);
-        final var componentType = arrayTypeTree.getComponentType().getType();
-        final var arrayType = types.getArrayType(componentType);
-        arrayTypeTree.setType(arrayType);
+        TypeMirror componentType = arrayTypeTree.getComponentType().getType();
+        // Elke dimensie voegt een array-type toe: `Text[][]` is
+        // getArrayType(getArrayType(Text)). Eén keer wrappen verliest de
+        // dimensie (descriptor `[LText;` i.p.v. `[[LText;`).
+        final var dimensions = arrayTypeTree.getDimensions();
+        final int dimensionCount = (dimensions == null || dimensions.isEmpty())
+                ? 1
+                : dimensions.size();
+        for (int i = 0; i < dimensionCount; i++) {
+            componentType = types.getArrayType(componentType);
+        }
+        arrayTypeTree.setType(componentType);
         return arrayTypeTree;
     }
 

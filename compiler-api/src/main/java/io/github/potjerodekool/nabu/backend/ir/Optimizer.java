@@ -15,8 +15,15 @@ public class Optimizer {
     }
 
     public static IRFunction optimize(IRFunction irFunction) {
+        // Stap 0: TypeConsistency moet altijd draaien, ook voor functies met Phis,
+        // omdat type-conflicten in Phis leiden tot ongeldige stack-map frames.
+        irFunction = io.github.potjerodekool.nabu.backend.ir.optimize.TypeConsistency.run(irFunction);
+
+        // Stap 0b: Elimineer phi's toegevoegd door TypeConsistency
+        io.github.potjerodekool.nabu.backend.ir.PhiElimination.run(irFunction);
+
         // Conservatieve guard: functies met Phi-instructies (SSA-joins door
-        // if/loops/ternary/try-catch) worden NIET geoptimaliseerd. De eerste
+        // if/loops/ternary/try-catch) worden NIET verder geoptimaliseerd. De eerste
         // versies van ConstantFolder/CopyPropagation/GVN/DCE zijn onzuiter in
         // combinatie met Phi's (dode register-referenties: 'Onbekend register',
         // 'Expected I, but found .'). Pass-by-pass vekken in de pipeline loop

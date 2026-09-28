@@ -104,4 +104,21 @@ class ConditionalExpressionCompileTest {
                 "    }\n" +
                 "}\n");
     }
+
+    @Test
+    void nestedTernaryWithImplicitEnumValueOf() throws IOException {
+        compile("package mini;\n" +
+                "import static java.util.Locale.ENGLISH;\n" +
+                "public class Tern4 {\n" +
+                "    static boolean empty(String s) { return s.isEmpty(); }\n" +
+                "    public enum TraceLevel { OFF, WARN, INFO, DEBUG;\n" +
+                "        public boolean isEnabled(TraceLevel other) { return ordinal() >= other.ordinal(); }\n" +
+                "        static TraceLevel lookup(String key) {\n" +
+                "            return key == null ? WARN\n" +
+                "                    : empty(key) || \"true\".equalsIgnoreCase(key) ? INFO\n" +
+                "                    : valueOf(key.toUpperCase(ENGLISH));\n" +
+                "        }\n" +
+                "    }\n" +
+                "}\n");
+    }
 }

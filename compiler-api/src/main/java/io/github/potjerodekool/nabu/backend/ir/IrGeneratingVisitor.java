@@ -3171,7 +3171,7 @@ if (argVal != null) args.add(argVal);
                             : new IRType.Ptr(IRType.I8);
                     IRValue caught = new IRValue.Temp(
                             "%exn." + handlerBlk.label(),
-                            new IRType.Ptr(catchDeclType));
+                            catchDeclType);
                     builder.emitStore(catchPtr, caught);
                 });
             }

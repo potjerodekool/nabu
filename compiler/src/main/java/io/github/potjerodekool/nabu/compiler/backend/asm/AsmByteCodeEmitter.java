@@ -593,7 +593,11 @@ private static void collectValue(final IRValue value,
                     // uitvoert ("Expected I, but found R").
                     // Het slot-type zelf is wÃ©l het element-type: het slot
                     // bevat de waarde van de variabele, niet een adres.
-                    final var slot = slots.slotOf(temp.name(), temp.type());
+                    // Reserveren gebeurt via slotOfAlloca zodat een long/double
+                    // twee JVM-slots krijgt; slotOf zou voor het pointer-type
+                    // maar een reserveren, waarna het volgende temp het hoge
+                    // woord in zou pikken ("Expected J, but found .").
+                    final var slot = slots.slotOfAlloca(temp.name(), alloca.allocType());
                     // Alloca definieert het type van de variabele - forceer dit type
                     slotTypes.put(slot, alloca.allocType());
                 }

@@ -563,7 +563,15 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             final var name = IRValue.nameOf(p);
             String pname = name.startsWith("%")
                     ? name.substring(1) : name;
-            scope.define(pname, p);
+            // 'this' en de synthetic 'this$N' blijven kale waarden: veel code
+            // haalt ze rechtstreeks op (emitFieldLoad, call-args) en een slot
+            // zou daar een pointer i.p.v. de receiver opleveren. Declarations
+            // wél: die zijn toewijsbaar en hebben dus een slot nodig.
+            if ("this".equals(pname) || pname.startsWith("this$")) {
+                scope.define(pname, p);
+            } else {
+                scope.define(pname, builder.emitParameterSlot(pname, p));
+            }
         }
 
         // Body. Constructors: field-initializers na de super-invoke,
@@ -2190,8 +2198,88 @@ if (argVal != null) args.add(argVal);
     @Override
     public IRValue visitCastExpression(CastExpressionTree cast, IRBuilder param) {
         IRValue source = acceptTree(cast.getExpression(), builder);
+        if (source == null) {
+            return null;
+        }
         IRType targetType = TypeMirrorToIRType.map(cast.getType());
+        if (targetType == null) {
+            return source;
+        }
+
+        // Een cast van een primitief naar een referentietype is een
+        // boxing-cast (JLS 5.1.7), geen bitcast. Zonder boxing wordt
+        // `(Object) booleanDefault` een Cast(Bool -> Ptr), en de
+        // LLVM-backend emitteert daar `bitcast i1 to ptr` voor — de
+        // validator weigert dat met "Invalid bitcast".
+        if (isPrimitiveIRType(source.type()) && targetType instanceof IRType.Ptr ptrTarget) {
+            final var boxed = boxForReferenceCast(source, ptrTarget);
+            if (boxed != source) {
+                return boxed;
+            }
+        }
         return builder.emitCast(source, targetType);
+    }
+
+    /**
+     * Boxing voor een cast van een primitief naar een referentietype
+     * (JLS 5.1.7): {@code (Object) someInt} wordt {@code Integer.valueOf(...)}.
+     *
+     * <p>{@link #boxIfNeeded} dekt alleen de concrete wrapper-descriptors; een
+     * cast heeft juist vaak {@code Object} (of een interface) als doel, dus
+     * deze variant leidt de wrapper uit de primitieve waarde af als het
+     * doeltype geen concrete wrapper is.
+     *
+     * @return de geboxte waarde, of {@code value} als er geen wrapper bestaat
+     */
+    private IRValue boxForReferenceCast(final IRValue value,
+                                        final IRType.Ptr target) {
+        final var descriptor = target.jvmDescriptor();
+        if (descriptor == null) {
+            return value;
+        }
+        final var boxClass = switch (descriptor) {
+            case "Ljava/lang/Byte;" -> "java.lang.Byte";
+            case "Ljava/lang/Short;" -> "java.lang.Short";
+            case "Ljava/lang/Integer;" -> "java.lang.Integer";
+            case "Ljava/lang/Character;" -> "java.lang.Character";
+            case "Ljava/lang/Long;" -> "java.lang.Long";
+            case "Ljava/lang/Float;" -> "java.lang.Float";
+            case "Ljava/lang/Double;" -> "java.lang.Double";
+            case "Ljava/lang/Boolean;" -> "java.lang.Boolean";
+            // Object en de box-implementerende interfaces: de primitieve
+            // waarde bepaalt de wrapper ((Object) boolean -> Boolean).
+            case "Ljava/lang/Object;",
+                 "Ljava/lang/Serializable;",
+                 "Ljava/lang/Comparable;" -> wrapperForPrimitive(value.type());
+            default -> null;
+        };
+        if (boxClass == null) {
+            return value;
+        }
+        return builder.emitCall(
+                CallKind.STATIC,
+                boxClass.replace('.', '_') + "_valueOf",
+                target,
+                java.util.List.of(value.type()),
+                java.util.List.of(value)
+        );
+    }
+
+    /** De wrapper-klasse voor een primitief IR-type (boxing via valueOf). */
+    private static String wrapperForPrimitive(final IRType type) {
+        if (type instanceof IRType.Bool) return "java.lang.Boolean";
+        if (type instanceof IRType.Int i) {
+            return switch (i.bits()) {
+                case 8 -> "java.lang.Byte";
+                case 16 -> "java.lang.Short";
+                case 64 -> "java.lang.Long";
+                default -> "java.lang.Integer";
+            };
+        }
+        if (type instanceof IRType.Float f) {
+            return f.bits() == 64 ? "java.lang.Double" : "java.lang.Float";
+        }
+        return null;
     }
 
     @Override

@@ -8,24 +8,33 @@ public class MyClass {
   public hello(Ljava/lang/String;)Ljava/lang/String;
     // parameter final  name
    L0
+    LINENUMBER 2 L0
     LINENUMBER 3 L0
     ACONST_NULL
     ASTORE 2
+    ACONST_NULL
+    ASTORE 3
+    ACONST_NULL
+    ASTORE 4
     ALOAD 1
+    ASTORE 2
+    ALOAD 2
+    ASTORE 3
+    ALOAD 3
     INVOKEDYNAMIC makeConcatWithConstants(Ljava/lang/String;)Ljava/lang/String; [
       // handle kind 0x6 : INVOKESTATIC
       java/lang/invoke/StringConcatFactory.makeConcatWithConstants(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;
       // arguments:
       "Hello \u0001"
     ]
-    ASTORE 2
-    ALOAD 2
+    ASTORE 4
+    ALOAD 4
     ARETURN
    L1
     LOCALVARIABLE this LMyClass; L0 L1 0
     LOCALVARIABLE name Ljava/lang/String; L0 L1 1
     MAXSTACK = 1
-    MAXLOCALS = 3
+    MAXLOCALS = 5
 
   // access flags 0x1
   public <init>()V

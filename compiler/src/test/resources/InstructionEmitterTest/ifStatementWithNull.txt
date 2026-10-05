@@ -8,31 +8,48 @@ public class MyClass {
   public isNull(Ljava/lang/Integer;)Z
     // parameter final  i
    L0
+    LINENUMBER 2 L0
     LINENUMBER 3 L0
+    ACONST_NULL
+    ASTORE 2
+    ACONST_NULL
+    ASTORE 3
     ICONST_0
-    ISTORE 2
+    ISTORE 4
     ALOAD 1
+    ASTORE 2
+    ALOAD 2
+    ASTORE 3
+    ALOAD 3
     IFNONNULL L1
     GOTO L2
    L2
     LINENUMBER 4 L2
-   FRAME FULL [MyClass java/lang/Integer I] []
+   FRAME FULL [MyClass java/lang/Integer java/lang/Integer java/lang/Integer I] []
+    ACONST_NULL
+    ASTORE 2
+    ACONST_NULL
+    ASTORE 3
     ICONST_0
-    ISTORE 2
+    ISTORE 4
     ICONST_1
     IRETURN
    L1
     LINENUMBER 6 L1
-   FRAME FULL [MyClass java/lang/Integer I] []
+   FRAME FULL [MyClass java/lang/Integer java/lang/Integer java/lang/Integer I] []
+    ACONST_NULL
+    ASTORE 2
+    ACONST_NULL
+    ASTORE 3
     ICONST_0
-    ISTORE 2
+    ISTORE 4
     ICONST_0
     IRETURN
    L3
     LOCALVARIABLE this LMyClass; L0 L3 0
     LOCALVARIABLE i Ljava/lang/Integer; L0 L3 1
     MAXSTACK = 1
-    MAXLOCALS = 3
+    MAXLOCALS = 5
 
   // access flags 0x1
   public <init>()V

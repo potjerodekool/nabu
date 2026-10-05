@@ -8,11 +8,10 @@ public class MyClass {
   public doWhileLoop(I)I
     // parameter final  number
    L0
+    LINENUMBER 2 L0
     LINENUMBER 3 L0
     LINENUMBER 4 L0
     ICONST_0
-    ISTORE 4
-    ICONST_0
     ISTORE 5
     ICONST_0
     ISTORE 6
@@ -25,15 +24,19 @@ public class MyClass {
     ICONST_0
     ISTORE 10
     ICONST_0
+    ISTORE 11
+    ICONST_0
+    ISTORE 12
+    ILOAD 1
     ISTORE 2
-    ICONST_5
+    ICONST_0
     ISTORE 3
+    ICONST_5
+    ISTORE 4
    L1
     LINENUMBER 7 L1
     LINENUMBER 8 L1
-   FRAME FULL [MyClass I I I I I I I I I I] []
-    ICONST_0
-    ISTORE 4
+   FRAME FULL [MyClass I I I I I I I I I I I I] []
     ICONST_0
     ISTORE 5
     ICONST_0
@@ -46,26 +49,30 @@ public class MyClass {
     ISTORE 9
     ICONST_0
     ISTORE 10
-    ILOAD 2
-    ISTORE 4
-    ILOAD 4
-    ILOAD 1
-    IADD
-    ISTORE 5
-    ILOAD 5
-    ISTORE 2
+    ICONST_0
+    ISTORE 11
+    ICONST_0
+    ISTORE 12
     ILOAD 3
+    ISTORE 5
+    ILOAD 2
     ISTORE 6
+    ILOAD 5
     ILOAD 6
-    ICONST_1
-    ISUB
+    IADD
     ISTORE 7
     ILOAD 7
     ISTORE 3
+    ILOAD 4
+    ISTORE 8
+    ILOAD 8
+    ICONST_1
+    ISUB
+    ISTORE 9
+    ILOAD 9
+    ISTORE 4
    L2
     LINENUMBER 9 L2
-    ICONST_0
-    ISTORE 4
     ICONST_0
     ISTORE 5
     ICONST_0
@@ -78,17 +85,19 @@ public class MyClass {
     ISTORE 9
     ICONST_0
     ISTORE 10
-    ILOAD 3
-    ISTORE 8
-    ILOAD 8
+    ICONST_0
+    ISTORE 11
+    ICONST_0
+    ISTORE 12
+    ILOAD 4
+    ISTORE 10
+    ILOAD 10
     ICONST_0
     IF_ICMPGT L1
     GOTO L3
    L3
     LINENUMBER 11 L3
-   FRAME FULL [MyClass I I I I I I I I I I] []
-    ICONST_0
-    ISTORE 4
+   FRAME FULL [MyClass I I I I I I I I I I I I] []
     ICONST_0
     ISTORE 5
     ICONST_0
@@ -101,17 +110,21 @@ public class MyClass {
     ISTORE 9
     ICONST_0
     ISTORE 10
-    ILOAD 2
-    ISTORE 10
-    ILOAD 10
+    ICONST_0
+    ISTORE 11
+    ICONST_0
+    ISTORE 12
+    ILOAD 3
+    ISTORE 12
+    ILOAD 12
     IRETURN
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0
     LOCALVARIABLE number I L0 L4 1
-    LOCALVARIABLE result I L0 L4 2
-    LOCALVARIABLE steps I L0 L4 3
+    LOCALVARIABLE result I L0 L4 3
+    LOCALVARIABLE steps I L0 L4 4
     MAXSTACK = 2
-    MAXLOCALS = 11
+    MAXLOCALS = 13
 
   // access flags 0x1
   public <init>()V

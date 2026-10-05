@@ -141,6 +141,13 @@ public class IRBuilder {
 
         if (!(Flags.hasFlag(flags, Flags.ABSTRACT) || Flags.hasFlag(flags, Flags.NATIVE))) {
             currentBlock = beginBlock("entry");
+        } else {
+            // currentBlock resetten: anders wijst hij nog naar het laatste blok
+            // van de vorige functie. Dat is een afgesloten blok (bv. een
+            // ternary.merge), zodat elke emit erin faalt met "Kan geen
+            // instructie toevoegen aan beëindigd blok". Voor een body-loze
+            // functie is er sowieso geen blok om in te schrijven.
+            currentBlock = null;
         }
 
         // Java-{@code native}-methoden: geen body, dus geen entry-block.
@@ -264,6 +271,36 @@ public class IRBuilder {
         emit(new IRInstruction.Alloca(ptr, type, currentLocation));
         define(name, ptr);
         return ptr;
+    }
+
+    /**
+     * Geeft een method-parameter een echte alloca-slot en slaat de binnenkomende
+     * waarde daarin op.
+     *
+     * <p>Parameters zijn in Java toewijsbaar (JLS 8.3.1), dus ze hebben een
+     * slot nodig. Zonder slot bindt de scope de parameter rechtstreeks aan de
+     * waarde-temp en emitteert iedere toewijzing een
+     * {@code store <T> waarde, <T> parameter} — met een primitief of een
+     * ander niet-pointertype als adres. De LLVM-validator weigert dat met
+     * "Store operand must be a pointer"; de ASM-backend zou er stilletjes
+     * bytecode van maken.
+     *
+     * <p>De slotnaam krijgt het {@code .arg}-suffix zodat een lokale variabele
+     * met dezelfde naam (juridisch in een genest blok) geen dubbele alloca
+     * veroorzaakt. Een abstract/native methode heeft geen body en dus geen slot.
+     *
+     * @param name  de parameterbron (zonder '%')
+     * @param param de parameter-temp
+     * @return de slot-pointer, of {@code param} als er geen body is
+     */
+    public IRValue emitParameterSlot(final String name, final IRValue param) {
+        if (currentBlock == null || currentBlock.isTerminated()) {
+            // abstract/native: geen entry-block, dus geen body om in te schrijven
+            return param;
+        }
+        final var slot = emitAlloca(name + ".arg", param.type());
+        emitStore(slot, param);
+        return slot;
     }
 
     public IRValue emitAllocaArray(final int size,

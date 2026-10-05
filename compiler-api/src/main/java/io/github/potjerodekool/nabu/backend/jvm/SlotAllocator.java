@@ -36,6 +36,37 @@ public final class SlotAllocator {
     }
 
     /**
+     * Geeft het slot voor een alloca-pointer en reserveert genoeg ruimte voor
+     * het element-type.
+     *
+     * <p>Een alloca heeft in de IR type {@code Ptr(element)}, dus
+     * {@link #slotOf} zou voor een {@code long}/{@code double}-variabele
+     * maar één JVM-slot reserveren terwijl het element er twee nodig heeft. Het
+     * eerstvolgende temp zou dan het hoge woord in gebruik nemen en de
+     * frame-merge faalt met "Expected J, but found .".
+     *
+     * <p>De sleutel blijft de pointer-typeKey, zodat latere Load/Store op
+     * dezelfde pointer-temp hetzelfde slot terugvinden.
+     */
+    public int slotOfAlloca(final String name,
+                            final IRType elementType) {
+        final var normalized = normalize(name);
+        final var pointerType = new IRType.Ptr(elementType);
+        final var key = normalized + "|" + typeKey(pointerType);
+        final var existing = slots.get(key);
+        if (existing != null) {
+            return existing;
+        }
+
+        final var slot = nextSlot;
+        slots.put(key, slot);
+        // Reserveren op basis van het ELEMENT: dit is de ruimte die het adres
+        // adresseert, niet de 1 slot die de pointer-temp zelf zou krijgen.
+        nextSlot += slotSize(elementType);
+        return slot;
+    }
+
+    /**
      * Geeft het slot voor de gegeven naam; kent een nieuw slot toe
      * bij eerste referentie.
      */

@@ -6,6 +6,7 @@ import io.github.potjerodekool.nabu.compiler.backend.asm.AsmBackend;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
+import io.github.potjerodekool.nabu.debug.SourceLocation;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.util.CompileException;
 import org.junit.jupiter.api.Test;
@@ -421,6 +422,171 @@ class SsaBuilderTest {
         // Minstens 2 phis: één op innerMerge, één op outerMerge
         assertTrue(countPhis(function) >= 2,
                 "Minstens 2 phis bij geneste if (innerMerge + outerMerge)");
+    }
+
+    // -------------------------------------------------------
+    // Try/catch: phi op het merge-blok via de augmented dominators
+    //
+    //   entry:
+    //     %x.ptr = alloca i32
+    //     store %x.ptr, 0
+    //     br try.body
+    //
+    //   try.body:
+    //     store %x.ptr, 42
+    //     br try.end
+    //
+    //   try.catch.0:          (alleen via de unwind-edge bereikbaar)
+    //     store %x.ptr, 99
+    //     br try.end
+    //
+    //   try.end:
+    //     %v = load %x.ptr
+    //     ret %v
+    //
+    // De handler is onbereikbaar in de echte CFG. Zonder de augmented
+    // dominators gold try.body als idom van try.end en kwam try.end niet in
+    // het dominance frontier van try.body terecht, dus stond er geen phi en
+    // bereikte de waarde uit de handler het merge-blok nooit.
+    // -------------------------------------------------------
+
+    @Test
+    void testTryCatchMergeBlockGetsPhi() {
+        final var builder = new IRBuilder("test");
+        builder.setLocation("test.lang", 1, 1);
+        builder.beginFunction("tryCatchMerge", IRType.I32, List.of(), 0);
+
+        final var entry = builder.currentBlock();
+        final var xPtr = builder.emitAlloca("x", IRType.I32);
+        builder.emitStore(xPtr, builder.constInt(0));
+
+        final var tryBody = builder.beginBlock("try.body");
+        final var tryEnd = builder.beginBlock("try.end");
+        final var handler = builder.beginBlock("try.catch.0");
+        handler.add(0, new IRInstruction.TryCatchRegion(
+                tryBody.label(), tryEnd.label(), handler.label(), null,
+                SourceLocation.UNKNOWN));
+
+        builder.setCurrentBlock(entry);
+        builder.emitBranch(tryBody);
+
+        builder.setCurrentBlock(tryBody);
+        builder.emitStore(xPtr, builder.constInt(42));
+        builder.emitBranch(tryEnd);
+
+        // De handler loopt via een extra blok naar het merge-blok. Die
+        // tussenlaag is essentieel: met een directe handler -> try.end
+        // edge komt try.end ook in het frontier van de handler zelf
+        // terecht en is er op de echte CFG toch al een phi.
+        final var handlerTail = builder.beginBlock("try.catch.0.tail");
+
+        builder.setCurrentBlock(handler);
+        builder.emitStore(xPtr, builder.constInt(99));
+        builder.emitBranch(handlerTail);
+
+        builder.setCurrentBlock(handlerTail);
+        builder.emitBranch(tryEnd);
+
+        builder.setCurrentBlock(tryEnd);
+        builder.emitReturn(builder.emitLoad(xPtr));
+        builder.endFunction();
+
+        final var module = builder.build();
+        final var function = module.functions().getFirst();
+
+        // Op de echte CFG komt try.end in het frontier van geen enkel
+        // def-blok: de handler-keten is onbereikbaar en de tail heeft
+        // nog geen idom. Dit is precies wat de augmented dominators
+        // herstellen, want die geven de tail een idom en leggen daarmee
+        // try.end in het frontier van de tail.
+        final var realDominators = Dominators.compute(function);
+        assertFalse(realDominators.getDominanceFrontier("try.body").contains("try.end"),
+                "Op de echte CFG hoort try.end niet in het frontier van try.body");
+        assertFalse(realDominators.getDominanceFrontier("try.catch.0").contains("try.end"),
+                "Op de echte CFG hoort try.end niet in het frontier van de handler");
+        assertNull(realDominators.getIdom("try.catch.0.tail"),
+                "De handler-tail is op de echte CFG niet bereikbaar");
+
+        // Met de augmented dominators is de tail wel bereikbaar en
+        // verschijnt try.end wél in zijn frontier.
+        final var phiDominators = Dominators.computeForPhiPlacement(function);
+        assertTrue(phiDominators.getDominanceFrontier("try.catch.0.tail").contains("try.end"),
+                "Met augmented dominators hoort try.end in het frontier van de tail");
+
+        SsaBuilder.run(module);
+
+        final var tryEndPhis = function.blocks().stream()
+                .filter(b -> b.label().equals("try.end"))
+                .flatMap(b -> b.instructions().stream())
+                .filter(IRInstruction.Phi.class::isInstance)
+                .count();
+
+        assertTrue(tryEndPhis > 0,
+                "Er moet een phi op try.end staan zodat de waarde uit de handler "
+                        + "het merge-blok bereikt");
+    }
+
+    // -------------------------------------------------------
+    // Regressie: een alloca die in de handler gelezen wordt mag
+    // NIET gepromoveerd worden. Als de handler wel in de
+    // dominator-boom zat zou de rename hem bezoeken alsof hij
+    // rechtstreeks vanuit entry komt, de store verwijderen en de
+    // waarde het merge-blok nooit laten bereiken.
+    // -------------------------------------------------------
+
+    @Test
+    void testAllocaLoadedInHandlerIsNotPromoted() {
+        final var builder = new IRBuilder("test");
+        builder.setLocation("test.lang", 1, 1);
+        builder.beginFunction("handlerLoad", IRType.I32, List.of(), 0);
+
+        final var entry = builder.currentBlock();
+        final var xPtr = builder.emitAlloca("x", IRType.I32);
+        builder.emitStore(xPtr, builder.constInt(0));
+
+        final var tryBody = builder.beginBlock("try.body");
+        final var tryEnd = builder.beginBlock("try.end");
+        final var handler = builder.beginBlock("try.catch.0");
+        handler.add(0, new IRInstruction.TryCatchRegion(
+                tryBody.label(), tryEnd.label(), handler.label(), null,
+                SourceLocation.UNKNOWN));
+
+        builder.setCurrentBlock(entry);
+        builder.emitBranch(tryBody);
+
+        builder.setCurrentBlock(tryBody);
+        builder.emitStore(xPtr, builder.constInt(42));
+        builder.emitBranch(tryEnd);
+
+        builder.setCurrentBlock(handler);
+        // Deze load maakt de alloca ongeschikt voor promotie.
+        final var inHandler = builder.emitLoad(xPtr);
+        builder.emitStore(xPtr, inHandler);
+        builder.emitBranch(tryEnd);
+
+        builder.setCurrentBlock(tryEnd);
+        builder.emitReturn(builder.emitLoad(xPtr));
+        builder.endFunction();
+
+        final var module = builder.build();
+        final var function = module.functions().getFirst();
+
+        SsaBuilder.run(module);
+
+        // De alloca en de stores moeten intact blijven: anders heeft de load
+        // in de handler geen definitie meer.
+        assertTrue(countAllocas(function) >= 1,
+                "Alloca met load in handler mag niet gepromoveerd worden");
+        assertTrue(countStores(function) >= 2,
+                "Stores naar een in de handler gelezen alloca mogen blijven");
+
+        final var handlerLoads = function.blocks().stream()
+                .filter(b -> b.label().equals("try.catch.0"))
+                .flatMap(b -> b.instructions().stream())
+                .filter(IRInstruction.Load.class::isInstance)
+                .count();
+        assertTrue(handlerLoads >= 1,
+                "De load in de handler mag niet vervangen zijn door een move");
     }
 }
 

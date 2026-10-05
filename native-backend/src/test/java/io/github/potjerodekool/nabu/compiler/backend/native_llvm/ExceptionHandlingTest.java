@@ -157,4 +157,150 @@ class ExceptionHandlingTest {
         assertTrue(ll.contains("unreachable"),
                 "Verwacht unreachable na de throw:\n" + ll);
     }
+
+    private static final String IO_TYPE = "java/io/IOException";
+
+    /**
+     * Een try met twee catch-clauses levert één TryCatchRegion per handler op,
+     * met dezelfde tryStart/tryEnd. De backend moet daar één range van maken
+     * met een geordende dispatch-keten: eerst wordt {@code java/lang/Exception}
+     * geprobeerd, bij een mismatch {@code java/io/IOException}, en pas als
+     * niets matcht wordt de unwind vervolgd via {@code @nabu_resume}.
+     */
+    @Test
+    void multiCatchBuildsOrderedDispatchChain() throws Exception {
+        IRBuilder b = new IRBuilder("test/Main");
+        b.beginFunction("main", IRType.VOID, List.of(), 0L, false);
+
+        IRBasicBlock entry = b.currentBlock();
+        IRBasicBlock tryBody = b.beginBlock("try.body");
+        IRBasicBlock tryEnd = b.beginBlock("try.end");
+        IRBasicBlock catch0 = b.beginBlock("try.catch.0");
+        IRBasicBlock catch1 = b.beginBlock("try.catch.1");
+
+        b.setCurrentBlock(entry);
+        b.emitBranch(tryBody);
+
+        b.setCurrentBlock(tryBody);
+        IRValue exc = b.emitHeapAlloc("exc", EXC_TYPE);
+        tryBody.add(new IRInstruction.Throw(exc, EXC_TYPE, b.currentLocation()));
+
+        b.setCurrentBlock(catch0);
+        catch0.add(0, new IRInstruction.TryCatchRegion(tryBody.label(), tryEnd.label(),
+                catch0.label(), "java/lang/Exception", b.currentLocation()));
+        b.emitReturn(null);
+
+        b.setCurrentBlock(catch1);
+        catch1.add(0, new IRInstruction.TryCatchRegion(tryBody.label(), tryEnd.label(),
+                catch1.label(), IO_TYPE, b.currentLocation()));
+        b.emitReturn(null);
+
+        b.setCurrentBlock(tryEnd);
+        b.emitReturn(null);
+
+        b.endFunction();
+        String ll = compileAndReadLl(b.build(), CompileOptions.defaults());
+
+        // Beide clauses moeten in de dispatch-keten zitten: twee type-checks.
+        int matches = countOccurrences(ll, "call i32 @nabu_can_catch(");
+        assertEquals(2, matches,
+                "Verwacht twee nabu_can_catch-checks voor twee catch-clauses:\n" + ll);
+        // De clauses in IR-volgorde: Exception eerst, IOException daarna.
+        int excAt = ll.indexOf("java/lang/Exception");
+        int ioAt = ll.indexOf(IO_TYPE);
+        assertTrue(excAt >= 0 && ioAt > excAt,
+                "Verwacht de catch-clauses in volgorde (Exception, daarna IOException):\n" + ll);
+        // Eén landingspad voor de hele range, met een body-blok per handler.
+        assertEquals(1, countOccurrences(ll, "landingpad"),
+                "Verwacht één landingpad voor de try-range:\n" + ll);
+        assertTrue(ll.contains("handler.try.catch.0.body"),
+                "Verwacht een body-blok voor de eerste handler:\n" + ll);
+        assertTrue(ll.contains("handler.try.catch.1.body"),
+                "Verwacht een body-blok voor de tweede handler:\n" + ll);
+        // Niets matcht → de unwind vervolgen, niet opnieuw gooien.
+        assertTrue(ll.contains("call void @nabu_resume("),
+                "Verwacht @nabu_resume op het pad waar geen clause matcht:\n" + ll);
+        // De invoke wijst naar het landingspad-blok van de eerste handler; van
+        // daar loopt de keten via %catch.ok.0 naar de eerste body.
+        assertTrue(ll.contains("unwind label %try.catch.0"),
+                "Verwacht dat de invoke naar het eerste handler-blok leidt:\n" + ll);
+        assertTrue(ll.contains("label %handler.try.catch.0.body, label %handler.try.catch.0.check.1"),
+                "Verwacht de eerste check met de tweede check als vervolg:\n" + ll);
+        assertTrue(ll.contains("label %handler.try.catch.1.body, label %handler.try.catch.0.resume"),
+                "Verwacht dat de laatste check doorvalt naar resume:\n" + ll);
+    }
+
+    /**
+     * Geneste try's: het landingspad van de binnenste range leidt de invoke,
+     * en pas wat de binnenste range niet afvangt gaat naar de buitenste
+     * handler. De binnenste range wint dus per blok ("last/innermost wins").
+     */
+    @Test
+    void nestedTrysInvokeInnermostHandler() throws Exception {
+        IRBuilder b = new IRBuilder("test/Main");
+        b.beginFunction("main", IRType.VOID, List.of(), 0L, false);
+
+        IRBasicBlock entry = b.currentBlock();
+        IRBasicBlock outerBody = b.beginBlock("outer.body");
+        IRBasicBlock innerBody = b.beginBlock("inner.body");
+        IRBasicBlock innerEnd = b.beginBlock("inner.end");
+        IRBasicBlock outerEnd = b.beginBlock("outer.end");
+        IRBasicBlock innerCatch = b.beginBlock("inner.catch.0");
+        IRBasicBlock outerCatch = b.beginBlock("outer.catch.0");
+
+        b.setCurrentBlock(entry);
+        b.emitBranch(outerBody);
+
+        b.setCurrentBlock(outerBody);
+        b.emitBranch(innerBody);
+
+        b.setCurrentBlock(innerBody);
+        IRValue exc = b.emitHeapAlloc("exc", EXC_TYPE);
+        innerBody.add(new IRInstruction.Throw(exc, EXC_TYPE, b.currentLocation()));
+
+        b.setCurrentBlock(innerEnd);
+        b.emitBranch(outerEnd);
+
+        b.setCurrentBlock(innerCatch);
+        innerCatch.add(0, new IRInstruction.TryCatchRegion(innerBody.label(),
+                innerEnd.label(), innerCatch.label(), IO_TYPE, b.currentLocation()));
+        b.emitReturn(null);
+
+        b.setCurrentBlock(outerEnd);
+        b.emitReturn(null);
+
+        b.setCurrentBlock(outerCatch);
+        outerCatch.add(0, new IRInstruction.TryCatchRegion(outerBody.label(),
+                outerEnd.label(), outerCatch.label(), "java/lang/Exception",
+                b.currentLocation()));
+        b.emitReturn(null);
+
+        b.endFunction();
+        String ll = compileAndReadLl(b.build(), CompileOptions.defaults());
+
+        // De throw zit in de binnenste range: de invoke hoort bij het
+        // binnenste landingspad, niet bij dat van de buitenste.
+        int invokeAt = ll.indexOf("invoke void @nabu_throw(");
+        int innerBodyAt = ll.indexOf("handler.inner.catch.0.body");
+        int outerBodyAt = ll.indexOf("handler.outer.catch.0.body");
+        assertTrue(invokeAt >= 0, "Verwacht een invoke naar @nabu_throw:\n" + ll);
+        assertTrue(innerBodyAt > invokeAt && outerBodyAt > innerBodyAt,
+                "Verwacht: invoke -> binnenste handler eerst, daarna de buitenste:\n" + ll);
+        // Twee ranges, dus twee landingspaden.
+        assertEquals(2, countOccurrences(ll, "landingpad"),
+                "Verwacht een landingspad per try-range:\n" + ll);
+        // De buitenste range heeft één clause, dus die eindigt in resume.
+        assertTrue(ll.contains("call void @nabu_resume("),
+                "Verwacht @nabu_resume zodat een niet-gevangen exception verder kan:\n" + ll);
+    }
+
+    private static int countOccurrences(String haystack, String needle) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = haystack.indexOf(needle, idx)) >= 0) {
+            count++;
+            idx += needle.length();
+        }
+        return count;
+    }
 }

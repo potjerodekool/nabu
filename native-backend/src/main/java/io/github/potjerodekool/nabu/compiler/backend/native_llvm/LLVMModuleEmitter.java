@@ -61,7 +61,7 @@ public class LLVMModuleEmitter {
         this.instructions = new InstructionEmitter(
                 builder, ctx, types, constants, globalValueMap, blockMap, opts, classLayouts);
         this.functions   = new FunctionEmitter(
-                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap);
+                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts);
     }
 
 public void setReflectionRegistry(
@@ -90,6 +90,11 @@ public void setReflectionRegistry(
         // 0. Runtime helpers declareren
         declareRuntimeHelpers();
 
+        // 0.5 Modules indexeren (naam-normalisatie, functie-resolutie, itable-slot-
+        //     volgorde). Moet vóór stap 2 en 2.5: die moeten kunnen zien of een
+        //     call-target naar een functie verwijst die hier gedeclareerd is.
+        this.classLayouts.indexModules(modules);
+
         // 1. Globals (string-literals, variabelen) — vóór functies
         for (var module : modules)
             for (var global : module.globals().values())
@@ -117,7 +122,23 @@ public void setReflectionRegistry(
                                 && call.function() != null
                                 && !call.function().endsWith("_super")
                                 && !call.function().endsWith("_init")
-                                && !globalValueMap.containsKey("@" + call.function())) {
+                                // Per parameterlijst kijken, niet per naam: de
+                                // overloads (bv. de zeven println-varianten)
+                                // delen de IR-functienaam.
+                                && !globalValueMap.containsKey("@" + FnKeys.fnKey(
+                                        call.function(), FnKeys.callParams(call)))
+                                // Alleen een naam uitbreiden die een eerdere
+                                // ad-hoc extern zelf heeft aangemaakt. Is de naam
+                                // al vanuit een echte IRFunction gedeclareerd,
+                                // dan zou een ad-hoc extern die echte functie
+                                // met een verkeerde signatuur overschrijven —
+                                // de call sprong dan naar een lege extern stub.
+                                && (functions.isAdHocExternal(call.function())
+                                    || !globalValueMap.containsKey("@" + call.function()))
+                                // Gedeclareerd onder de simple-owner naam: niet
+                                // opnieuw als extern verklaren, dat zou de echte
+                                // functie overschrijven met een verkeerde signatuur.
+                                && this.classLayouts.resolveFunction(call.function()) == null) {
                             functions.declareSignature(call);
                         }
                     }
@@ -131,8 +152,13 @@ public void setReflectionRegistry(
 
         // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
         //     nabu_reflection_info-globals + @llvm.global_ctors-registratie.
+        //     3.6 GC-init hoort in dezelfde ctor-array: één appending global
+        //     per module, dus alles wat vóór main moet draaien staat hier.
+        final ModuleCtors ctors = new ModuleCtors(ctx, mod);
         new ReflectionInfoEmitter(ctx, mod, globalValueMap)
-                .emit(mod, this.classLayouts, modules, reflectionRegistry);
+                .emit(mod, this.classLayouts, modules, reflectionRegistry, ctors);
+        registerBoehmGcInit(ctors);
+        ctors.emit();
 
         // 4. Bodies
         for (var module : modules) {
@@ -154,10 +180,14 @@ public void setReflectionRegistry(
         LLVMTypeRef i64   = LLVMInt64TypeInContext(ctx);
 
         // --- InstanceOf (altijd nodig) ---
+        // int nabu_instanceof(void* obj, i8* type_name). Let op: de retourtype
+        // is i32 — de C-functie retourneert een int (0/1), en de emitter
+        // trunct die naar i1.
         PointerPointer<Pointer> instanceofParams = new PointerPointer<>(2);
         instanceofParams.put(0, i8ptr);
         instanceofParams.put(1, i8ptr);
-        LLVMTypeRef instanceofFnType = LLVMFunctionType(i8ptr, instanceofParams, 2, 0);
+        LLVMTypeRef instanceofFnType = LLVMFunctionType(LLVMInt32TypeInContext(ctx),
+                instanceofParams, 2, 0);
         LLVMValueRef instanceofFn = LLVMAddFunction(mod,
                 new BytePointer("nabu_instanceof"), instanceofFnType);
         LLVMSetLinkage(instanceofFn, LLVMExternalLinkage);
@@ -194,6 +224,20 @@ public void setReflectionRegistry(
         LLVMSetLinkage(canCatchFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_can_catch", canCatchFn);
 
+        // --- Resume (rethrow van een niet-gewipte exception) ---
+        // void nabu_resume(void* unwind_exc): vervolgt de unwind van een
+        // exception die dit landingspad bereikte, richting de omringende
+        // handlers. Niet een nieuwe throw: die zou de same-frame handlers
+        // overslaan. Zie runtime/nabu_runtime.h.
+        PointerPointer<Pointer> resumeParams = new PointerPointer<>(1);
+        resumeParams.put(0, i8ptr);
+        LLVMTypeRef resumeFnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                resumeParams, 1, 0);
+        LLVMValueRef resumeFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_resume"), resumeFnType);
+        LLVMSetLinkage(resumeFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_resume", resumeFn);
+
         // --- MonitorEnter / MonitorExit (altijd nodig voor synchronized) ---
         PointerPointer<Pointer> monitorParams = new PointerPointer<>(1);
         monitorParams.put(0, i8ptr);
@@ -218,6 +262,41 @@ public void setReflectionRegistry(
                 new BytePointer("nabu_concat"), concatFnType);
         LLVMSetLinkage(concatFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_concat", concatFn);
+
+        // --- Primitief -> string (voor concat met een numerieke operand) ---
+        // i8* nabu_int_to_string(i32), i8* nabu_long_to_string(i64)
+        LLVMValueRef intToString = LLVMAddFunction(mod,
+                new BytePointer("nabu_int_to_string"),
+                LLVMFunctionType(i8ptr,
+                        new PointerPointer<>(new Pointer[] { LLVMInt32TypeInContext(ctx) }), 1, 0));
+        LLVMSetLinkage(intToString, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_int_to_string", intToString);
+        LLVMValueRef longToString = LLVMAddFunction(mod,
+                new BytePointer("nabu_long_to_string"),
+                LLVMFunctionType(i8ptr,
+                        new PointerPointer<>(new Pointer[] { LLVMInt64TypeInContext(ctx) }), 1, 0));
+        LLVMSetLinkage(longToString, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_long_to_string", longToString);
+        LLVMValueRef doubleToString = LLVMAddFunction(mod,
+                new BytePointer("nabu_double_to_string"),
+                LLVMFunctionType(i8ptr,
+                        new PointerPointer<>(new Pointer[] { LLVMDoubleTypeInContext(ctx) }), 1, 0));
+        LLVMSetLinkage(doubleToString, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_double_to_string", doubleToString);
+        LLVMValueRef floatToString = LLVMAddFunction(mod,
+                new BytePointer("nabu_float_to_string"),
+                LLVMFunctionType(i8ptr,
+                        new PointerPointer<>(new Pointer[] { LLVMFloatTypeInContext(ctx) }), 1, 0));
+        LLVMSetLinkage(floatToString, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_float_to_string", floatToString);
+        // i8* nabu_bool_to_string(i32) — de i1 operand wordt bij de call
+        // uitgebreid naar i32, zodat de C-signatuur integer blijft.
+        LLVMValueRef boolToString = LLVMAddFunction(mod,
+                new BytePointer("nabu_bool_to_string"),
+                LLVMFunctionType(i8ptr,
+                        new PointerPointer<>(new Pointer[] { LLVMInt32TypeInContext(ctx) }), 1, 0));
+        LLVMSetLinkage(boolToString, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_bool_to_string", boolToString);
 
         // --- Personality functie voor exception handling ---
         // Nabu-eigen SEH-persoonlijkheid (nabu_seh_personality): een 4-arg
@@ -274,18 +353,20 @@ public void setReflectionRegistry(
         Reference.reachabilityFence(excInit);
         globalValueMap.put("@nabu_exception_typeinfo", excTypeInfo);
 
-        // --- Library/onbekende klassen allocatie: nabu_new_object ---
+        // --- Library/onbekende klassen: nabu_init_object ---
         // Voor klassen waarvan de backend geen layout kent (bv
-        // java/lang/Exception) alloceert de runtime het object en zet de
-        // object-header (type-info). Signatuur: i8* nabu_new_object(i8* name, i64 size).
-        PointerPointer<Pointer> newObjParams = new PointerPointer<>(2);
-        newObjParams.put(0, i8ptr);
-        newObjParams.put(1, i64);
-        LLVMTypeRef newObjType = LLVMFunctionType(i8ptr, newObjParams, 2, 0);
-        LLVMValueRef newObjFn = LLVMAddFunction(mod,
-                new BytePointer("nabu_new_object"), newObjType);
-        LLVMSetLinkage(newObjFn, LLVMExternalLinkage);
-        globalValueMap.put("@nabu_new_object", newObjFn);
+        // java/lang/Exception) reserveert de backend zelf geheugen — met de
+        // allocator van de gekozen strategie — en laat de runtime alleen de
+        // object-header (type-info) vullen.
+        // Signatuur: i8* nabu_init_object(i8* obj, i8* name).
+        PointerPointer<Pointer> initObjParams = new PointerPointer<>(2);
+        initObjParams.put(0, i8ptr);
+        initObjParams.put(1, i8ptr);
+        LLVMTypeRef initObjType = LLVMFunctionType(i8ptr, initObjParams, 2, 0);
+        LLVMValueRef initObjFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_init_object"), initObjType);
+        LLVMSetLinkage(initObjFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_init_object", initObjFn);
 
         // --- GC-specifieke helpers ---
         switch (opts.gcStrategy()) {
@@ -315,6 +396,39 @@ public void setReflectionRegistry(
                 new BytePointer("GC_malloc"), gcMallocType);
         LLVMSetLinkage(gcMalloc, LLVMExternalLinkage);
         globalValueMap.put("@GC_malloc", gcMalloc);
+    }
+
+    /**
+     * BOEHM: zet de collector op vóórdat er ook maar één {@code GC_malloc}
+     * gebeurt. Via {@code @llvm.global_ctors} — niet als eerste instructie van
+     * {@code main} — zodat de init ook draait wanneer de module in een ander
+     * programma gelinkt wordt. De thunk is nodig om de {@code void(void)}-vorm
+     * van een constructor-entry expliciet te maken.
+     */
+    private void registerBoehmGcInit(final ModuleCtors ctors) {
+        if (opts.gcStrategy() != CompileOptions.GcStrategy.BOEHM) {
+            return;
+        }
+        final LLVMValueRef gcInit = globalValueMap.get("@GC_init");
+        if (gcInit == null) {
+            throw new IllegalStateException("Runtime helper @GC_init niet gedefinieerd");
+        }
+
+        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                new PointerPointer<>(0), 0, 0);
+        final LLVMValueRef thunk = LLVMAddFunction(mod,
+                new BytePointer("nabu_gc_init_thunk"), fnType);
+        LLVMSetLinkage(thunk, LLVMExternalLinkage);
+
+        final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
+        final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
+        LLVMPositionBuilderAtEnd(builder, block);
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(gcInit), gcInit,
+                new PointerPointer<>(0), 0, "");
+        LLVMBuildRetVoid(builder);
+        LLVMDisposeBuilder(builder);
+
+        ctors.add(thunk);
     }
 
     /**

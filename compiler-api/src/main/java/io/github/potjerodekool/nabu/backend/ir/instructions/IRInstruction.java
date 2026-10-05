@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import java.util.List;
 import java.util.Objects;
 
-public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.ArrayStore, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion {
+public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.ArrayStore, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion, IRInstruction.Unreachable {
 
     /** Resultaat van de instructie; null als de instructie void is. */
     IRValue result();
@@ -193,6 +193,20 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
     record Pop(IRValue result,
                SourceLocation location) implements IRInstruction {
 
+    }
+
+    /**
+     * Marker voor een pad dat onbereikbaar is. Sluit een basic block af
+     * waar geen enkele instructie meer volgt, maar dat de verifier wel een
+     * terminator vereist (bv. het {@code try.end}-blok van een try waarvan de
+     * body altijd een return of throw doet).
+     */
+    record Unreachable(SourceLocation location) implements IRInstruction {
+
+        @Override
+        public IRValue result() {
+            return null;
+        }
     }
 
     // -------------------------------------------------------

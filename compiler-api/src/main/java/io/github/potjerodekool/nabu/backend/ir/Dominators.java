@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 
 import java.util.*;
 
-/**
+    /**
  * Dominator-boom berekening voor een control flow graph.
  *
  * Gebruikt het iteratieve algoritme om de dominator-relatie te berekenen.
@@ -31,16 +31,70 @@ public class Dominators {
     }
 
     /**
-     * Bereken dominators voor een functie.
+     * Bereken dominators voor een functie op basis van de echte CFG.
+     *
+     * <p>Deze berekening is bewust beperkt tot de normale control-flow-edges uit
+     * {@link #computePredecessors}. Exception-handler-blokken hebben daar geen
+     * predecessor: hun enige toegang is de unwind-edge van de invokes in de
+     * try-body. Ze zijn hier dus niet bereikbaar en krijgen geen idom.
+     *
+     * <p>Dat is geen bug maar een contract: de dominator-boom wordt in
+     * {@code SsaBuilder} ook gebruikt als benadering van de echte
+     * besturingstroom, voor de rename-traversale en voor het bepalen van welke
+     * alloca's veilig te promoten zijn. Een handler die hier wel bereikbaar zou
+     * zijn wordt door de rename bezoekt alsof hij rechtstreeks vanuit entry
+     * komt, terwijl hij in werkelijkheid vanaf een willekeurig punt in de
+     * try-body binnenkomt. Stores in de handler zouden dan worden verwijderd
+     * zonder dat de waarde op het merge-blok aankomt.
+     *
+     * <p>Voor het plaatsen van phi's is die conservatieve, onvolledige
+     * bereikbaarheid wel onjuist; gebruik daarvoor
+     * {@link #computeForPhiPlacement}.
      */
     public static Dominators compute(IRFunction function) {
+        return computeWithPredecessors(function, computePredecessors(function.blocks()));
+    }
+
+    /**
+     * Bereken dominators voor het plaatsen van phi's, met virtuele
+     * entry -> handler-edges zodat exception-handler-blokken wel bereikbaar zijn.
+     *
+     * <p>Zonder deze augmentatie geldt een handler als onbereikbaar, wordt zijn
+     * edge naar het merge-blok genegeerd en wordt de try-body ten onrechte
+     * berekend als idom van dat merge-blok, terwijl de handler het merge-blok
+     * bereikt zonder door de try-body te gaan. Het merge-blok hoort dan in het
+     * dominance frontier van de try-body te staan zodat daar een phi komt.
+     *
+     * <p>De virtuele edge is een conservatieve benadering: de handler is in
+     * werkelijkheid alleen via de try-body te bereiken, en entry domineert de
+     * try-body, dus entry is een geldige voorganger. De augmentatie voegt enkel
+     * bereikbaarheid toe, dus dominantie in de geaugmenteerde CFG impliceert
+     * dominantie in de echte: de dominatie-relatie wordt nooit te sterk en een
+     * ontbrekende phi kan dus nooit ontstaan.
+     *
+     * <p>Het resultaat mag uitsluitend worden gebruikt voor het bepalen van
+     * dominance frontiers en iterated dominance frontiers. De dominator-boom en
+     * de preorder-traversale ervan zijn geen geldig model van de echte
+     * besturingstroom en horen niet bij renaming of alloca-promotie.
+     */
+    public static Dominators computeForPhiPlacement(IRFunction function) {
+        final var blocks = function.blocks();
+        if (blocks.isEmpty()) {
+            return new Dominators(Map.of(), Map.of(), Map.of(), List.of());
+        }
+        final var entryLabel = function.entryBlock().label();
+        return computeWithPredecessors(function,
+                withVirtualHandlerEdges(computePredecessors(blocks), blocks, entryLabel));
+    }
+
+    private static Dominators computeWithPredecessors(IRFunction function,
+                                                      Map<String, Set<String>> predecessors) {
         final var blocks = function.blocks();
         if (blocks.isEmpty()) {
             return new Dominators(Map.of(), Map.of(), Map.of(), List.of());
         }
 
         final var entryLabel = function.entryBlock().label();
-        final var predecessors = computePredecessors(blocks);
         final var blockLabels = blocks.stream()
                 .map(IRBasicBlock::label)
                 .toList();
@@ -58,6 +112,43 @@ public class Dominators {
         final var preorder = computePreorder(entryLabel, domTree);
 
         return new Dominators(idom, domTree, domFrontiers, preorder);
+    }
+
+    /**
+     * Voegt voor elk exception-handler-blok een virtuele edge van het entry-blok
+     * toe, zodat de handler in de dominatie-boom opgenomen wordt.
+     */
+    private static Map<String, Set<String>> withVirtualHandlerEdges(
+            final Map<String, Set<String>> predecessors,
+            final List<IRBasicBlock> blocks,
+            final String entryLabel) {
+
+        final var handlers = new LinkedHashSet<String>();
+        for (final var block : blocks) {
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.TryCatchRegion tc) {
+                    handlers.add(tc.handlerLabel());
+                }
+            }
+        }
+        if (handlers.isEmpty()) {
+            return predecessors;
+        }
+
+        final var augmented = new LinkedHashMap<String, Set<String>>();
+        for (final var entry : predecessors.entrySet()) {
+            augmented.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
+        }
+        for (final var handler : handlers) {
+            // Het entry-blok is geen echte predecessor; de edge is virtueel en
+            // wordt nergens anders gebruikt dan binnen de dominatie-berekening.
+            if (handler.equals(entryLabel)) {
+                continue;
+            }
+            augmented.computeIfAbsent(handler, k -> new LinkedHashSet<>())
+                    .add(entryLabel);
+        }
+        return augmented;
     }
 
     /**

@@ -23,6 +23,7 @@ import io.github.potjerodekool.nabu.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
+import io.github.potjerodekool.nabu.type.ArrayType;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -604,12 +605,18 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             acceptTree(function.getBody(), builder);
         }
 
-        // Impliciete void-return als het blok niet beÃƒÆ’Ã‚Â«indigd is
+        // Impliciete void-return als het blok niet beëindigd is
         if (!(methodSymbol.isAbstract()
                  || methodSymbol.hasFlag(Flags.NATIVE))
                         && !builder.currentBlockTerminated()) {
             if (returnType == IRType.VOID) {
                 builder.emitReturn(null);
+            } else {
+                // Niet-void-methode waarvan het laatste blok leeg eindigt (bv.
+                // het try.end-blok van een try die altijd returnt of gooit).
+                // Java vereist dan geen return; het pad is onbereikbaar, maar
+                // LLVM en de bytecode-verifier eisen wél een terminator.
+                builder.emitUnreachable();
             }
         }
 
@@ -940,6 +947,27 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         );
     }
 
+    /**
+     * Haalt het componenttype uit een array-parameter, of null als de parameter
+     * geen array is. Het componenttype is het type waartegen elk varargs-
+     * element losgelaten wordt (JLS 15.12.4.4).
+     */
+    private static TypeMirror componentTypeMirror(final TypeMirror paramType) {
+        return paramType instanceof ArrayType arrayType
+                ? arrayType.getComponentType()
+                : null;
+    }
+
+/** Haalt het componenttype uit de array-parameter van een varargs-callee. */
+    private static IRType varArgComponentType(final IRType arrayType) {
+        return switch (arrayType) {
+            case IRType.Ptr p -> p.pointee() instanceof IRType.Array arr
+                    ? arr.elem() : p.pointee();
+            case IRType.Array a -> a.elem();
+            case IRType t -> t;
+        };
+    }
+
     private String boxClassForBits(final int bits) {
         return switch (bits) {
             case 8 -> "java.lang.Byte";
@@ -951,10 +979,16 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     private boolean isWideningNeeded(final IRType valueType,
                                      final IRType paramType) {
-        // JLS 5.3: primitieve verbreding. byte→short→int→long→float→double.
+        // JLS 5.3: primitieve verbreding. byte→short→int→long→float→double,
+        // char→int→long→float→double. De IR bewaart de rang alleen als
+        // bitbreedte, dus elke smallere int-breedte verbredt; boolean (1 bit)
+        // is de enige uitzondering en verbredt NIET impliciet.
         if (valueType instanceof IRType.Int valueInt
                 && paramType instanceof IRType.Int paramInt) {
-            return valueInt.bits() == 32 && paramInt.bits() == 64;
+            if (valueInt.bits() <= 1) {
+                return false;
+            }
+            return valueInt.bits() < paramInt.bits();
         }
         if (valueType instanceof IRType.Float valueFloat
                 && paramType instanceof IRType.Float paramFloat) {
@@ -1149,19 +1183,39 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         }
         acceptTree(ifStatement.getThenStatement(), builder);
         scope.popScope();
-        if (!builder.currentBlockTerminated())
-            builder.emitBranch(mergeBlk);
+        // Sluit het blok waar de then-tak eindigde: een geneste expressie of
+        // statement (bv. een ternary of lus) verplaatst de cursor naar een
+        // eigen blok en terminaliseert thenBlk al. Anders blijft dat laatste
+        // blok zonder terminator achter.
+        closeBlock(builder.currentBlock(), mergeBlk);
 
         // Else (optioneel)
         if (elseBlk != null) {
             builder.setCurrentBlock(elseBlk);
             acceptTree(ifStatement.getElseStatement(), builder);
-            if (!builder.currentBlockTerminated())
-                builder.emitBranch(mergeBlk);
+            closeBlock(builder.currentBlock(), mergeBlk);
         }
 
         builder.setCurrentBlock(mergeBlk);
         return null;
+    }
+
+    /**
+     * Zorgt dat {@code block} een terminator heeft die naar {@code target} gaat.
+     *
+     * Nodig omdat een geneste statement (bv. een for-loop of een inner if) de
+     * cursor naar een ANDERE blok kan verplaatsen. Zonder deze controle mist het
+     * LLVM-blok een terminator en weigert de verifier de module ("Basic Block
+     * does not have terminator"). Alleen als het blok nog leeg is of nog niet
+     * afgesloten wordt de branch toegevoegd: een al getermineerd blok (return,
+     * throw of geneste branch) laten we met rust.
+     */
+    private void closeBlock(final IRBasicBlock block, final IRBasicBlock target) {
+        if (block == null || block.isTerminated()) {
+            return;
+        }
+        builder.setCurrentBlock(block);
+        builder.emitBranch(target);
     }
 
     private InstanceOfExpression asInstanceOfPattern(final ExpressionTree condition) {
@@ -1210,8 +1264,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         // Body
         builder.setCurrentBlock(bodyBlk);
         acceptTree(whileStatement.getBody(), builder);
-        if (!builder.currentBlockTerminated())
-            builder.emitBranch(condBlk);
+        // Sluit het blok waar de body eindigde (een geneste if/ternarylus kan de
+        // cursor verplaatsen en bodyBlk al getermineerd hebben).
+        closeBlock(builder.currentBlock(), condBlk);
 
         breakTargets.pop();
         continueTargets.pop();
@@ -1238,8 +1293,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         // Body
         builder.setCurrentBlock(bodyBlk);
         acceptTree(doWhileStatement.getBody(), builder);
-        if (!builder.currentBlockTerminated())
-            builder.emitBranch(condBlk);
+        closeBlock(builder.currentBlock(), condBlk);
 
         // Conditie
         builder.setCurrentBlock(condBlk);
@@ -1289,8 +1343,13 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (forStatement.getStatement() != null) {
             acceptTree(forStatement.getStatement(), builder);
         }
-        if (!builder.currentBlockTerminated())
+        // Sluit het blok waar de body eindigde, niet bodyBlk zelf: een geneste
+        // statement (bv. een if of lus) kan de cursor naar if.merge of een
+        // eigen lusblok verplaatsen en bodyBlk al getermineerd hebben. Dan
+        // zou het laatste blok zonder terminator achterblijven.
+        if (!builder.currentBlockTerminated()) {
             builder.emitBranch(updateBlk);
+        }
 
         // Update
         builder.setCurrentBlock(updateBlk);
@@ -1682,6 +1741,27 @@ IRBuilder param) {
             scope.lookup("this").ifPresent(args::add);
         }
 
+        // JLS 15.12.4.4: bij een varargs-callee horen de argumenten na de
+        // vaste parameters in een array-parameter. De IR-declaratie
+        // (paramTypes) bevat die array al als laatste parameter, dus de
+        // trailing argumenten moeten hier tot een array worden gebundeld.
+        // Zonder dit bundelen vertaalt een call-site zich naar een array-
+        // argument plus de losse elementen, en krijgt de callee meer
+        // argumenten dan parameters (LLVM: "Incorrect number of arguments").
+        final boolean varArgsCallee = methodType.getMethodSymbol() != null
+                && methodType.getMethodSymbol().isVarArgs();
+        final int fixedCount = varArgsCallee && !paramTypes.isEmpty()
+                ? paramTypes.size() - 1
+                : paramTypes.size();
+        final List<IRValue> varArgValues = new ArrayList<>();
+        int providedArgCount = 0;
+
+        // Elementtype van de varargs-array; nodig om elk element op de
+        // componentType te brengen voordat het in de array terechtkomt.
+        final IRType varArgComponentType = varArgsCallee
+                ? varArgComponentType(paramTypes.get(paramTypes.size() - 1))
+                : null;
+
         for (int i = 0; i < invocation.getArguments().size(); i++) {
             ExpressionTree arg = invocation.getArguments().get(i);
             IRValue argVal = acceptTree(arg, builder);
@@ -1697,13 +1777,20 @@ if (argVal instanceof IRValue.FunctionRef fnRef
                     }
                 }
 
-if (argVal != null
-                        && i < methodType.getParameterTypes().size()) {
-                    argVal = boxArgIfNeeded(
-                            argVal,
-                            arg.getType(),
-                            methodType.getParameterTypes().get(i)
-                    );
+// Voor een varargs-element is de parameter op positie i niet de
+                // array-parameter maar diens componenttype: `int...` heeft
+                // componenttype `int`. Zonder die aanpassing zou een int-element
+                // tegen de array-parameter (een referentie) gehouden worden en
+                // onterecht geboxed, waarna de store in de int[] breekt.
+                if (argVal != null && i < methodType.getParameterTypes().size()) {
+                    final TypeMirror paramTypeMirror =
+                            varArgsCallee && i >= fixedCount
+                                    ? componentTypeMirror(
+                                        methodType.getParameterTypes().get(i))
+                                    : methodType.getParameterTypes().get(i);
+                    if (paramTypeMirror != null) {
+                        argVal = boxArgIfNeeded(argVal, arg.getType(), paramTypeMirror);
+                    }
                 }
 
                 // Erasure-fallback: de daadwerkelijk geÃƒÂ©mitteerde descriptor
@@ -1714,13 +1801,72 @@ if (argVal != null
                 // geboxed worden, anders breekt de verifier.
                 if (argVal != null
                         && i < paramTypes.size()
+                        && i < fixedCount
                         && paramTypes.get(i) instanceof IRType.Ptr
                         && !(argVal.type() instanceof IRType.Ptr)
                         && !(argVal.type() instanceof IRType.Void)) {
                     argVal = boxFromIRType(argVal);
                 }
 
-if (argVal != null) args.add(argVal);
+if (argVal == null) continue;
+            if (varArgsCallee && i >= fixedCount) {
+                // JLS 15.12.4.4: is de trailing waarde al toewijsbaar aan de
+                // array-parameter, dan is dit géén varargs-element maar de
+                // array zelf. `f(int[] xs)` aangeroepen als `f(xs)` mag dus
+                // niet als `new int[]{xs}` worden gebundeld; anders krijgt de
+                // array-store een pointer waar een int verwacht wordt
+                // ("Third argument: expected I, but found R").
+                if (i == fixedCount
+                        && invocation.getArguments().size() == paramTypes.size()
+                        && arg.getType() != null
+                        && arg.getType().getKind() == TypeKind.ARRAY) {
+                    args.add(argVal);
+                    providedArgCount++;
+                    continue;
+                }
+
+                // Varargs-element: niet los toevoegen, maar onderaan
+                // in de array-parameter van de callee gebundeld.
+                //
+                // JLS 5.5: een varargs-element wordt losgelaten in de context
+                // van het componenttype, dus een primitief element voor een
+                // Object[]-parameter wordt geboxed. Zonder deze stap blijft de
+                // int op de stack en breekt de verifier bij de array-store
+                // ("Third argument: expected R, but found I", bv.
+                // Tracer.debug(String, Object...) met een size()-argument).
+                if (argVal != null
+                        && varArgComponentType instanceof IRType.Ptr
+                        && !(argVal.type() instanceof IRType.Ptr)
+                        && !(argVal.type() instanceof IRType.Void)) {
+                    argVal = boxFromIRType(argVal);
+                }
+                varArgValues.add(argVal);
+            } else {
+                args.add(argVal);
+                providedArgCount++;
+            }
+        }
+
+        // De verzamelde varargs-elementen inpakken in de array-parameter.
+        // Een call-site die al een expliciete array meegeeft heeft
+        // varArgValues leeg en laat de parameter ongemoeid.
+        if (varArgsCallee) {
+            final IRType arrayType = paramTypes.get(paramTypes.size() - 1);
+            final IRType componentType = varArgComponentType;
+            if (!varArgValues.isEmpty()) {
+                final var arrayPtr = builder.emitAllocaArray(varArgValues.size(), arrayType);
+                for (int i = 0; i < varArgValues.size(); i++) {
+                    builder.emitArrayStore(arrayPtr, IRValue.ofI32(i),
+                            varArgValues.get(i), componentType);
+                }
+                args.add(arrayPtr);
+            } else if (providedArgCount < paramTypes.size()) {
+                // JLS 15.12.4.4: een varargs-call zonder elementen
+                // (bv. f(1) voor f(int, int...)) draagt alsnog een lege
+                // array mee. Zonder dit heeft de call één argument minder dan
+                // de declaratie en wordt de callee verkeerd gebonden.
+                args.add(builder.emitAllocaArray(0, arrayType));
+            }
         }
 
         // JLS Ã‚Â§8.8.7: een constructor-aanroep van een niet-statische member
@@ -1858,7 +2004,7 @@ if (argVal != null) args.add(argVal);
 
         for (ExpressionTree arg : newClass.getArguments()) {
             IRValue argVal = acceptTree(arg, builder);
-            if (argVal != null) args.add(argVal);
+if (argVal != null) args.add(argVal);
         }
 
         // JLS Ã‚Â§8.8.7: instantie-creatie van een niet-statische member class
@@ -2336,18 +2482,14 @@ if (argVal != null) args.add(argVal);
         if (trueValue != null) {
             builder.emitStore(resultCell, coerceToTernaryCell(trueValue, pointeeOf(resultCell.type())));
         }
-        if (!builder.currentBlockTerminated()) {
-            builder.emitBranch(mergeBlk);
-        }
+        closeBlock(trueTailBlk, mergeBlk);
 
         // False-tak
         builder.setCurrentBlock(falseTailBlk);
         if (falseValue != null) {
             builder.emitStore(resultCell, coerceToTernaryCell(falseValue, pointeeOf(resultCell.type())));
         }
-        if (!builder.currentBlockTerminated()) {
-            builder.emitBranch(mergeBlk);
-        }
+        closeBlock(falseTailBlk, mergeBlk);
 
         // Merge: laad het resultaat
         builder.setCurrentBlock(mergeBlk);

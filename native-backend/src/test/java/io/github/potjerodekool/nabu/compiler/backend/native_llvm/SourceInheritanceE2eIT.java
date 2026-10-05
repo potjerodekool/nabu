@@ -35,6 +35,8 @@ class SourceInheritanceE2eIT {
 
     @Test
     void nabuSourceInheritanceCompilesToRunnableExeReturningOverriddenSum() throws Exception {
+        NativeToolchain.assumeGcc();
+
         var root = new File(".").getAbsoluteFile();
         while (!root.isDirectory() || !"nabu".equals(root.getName())) {
             root = root.getParentFile();
@@ -117,9 +119,7 @@ class SourceInheritanceE2eIT {
         assertNotNull(exe, "Geen .exe geproduceerd in " + out);
         assertTrue(Files.exists(exe), ".exe niet aangemaakt: " + exe);
 
-        String extraBin = "C:\\programs\\mingw64\\mingw64\\bin";
-        ProcessBuilder pb = new ProcessBuilder(exe.toAbsolutePath().toString());
-        pb.environment().compute("Path", (k, v) -> extraBin + ";" + (v == null ? "" : v));
+        ProcessBuilder pb = NativeToolchain.run(exe.toAbsolutePath());
         Process proc = pb.redirectErrorStream(true).start();
         String output = new String(proc.getInputStream().readAllBytes());
         int exit = proc.waitFor();

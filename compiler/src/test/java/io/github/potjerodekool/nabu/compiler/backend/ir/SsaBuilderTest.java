@@ -446,6 +446,9 @@ class InstructionPrinter {
 
     void accept(final IRInstruction instruction) {
         switch (instruction) {
+            case IRInstruction.Unreachable ignored -> {
+                // Geen resultaat en geen operanden; niets te doen.
+            }
             case IRInstruction.Alloca alloca -> acceptAlloca(alloca);
             case IRInstruction.AllocaArray allocaArray -> acceptAllocaArray(allocaArray);
             case IRInstruction.ArrayLength arrayLength -> acceptArrayLength(arrayLength);

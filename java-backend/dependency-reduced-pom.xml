@@ -147,7 +147,7 @@
     </dependency>
   </dependencies>
   <properties>
-    <java.version>24</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <java.version>24</java.version>
   </properties>
 </project>

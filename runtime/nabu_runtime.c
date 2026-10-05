@@ -24,6 +24,35 @@
 #endif
 
 /* -------------------------------------------------------
+ * MSVC-CRT wordt niet ondersteund
+ * -------------------------------------------------------
+ *
+ * De exception-ondersteuning hieronder is Itanium-ABI-gebaseerd:
+ * nabu_seh_personality leest de LSDA (.gcc_except_table) die LLVM in
+ * .xdata zet en installeert het landingpad met RAX/RDX. Een MSVC-CRT heeft
+ * daarvoor een ander mechanisme: x64 *scope tables* met
+ * __C_specific_handler, en __gcc_personality_v0 bestaat daar niet eens.
+ *
+ * We controleren dit op _MSC_VER en niet op het ontbreken van __GNUC__/
+ * __clang__: clang definieert __clang__ óók bij -target *-msvc, waardoor de
+ * MSVC-target stilletjes de GCC-tak binnen zou lopen en pas veel later op
+ * _GCC_specific_handler stuklopen. _MSC_VER wordt zowel door cl.exe als door
+ * clang op een MSVC-target gezet, en dekt dus beide.
+ *
+ * Ondersteund voor Windows is het MinGW/SEH-pad (gcc/clang met de
+ * Itanium-ABI), bijvoorbeeld target x86_64-w64-windows-gnu. Zie ook
+ * Linker.msvcUnsupported() in de native-backend.
+ */
+
+#ifdef _MSC_VER
+#error "nabu_runtime.c ondersteunt geen MSVC-CRT: de exception-personality is \
+Itanium-ABI-gebaseerd (__gcc_personality_v0 + LSDA in .xdata) en bestaat niet \
+in MSVC, dat x64 scope tables met __C_specific_handler gebruikt. Bouw voor \
+Windows met een GCC/Clang-toolchain en het MinGW/SEH-target \
+(x86_64-w64-windows-gnu)."
+#endif
+
+/* -------------------------------------------------------
  * Reflectie-metadata registry (fase 2): velden + annotaties
  * ------------------------------------------------------- */
 
@@ -251,20 +280,20 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
 }
 
 /**
- * Alloceert een object van een onbekende (library)klasse met een geldig
- * nabu_object-header zodat nabu_instanceof/nabu_can_catch erop werken.
- * De type-info wordt per interne naam gecachet.
+ * Initialiseert de object-header van een object van een onbekende (library)-
+ * klasse met geldige type-info, zodat nabu_instanceof/nabu_can_catch erop
+ * werken. De type-info wordt per interne naam gecachet.
+ *
+ * De allocatie zelf doet de backend: alleen die weet welke GC-strategie geldt
+ * (GC_malloc / malloc / stack). Zie de commentaar in nabu_runtime.h.
  */
-void *nabu_new_object(const char *type_name, size_t size) {
-    size = size < sizeof(nabu_object) ? sizeof(nabu_object) : size;
-    nabu_object *obj = (nabu_object *)malloc(size);
-    if (obj == NULL) {
-        fprintf(stderr, "nabu: kan niet alloceren voor %s\n", type_name);
-        abort();
-    }
-    memset(obj, 0, size);
-    obj->type = nabu_type_info_for(type_name);
-    return obj;
+void *nabu_init_object(void *obj, const char *type_name) {
+    nabu_object *header = (nabu_object *)obj;
+    /* Alleen de header nulzetten: het gedeelte daachter zijn instantievelden
+     * waarvan de backend de grootte en betekenis niet kent. */
+    memset(header, 0, sizeof(nabu_object));
+    header->type = nabu_type_info_for(type_name);
+    return header;
 }
 
 /**
@@ -313,6 +342,42 @@ void *nabu_catch(void *unwind_exc) {
     }
     nabu_unwind_exception *exc = (nabu_unwind_exception *)unwind_exc;
     return exc->nabu_object;
+}
+
+/**
+ * Vervolg de unwind van de exception die het landingspad in deze frame
+ * bereikte. Zie nabu_runtime.h.
+ */
+void nabu_resume(void *unwind_exc) {
+    struct _Unwind_Exception *ue = (struct _Unwind_Exception *)unwind_exc;
+
+#if defined(_WIN32)
+    /* Windows x64 gebruikt SEH, niet het ene Itanium-DWARF-unwind-model. Zodra
+     * de SEH-handler van deze frame eenmaal is gevestigd (nabu_seh_personality
+     * gaf HANDLER_FOUND en RtlUnwindEx sprong naar het landingspad), spoelt
+     * _Unwind_Resume terug naar datzelfde landingspad — de persoonlijkheid wordt
+     * niet opnieuw geraadpleegd, dus de type-check in code loopt weer nabu_resume
+     * aan: een oneindige lus (empirisch: nabu_catch/nabu_resume-beurten met
+     * dezelfde unwind-pointer, 100% CPU).
+     *
+     * Een verse _Unwind_RaiseException vanaf het landingspad-IP begint een
+     * nieuwe zoektocht bóven deze frame: het landingspad zelf ligt buiten alle
+     * call-site-ranges van het LSDA (het is géén beschermde regio), dus de
+     * persoonlijkheid vervolgt de unwind. Omringende handlers (callers, en
+     * meestal ook omringende try-regio's in dezelfde functie, afhankelijk van
+     * de blokvolgorde) worden gevonden; is er geen, dan keert nabu_throw terug
+     * en aborteren we netjes ("onbehandelde exception") i.p.v. te hangen.
+     */
+    nabu_unwind_exception *exc = (nabu_unwind_exception *)ue;
+    nabu_throw(exc->nabu_object);
+    abort(); /* nabu_throw keert alleen terug zonder handler */
+#else
+    _Unwind_Resume(ue);
+    /* _Unwind_Resume keert alleen terug wanneer er nergens in de stack een
+       handler is; dan is de exception onbehandeld. */
+    fprintf(stderr, "nabu: onbehandelde exception (resume zonder handler)\n");
+    abort();
+#endif
 }
 
 int nabu_can_catch(void *obj, const char *type_name) {
@@ -539,38 +604,86 @@ nabu_seh_personality(PEXCEPTION_RECORD msexc, void *frame,
 
 #else
 /* -------------------------------------------------------
- * Windows SEH fallback (MSVC)
- * ------------------------------------------------------- */
-
-/**
- * Windows SEH implementatie.
+ * Zonder GCC/Clang-ABI
+ * -------------------------------------------------------
  *
- * Op Windows met MSVC worden exceptions via SEH (Structured Exception
- * Handling) afgehandeld. Voor LLVM IR dat usemaakt van
- * __gcc_personality_v0 (Itanium ABI) hebben we een compatibele
- * implementatie nodig.
- *
- * Voorlopig slaan we de exception op en aborteren we. Volledige SEH
- * integratie vereist het gebruik van RtlUnwindEx of een vergelijkbare
- * Windows API.
+ * MSVC is hierboven al afgewezen via #error (_MSC_VER). De Itanium-ABI-tak
+ * hierboven geldt dus voor Linux, macOS, MinGW en voor elke andere
+ * GCC/Clang-toolchain; de #else is alleen bereikbaar als er geen GCC- en geen
+ * Clang-ABI is, en dan weten we niet welk unwinding-mechanisme geldt. Faal
+ * daarom in plaats van een runtime te bouwen die nabu_throw stilzwijgend
+ * afbreekt.
  */
-static __thread void *tls_last_exception = NULL;
 
-void nabu_throw(void *exception) {
-    tls_last_exception = exception;
-    fprintf(stderr, "nabu: onbehandelde exception (SEH niet geimplementeerd)\n");
-    abort();
-}
-
-void *nabu_catch(void *unwind_exc) {
-    /* Op Windows retourneren we de TLS exception als fallback */
-    (void)unwind_exc;
-    void *ex = tls_last_exception;
-    tls_last_exception = NULL;
-    return ex;
-}
+#error "nabu_runtime.c heeft een GCC- of Clang-toolchain nodig voor exception \
+unwinding (Itanium-ABI); geen herkenbare ABI op dit platform. Op Windows: \
+gebruik MinGW/gcc met target x86_64-w64-windows-gnu."
 
 #endif
+
+/* -------------------------------------------------------
+ * Reference counting (GcStrategy.REFCOUNT)
+ * -------------------------------------------------------
+ *
+ * De teller zit in de object-header (offset 24, zie nabu_object). De backend
+ * alloceert met malloc en wijst zelf type/vtable/itable in de header, dus
+ * free() op het object-adres is correct. De teller wordt door de backend op 0
+ * gezet bij de allocatie; malloc geeft immers ongeïnitialiseerd geheugen terug.
+ *
+ * Bewust géén finalizer-traversaal: zodra een object door een ander object
+ * bereikbaar is (object-graph, en dus ook een cyclus) wordt het niet meer
+ * gezweept. De backend voorkomt wél *vroegtijdig* vrijgeven: een object dat
+ * uit de frame ontsnapt (returnwaarde, object-veld, array-element, call-
+ * argument, throw) krijgt geen retain en wordt door de exit-pad overgeslagen.
+ * Zo'n object is daarmee ongecounterd en lekt — de ontvanger zou het moeten
+ * beheren en de backend weet niet hoe.
+ */
+
+static long nabu_rc_retains  = 0;
+static long nabu_rc_releases = 0;
+
+void nabu_retain(void *obj) {
+    if (obj == NULL) {
+        return;
+    }
+    nabu_rc_retains++;
+    ((nabu_object *)obj)->ref_count++;
+}
+
+void nabu_release(void *obj) {
+    if (obj == NULL) {
+        return;
+    }
+    nabu_rc_releases++;
+    nabu_object *header = (nabu_object *)obj;
+    /* Een teller van 0 (of negatief, door een bug in de gegenereerde code)
+     * betekent dat de eigendom al is ingeleverd. Vrijgeven zou dan een
+     * dubbele free zijn, dus hier stopt het: het object lekt liever dan dat
+     * de heap kapotgaat. De backend hoort elke retain precies een release te
+     * geven, dus dit pad hoort in een correct programma niet voor te komen. */
+    if (header->ref_count <= 0) {
+        return;
+    }
+    header->ref_count--;
+    if (header->ref_count == 0) {
+        free(obj);
+    }
+}
+
+int nabu_ref_count(void *obj) {
+    if (obj == NULL) {
+        return -1;
+    }
+    return (int) ((nabu_object *)obj)->ref_count;
+}
+
+long nabu_rc_retain_count(void) {
+    return nabu_rc_retains;
+}
+
+long nabu_rc_release_count(void) {
+    return nabu_rc_releases;
+}
 
 /* -------------------------------------------------------
  * InstanceOf
@@ -613,6 +726,84 @@ char *nabu_concat(const char *a, const char *b) {
 
     memcpy(out, a, la);
     memcpy(out + la, b, lb + 1);
+    return out;
+}
+
+/* Java-semantiek: "" + int levert de decimale representatie, zonder teken voor
+ * positieve getallen. snprintf in de C11-buffer is de kortste vorm; de runtime
+ * ondersteunt ook oudere MSVC, dus val terug op een eigen buffer. */
+char *nabu_int_to_string(int32_t value) {
+    char buf[16];
+    int n = snprintf(buf, sizeof(buf), "%d", value);
+    if (n < 0) n = 0;
+    char *out = malloc((size_t) n + 1);
+    if (out == NULL) {
+        fprintf(stderr, "nabu: kan geen geheugen alloceren voor int->string\n");
+        abort();
+    }
+    memcpy(out, buf, (size_t) n + 1);
+    return out;
+}
+
+char *nabu_long_to_string(int64_t value) {
+    char buf[24];
+    int n = snprintf(buf, sizeof(buf), "%lld", (long long) value);
+    if (n < 0) n = 0;
+    char *out = malloc((size_t) n + 1);
+    if (out == NULL) {
+        fprintf(stderr, "nabu: kan geen geheugen alloceren voor long->string\n");
+        abort();
+    }
+    memcpy(out, buf, (size_t) n + 1);
+    return out;
+}
+
+/* Java-semantiek van Double.toString: altijd een decimaalteken of exponent, en
+ * NaN/Infinity met een hoofdletter. %g levert "1" voor 1.0, dus daarachter een
+ * ".0" toevoegen. */
+char *nabu_double_to_string(double value) {
+    char buf[40];
+    if (value != value) {                       /* NaN */
+        snprintf(buf, sizeof(buf), "NaN");
+    } else if (value > 1.7976931348623157e308) { /* +Infinity */
+        snprintf(buf, sizeof(buf), "Infinity");
+    } else if (value < -1.7976931348623157e308) {/* -Infinity */
+        snprintf(buf, sizeof(buf), "-Infinity");
+    } else {
+        int n = snprintf(buf, sizeof(buf), "%g", value);
+        if (n < 0) n = 0;
+        if (strpbrk(buf, ".eE") == NULL) {
+            size_t len = strlen(buf);
+            if (len + 3 < sizeof(buf)) {
+                buf[len] = '.';
+                buf[len + 1] = '0';
+                buf[len + 2] = '\0';
+            }
+        }
+    }
+    size_t len = strlen(buf);
+    char *out = malloc(len + 1);
+    if (out == NULL) {
+        fprintf(stderr, "nabu: kan geen geheugen alloceren voor double->string\n");
+        abort();
+    }
+    memcpy(out, buf, len + 1);
+    return out;
+}
+
+char *nabu_float_to_string(float value) {
+    return nabu_double_to_string((double) value);
+}
+
+char *nabu_bool_to_string(int32_t value) {
+    const char *text = value ? "true" : "false";
+    size_t len = strlen(text);
+    char *out = malloc(len + 1);
+    if (out == NULL) {
+        fprintf(stderr, "nabu: kan geen geheugen alloceren voor bool->string\n");
+        abort();
+    }
+    memcpy(out, text, len + 1);
     return out;
 }
 

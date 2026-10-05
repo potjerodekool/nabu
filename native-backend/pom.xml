@@ -19,6 +19,9 @@
         <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
         <javacpp.version>1.5.13</javacpp.version>
         <javacpp.platform>windows-x86_64</javacpp.platform>
+        <!-- Zelfde versie als surefire: de IT-tests hieronder draaien op
+             dezelfde JUnit-5/JUnit-platform-provider. -->
+        <failsafe.version>3.5.3</failsafe.version>
     </properties>
 
     <dependencies>
@@ -110,6 +113,27 @@
             </resource>
         </resources>
         <plugins>
+            <!-- De *IT-tests (NabuCompilerBackendAcceptanceIT,
+                 ReflectionBridgeE2eIT, SourceInheritanceE2eIT) draaien een
+                 échte .nabu → .exe → run-cyclus en horen daarom in de
+                 integration-test-fase, niet in surefire (die pakt alleen
+                 *Test/Tests/Test*). Zonder deze plugin draaiden ze nooit.
+                 Zonder gcc op de machine slaan ze zichzelf over via
+                 NativeToolchain.assumeGcc() (assumption, geen failure). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${failsafe.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>

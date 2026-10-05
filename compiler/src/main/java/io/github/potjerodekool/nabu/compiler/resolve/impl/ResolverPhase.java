@@ -71,11 +71,16 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
     private void completeClassesBottomUp(final java.util.List<ClassDeclaration> classDeclarations) {
         classDeclarations.forEach(classDeclaration -> {
-            classDeclaration.getEnclosedElements().forEach(enclosed -> {
-                if (enclosed instanceof ClassDeclaration nestedClass) {
-                    completeClassesBottomUp(java.util.List.of(nestedClass));
-                }
-            });
+            // Snapshot: het completeren van een geneste klasse (en van de klasse
+            // zelf, hieronder) kan leden aan de enclosed-elements-lijst toevoegen
+            // — itereren over de live lijst gaf dan ConcurrentModificationException
+            // zodra een CU een geneste klasse/interface bevatte (bv. picocli).
+            java.util.List.copyOf(classDeclaration.getEnclosedElements())
+                    .forEach(enclosed -> {
+                        if (enclosed instanceof ClassDeclaration nestedClass) {
+                            completeClassesBottomUp(java.util.List.of(nestedClass));
+                        }
+                    });
             final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
 
             if (clazz != null) {

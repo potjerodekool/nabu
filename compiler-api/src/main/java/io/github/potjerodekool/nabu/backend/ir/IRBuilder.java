@@ -368,6 +368,11 @@ public class IRBuilder {
         emit(new IRInstruction.Return(value, currentLocation));
     }
 
+    /** Sluit het huidige blok af als het pad onbereikbaar is. */
+    public void emitUnreachable() {
+        emit(new IRInstruction.Unreachable(currentLocation));
+    }
+
     public IRValue emitCast(IRValue source, IRType target) {
         var result = fresh(target);
         emit(new IRInstruction.Cast(result, source, target, currentLocation));

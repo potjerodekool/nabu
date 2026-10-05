@@ -59,6 +59,8 @@ class ReflectionRuntimeE2eTest {
 
     @Test
     void reflectionMetadataDrivesFieldGetSetAndAnnotationLookup() throws Exception {
+        NativeToolchain.assumeGcc();
+
         final var genDir = tempDir.resolve("META-INF").resolve("native-image")
                 .resolve("picocli-generated");
         Files.createDirectories(genDir);
@@ -77,9 +79,7 @@ class ReflectionRuntimeE2eTest {
                 List.of(mainModule(), TestReflectionModel.greetCommandModule()), opts, out);
 
         final String ll = Files.readString(tempDir.resolve("reflect-e2e.ll"));
-        Files.copy(tempDir.resolve("reflect-e2e.ll"),
-                Path.of("C:/Users/evert/AppData/Local/Temp/opencode/reflect_e2e.ll"),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        NativeToolchain.dump(tempDir.resolve("reflect-e2e.ll"), "reflect_e2e.ll");
         assertTrue(ll.contains("nabu_register_reflection"),
                 "reflectie-registratie ontbreekt in .ll:\n" + ll);
         assertTrue(ll.contains("nabu_reflect_get_i32"),
@@ -88,9 +88,8 @@ class ReflectionRuntimeE2eTest {
         Path exe = tempDir.resolve("reflect-e2e.exe");
         assertTrue(Files.exists(exe), ".exe niet aangemaakt: " + exe);
 
-        String extraBin = "C:\\programs\\mingw64\\mingw64\\bin";
-        ProcessBuilder pb = new ProcessBuilder(exe.toString());
-        pb.environment().compute("Path", (k, v) -> extraBin + ";" + (v == null ? "" : v));
+        // libgcc_s_seh-1.dll en vrienden staan in de MinGW-bin; zet die op PATH.
+        ProcessBuilder pb = NativeToolchain.run(exe);
         Process proc = pb.redirectErrorStream(true).start();
         String outStr = new String(proc.getInputStream().readAllBytes());
         int exit = proc.waitFor();

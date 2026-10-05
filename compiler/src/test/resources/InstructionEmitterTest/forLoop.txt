@@ -44,9 +44,6 @@ public class MyClass {
     ISTORE 4
     ICONST_0
     ISTORE 5
-    GOTO L4
-   L4
-   FRAME FULL [MyClass I I I I I] []
     ICONST_0
     ISTORE 2
     ICONST_0
@@ -75,9 +72,9 @@ public class MyClass {
     ICONST_0
     ISTORE 5
     RETURN
-   L5
-    LOCALVARIABLE this LMyClass; L0 L5 0
-    LOCALVARIABLE i I L0 L5 1
+   L4
+    LOCALVARIABLE this LMyClass; L0 L4 0
+    LOCALVARIABLE i I L0 L4 1
     MAXSTACK = 2
     MAXLOCALS = 6
 

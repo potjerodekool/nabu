@@ -3,7 +3,9 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.util.CompileException;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,11 +14,13 @@ import java.util.List;
  * Linkt één of meer object files naar een uitvoerbaar bestand.
  *
  * Platform → linker:
- *   Windows  → link.exe (MSVC)
+ *   Windows  → gcc (MinGW/SEH); MSVC-targets worden expliciet geweigerd
  *   macOS    → clang
  *   Linux    → gcc
  *
- * Het host-triple wordt automatisch bepaald via hostTriple().
+ * Het target-triple wordt door de caller bepaald (zie
+ * {@link #guessTargetTriple(String)}); {@link #hostTriple()} geeft het
+ * LLVM-triple van het huidige systeem.
  */
 public class Linker {
 
@@ -52,16 +56,21 @@ public class Linker {
         }
     }
 
-    private static List<String> buildCommand(List<Path> objects,
-                                              Path exe,
-                                              String triple,
-                                              CompileOptions.GcStrategy gcStrategy) {
+    /**
+     * Bouwt de commandoregel voor het gegeven target. Package-private zodat de
+     * tests kunnen controleren dat het juiste platformpad gekozen wordt zonder
+     * een echte linkerdraai te doen.
+     */
+    static List<String> buildCommand(List<Path> objects,
+                                     Path exe,
+                                     String triple,
+                                     CompileOptions.GcStrategy gcStrategy) throws CompileException {
         List<String> cmd = new ArrayList<>();
         if (triple != null && triple.contains("windows")) {
             if (triple.contains("gnu")) {
                 // MinGW (SEH) pad: link met gcc en compileer+link de nabu
                 // runtime mee (voor de SEH-persoonlijkheid nabu_seh_personality,
-                // nabu_throw/_Unwind, nabu_new_object, etc.). gcc koppelt
+                // nabu_throw/_Unwind, nabu_init_object, etc.). gcc koppelt
                 // libgcc_s_seh automatisch.
                 cmd.add(resolveCompiler("gcc"));
                 cmd.add("-o"); cmd.add(exe.toString());
@@ -72,13 +81,7 @@ public class Linker {
                 }
                 addGcLibraries(cmd, gcStrategy);
             } else {
-                cmd.add("clang");
-                cmd.add("-target"); cmd.add(triple);
-                cmd.add("-o"); cmd.add(exe.toString());
-                cmd.add("-Wl,/subsystem:console");
-                cmd.add("-lmsvcrt");
-                objects.forEach(o -> cmd.add(o.toString()));
-                addGcLibraries(cmd, gcStrategy);
+                throw new CompileException(msvcUnsupported(triple));
             }
         } else if (triple != null && triple.contains("apple")) {
             cmd.add("clang");
@@ -96,6 +99,28 @@ public class Linker {
             addGcLibraries(cmd, gcStrategy);
         }
         return cmd;
+    }
+
+    /**
+     * MSVC-targets kunnen nog niet gelinkt worden. De backend emitteert een
+     * DWARF/LSDA-unwind met de eigen personality {@code nabu_seh_personality}
+     * uit {@code runtime/nabu_runtime.c}; dat mechanisme bestaat niet in een
+     * MSVC-CRT. MSVC heeft daarvoor een ander mechanisme nodig (x64 scope
+     * tables + {@code __C_specific_handler}), wat nog niet geïmplementeerd is.
+     *
+     * Vroeger probeerde deze tak clang met {@code -lmsvcrt} aan te roepen, maar
+     * voegde de runtime niet toe aan de linkregel. Dat eindigde in
+     * {@code undefined symbol: nabu_throw} zonder uitleg. Nu stappen we met een
+     * concrete reden af en wijzen we naar het wel ondersteunde pad.
+     */
+    private static String msvcUnsupported(String triple) {
+        return "Linken naar een MSVC-target wordt nog niet ondersteund (" + triple + ").\n"
+             + "Het exception-mechanisme van deze backend is DWARF/LSDA-gebaseerd\n"
+             + "(nabu_seh_personality + eigen LSDA-personality in runtime/nabu_runtime.c),\n"
+             + "en dat bestaat niet in een MSVC-CRT; MSVC gebruikt x64 scope tables met "
+             + "__C_specific_handler.\n"
+             + "Gebruik voor Windows het MinGW/SEH-target, bijvoorbeeld "
+             + "CompileOptions.forTarget(\"x86_64-w64-windows-gnu\").";
     }
 
     /**
@@ -158,26 +183,93 @@ public class Linker {
     }
 
     /**
-     * Resolveert het pad van een build-tool (gcc/clang). Eerst via een
-     * systeemproperty ({@code nabu.<tool>}), dan de env-var
-     * ({@code NABU_<TOOL>}); anders via de PATH en bekende install-locaties
-     * (winlibs/MinGW).
+     * Resolveert het pad van een build-tool (gcc/clang). Zoekvolgorde:
+     * <ol>
+     *   <li>systeemproperty {@code nabu.<tool>}</li>
+     *   <li>env-var {@code NABU_<TOOL>}</li>
+     *   <li>de map uit {@link #toolchainBin()} (property {@code nabu.toolchain.bin}
+     *       of env-var {@code NABU_TOOLCHAIN_BIN})</li>
+     *   <li>de PATH</li>
+     *   <li>gangbare Windows-installatielocaties</li>
+     * </ol>
+     * Wordt niets gevonden, dan wordt de kale toolnaam teruggegeven; de
+     * {@link ProcessBuilder} probeert die dan zelf te vinden.
      */
-    private static String resolveCompiler(String tool) {
+    public static String resolveCompiler(String tool) {
         String prop = System.getProperty("nabu." + tool);
         if (prop != null && !prop.isBlank()) return prop;
         String env = System.getenv("NABU_" + tool.toUpperCase());
         if (env != null && !env.isBlank()) return env;
-        String exe = "gcc".equals(tool) ? "gcc.exe" : tool + ".exe";
-        Path[] candidates = {
-                Path.of("C:\\programs\\mingw64\\mingw64\\bin", exe),
-                Path.of("C:\\mingw64\\bin", exe),
-                Path.of("C:\\msys64\\mingw64\\bin", exe),
-        };
-        for (Path c : candidates) {
-            if (java.nio.file.Files.exists(c)) return c.toString();
+
+        String exe = executableName(tool);
+        Path toolchainBin = toolchainBin();
+        if (toolchainBin != null) {
+            Path candidate = toolchainBin.resolve(exe);
+            if (java.nio.file.Files.exists(candidate)) return candidate.toString();
         }
+
+        Path onPath = findOnPath(exe);
+        if (onPath != null) return onPath.toString();
+
+        for (Path c : wellKnownWindowsToolDirs()) {
+            Path candidate = c.resolve(exe);
+            if (java.nio.file.Files.exists(candidate)) return candidate.toString();
+        }
+
         return tool;
+    }
+
+    /**
+     * Map waarin de native toolchain (gcc/clang) staat, indien geconfigureerd
+     * via de systeemproperty {@code nabu.toolchain.bin} of de env-var
+     * {@code NABU_TOOLCHAIN_BIN}. {@code null} als er niets is geconfigureerd.
+     * Vooral nuttig wanneer de MinGW-bin niet op de PATH staat: dezelfde map
+     * kan dan ook aan een subprocess worden doorgegeven zodat de runtime-DLL's
+     * (libgcc_s_seh-1.dll e.d.) worden gevonden.
+     */
+    public static Path toolchainBin() {
+        String prop = System.getProperty("nabu.toolchain.bin");
+        if (prop != null && !prop.isBlank()) return Path.of(prop);
+        String env = System.getenv("NABU_TOOLCHAIN_BIN");
+        if (env != null && !env.isBlank()) return Path.of(env);
+        return null;
+    }
+
+    private static String executableName(final String tool) {
+        final var os = System.getProperty("os.name", "").toLowerCase();
+        final var windows = os.contains("win");
+        return "gcc".equals(tool)
+                ? (windows ? "gcc.exe" : "gcc")
+                : (windows ? tool + ".exe" : tool);
+    }
+
+    private static List<Path> wellKnownWindowsToolDirs() {
+        final List<Path> dirs = new ArrayList<>();
+
+        // Gangbare MinGW/MSYS-installaties. Geen machine-specifieke paden: een
+        // eigen installatie hoort via nabu.toolchain.bin / NABU_TOOLCHAIN_BIN.
+        dirs.add(Path.of("C:\\mingw64\\bin"));
+        dirs.add(Path.of("C:\\msys64\\mingw64\\bin"));
+        dirs.add(Path.of("C:\\msys64\\ucrt64\\bin"));
+        dirs.add(Path.of("C:\\ProgramData\\mingw64\\mingw64\\bin"));
+        return dirs;
+    }
+
+    private static Path findOnPath(final String exe) {
+        final String pathEnv = System.getenv("PATH");
+        if (pathEnv == null || pathEnv.isBlank()) return null;
+
+        for (String entry : pathEnv.split(File.pathSeparator)) {
+            if (entry.isBlank()) continue;
+            try {
+                Path candidate = Path.of(entry).resolve(exe);
+                if (java.nio.file.Files.isExecutable(candidate)) return candidate;
+            } catch (InvalidPathException ignored) {
+                // Onbruikbare PATH-entry: overslaan.
+            }
+        }
+
+        return null;
     }
 
     private static void addGcLibraries(List<String> cmd,

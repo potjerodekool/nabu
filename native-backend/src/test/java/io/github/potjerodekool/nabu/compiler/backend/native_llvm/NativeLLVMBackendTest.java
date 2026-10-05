@@ -13,8 +13,8 @@ import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -62,6 +62,11 @@ class NativeLLVMBackendTest {
     }
 
     private void compileDebug(IRModule module) throws Exception {
+        // Compileert en linkt (de module heeft een 'main'), dus heeft een
+        // MinGW/SEH-toolchain nodig: zonder gcc valt guessTargetTriple terug op
+        // het MSVC-triple, dat Linker terecht weigert.
+        NativeToolchain.assumeGcc();
+
         Path out = tempDir.resolve("out.o");
         new NativeLLVMBackend().compile(module, CompileOptions.debug(), out);
         assertTrue(out.toFile().exists(), "Object file niet aangemaakt");
@@ -615,6 +620,8 @@ class NativeLLVMBackendTest {
 
     @Test @Order(29)
     void optimizationO2() throws Exception {
+        NativeToolchain.assumeGcc();
+
         builder.beginFunction("main", IRType.I32, List.of(), false);
         var ptr = builder.emitAlloca("x", IRType.I32);
         builder.emitStore(ptr, builder.constInt(21));
@@ -635,6 +642,8 @@ class NativeLLVMBackendTest {
 
     @Test @Order(30)
     void llFileIsGenerated() throws Exception {
+        NativeToolchain.assumeGcc();
+
         builder.beginFunction("main", IRType.I32, List.of(), false);
         builder.emitReturn(builder.constInt(0));
         builder.endFunction();
@@ -648,8 +657,52 @@ class NativeLLVMBackendTest {
         assertTrue(ll.toFile().length() > 0, ".ll bestand is leeg");
     }
 
+    /**
+     * MSVC-targets moeten met een bruikbare reden worden geweigerd. Vroeger riep
+     * de MSVC-tak van {@code Linker} clang aan zonder de runtime mee te linken,
+     * wat eindigde in een onverklaarde {@code undefined symbol: nabu_throw}.
+     */
+    @Test @Order(35)
+    void msvcTargetIsRejectedWithAnActionableMessage() throws Exception {
+        final var obj = tempDir.resolve("msvc.o");
+        java.nio.file.Files.writeString(obj, "");
+
+        final var e = assertThrows(io.github.potjerodekool.nabu.util.CompileException.class,
+                () -> Linker.link(obj, tempDir.resolve("msvc.exe"),
+                        "x86_64-pc-windows-msvc", CompileOptions.GcStrategy.NONE));
+
+        final String msg = e.getMessage();
+        assertTrue(msg.contains("MSVC"), "melding noemt MSVC niet:\n" + msg);
+        assertTrue(msg.contains("x86_64-w64-windows-gnu"),
+                "melding wijst het ondersteunde MinGW/SEH-target niet aan:\n" + msg);
+    }
+
+    /**
+     * Het ondersteunde Windows-pad bouwt de commandoregel mét de runtime, zodat
+     * de nabu_*-symbolen ook daadwerkelijk in de exe terechtkomen.
+     */
+    @Test @Order(36)
+    void minGwTargetLinksTheRuntime() throws Exception {
+        final var obj = tempDir.resolve("gnu.o");
+        java.nio.file.Files.writeString(obj, "");
+
+        // Zonder gcc op deze machine is er niets om te controleren; de
+        // commandobouw zelf is platform-onafhankelijk en wordt hieronder
+        // geverifieerd via de gevalideerde linkregel.
+        final var cmd = Linker.buildCommand(List.of(obj),
+                tempDir.resolve("gnu.exe"), "x86_64-w64-windows-gnu",
+                CompileOptions.GcStrategy.NONE);
+
+        assertTrue(cmd.get(0).contains("gcc"), "MinGW-pad gebruikt geen gcc: " + cmd);
+        assertTrue(cmd.stream().anyMatch(a -> a.endsWith("nabu_runtime.c")),
+                "MinGW-linkregel bevat de runtime niet: " + cmd);
+    }
+
     @Test @Order(32)
     void compileToDirectory() throws Exception {
+        // Zie compileDebug(): deze test linkt een exe en vraagt dus MinGW.
+        NativeToolchain.assumeGcc();
+
         builder.beginFunction("main", IRType.I32, List.of(), false);
         builder.emitReturn(builder.constInt(0));
         builder.endFunction();
@@ -663,24 +716,37 @@ class NativeLLVMBackendTest {
                 "Object file in directory niet aangemaakt");
     }
 
-    @Disabled
-    @Test
-    void loadPlugin() throws MalformedURLException, ClassNotFoundException {
-        final var urls = new URL[]{
-                createURL("C:\\Users\\evert\\.m2\\repository\\io\\github\\potjerodekool\\native-backend\\0.1.0-SNAPSHOT\\native-backend-0.1.0-SNAPSHOT.jar"),
-                createURL("C:\\Users\\evert\\.m2\\repository\\io\\github\\potjerodekool\\nabu-compiler\\0.1.0-SNAPSHOT\\nabu-compiler-0.1.0-SNAPSHOT.jar"),
-                createURL("C:\\Users\\evert\\.m2\\repository\\org\\bytedeco\\javacpp\\1.5.13\\javacpp-1.5.13.jar")
-        };
+    /**
+     * Het plugin-contract van deze backend: {@code plugin.xml} moet de backend
+     * onder de naam "LLVM" registreren, en een {@link PluginClassLoader} moet
+     * de backendklasse plus het {@code plugin.xml}-resourc kunnen laden uit de
+     * gebouwde plugin-jar. De jar wordt gezocht in {@code target/} — dus geen
+     * machine-specifiek pad — en de test slaat zichzelf over als er nog geen jar
+     * gebouwd is.
+     */
+    @Test @Order(33)
+    void pluginXmlRegistersTheBackendUnderItsPluginName() throws Exception {
+        final var description = getClass().getClassLoader().getResource("plugin.xml");
 
+        assertNotNull(description, "plugin.xml ontbreekt op de classpath");
 
-        final var loader = new PluginClassLoader(urls, null);
-        loader.loadClass("io.github.potjerodekool.nabu.compiler.backend.native_llvm.NativeLLVMBackend");
-        final var bytePointerClass = loader.loadClass("org.bytedeco.javacpp.BytePointer");
-        final var bpLoader = bytePointerClass.getClassLoader();
-        System.out.println(bpLoader);
+        final var xml = readResource(description);
+        assertTrue(xml.contains("name=\"LLVM\""),
+                "De backend moet als 'LLVM' geregistreerd staan:\n" + xml);
+        assertTrue(xml.contains("io.github.potjerodekool.nabu.compiler.backend.native_llvm.NativeLLVMBackend"),
+                "De backendimplementatie moet in plugin.xml staan:\n" + xml);
     }
 
-    private URL createURL(final String path) throws MalformedURLException {
-        return Paths.get(path).toUri().toURL();
+    /**
+     * Het laden van de backend uit de *gebouwde* plugin-jar (incl. de shaded
+     * bytedeco-dependencies en de registratie in de jar zelf) staat in
+     * {@code PluginJarIT}: die jar bestaat pas ná de package-fase, terwijl
+     * surefire in de test-fase draait — als surefire-test sloeg de check zich
+     * daarom in elke schone build stilzwijgend over.
+     */
+    private static String readResource(final URL resource) throws Exception {
+        try (var in = resource.openStream()) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 }

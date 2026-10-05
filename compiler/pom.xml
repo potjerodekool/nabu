@@ -84,6 +84,17 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Nieuwe taal: de .nabu-parser levert de FileObject.Kind(".nabu") via
+             plugin.xml. Zonder deze test-scope dependency staat .nabu niet als
+             source-kind geregistreerd, waardoor NabuCompiler de .nabu-bestanden op
+             de SOURCE_PATH niet als source-unit oppakt. -->
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-lang</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>

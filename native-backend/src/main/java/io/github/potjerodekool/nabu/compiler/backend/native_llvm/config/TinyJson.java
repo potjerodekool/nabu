@@ -23,6 +23,13 @@ final class TinyJson {
         final var parser = new TinyJson(json);
         parser.skipWhitespace();
         final var value = parser.parseValue();
+        parser.skipWhitespace();
+
+        if (!parser.atEnd()) {
+            throw new IllegalArgumentException(
+                    "Trailing inhoud na de JSON-waarde bij position " + parser.position);
+        }
+
         return value;
     }
 
@@ -57,6 +64,9 @@ final class TinyJson {
         final var result = new LinkedHashMap<String, Object>();
         position++; // '{'
         skipWhitespace();
+        if (atEnd()) {
+            throw new IllegalArgumentException("Niet-afgesloten object");
+        }
         if (current() == '}') {
             position++;
             return result;
@@ -87,6 +97,9 @@ final class TinyJson {
         final var result = new ArrayList<Object>();
         position++; // '['
         skipWhitespace();
+        if (atEnd()) {
+            throw new IllegalArgumentException("Niet-afgesloten array");
+        }
         if (current() == ']') {
             position++;
             return result;
@@ -117,14 +130,22 @@ final class TinyJson {
                 return sb.toString();
             }
             if (c == '\\') {
+                if (atEnd()) {
+                    throw new IllegalArgumentException("Niet-afgesloten escape in string");
+                }
                 final var escape = source.charAt(position++);
                 switch (escape) {
+                    case '"' -> sb.append('"');
+                    case '\\' -> sb.append('\\');
+                    case '/' -> sb.append('/');
                     case 'n' -> sb.append('\n');
                     case 't' -> sb.append('\t');
                     case 'r' -> sb.append('\r');
                     case 'b' -> sb.append('\b');
                     case 'f' -> sb.append('\f');
-                    default -> sb.append(escape);
+                    case 'u' -> sb.append(parseUnicodeEscape());
+                    default -> throw new IllegalArgumentException(
+                            "Onbekende escape '\\" + escape + "' bij position " + position);
                 }
             } else {
                 sb.append(c);
@@ -133,24 +154,114 @@ final class TinyJson {
         throw new IllegalArgumentException("Niet-afgesloten string");
     }
 
-    private Double parseNumber() {
-        final var start = position;
-        while (!atEnd()) {
-            final var c = current();
-            if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E') {
-                position++;
-            } else {
-                break;
+    /**
+     * Leest een \\uXXXX-escape. Een high surrogate wordt direct gevolgd door de
+     * bijbehorende low surrogate; samen vormen ze één codepoint.
+     */
+    private String parseUnicodeEscape() {
+        final var high = readHexQuad();
+
+        if (!Character.isHighSurrogate(high)) {
+            return String.valueOf(high);
+        }
+
+        if (position + 2 > source.length()
+                || source.charAt(position) != '\\'
+                || source.charAt(position + 1) != 'u') {
+            throw new IllegalArgumentException(
+                    "High surrogate zonder low surrogate bij position " + position);
+        }
+
+        position += 2;
+        final var low = readHexQuad();
+
+        if (!Character.isLowSurrogate(low)) {
+            throw new IllegalArgumentException(
+                    "High surrogate zonder low surrogate bij position " + position);
+        }
+
+        return new String(new char[]{high, low});
+    }
+
+    private char readHexQuad() {
+        if (position + 4 > source.length()) {
+            throw new IllegalArgumentException("Onvolledige \\u-escape bij position " + position);
+        }
+
+        var value = 0;
+
+        for (var i = 0; i < 4; i++) {
+            final var digit = Character.digit(source.charAt(position), 16);
+
+            if (digit < 0) {
+                throw new IllegalArgumentException(
+                        "Ongeldige hex in \\u-escape bij position " + position);
             }
+
+            value = value * 16 + digit;
+            position++;
         }
-        final var text = source.substring(start, position).trim();
-        if (text.isEmpty()) {
-            throw new IllegalArgumentException("Ongeldig getal bij position " + position);
+
+        return (char) value;
+    }
+
+    /**
+     * Leest een JSON-getal volgens de JSON-grammatica. Gehele getallen blijven
+     * {@link Long} (een Double zou bij grote waarden precisie verliezen);
+     * breuken en exponenten worden een Double.
+     */
+    private Object parseNumber() {
+        final var start = position;
+
+        if (!atEnd() && current() == '-') {
+            position++;
         }
+
+        readDigits("geheel getal");
+        var isDecimal = false;
+
+        if (!atEnd() && current() == '.') {
+            position++;
+            readDigits("fractie");
+            isDecimal = true;
+        }
+
+        if (!atEnd() && (current() == 'e' || current() == 'E')) {
+            position++;
+
+            if (!atEnd() && (current() == '+' || current() == '-')) {
+                position++;
+            }
+
+            readDigits("exponent");
+            isDecimal = true;
+        }
+
+        final var text = source.substring(start, position);
+
         try {
-            return Double.valueOf(text);
+            // Geen ternary: Long en Double zouden anders tot double worden
+            // gepromoveerd en als Double worden teruggegeven.
+            if (isDecimal) {
+                return Double.valueOf(text);
+            } else {
+                return Long.valueOf(text);
+            }
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Ongeldig getal: " + text, e);
+        }
+    }
+
+    private void readDigits(final String what) {
+        final var start = position;
+
+        while (!atEnd() && current() >= '0' && current() <= '9') {
+            position++;
+        }
+
+        if (position == start) {
+            throw new IllegalArgumentException("Ongeldig getal: cijfers ontbreken in " + what
+                    + " bij position " + position);
         }
     }
 

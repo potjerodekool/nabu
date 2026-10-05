@@ -44,6 +44,8 @@ public class FunctionEmitter {
     private final List<IRBasicBlock> blocks;
     private final Map<String, Label> labels = new HashMap<>();
     private final HashSet<String> blockLabels;
+    private final List<String> blockOrder = new ArrayList<>();
+    private String currentBlockLabel;
     private final Map<String, Integer> valueUses;
 
     private final Map<String, IRInstruction.BinaryOp> pendingComparisons = new HashMap<>();
@@ -63,7 +65,9 @@ public class FunctionEmitter {
         this.blocks = blocks;
         this.blockLabels = new HashSet<>();
         for (final var block : blocks) {
-            this.blockLabels.add(SlotAllocator.normalize(block.label()));
+            final var normalized = SlotAllocator.normalize(block.label());
+            this.blockLabels.add(normalized);
+            this.blockOrder.add(normalized);
         }
         this.valueUses = countValueUses(blocks);
     }
@@ -151,7 +155,20 @@ public class FunctionEmitter {
     // -------------------------------------------------------
 
     public void emitBlock(final IRBasicBlock block) {
+        currentBlockLabel = SlotAllocator.normalize(block.label());
         visitLabel(block.label());
+    }
+
+    /**
+     * Of het huidige blok direct door het gegeven blok wordt gevolgd in de
+     * emitvolgorde. Bytecode valt vanzelf door naar het volgende label, dus een
+     * {@code goto} naar dat blok is overbodig en wordt weggelaten.
+     */
+    private boolean isNextBlock(final String targetLabel) {
+        final var index = blockOrder.indexOf(currentBlockLabel);
+        return index >= 0
+                && index + 1 < blockOrder.size()
+                && blockOrder.get(index + 1).equals(SlotAllocator.normalize(targetLabel));
     }
 
     public void visitLabel(final String labelName) {
@@ -219,6 +236,7 @@ public class FunctionEmitter {
             case IRInstruction.IndirectCall indirectCall -> emitIndirectCall(indirectCall);
             case IRInstruction.InstanceOf instanceOf -> emitInstanceOf(instanceOf);
             case IRInstruction.Throw throwInst -> emitThrow(throwInst);
+            case IRInstruction.Unreachable ignored -> emitUnreachable();
             case IRInstruction.Pop ignored -> {
                 // No-op: elke geproduceerde waarde wordt direct in een slot
                 // opgeslagen (storeResult), dus er staat niets op de stack
@@ -264,6 +282,19 @@ public class FunctionEmitter {
 
         mv.visitLineNumber(instr.location().line(), currentLabel);
         lastLine = instr.location().line();
+    }
+
+    /**
+ * Onbereikbaar pad: gooi een verse RuntimeException. De bytecode-verifier
+ * weigert een methode die zonder terminator ("Execution can fall off the end
+ * of the code") eindigt; voor een pad dat toch niet bereikbaar is is een
+ * throw de enige geldige afsluiting.
+ */
+private void emitUnreachable() {
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/RuntimeException");
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/RuntimeException", "<init>", "()V", false);
+        mv.visitInsn(Opcodes.ATHROW);
     }
 
     private void emitThrow(final IRInstruction.Throw throwInst) {
@@ -1176,6 +1207,10 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
     }
 
     private void emitBranch(final IRInstruction.Branch branch) {
+        if (isNextBlock(branch.targetLabel())) {
+            // Bytecode valt zonder GOTO door naar het volgende blok.
+            return;
+        }
         if (isEmittableTarget(branch.targetLabel())) {
             mv.visitJumpInsn(Opcodes.GOTO, getOrCreateLabel(branch.targetLabel()));
         }

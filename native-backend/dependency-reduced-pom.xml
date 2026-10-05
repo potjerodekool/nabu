@@ -25,6 +25,18 @@
     <finalName>${project.artifactId}</finalName>
     <plugins>
       <plugin>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>${failsafe.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.6.2</version>
         <executions>
@@ -184,5 +196,6 @@
     <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
     <javacpp.version>1.5.13</javacpp.version>
     <javacpp.platform>windows-x86_64</javacpp.platform>
+    <failsafe.version>3.5.3</failsafe.version>
   </properties>
 </project>

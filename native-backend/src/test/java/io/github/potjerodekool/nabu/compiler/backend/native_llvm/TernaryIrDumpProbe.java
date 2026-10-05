@@ -98,9 +98,11 @@ class TernaryIrDumpProbe {
                     }
                 }
                 try {
-                    Files.writeString(
-                            Path.of("C:/Users/evert/AppData/Local/Temp/opencode/ternary-ir." + tag + ".txt"),
-                            sbx.toString());
+                    // Dump naar target/ir-dumps, zodat er geen machine-specifiek
+                    // pad nodig is.
+                    final var dumpDir = Path.of("target", "ir-dumps");
+                    Files.createDirectories(dumpDir);
+                    Files.writeString(dumpDir.resolve("ternary-ir." + tag + ".txt"), sbx.toString());
                 } catch (java.io.IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -129,11 +131,13 @@ class TernaryIrDumpProbe {
                     }
                 }
             }
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/ternary-ir.after.txt"), sbOpt.toString());
+            final var dumpDir = Path.of("target", "ir-dumps");
+            Files.createDirectories(dumpDir);
+            Files.writeString(dumpDir.resolve("ternary-ir.after.txt"), sbOpt.toString());
 
             new NativeLLVMBackend().emitIRText(optimized, io.github.potjerodekool.nabu.backend.CompileOptions.debug(),
-                    Path.of("C:/Users/evert/AppData/Local/Temp/opencode/ternary.ll"));
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/ternary-ll.done"), "ok");
+                    dumpDir.resolve("ternary.ll"));
+            Files.writeString(dumpDir.resolve("ternary-ll.done"), "ok");
         }
     }
 }

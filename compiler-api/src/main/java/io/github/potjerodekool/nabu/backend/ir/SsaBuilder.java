@@ -45,6 +45,13 @@ public class SsaBuilder {
 
         // Stap 3: Bereken dominator-boom
         final var dominators = Dominators.compute(function);
+        // Voor het plaatsen van phi's is de echte CFG onvoldoende: een
+        // handler is daarin niet bereikbaar, waardoor zijn edge naar het
+        // merge-blok genegeerd wordt en de try-body ten onrechte als idom van
+        // dat merge-blok geldt. Zonder phi op het merge-blok bereikt de
+        // waarde uit de handler het merge-blok nooit. De augmentatie voegt
+        // enkel bereikbaarheid toe en kan dus geen phi onterecht weglaten.
+        final var phiDominators = Dominators.computeForPhiPlacement(function);
 
         // Stap 4: Voor elke alloca, vind store-blokken en bereken dominance frontiers
         final var phiPlacements = new LinkedHashMap<String, List<PhiPlacement>>();
@@ -52,7 +59,7 @@ public class SsaBuilder {
 
         // Exception-handler-blokken zijn via de dominator-tree (normale
         // CFG-edges) niet bereikbaar; SSA-renaming mag geen stores van
-        // alloca's die daar gelezen worden verwijderen — anders blijven
+        // alloca's die daar gelezen worden verwijderen, anders blijven
         // laadt zonder definitie achter in de handler-regionen.
         final var handlerBlocks = new LinkedHashSet<String>();
         for (final var block : function.blocks()) {
@@ -103,8 +110,11 @@ public class SsaBuilder {
                 continue;
             }
 
-            // Bereken iterated dominance frontier
-            final var idf = computeIdf(defBlocks, dominators);
+            // Bereken iterated dominance frontier. Gebruikt de augmented
+            // dominators: de phi-incoming hieronder komen uit de echte
+            // predecessor-lijst, maar welke blokken een phi nodig hebben
+            // wordt bepaald op de geaugmenteerde CFG.
+            final var idf = computeIdf(defBlocks, phiDominators);
             for (final var blockLabel : idf) {
                 final var block = findBlock(function, blockLabel);
                 if (block == null) continue;

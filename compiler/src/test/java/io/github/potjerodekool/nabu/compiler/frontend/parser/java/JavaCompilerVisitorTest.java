@@ -12,6 +12,7 @@ import io.github.potjerodekool.nabu.tree.expression.ExpressionTree;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -26,6 +27,34 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.*;
 
 class JavaCompilerVisitorTest {
+
+    /**
+     * De picocli-bron is een externe benchmark, geen repo-bestand. Het pad is
+     * daarom configureerbaar en de test slaat zichzelf over als de bron niet
+     * lokaal aanwezig is.
+     */
+    private static String readPicocliSource() throws IOException {
+        final var path = Path.of(System.getProperty(
+                "nabu.test.picocli.sources",
+                "C:/projects/incurbation/cli-demo/vendor/picocli-src/picocli/CommandLine.java"));
+        Assumptions.assumeTrue(Files.isRegularFile(path),
+                "picocli-bron niet gevonden op " + path
+                        + " (zet -Dnabu.test.picocli.sources=<pad>)");
+        return Files.readString(path);
+    }
+
+    /**
+     * Schrijft een debug-dump naar {@code target/test-dumps} in plaats van naar
+     * een machine-specifiek temp-pad, zodat de test op elke machine werkt.
+     */
+    private static void dump(final String fileName, final String content) {
+        try {
+            final var dir = Path.of("target", "test-dumps");
+            Files.createDirectories(dir);
+            Files.writeString(dir.resolve(fileName), content);
+        } catch (final IOException ignored) {
+        }
+    }
 
     protected void parseAndAssert(final String code,
                                   final Function<Java20Parser, ParseTree> parseTreeBuilder) {
@@ -201,10 +230,7 @@ class JavaCompilerVisitorTest {
                 failures.add(form + " -> " + result);
             }
         }
-        try {
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/expr-inventory.txt"), builder.toString());
-        } catch (final IOException ignored) {
-        }
+        dump("expr-inventory.txt", builder.toString());
 
         System.out.println("EXPRESSION COVERAGE INVENTORY FAILURES (" + failures.size() + "/" + forms.length + "):");
         failures.forEach(f -> System.out.println("  " + f));
@@ -219,10 +245,7 @@ class JavaCompilerVisitorTest {
             final var cause = t.getCause() != null ? t.getCause() : t;
             final var sw = new StringWriter();
             cause.printStackTrace(new PrintWriter(sw));
-            try {
-                Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/arrayaccess-stack.txt"), sw.toString());
-            } catch (final IOException ignored) {
-            }
+            dump("arrayaccess-stack.txt", sw.toString());
         }
     }
 
@@ -285,10 +308,7 @@ class JavaCompilerVisitorTest {
         for (final var form : statements) {
             builder.append(tryParseStatement(form)).append("\t").append(form.replace("\n", " ")).append("\n");
         }
-        try {
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/stmt-inventory.txt"), builder.toString());
-        } catch (final IOException ignored) {
-        }
+        dump("stmt-inventory.txt", builder.toString());
         System.out.println("statement inventory written");
     }
 
@@ -304,8 +324,7 @@ class JavaCompilerVisitorTest {
 
     @Test
     void parseCommandLineJavaZeroErrors() throws IOException {
-        final var path = Path.of("C:/projects/incurbation/cli-demo/vendor/picocli-src/picocli/CommandLine.java");
-        final var source = Files.readString(path);
+        final var source = readPicocliSource();
         final var start = System.currentTimeMillis();
         final var input = CharStreams.fromString(source);
         final var lexer = new Java20Lexer(input);
@@ -332,10 +351,7 @@ class JavaCompilerVisitorTest {
         for (final var line : lines) {
             builder.append(tryParseStatement(line)).append("\t").append(line).append("\n");
         }
-        try {
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/assign-ter.txt"), builder.toString());
-        } catch (final IOException ignored) {
-        }
+        dump("assign-ter.txt", builder.toString());
         System.out.println("assignmentStatementFromAutoComplete written");
     }
 
@@ -414,8 +430,7 @@ class JavaCompilerVisitorTest {
 
     @Test
     void fullPicocliCommandLineFileVisitorPasses() throws IOException {
-        final var path = Path.of("C:/projects/incurbation/cli-demo/vendor/picocli-src/picocli/CommandLine.java");
-        final var source = Files.readString(path);
+        final var source = readPicocliSource();
         final var parser = new Java20Parser(
                 new CommonTokenStream(new Java20Lexer(CharStreams.fromString(source))));
         parser.setBuildParseTree(true);
@@ -433,9 +448,7 @@ class JavaCompilerVisitorTest {
             }
         });
         final var compilationUnit = parser.compilationUnit();
-        Files.writeString(
-                Path.of("C:/Users/evert/AppData/Local/Temp/opencode/syntax-errors.txt"),
-                String.join("\n", syntaxErrors));
+        dump("syntax-errors.txt", String.join("\n", syntaxErrors));
         final var fileObject = new PathFileObject(
                 new FileObject.Kind(".nabu", true),
                 Paths.get("CommandLine.java")
@@ -449,7 +462,7 @@ class JavaCompilerVisitorTest {
         }
         final var builder = new StringBuilder();
         collectClassNodes(compilationUnit, builder);
-        Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/class-nodes.txt"), builder.toString());
+        dump("class-nodes.txt", builder.toString());
     }
 
     private void collectClassNodes(final org.antlr.v4.runtime.tree.ParseTree tree,
@@ -483,10 +496,7 @@ class JavaCompilerVisitorTest {
         for (final var line : lines) {
             builder.append(tryParseStatement(line)).append("\t").append(line).append("\n");
         }
-        try {
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/ternary-lines.txt"), builder.toString());
-        } catch (final IOException ignored) {
-        }
+        dump("ternary-lines.txt", builder.toString());
         System.out.println("autoCompleteTernaryLines written");
     }
 
@@ -508,10 +518,7 @@ class JavaCompilerVisitorTest {
                 builder.append(form).append("\tEX").append(t.getClass().getSimpleName()).append("\n");
             }
         }
-        try {
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/logic-shapes.txt"), builder.toString());
-        } catch (final IOException ignored) {
-        }
+        dump("logic-shapes.txt", builder.toString());
         System.out.println(builder);
     }
 

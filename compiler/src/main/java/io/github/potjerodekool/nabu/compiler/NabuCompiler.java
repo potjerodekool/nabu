@@ -245,6 +245,15 @@ public class NabuCompiler implements Compiler {
                                                final CompilerContextImpl compilerContext) {
         var compilationUnits = new ArrayList<>(parseFiles(files, compilerContext));
 
+        // Systeemmodules moeten bekend zijn vóór er een package/import wordt
+        // opgezocht: het completeren van de unnamed module vult de zichtbare
+        // pakketten uit de exports van alle gekende modules. Gebeurt dat pas
+        // ná de enter-phase, dan is de unnamed module al compleet (leeg) en
+        // blijven types uit JDK-modules (bijv. javax.annotation.processing)
+        // onvindbaar.
+        Modules.getInstance(compilerContext)
+                .initAllModules();
+
         compilationUnits = compilationUnits.stream()
                 .map(fileObjectAndCompilationUnit ->
                         enterPhase(fileObjectAndCompilationUnit, compilerContext))
@@ -255,9 +264,6 @@ public class NabuCompiler implements Compiler {
         // star-import definities 'verbruiken'.
         compilationUnits.forEach(unit ->
                 compilerContext.getTypeEnter().fillImportsForUnit(unit));
-
-        Modules.getInstance(compilerContext)
-                .initAllModules();
 
         final var generatedUnits = runAnnotationProcessors(compilerContext, compilationUnits);
 

@@ -120,6 +120,8 @@ class InheritanceE2eTest {
 
     @Test
     void inheritanceBatchDeeltKlassenInEenCompilatie() throws Exception {
+        NativeToolchain.assumeGcc();
+
         // Bewust omgekeerde volgorde: de backend moet de super-klasse
         // zelfstandig vóór de sub-klasse registreren.
         List<IRModule> modules = List.of(mainModule(), dogModule(), animalModule());
@@ -129,8 +131,7 @@ class InheritanceE2eTest {
         Path ll = tempDir.resolve("out.ll");
         assertTrue(Files.exists(ll), ".ll bestand niet aangemaakt");
         String text = Files.readString(ll);
-        Files.copy(ll, Path.of("C:/Users/evert/AppData/Local/Temp/opencode/inheritance_batch.ll"),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        NativeToolchain.dump(ll, "inheritance_batch.ll");
 
         // 1. Super-constructor-keten: directe call naar Animal_init, geen restanten van de marker.
         assertTrue(text.contains("call void @test_Animal_init("),
@@ -152,6 +153,8 @@ class InheritanceE2eTest {
  */
 @Test
 void librarySuperTypeInfoSynthesisWiresExceptionChain() throws Exception {
+    NativeToolchain.assumeGcc();
+
     IRBuilder b = new IRBuilder("test/MyException");
     b.superType(EXC_TYPE);
     b.field(IRField.field(Flags.PUBLIC, "code", IRType.I32, null));
@@ -181,16 +184,17 @@ void librarySuperTypeInfoSynthesisWiresExceptionChain() throws Exception {
             CompileOptions.forTarget("x86_64-w64-windows-gnu"), out);
     Path ll = tempDir.resolve("libsuper.ll");
     String text = Files.readString(ll);
-    Files.copy(ll, Path.of("C:/Users/evert/AppData/Local/Temp/opencode/libsuper.ll"),
-            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    NativeToolchain.dump(ll, "libsuper.ll");
 
-    // Keten-super-info: Exception → Throwable → Object, en de flag "java/lang/Exception"
-    // moet als naam-constante bestaan (waar nabu_can_catch op matcht).
-    assertTrue(text.contains("_ZNabutest/MyExceptionEtype_info"),
-            "MyException-type-info ontbreekt:\n" + text);
-    assertTrue(text.contains("_ZNabujava/lang/ExceptionEtype_info"), "Exception-type-info:\n" + text);
-    assertTrue(text.contains("_ZNabujava/lang/ThrowableEtype_info"), "Throwable-type-info:\n" + text);
-    assertTrue(text.contains("_ZNabujava/lang/ObjectEtype_info"), "Object-type-info:\n" + text);
+// Keten-super-info: Exception → Throwable → Object, en de flag "java/lang/Exception"
+// moet als naam-constante bestaan (waar nabu_can_catch op matcht). De
+// symboolnamen zijn gesanitized: een '/' is geen geldig teken in een
+// assemblernaam.
+assertTrue(text.contains("_ZNabutest_MyExceptionEtype_info"),
+        "MyException-type-info ontbreekt:\n" + text);
+assertTrue(text.contains("_ZNabujava_lang_ExceptionEtype_info"), "Exception-type-info:\n" + text);
+assertTrue(text.contains("_ZNabujava_lang_ThrowableEtype_info"), "Throwable-type-info:\n" + text);
+assertTrue(text.contains("_ZNabujava_lang_ObjectEtype_info"), "Object-type-info:\n" + text);
     assertTrue(text.contains("java/lang/Exception"), "naam-constante java/lang/Exception:\n" + text);
 }
 
@@ -201,6 +205,8 @@ void librarySuperTypeInfoSynthesisWiresExceptionChain() throws Exception {
  */
     @Test
     void inheritanceEndToEndRunsAndReturnsOverriddenSum() throws Exception {
+        NativeToolchain.assumeGcc();
+
         var root = new File(".").getAbsoluteFile();
         while (!root.isDirectory() || !"nabu".equals(root.getName())) {
             root = root.getParentFile();
@@ -217,9 +223,8 @@ void librarySuperTypeInfoSynthesisWiresExceptionChain() throws Exception {
         Path exe = tempDir.resolve("inheritance.exe");
         assertTrue(Files.exists(exe), ".exe niet aangemaakt: " + exe);
 
-        String extraBin = "C:\\programs\\mingw64\\mingw64\\bin";
-        ProcessBuilder pb = new ProcessBuilder(exe.toString());
-        pb.environment().compute("Path", (k, v) -> extraBin + ";" + (v == null ? "" : v));
+        // libgcc_s_seh-1.dll en vrienden staan in de MinGW-bin; zet die op PATH.
+        ProcessBuilder pb = NativeToolchain.run(exe);
         Process proc = pb.redirectErrorStream(true).start();
         String outStr = new String(proc.getInputStream().readAllBytes());
         int exit = proc.waitFor();

@@ -247,14 +247,12 @@ public class NativeLLVMBackend implements Backend {
 
     /**
      * Emitteert uitsluitend de LLVM IR tekst (.ll) van een module, zonder
-     * validatie of codegen.
+     * codegen of object-emissie.
      *
      * Wordt gebruikt voor inspectie en voor tests die de frontend
-     * → IR → LLVM-pipeline willen verifiëren. Let op: op dit platform
-     * (x86_64-pc-windows-msvc, clang/MSVC only) crasht LLVM's eigen
-     * {@code LLVMVerifyModule} natively (Itanium-«__gcc_personality_v0»
-     * wordt op een Windows-target niet ondersteund); deze methode genereert
-     * de IR dan ook zonder dat validatie-pad te bewandelen.
+     * → IR → LLVM-pipeline willen verifiëren. De module wordt wél volledig
+     * gevalideerd, zodat de IR-asserties in die tests ook echt op geldige IR
+     * gebaseerd zijn; alleen de doeltaalmachine/codegen wordt overgeslagen.
      */
     public void emitIRText(IRModule module,
                            CompileOptions opts,
@@ -271,6 +269,8 @@ public class NativeLLVMBackend implements Backend {
                     ? opts.targetTriple()
                     : LLVMGetDefaultTargetTriple().getString();
             LLVMSetTarget(llvmMod, new BytePointer(triple));
+
+            validate(llvmMod);
 
             emitLLVMIR(llvmMod, llPath);
         } finally {

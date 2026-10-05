@@ -61,26 +61,6 @@ class NativeExceptionEndToEndTest {
         return ctx;
     }
 
-    private void dump(Object o, StringBuilder sb, int depth) {
-        if (o == null) return;
-        if (o instanceof java.util.Collection) {
-            for (var e : (java.util.Collection<?>) o) dump(e, sb, depth);
-            return;
-        }
-        sb.append("  ".repeat(Math.max(0, depth))).append(o.getClass().getSimpleName());
-        if (o instanceof io.github.potjerodekool.nabu.tree.statement.TryStatementTree) sb.append(" <TRY>");
-        if (o instanceof io.github.potjerodekool.nabu.tree.statement.ThrowStatement) sb.append(" <THROW>");
-        sb.append("\n");
-        for (String m : new String[]{"getBody", "getStatements", "getExpression", "getValue", "getFinalizer"}) {
-            try {
-                var mm = o.getClass().getMethod(m);
-                Object v = mm.invoke(o);
-                dump(v, sb, depth + 1);
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
     private CompilationUnit compile(String source) throws Exception {
         Path tmp = Files.createTempFile("E2E", ".java");
         Files.writeString(tmp, source, StandardCharsets.UTF_8);
@@ -89,9 +69,6 @@ class NativeExceptionEndToEndTest {
             var text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
             var parser = new Java20Parser(new CommonTokenStream(new Java20Lexer(CharStreams.fromString(text))));
             var cuNode = (CompilationUnit) parser.compilationUnit().accept(new JavaCompilerVisitor(fo, false));
-            StringBuilder dbg = new StringBuilder();
-            cuNode.getClasses().forEach(c -> c.getEnclosedElements().forEach(m -> dump(m, dbg, 0)));
-            Files.writeString(Path.of("C:/Users/evert/AppData/Local/Temp/opencode/parsed.txt"), dbg.toString());
             EnterPhase.enterPhase(cuNode, context());
             ResolverPhase.resolvePhase(cuNode, context());
             return cuNode;
@@ -114,13 +91,11 @@ class NativeExceptionEndToEndTest {
      * → IrGeneratingVisitor → TypeInference → SSA → Optimizer) en laat de native
      * backend de LLVM IR tekst emitteren.
      *
-     * NB: op dit platform (x86_64-pc-windows-msvc, clang/MSVC only) crasht
-     * LLVM's eigen {@code LLVMVerifyModule} natively (Itanium-«__gcc_personality_v0»
-     * wordt op een Windows-target niet ondersteund). Vandaar dat we hier de IR
-     * tekst genereren via {@code emitIRText} in plaats van de crashy
-     * object-emissie/validatie te bewandelen. Het daadwerkelijk produceren van een
-     * .o / runnable exe blijft op dit platform geblokkeerd (net als eerder
-     * vastgesteld voor de linkerbranch).
+     * {@code emitIRText} valideert de module wel (LLVMVerifyModule), maar
+     * genereert geen object: dat is sneller en deze test assert op de IR-vorm
+     * zelf (landingpad, nabu_can_catch-typefiltering). Het produceren van een
+     * werkende .o/exe voor deze EH-programma's hoort bij de runtime-tests
+     * hieronder, niet bij deze IR-tests.
      */
     private IRModule generateIr(String source) throws Exception {
         CompilationUnit cu = compile(source);
@@ -135,8 +110,7 @@ class NativeExceptionEndToEndTest {
 
     private String readLl(IRModule module) throws Exception {
         Path ll = tempDir.resolve(module.name.replace('/', '_') + ".ll");
-        Files.copy(ll, Path.of("C:/Users/evert/AppData/Local/Temp/opencode/e2e.ll"),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        NativeToolchain.dump(ll, "e2e.ll");
         return Files.readString(ll);
     }
 
@@ -171,18 +145,11 @@ class NativeExceptionEndToEndTest {
      * De frontend emitteert Main_main; de backend synthetiseert dan een `main`
      * die Main_main aanroept, compileert naar een .o en linkt via MinGW-gcc
      * met nabu_runtime.c meegecompileerd.
-     *
-     * DISABLED op deze machine: alle stadia tot en met het linken slagen
-     * (object 1728 B, exe 88336 B wordt geproduceerd), maar Windows/een
-     * AV-scanner houdt dit specifieke LLVM-gelinkte exe vast: CreateProcess
-     * error=5 "Toegang geweigerd", lezen faalt met "bestand in gebruik" en een
-     * kopie verdwijnt van schijf. Handmatig gcc-gemaakte exe's in dezelfde map
-     * (incl. dezelfde nabu_runtime-link) draaien wél — het verschil is de
-     * LLVM-COFF-objectfile. Zie native-backend-status.md.
      */
     @Test
-    @org.junit.jupiter.api.Disabled("AV houdt het LLVM-gelinkte exe vast op deze machine (CreateProcess error=5, quarantaine)")
     void fullSourceToExeCatchesException() throws Exception {
+        NativeToolchain.assumeGcc();
+
         var root = new File(".").getAbsoluteFile();
         while (!root.isDirectory() || !"nabu".equals(root.getName())) {
             root = root.getParentFile();
@@ -196,30 +163,28 @@ class NativeExceptionEndToEndTest {
         CompileOptions opts = CompileOptions.forTarget("x86_64-w64-windows-gnu");
         System.setProperty("nabu.runtime", runtime.toAbsolutePath().toString());
 
-        // Produceer het .o en de gelinkte exe NIET in de @TempDir: op deze
-        // machine vergrendelt de AV net-geschreven exe's in %TEMP% (CreateProcess
-        // error 32/5, AccessDenied bij kopiëren buiten de dir). Rechtstreeks in
-        // target/e2e (zoals de handmatige MinGW-probes) omzeilt dat.
+        // Produceer het .o en de gelinkte exe in target/e2e zodat de artefacten
+        // na de test inspecteerbaar blijven. De exe heet bewust exception-e2e.exe
+        // en niet e2e.exe: de AV op de ontwikkelmachine heeft de naam e2e*.exe in
+        // deze map in de quarantainelijst staan (CreateFile ACCESS_DENIED, ook
+        // voor een lege file), ongeacht de inhoud.
         Path outDir = Path.of("target", "e2e").toAbsolutePath();
         Files.createDirectories(outDir);
-        Path out = outDir.resolve("e2e.o");
+        Path out = outDir.resolve("exception-e2e.o");
         new NativeLLVMBackend().compile(module, opts, out);
 
         // .ll ter inspectie
-        Path ll = outDir.resolve("e2e.ll");
+        Path ll = outDir.resolve("exception-e2e.ll");
         if (Files.exists(ll)) {
-            Files.copy(ll, Path.of("C:/Users/evert/AppData/Local/Temp/opencode/e2e_full.ll"),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            NativeToolchain.dump(ll, "e2e_full.ll");
         }
 
-        Path exe = outDir.resolve("e2e.exe");
+        Path exe = outDir.resolve("exception-e2e.exe");
         assertTrue(Files.exists(exe), ".exe niet aangemaakt: " + exe);
 
         // libgcc_s_seh-1.dll zit in de MinGW-bin; zet die op PATH voor de run
         // (en voor het linken al gebeurd via de gevonden gcc).
-        String extraBin = "C:\\programs\\mingw64\\mingw64\\bin";
-        ProcessBuilder pb = new ProcessBuilder(exe.toString());
-        pb.environment().compute("Path", (k, v) -> extraBin + ";" + (v == null ? "" : v));
+        ProcessBuilder pb = NativeToolchain.run(exe);
         Process proc = pb.redirectErrorStream(true).start();
         String outStr = new String(proc.getInputStream().readAllBytes());
         int exit = proc.waitFor();

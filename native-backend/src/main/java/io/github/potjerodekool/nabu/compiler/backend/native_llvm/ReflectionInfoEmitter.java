@@ -50,8 +50,6 @@ import static org.bytedeco.llvm.global.LLVM.*;
  */
 public class ReflectionInfoEmitter {
 
-    private static final int     CTOR_PRIORITY = 65535;
-
     private final LLVMContextRef          ctx;
     private final LLVMModuleRef           mod;
     private final Map<String, LLVMValueRef> globalValueMap;
@@ -81,17 +79,20 @@ public class ReflectionInfoEmitter {
     /**
      * Emitteert reflectie-metadata voor alle module-klassen met een
      * registry-entry en registreert ze via @llvm.global_ctors.
+     *
+     * @param ctors gedeelde ctor-registratie van de module; de caller emittet
+     *              die nadat alle andere constructors zijn toegevoegd
      */
     public void emit(final LLVMModuleRef mod,
                      final ClassLayouts layouts,
                      final List<IRModule> modules,
-                     final ReflectionRegistry registry) {
+                     final ReflectionRegistry registry,
+                     final ModuleCtors ctors) {
         if (registry == null || registry.size() == 0) {
             return;
         }
         declareRegisterFunction();
 
-        final List<LLVMValueRef> ctors = new ArrayList<>();
         int index = 0;
         for (final IRModule module : modules) {
             final String internalName = ClassLayouts.normalizeInternalName(module.name);
@@ -110,10 +111,6 @@ public class ReflectionInfoEmitter {
             if (info != null) {
                 ctors.add(emitRegisterFunction(internalName, info));
             }
-        }
-
-        if (!ctors.isEmpty()) {
-            emitGlobalCtors(ctors);
         }
     }
 
@@ -396,37 +393,6 @@ public class ReflectionInfoEmitter {
 
         globalValueMap.put("@" + fnName, fn);
         return fn;
-    }
-
-    private void emitGlobalCtors(final List<LLVMValueRef> ctors) {
-        final LLVMTypeRef i32  = LLVMInt32TypeInContext(ctx);
-        final LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
-
-        final PointerPointer<Pointer> entryTypes = new PointerPointer<>(3);
-        entryTypes.put(0, i32);
-        entryTypes.put(1, i8Ptr);
-        entryTypes.put(2, i8Ptr);
-        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, entryTypes, 3, 0);
-        Reference.reachabilityFence(entryTypes);
-
-        final int n = ctors.size();
-        final LLVMTypeRef arrType = LLVMArrayType(entryType, n);
-        final LLVMValueRef ctorsGlobal = LLVMAddGlobal(mod, arrType,
-                new BytePointer("llvm.global_ctors"));
-        LLVMSetLinkage(ctorsGlobal, LLVMAppendingLinkage);
-
-        final PointerPointer<Pointer> elems = new PointerPointer<>(n);
-        for (int i = 0; i < n; i++) {
-            final PointerPointer<Pointer> elemInit = new PointerPointer<>(3);
-            elemInit.put(0, LLVMConstInt(i32, CTOR_PRIORITY, 0));
-            elemInit.put(1, ctors.get(i));
-            elemInit.put(2, LLVMConstNull(i8Ptr));
-            elems.put(i, LLVMConstNamedStruct(entryType, elemInit, 3));
-            Reference.reachabilityFence(elemInit);
-        }
-        LLVMSetInitializer(ctorsGlobal, LLVMConstArray(entryType, elems, n));
-        globalValueMap.put("@llvm.global_ctors", ctorsGlobal);
-        Reference.reachabilityFence(elems);
     }
 
     // -------------------------------------------------------

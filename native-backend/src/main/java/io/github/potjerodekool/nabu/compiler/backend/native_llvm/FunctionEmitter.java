@@ -50,6 +50,31 @@ public class FunctionEmitter {
      */
     private final Map<String, LLVMBasicBlockRef> handlerBodyBlocks = new HashMap<>();
 
+    /**
+     * Namen die uitsluitend als ad-hoc extern zijn gedeclareerd (call zonder
+     * eigen IRFunction-declaratie). Voor deze namen mag stap 2.5 in
+     * {@link LLVMModuleEmitter} later een tweede, correctere paramlijst
+     * toevoegen; voor echte IRFunction-namen mag dat niet, omdat dat de
+     * werkelijk geëmitteerde functie zou vervangen door een lege stub.
+     */
+    private final Set<String> adHocExternalNames = new HashSet<>();
+
+    /**
+     * Layouts van de klassen in de gecompileerde modules. Nodig om bij het
+     * declareren van een ad-hoc extern te bepalen of de callee eigenlijk een
+     * interface-methode is (die een itable-entry nodig heeft) of een gewone
+     * vtable-call.
+     */
+    private final ClassLayouts classLayouts;
+
+    /**
+     * {@code true} als {@code fnName} alleen via
+     * {@link #declareSignature(IRInstruction.Call)} is gedeclareerd.
+     */
+    public boolean isAdHocExternal(final String fnName) {
+        return fnName != null && adHocExternalNames.contains(fnName);
+    }
+
     public FunctionEmitter(LLVMContextRef ctx,
                            LLVMModuleRef mod,
                            LLVMBuilderRef builder,
@@ -57,7 +82,8 @@ public class FunctionEmitter {
                            ConstantResolver constants,
                            InstructionEmitter instructions,
                            Map<String, LLVMValueRef> globalValueMap,
-                           Map<String, LLVMBasicBlockRef> blockMap) {
+                           Map<String, LLVMBasicBlockRef> blockMap,
+                           ClassLayouts classLayouts) {
         this.ctx            = ctx;
         this.mod            = mod;
         this.builder        = builder;
@@ -66,6 +92,13 @@ public class FunctionEmitter {
         this.instructions   = instructions;
         this.globalValueMap = globalValueMap;
         this.blockMap       = blockMap;
+        this.classLayouts   = classLayouts;
+    }
+
+    private String currentFnNameForDiagnostics;
+
+    public String currentFnNameForDiagnostics() {
+        return currentFnNameForDiagnostics;
     }
 
     /**
@@ -96,34 +129,53 @@ public class FunctionEmitter {
      * Mag worden aangeroepen voor wederzijds-recursieve functies.
      */
     public void declareSignature(IRFunction fn) {
+        final String symbol = symbolOf(fn);
         LLVMTypeRef[] paramArray = types.mapParams(fn.params);
         LLVMTypeRef   retType    = types.map(fn.returnType);
 
         PointerPointer<Pointer> paramTypes = types.toPointerPointer(paramArray);
         LLVMTypeRef   fnType  = LLVMFunctionType(retType, paramTypes,
                                     fn.params.size(), 0);
-        final List<IRType> paramKey = fn.params.stream()
-                .map(IRValue::type)
-                .toList();
+        final List<IRType> paramKey = FnKeys.declaredParamsOf(fn);
         LLVMValueRef  llvmFn  = LLVMAddFunction(mod,
-                                    new BytePointer(fn.name), fnType);
+                                    new BytePointer(symbol), fnType);
 
         Reference.reachabilityFence(paramTypes);
         Reference.reachabilityFence(paramArray);
 
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
-                "LLVMAddFunction mislukt voor: " + fn.name);
+                "LLVMAddFunction mislukt voor: " + symbol);
 
         // Externe functies: ExternalLinkage, geen body
         if (fn.isExternal())
             LLVMSetLinkage(llvmFn, LLVMExternalLinkage);
 
-        globalValueMap.put("@" + fn.name, llvmFn);
+        // Een constructor die een methode met dezelfde IR-naam deelt, staat
+        // onder een eigen symbool (`Impl_init$ctor`). Alleen díe sleutels
+        // worden geschreven: de gewone naam en de gewone profiel-sleutel
+        // horen bij de methode, anders wijst het vtable-slot naar de
+        // constructor in plaats van naar de methode.
+        globalValueMap.put("@" + symbol, llvmFn);
         // Overload-sleutel: dezelfde fn onder `<naam>#<params>` registreren
         // (Range.min()/Range.min(int) deelden voorheen één LLVM-signature,
         // waardoor GetParam(i) van de latere overload garbage opleverde).
-        globalValueMap.put("@" + FnKeys.fnKey(fn.name, paramKey), llvmFn);
+        globalValueMap.put("@" + FnKeys.fnKey(symbol, paramKey), llvmFn);
+    }
+
+    /**
+     * Het LLVM-symbool waaronder {@code fn} gedeclareerd wordt.
+     *
+     * <p>Een constructor die dezelfde IR-naam heeft als een methode van dezelfde
+     * klasse krijgt een eigen symbool, zodat de gewone naam altijd de methode
+     * blijft. Overloads van methoden hebben elk hun eigen overload-sleutel en
+     * raken elkaar niet.
+     */
+    private String symbolOf(final IRFunction fn) {
+        final String ctorSymbol = classLayouts == null
+                ? null
+                : classLayouts.constructorSymbol(fn);
+        return ctorSymbol != null ? ctorSymbol : fn.name;
     }
 
     /**
@@ -134,9 +186,14 @@ public class FunctionEmitter {
     public void declareSignature(IRInstruction.Call call) {
         final String fnName = call.function();
 
-        LLVMTypeRef[] paramArray = new LLVMTypeRef[call.paramTypes().size()];
+        // Een niet-statische call draagt de JVM-receiver als eerste argument;
+        // de LLVM-declaratie moet die ook hebben, anders wijzen zowel de
+        // functietype als de overload-sleutel naar een lijst die één argument
+        // korter is dan wat er later daadwerkelijk wordt meegegeven.
+        final List<IRType> callParams = FnKeys.callParams(call);
+        LLVMTypeRef[] paramArray = new LLVMTypeRef[callParams.size()];
         for (int i = 0; i < paramArray.length; i++) {
-            paramArray[i] = types.map(call.paramTypes().get(i));
+            paramArray[i] = types.map(callParams.get(i));
         }
         LLVMTypeRef retType = types.map(call.returnType());
 
@@ -154,8 +211,9 @@ public class FunctionEmitter {
                 "LLVMAddFunction mislukt voor: " + fnName);
 
         LLVMSetLinkage(llvmFn, LLVMExternalLinkage);
+        adHocExternalNames.add(fnName);
         globalValueMap.put("@" + fnName, llvmFn);
-        globalValueMap.put("@" + FnKeys.fnKey(fnName, call.paramTypes()), llvmFn);
+        globalValueMap.put("@" + FnKeys.fnKey(fnName, callParams), llvmFn);
     }
 
     // -------------------------------------------------------
@@ -168,14 +226,17 @@ public class FunctionEmitter {
      */
     public void emitBody(IRFunction fn) {
         if (fn.isExternal()) return;
+        currentFnNameForDiagnostics = fn.name;
 
-        final List<IRType> paramKey = fn.params.stream()
-                .map(IRValue::type)
-                .toList();
-        final var overloadKey = FnKeys.fnKey(fn.name, paramKey);
+        // Per beschermd blok de binnenste handler-keten (zie de pre-scan).
+        Map<String, HandlerChain> chainByProtected = new HashMap<>();
+
+        final String symbol = symbolOf(fn);
+        final List<IRType> paramKey = FnKeys.declaredParamsOf(fn);
+        final var overloadKey = FnKeys.fnKey(symbol, paramKey);
         LLVMValueRef llvmFn = globalValueMap.get("@" + overloadKey);
         if (llvmFn == null || llvmFn.isNull()) {
-            llvmFn = globalValueMap.get("@" + fn.name);
+            llvmFn = globalValueMap.get("@" + symbol);
         }
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
@@ -185,8 +246,15 @@ public class FunctionEmitter {
         Map<String, LLVMValueRef> localMap = new HashMap<>();
         blockMap.clear();
         tryHandlerMap.clear();
+        // Ook handlerBodyBlocks: het is een veld op deze (hergebruikte)
+        // emitter. Zonder clear zou een volgende functie met een bloklabel
+        // 'try.catch.0' het LLVM-blok van een EERDERE functie terugvinden en
+        // zijn instructies daar in emiteren: landingpads hopen zich dan op in
+        // één functie en verwijzingen wijzen naar een andere functie.
+        handlerBodyBlocks.clear();
         instructions.setLocalValueMap(localMap);
         instructions.setFunctionEmitter(this);
+        currentFnNameForDiagnostics = fn.name;
 
         // Parameters koppelen
         final int declaredParams = LLVMCountParams(llvmFn);
@@ -216,24 +284,58 @@ public class FunctionEmitter {
             blockMap.put(block.label(), bb);
         }
 
-        // Pre-scan: TryCatchRegion metadata → tryHandlerMap vullen
-        // Voor elk try-blok tussen tryStart (inclusief) en tryEnd (exclusief)
-        // geldt dat het beschermd is door handlerLabel.
+        // Pre-scan: TryCatchRegion-metadata → per try-range de handler-keten.
+        // Elke range krijgt één landingspad met daarachter een keten van
+        // type-checks; een exception die geen enkele clause matcht gaat naar
+        // @nabu_resume zodat de unwind doorloopt (in plaats van opnieuw te
+        // worden gegooid, wat de buitenste handler zou overslaan).
         List<String> blockOrder = fn.blocks().stream()
                 .map(IRBasicBlock::label)
                 .toList();
-        Set<String> handlerLabels = new HashSet<>();
+
+        // Handlers per range (tryStart -> tryEnd), in IR-volgorde. De eerste
+        // handler uit die volgorde krijgt het landingspad.
+        Map<String, List<IRInstruction.TryCatchRegion>> regionsByRange =
+                new LinkedHashMap<>();
         for (IRBasicBlock block : fn.blocks()) {
             for (var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.TryCatchRegion tc) {
-                    handlerLabels.add(tc.handlerLabel());
-                    int startIdx = blockOrder.indexOf(tc.tryStartLabel());
-                    int endIdx   = blockOrder.indexOf(tc.tryEndLabel());
-                    if (startIdx >= 0 && endIdx >= 0) {
-                        for (int i = startIdx; i < endIdx; i++) {
-                            tryHandlerMap.put(blockOrder.get(i), tc.handlerLabel());
-                        }
-                    }
+                    regionsByRange
+                            .computeIfAbsent(rangeKey(tc.tryStartLabel(), tc.tryEndLabel()),
+                                    k -> new ArrayList<>())
+                            .add(tc);
+                }
+            }
+        }
+
+        // Per range één keten; de eerste handler-label is het landingspad.
+        List<HandlerChain> chains = new ArrayList<>();
+        Map<String, HandlerChain> chainByLanding = new LinkedHashMap<>();
+        for (var entry : regionsByRange.entrySet()) {
+            List<IRInstruction.TryCatchRegion> regions = entry.getValue();
+            HandlerChain chain = new HandlerChain(
+                    regions.get(0).handlerLabel(),
+                    regions.stream().map(r -> r.handlerLabel()).toList(),
+                    regions.stream().map(r -> r.exceptionType()).toList(),
+                    blockOrder.indexOf(regions.get(0).tryStartLabel()),
+                    blockOrder.indexOf(regions.get(0).tryEndLabel()));
+            chains.add(chain);
+            chainByLanding.put(chain.landingLabel(), chain);
+        }
+
+        // tryHandlerMap: per beschermd blok de handler waar de invoke naartoe
+        // unwindt. Bij geneste ranges wint de binnenste (kleinste) range:
+        // het throw-blok van de binnenste try moet de binnenste handler
+        // bereiken, niet de buitenste.
+        for (HandlerChain chain : chains) {
+            int startIdx = chain.startIdx();
+            int endIdx = chain.endIdx();
+            for (int i = startIdx; i < endIdx; i++) {
+                String blockLabel = blockOrder.get(i);
+                HandlerChain current = chainByProtected.get(blockLabel);
+                if (current == null || isInnerRange(chain, current)) {
+                    chainByProtected.put(blockLabel, chain);
+                    tryHandlerMap.put(blockLabel, chain.landingLabel());
                 }
             }
         }
@@ -271,30 +373,95 @@ public class FunctionEmitter {
         }
 
         // Personality functie instellen als er try-regio's zijn
-        if (!handlerLabels.isEmpty()) {
+        if (!chains.isEmpty()) {
             LLVMValueRef personality = globalValueMap.get("@__gcc_personality_v0");
             if (personality != null && !personality.isNull()) {
                 LLVMSetPersonalityFn(llvmFn, personality);
             }
         }
 
+        // REFCOUNT: escape-analyse vóórdat de body geëmitteerd wordt, zodat de
+        // retain/release-keuzes bij elke allocatie al bekend zijn.
+        instructions.refCounts().beginFunction(fn, llvmFn);
+
+        // REFCOUNT: de initialisatie-vlaggen per lokale referentie-slot staan
+        // bovenaan het entry-blok. De builder staat nog aan het einde van het
+        // laatste alloca uit de phi-slot-lus, dus positioneer hem opnieuw.
+        if (instructions.refCounts().isEnabled()) {
+            LLVMBasicBlockRef entry = blockMap.get(fn.blocks().get(0).label());
+            LLVMValueRef firstInstr = LLVMGetFirstInstruction(entry);
+            if (firstInstr != null && !firstInstr.isNull()) {
+                LLVMPositionBuilder(builder, entry, firstInstr);
+            } else {
+                LLVMPositionBuilderAtEnd(builder, entry);
+            }
+            instructions.refCounts().emitSlotInitFlags();
+        }
+
         // Instructies emitteren per blok
         for (IRBasicBlock block : fn.blocks()) {
-            LLVMPositionBuilderAtEnd(builder, blockMap.get(block.label()));
+            // Een catch-handler uit een keten heeft geen eigen LLVM-blok meer:
+            // de catch-body gaat in het body-blok dat de keten heeft gemaakt,
+            // en de oorspronkelijke IR-handlerblok blijft leeg.
+            LLVMBasicBlockRef handlerBody = handlerBodyBlocks.get(block.label());
+            LLVMPositionBuilderAtEnd(builder,
+                    handlerBody != null ? handlerBody : blockMap.get(block.label()));
 
-            // Catch handler blokken krijgen een landingpad + type-check + rethrow,
-            // en de catch-body wordt in een apart (body)blok geëmit.
-            if (handlerLabels.contains(block.label())) {
-                emitLandingPad(block.label(), fn);
-                // emitLandingPad positioneert de builder aan het einde van het
-                // body-blok, waarin de catch-body-instructies daarna worden geëmit.
+            // Eén landingspad per try-range, in het blok van de eerste
+            // handler uit die range. De catch-body van élke handler uit de
+            // range gaat in een eigen body-blok; de type-checks staan
+            // geketend achter elkaar en vallen door naar @nabu_resume.
+            HandlerChain chain = chainByLanding.get(block.label());
+            if (chain != null) {
+                emitLandingPadChain(chain);
             }
 
             for (var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.TryCatchRegion) continue;
                 instructions.emit(instr);
             }
+
+            // Een handlerblok dat alleen nog zijn TryCatchRegion-metadata
+            // bevatte (de body is naar het body-blok verhuisd) heeft nu geen
+            // instructies en dus geen terminator: het pad is via het body-blok
+            // onbereikbaar, dus unreachable is hier correct.
+            if (handlerBody != null
+                    && LLVMGetFirstInstruction(blockMap.get(block.label())) == null) {
+                LLVMPositionBuilderAtEnd(builder, blockMap.get(block.label()));
+                LLVMBuildUnreachable(builder);
+            }
         }
+
+        // REFCOUNT: de ene exit-pad afronden (returns sprongen er tijdens het
+        // emitteren naartoe).
+        instructions.refCounts().finishFunction();
+    }
+
+    /** Een try-range met al zijn handlers, in IR-volgorde. */
+    private record HandlerChain(
+            String landingLabel,
+            List<String> handlerLabels,
+            List<String> exceptionTypes,
+            int startIdx,
+            int endIdx) {
+    }
+
+    /** Sleutel voor een try-range: beide grensblokken bepalen de range. */
+    private static String rangeKey(final String tryStart, final String tryEnd) {
+        return tryStart + "->" + tryEnd;
+    }
+
+    /**
+     * Of {@code candidate} binnen {@code current} ligt. Bij geneste ranges
+     * hoort een throw de binnenste handler te bereiken, dus de range met de
+     * hoogste start (bij gelijke start de kleinste spanne) wint.
+     */
+    private static boolean isInnerRange(final HandlerChain candidate,
+                                        final HandlerChain current) {
+        if (candidate.startIdx() != current.startIdx()) {
+            return candidate.startIdx() > current.startIdx();
+        }
+        return candidate.endIdx() < current.endIdx();
     }
 
     /** Verzamelt alle `%phi...`-temps van een instructie met hun IRType. */
@@ -343,43 +510,37 @@ public class FunctionEmitter {
     }
 
     /**
-     * Emitteert een landingpad voor een catch-handler blok, gevolgd door een
-     * catch type-check (nabu_can_catch) en een rethrow-pad voor niet-matchende
-     * exceptions.
+     * Emitteert het landingspad van één try-range plus de geketende
+     * type-checks van al zijn handlers.
      *
-     * De gegenereerde structuur in het handler-blok:
-     *   %handlerBlock:
+     * De gegenereerde structuur (voor de handlers h0, h1, ... van de range):
+     *   %&lt;h0&gt;:
      *     %lpad = landingpad { ptr, i32 } cleanup
      *     %raw   = extractvalue %lpad, 0
-     *     %exn.<h> = call i8* @nabu_catch(ptr %raw)
-     *     %match = call i32 @nabu_can_catch(ptr %exn.<h>, i8* @.str.<type>)
-     *     %ok    = icmp ne i32 %match, 0
-     *     br i1 %ok, label %handler.<h>.body, label %handler.<h>.rethrow
-     *   %handler.<h>.body:            <- hierin wordt de catch-body geëmit
-     *   %handler.<h>.rethrow:
-     *     call void @nabu_throw(ptr %exn.<h>)
+     *     %exn.&lt;h0&gt; = call i8* @nabu_catch(ptr %raw)
+     *     %match.0 = call i32 @nabu_can_catch(ptr %exn.&lt;h0&gt;, i8* @.str.&lt;t0&gt;)
+     *     br i1 %ok.0, label %handler.&lt;h0&gt;.body, label %handler.&lt;h0&gt;.check.1
+     *   %handler.&lt;h0&gt;.check.1:
+     *     %match.1 = call i32 @nabu_can_catch(ptr %exn.&lt;h0&gt;, i8* @.str.&lt;t1&gt;)
+     *     br i1 %ok.1, label %handler.&lt;h1&gt;.body, label %handler.&lt;h0&gt;.resume
+     *   %handler.&lt;h0&gt;.resume:
+     *     call void @nabu_resume(ptr %exn.&lt;h0&gt;)
      *     unreachable
+     *   %handler.&lt;hi&gt;.body:            &lt;- hierin wordt de catch-body geëmit
      *
-     * @return het body-blok waarin de catch-body-instructies geëmit moeten worden.
+     * <p>Een catch-all (geen exceptionType) springt rechtstreeks naar zijn
+     * body: hij vat alles, dus de keten stopt daar.
+     *
+     * <p>Het pad eindigt bij {@code @nabu_resume} en niet bij
+     * {@code @nabu_throw}: de exception wordt niet opnieuw gegooid maar de
+     * unwind vervolgd, zodat een buitenliggende handler hem nog kan afvangen.
      */
-    private void emitLandingPad(String handlerLabel, IRFunction fn) {
-        // Zoek het catch-type voor deze handler
-        String exType = null;
-        for (IRBasicBlock block : fn.blocks()) {
-            if (block.label().equals(handlerLabel)) {
-                for (var instr : block.instructions()) {
-                    if (instr instanceof IRInstruction.TryCatchRegion tc
-                            && tc.handlerLabel().equals(handlerLabel)) {
-                        exType = tc.exceptionType();
-                        break;
-                    }
-                }
-                break;
-            }
-        }
+    private void emitLandingPadChain(final HandlerChain chain) {
+        final String landingLabel = chain.landingLabel();
+        final List<String> handlerLabels = chain.handlerLabels();
+        final List<String> exceptionTypes = chain.exceptionTypes();
 
         LLVMTypeRef i8Ptr = LLVMPointerType(LLVMInt8TypeInContext(ctx), 0);
-        LLVMTypeRef i64   = LLVMInt64TypeInContext(ctx);
         LLVMTypeRef i32   = LLVMInt32TypeInContext(ctx);
         LLVMTypeRef lpType = LLVMStructTypeInContext(ctx,
                 new PointerPointer<>(new LLVMTypeRef[]{i8Ptr, i32}), 2, 0);
@@ -412,42 +573,77 @@ public class FunctionEmitter {
 
         // Raw exception pointer extraheren en nabu_catch() -> nabu_object*
         LLVMValueRef rawExPtr = LLVMBuildExtractValue(builder, landingPad, 0,
-                new BytePointer("%raw_exn." + handlerLabel));
+                new BytePointer("%raw_exn." + landingLabel));
         LLVMValueRef catchFn = globalValueMap.get("@nabu_catch");
         if (catchFn == null) {
             throw new IllegalStateException("Runtime helper @nabu_catch niet gedefinieerd");
         }
-        String exnName = "%exn." + handlerLabel;
+        String exnName = "%exn." + landingLabel;
         LLVMTypeRef catchFnType = getNabuCatchType();
         PointerPointer<Pointer> catchArgs = new PointerPointer<>(1);
         catchArgs.put(0, rawExPtr);
         LLVMValueRef exPtr = LLVMBuildCall2(builder, catchFnType, catchFn, catchArgs, 1,
                 exnName);
+        Reference.reachabilityFence(catchArgs);
+        // De exception-pointer wordt door álle checks én het resume-blok gebruikt.
+        // Hij moet daarom de hele keten overleven: zonder deze sterke referentie
+        // kan JavaCPP de wrapper collecteren zodra er nieuwe blokken bij komen en
+        // wordt de pointer dangling, wat in LLVMBuildCall2 segfault geeft.
+        final List<LLVMValueRef> keepAlive = new ArrayList<>();
+        keepAlive.add(exPtr);
+        keepAlive.add(catchFn);
         instructions.getLocalValueMap().put(exnName, exPtr);
 
-        // Bepaal de function-eigenaar voor de blokken
+        // Function-eigenaar voor de nieuwe blokken
         LLVMValueRef currentFn = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
 
-        LLVMBasicBlockRef bodyBlock = LLVMAppendBasicBlockInContext(ctx, currentFn,
-                new BytePointer("handler." + handlerLabel + ".body"));
+        // Een body-blok per handler uit de range.
+        List<LLVMBasicBlockRef> bodyBlocks = new ArrayList<>(handlerLabels.size());
+        for (String handlerLabel : handlerLabels) {
+            bodyBlocks.add(LLVMAppendBasicBlockInContext(ctx, currentFn,
+                    new BytePointer("handler." + handlerLabel + ".body")));
+        }
+        // Eén resume-blok: geen enkele clause matcht, dus de unwind gaat door.
+        LLVMBasicBlockRef resumeBlock = LLVMAppendBasicBlockInContext(ctx, currentFn,
+                new BytePointer("handler." + landingLabel + ".resume"));
 
-        if (exType == null) {
-            // catch-all: geen type-check, direct naar de body.
-            LLVMBuildBr(builder, bodyBlock);
-        } else {
-            // Type-naam-string + nabu_can_catch check; bij niet-matchende
-            // exception gaat het pad langs het rethrow-blok.
-            LLVMBasicBlockRef rethrowBlock = LLVMAppendBasicBlockInContext(ctx, currentFn,
-                    new BytePointer("handler." + handlerLabel + ".rethrow"));
+        LLVMValueRef canCatchFn = globalValueMap.get("@nabu_can_catch");
+        if (canCatchFn == null) {
+            throw new IllegalStateException("Runtime helper @nabu_can_catch niet gedefinieerd");
+        }
+
+        // De body van de laatste handler is het blok waarin de catch-body-
+        // instructies van de landingspad-handler worden geëmit; de overige
+        // body-blokken worden vanuit de check-keten bereikt.
+        for (int i = 0; i < handlerLabels.size(); i++) {
+            final String exType = exceptionTypes.get(i);
+            final boolean last = i == handlerLabels.size() - 1;
+
+            if (exType == null) {
+                // catch-all: geen type-check, spring direct naar de body.
+                LLVMBuildBr(builder, bodyBlocks.get(i));
+                // De keten stopt hier: elke clause erna is onbereikbaar. Die
+                // body-blokken krijgen daarom een terminator (unreachable) om
+                // een LLVM-blok zonder terminator te vermijden.
+                for (int j = i + 1; j < handlerLabels.size(); j++) {
+                    LLVMPositionBuilderAtEnd(builder, bodyBlocks.get(j));
+                    LLVMBuildUnreachable(builder);
+                }
+                // Het resume-blok is nu zonder springdoel; geef het een
+                // terminator zodat het geen blok zonder terminator wordt.
+                LLVMPositionBuilderAtEnd(builder, resumeBlock);
+                LLVMBuildUnreachable(builder);
+                LLVMPositionBuilderAtEnd(builder, bodyBlocks.get(i));
+                for (int j = 0; j < handlerLabels.size(); j++) {
+                    handlerBodyBlocks.put(handlerLabels.get(j), bodyBlocks.get(j));
+                }
+                return;
+            }
 
             String typeName = normalizeCatchType(exType);
             LLVMValueRef typeStr = constants.resolveString(typeName,
                     io.github.potjerodekool.nabu.backend.ir.IRGlobal.Linkage.PRIVATE);
 
-            LLVMValueRef canCatchFn = globalValueMap.get("@nabu_can_catch");
-            if (canCatchFn == null) {
-                throw new IllegalStateException("Runtime helper @nabu_can_catch niet gedefinieerd");
-            }
             PointerPointer<Pointer> ccParams = new PointerPointer<>(2);
             ccParams.put(0, exPtr);
             ccParams.put(1, typeStr);
@@ -462,35 +658,56 @@ public class FunctionEmitter {
             ccParamTypes.put(1, LLVMTypeOf(typeStr));
             LLVMTypeRef canCatchFnType = LLVMFunctionType(i32, ccParamTypes, 2, 0);
             LLVMValueRef match = LLVMBuildCall2(builder, canCatchFnType, canCatchFn,
-                    ccParams, 2, "%catch.match");
+                    ccParams, 2, "%catch.match." + i);
             LLVMValueRef ok = LLVMBuildICmp(builder, LLVMIntNE, match,
-                    LLVMConstInt(i32, 0, 0), "%catch.ok");
-            LLVMBuildCondBr(builder, ok, bodyBlock, rethrowBlock);
+                    LLVMConstInt(i32, 0, 0), "%catch.ok." + i);
             Reference.reachabilityFence(ccParams);
             Reference.reachabilityFence(ccParamTypes);
 
-            // Rethrow-pad: niet-matchende exception opnieuw gooien
-            LLVMPositionBuilderAtEnd(builder, rethrowBlock);
-            LLVMValueRef throwFn = globalValueMap.get("@nabu_throw");
-            if (throwFn == null) {
-                throw new IllegalStateException("Runtime helper @nabu_throw niet gedefinieerd");
-            }
-            PointerPointer<Pointer> throwFnParams = new PointerPointer<>(1);
-            throwFnParams.put(0, i8Ptr);
-            LLVMTypeRef throwFnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
-                    throwFnParams, 1, 0);
-            Reference.reachabilityFence(throwFnParams);
-            PointerPointer<Pointer> throwArgs = new PointerPointer<>(1);
-            throwArgs.put(0, exPtr);
-            LLVMBuildCall2(builder, throwFnType, throwFn, throwArgs, 1, "");
-            LLVMBuildUnreachable(builder);
-            Reference.reachabilityFence(rethrowBlock);
+            LLVMBasicBlockRef next = last
+                    ? resumeBlock
+                    : LLVMAppendBasicBlockInContext(ctx, currentFn,
+                            new BytePointer("handler." + landingLabel + ".check." + (i + 1)));
+            LLVMBuildCondBr(builder, ok, bodyBlocks.get(i), next);
+            if (last) break;
+
+            // De volgende check komt in zijn eigen blok te staan, zodat het
+            // pad van een eerdere handler niet door de volgende check loopt.
+            LLVMPositionBuilderAtEnd(builder, next);
         }
 
-        // Builder positioneren in het body-blok voor de catch-body-instructies
-        LLVMPositionBuilderAtEnd(builder, bodyBlock);
-        handlerBodyBlocks.put(handlerLabel, bodyBlock);
-        Reference.reachabilityFence(i64);
+        // Resume-pad: de exception is door geen enkele clause afgevangen, dus
+        // de unwind vervolgen (een buitenliggende handler kan hem nog pakken).
+        LLVMPositionBuilderAtEnd(builder, resumeBlock);
+        LLVMValueRef resumeFn = globalValueMap.get("@nabu_resume");
+        if (resumeFn == null) {
+            throw new IllegalStateException("Runtime helper @nabu_resume niet gedefinieerd");
+        }
+        PointerPointer<Pointer> resumeArgs = new PointerPointer<>(1);
+        keepAlive.add(resumeFn);
+        keepAlive.add(canCatchFn);
+        // Het parameter-type van @nabu_resume: exact zoals LLVMModuleEmitter het
+        // heeft gedeclareerd (opaque i8ptr), niet het getypte i8* van
+        // getNabuCatchType(). Een gemengde typed/opaque-pointer LLVM zou een
+        // mismatch hier de call op een type bouwen dat de functie niet heeft,
+        // wat in LLVMBuildCall2 segfault geeft.
+        PointerPointer<Pointer> resumeParamTypes = new PointerPointer<>(1);
+        resumeParamTypes.put(0, LLVMPointerTypeInContext(ctx, 0));
+        LLVMTypeRef resumeFnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                resumeParamTypes, 1, 0);
+        resumeArgs.put(0, keepAlive.get(0));
+        LLVMBuildCall2(builder, resumeFnType, resumeFn, resumeArgs, 1, "");
+        LLVMBuildUnreachable(builder);
+        Reference.reachabilityFence(resumeFn);
+        Reference.reachabilityFence(resumeFnType);
+        Reference.reachabilityFence(resumeParamTypes);
+        Reference.reachabilityFence(resumeArgs);
+
+        for (int i = 0; i < handlerLabels.size(); i++) {
+            handlerBodyBlocks.put(handlerLabels.get(i), bodyBlocks.get(i));
+        }
+        LLVMPositionBuilderAtEnd(builder, bodyBlocks.get(0));
+        Reference.reachabilityFence(keepAlive);
     }
 
     /** Normaliseert een catch-type naar de interne naam met slashes (test.Exception -> test/Exception). */

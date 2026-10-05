@@ -34,13 +34,29 @@ typedef struct nabu_type_info {
 
 /**
  * Object header struct — elke heap-object begint hiermee.
+ *
+ * De veldvolgorde MOET overeenkomen met ClassLayouts.objectHeaderType() in de
+ * native-backend (`{ ptr type, ptr vtable, ptr itable, i32 ref_count, i32
+ * monitor, i32 thread }`): de backend schrijft type/vtable/itable zelf in de
+ * header, en de runtime leest/schrijft ref_count/monitor/thread_id. Op een
+ * 64-bittig target geeft dat offsets 0/8/16/24/28/32 en grootte 40; de
+ * C-struct hieronder heeft precies dezelfde layout omdat alle leden
+ * standaard-uitlijning hebben.
+ *
+ * Let op: de `monitor_*`-leden worden door nabu_monitorenter/exit gebruikt en
+ * stonden vóór dit schema op offset 8 — dus over de vtable heen.
  */
 typedef struct nabu_object {
-    nabu_type_info *type;
-    int             ref_count;    /* voor reference counting (niet gebruikt door Boehm) */
-    int             monitor_count; /* voor synchronized */
-    int             thread_id;    /* welke thread bezit de monitor */
+    void  *type;          /* offset 0  — nabu_type_info* */
+    void  *vtable;        /* offset 8  — door de backend gevuld */
+    void  *itable;        /* offset 16 — door de backend gevuld */
+    int32_t ref_count;    /* offset 24 — voor reference counting */
+    int32_t monitor_count;/* offset 28 — voor synchronized */
+    int32_t thread_id;    /* offset 32 — welke thread bezit de monitor */
 } nabu_object;
+
+/** Minimale objectgrootte: één header zonder instantievelden. */
+#define NABU_HEADER_SIZE ((size_t) sizeof(nabu_object))
 
 /**
  * InstanceOf check.
@@ -57,6 +73,28 @@ int nabu_instanceof(void *obj, const char *type_name);
  * @return Nieuw gealloceerde, nul-afgesloten string a+b
  */
 char *nabu_concat(const char *a, const char *b);
+
+/**
+ * Zet een geheel getal om naar zijn decimale stringrepresentatie, zoals Java's
+ * {@code String.valueOf(int)} / {@code "" + int}. Nodig voor string-concat met
+ * een primitieve operand (bv. {@code arity.min + "..*"}), die de JVM met
+ * StringBuilder doet maar die een native backend zelf moet vormen.
+ * @param value Het getal
+ * @return Nieuw gealloceerde, nul-afgesloten string (nooit NULL)
+ */
+char *nabu_int_to_string(int32_t value);
+
+/** Als {@link nabu_int_to_string}, maar voor 64-bits gehele getallen. */
+char *nabu_long_to_string(int64_t value);
+
+/** Converteert een double naar een Java-achtige stringrepresentatie. */
+char *nabu_double_to_string(double value);
+
+/** Converteert een float naar een Java-achtige stringrepresentatie. */
+char *nabu_float_to_string(float value);
+
+/** "true" of "false", zoals Java's Boolean.toString. */
+char *nabu_bool_to_string(int32_t value);
 
 /**
  * Gooi een exception.
@@ -83,13 +121,87 @@ int nabu_can_catch(void *obj, const char *type_name);
 void *nabu_catch(void *unwind_exc);
 
 /**
- * Alloceert een object van een onbekende (library)klasse met een geldig
- * nabu_object-header (de type-info wordt per interne naam gecachet).
- * @param type_name Interne naam van de klasse (bv "java/lang/Exception")
- * @param size      Minimale objectgrootte (wordt opgehoogd naar de header)
- * @return Pointer naar het gealloceerde object
+ * Her-gooi de exception die naar het landingspad van deze frame leidde.
+ *
+ * Wordt gebruikt in het rethrow-pad van een type-check: wanneer geen enkele
+ * catch-clause van deze frame matcht, moet de unwind doorgaan naar de
+ * omringende handlers — dat is een {@code _Unwind_Resume} op dezelfde
+ * {@code _Unwind_Exception}, niet een nieuw {@code nabu_throw}. Een nieuwe
+ * throw zou een verse exception starten op de rethrow-locatie, buiten het
+ * beschermde bereik, en daarmee de omringende handlers in thezelfde frame
+ * overslaan.
+ *
+ * @param unwind_exc De rauwe {@code _Unwind_Exception}-pointer die het
+ *                   landingspad ontving (dus nog vóór {@code nabu_catch}).
+ * Wordt nooit teruggekeerd (tenzij er nergens een handler is).
  */
-void *nabu_new_object(const char *type_name, size_t size);
+void nabu_resume(void *unwind_exc);
+
+/**
+ * Initialiseert de object-header van een object van een onbekende (library)-
+ * klasse, zodat nabu_instanceof/nabu_can_catch erop werken (de type-info wordt
+ * per interne naam gecachet).
+ *
+ * De *allocatie* gebeurt bewust door de backend, niet hier: alleen die weet
+ * welke GC-strategie geldt. BOEHM moet via GC_malloc, REFCOUNT via malloc en
+ * NONE via de stack. Als de runtime zelf mallocte, zouden zulke objecten onder
+ * BOEHM onzichtbaar zijn voor de collector en dus permanent lekken.
+ *
+ * @param obj       Het gealloceerde geheugen, minstens {@code sizeof(nabu_object)} bytes
+ * @param type_name Interne naam van de klasse (bv "java/lang/Exception")
+ * @return Dezelfde pointer als `obj`
+ */
+void *nabu_init_object(void *obj, const char *type_name);
+
+/* -------------------------------------------------------
+ * Reference counting (GcStrategy.REFCOUNT)
+ * -------------------------------------------------------
+ *
+ * De LLVM-backend gebruikt een sterke-eigenaar-semantiek: een heap-allocatie
+ * krijgt één retain, en die eigenaar geeft hem weer af op de plek waar de
+ * toewijzing 'dood' gaat — hetzij bij overschrijving van een referentie-slot,
+ * hetzij in de exit-pad van de frame die 'm alloceerde. Een allocatie die de
+ * frame ontsnapt (returnwaarde, object-veld, call-argument, throw) krijgt
+ * bewust géén retain en wordt ook niet vrijgegeven: de ontvanger is eigenaar
+ * en de backend weet niet hoe die 'm beheert. Dat is de belangrijkste
+ * bekende beperking van REFCOUNT.
+ *
+ * Beide functies zijn NULL-safe: nabu_retain(NULL) en nabu_release(NULL) zijn
+ * no-ops. De backend hoeft daardoor geen null-tests te emitteren; de
+ * identiteits-guard (is dit werkelijk een van onze eigen objecten?) gebeurt in
+ * het gegenereerde IR, niet hier.
+ *
+ * nabu_release geeft het geheugen vrij zodra de teller op 0 komt. Een release
+ * op een teller die al 0 (of negatief) is, doet niets: dat pad hoort niet voor
+ * te komen en zou anders een dubbele free zijn. Er is bewust GEEN
+ * finalizer/destructor-traversaal: een object dat door een ander object
+ * bereikbaar is gemaakt (een object-graph, en dus ook een cyclus) wordt niet
+ * meegezwopt. Dat is de gedocumenteerde beperking van deze strategie; wie die
+ * nodig heeft kiest BOEHM.
+ */
+
+/** Verhoogt de referentieteller van obj met 1. */
+void nabu_retain(void *obj);
+
+/** Verlaagt de referentieteller; vrijgeeft zodra deze 0 wordt. NULL-safe. */
+void nabu_release(void *obj);
+
+/**
+ * Huidige referentieteller van obj, of -1 voor NULL. Diagnostiek: het
+ * nadeel van het meelezen van een teller is dat het NA een release een
+ * use-after-free is; lees hem dus alleen voor de release.
+ */
+int nabu_ref_count(void *obj);
+
+/**
+ * Aantal objecten dat sinds processtart in beheer is genomen: één per
+ * nabu_retain-call met een niet-NULL argument. NULL-calls tellen niet mee,
+ * want die veranderen geen eigendom.
+ */
+long nabu_rc_retain_count(void);
+
+/** idem voor nabu_release; zie nabu_rc_retain_count. */
+long nabu_rc_release_count(void);
 
 /**
  * Reflectie-metadata (fase 2): veld- en annotatie-informatie voor klassen

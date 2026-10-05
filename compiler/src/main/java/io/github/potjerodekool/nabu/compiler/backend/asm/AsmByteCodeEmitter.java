@@ -571,6 +571,10 @@ private static void collectValue(final IRValue value,
                                         final SlotAllocator slots,
                                         final Map<Integer, IRType> slotTypes) {
         switch (instr) {
+            case IRInstruction.Unreachable ignored -> {
+                // Geen operanden; het throws-patroon wordt bij het genereren
+                // van de body afgehandeld.
+            }
             case IRInstruction.BinaryOp binaryOp -> {
                 collectValue(binaryOp.result(), slots, slotTypes);
                 collectValue(binaryOp.left(), slots, slotTypes);

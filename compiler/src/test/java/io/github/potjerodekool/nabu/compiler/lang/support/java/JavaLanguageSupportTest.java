@@ -12,7 +12,9 @@ class JavaLanguageSupportTest extends AbstractCompilerTest {
 
     @Override
     protected String getClassPath() {
-        return "C:\\Users\\evert\\.m2\\repository\\org\\projectlombok\\lombok\\1.18.42\\lombok-1.18.42.jar";
+        // Lombok is een test-dependency van deze module: neem de locatie van de
+        // jar op de test-classpath, in plaats van een machine-specifiek .m2-pad.
+        return getLocationOfClass(lombok.Getter.class);
     }
 
     @Test
@@ -30,7 +32,8 @@ class JavaLanguageSupportTest extends AbstractCompilerTest {
                 getCompilerContext()
         );
 
-        // C:\Users\evert\.m2\repository\org\projectlombok\lombok\1.18.42\lombok-1.18.42.jar!\META-INF\MANIFEST.MF
+        // De lombok-jar ligt op de test-classpath; de parser ziet hem via
+        // getClassPath() hierboven.
         System.out.println(cu);
     }
 

@@ -3,7 +3,9 @@ package io.github.potjerodekool.nabu.backend.ir;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Optimizer {
 
@@ -47,54 +49,73 @@ public class Optimizer {
     }
 
     /**
-     * Verwijder branches die naar het volgende blok wijzen (redundante goto).
+     * Verwijder branches die naar het direct volgende blok wijzen (redundante
+     * goto) door dat blok in de voorgaande te <i>vouwen</i>.
+     *
+     * <p>Alleen de branch schrappen is onvoldoende: het blok houdt dan geen
+     * terminator en de LLVM-verifier weigert de module ("Basic Block in
+     * function ... does not have terminator"). De opvolgende instructies
+     * moeten dus in hetzelfde blok terechtkomen.
+     *
+     * <p>Het vouwen is alleen veilig als het doelblok precies één predecessor
+     * heeft (anders verliezen andere takken hun sprongdoel). Het doelblok
+     * verdwijnt daardoor als label; de nieuwe label van de {@code br} in het
+     * bronblok wordt daarom met dezelfde regel meegevouwen.
      */
     private static IRFunction removeRedundantBranches(IRFunction irFunction) {
+        final var original = irFunction.blocks();
+        final var predecessors = countPredecessors(original);
+
         final var newBlocks = new ArrayList<IRBasicBlock>();
+        int i = 0;
+        while (i < original.size()) {
+            final var block = original.get(i);
+            final var merged = new IRBasicBlock(block.label());
 
-        String previousLabel = null;
-        IRInstruction lastInstruction = null;
-        List<IRInstruction> newInstructions = new ArrayList<>();
+            for (final var instr : block.instructions()) {
+                merged.add(instr);
+            }
 
-        for (final var block : irFunction.blocks()) {
-            if (!newInstructions.isEmpty()) {
-                // Verwijder alleen een redundante branch als het blok meer bevat
-                // dan alleen die branch. Anders wordt het blok leeg en mist het
-                // zijn terminator (bv. een entry-blok dat alleen uit
-                // 'br %next' bestaat), wat resulteert in ongeldige LLVM IR.
-                if (shouldRemoveInstruction(lastInstruction, block.label())
-                        && newInstructions.size() > 1) {
-                    newInstructions.remove(lastInstruction);
+            // Volg zolang de laatste instructie een branch is naar het blok
+            // daadirect erop, en dat blok geen andere predecessors heeft.
+            while (i + 1 < original.size()) {
+                final var next = original.get(i + 1);
+                if (!branchesTo(merged.getTerminator(), next.label())
+                        || predecessors.getOrDefault(next.label(), 0) != 1) {
+                    break;
                 }
-                final var newBlock = new IRBasicBlock(previousLabel, newInstructions);
-                newBlocks.add(newBlock);
-                newInstructions.clear();
+
+                // De overbodige branch zelf niet overnemen; de instructies erachter wel.
+                final var nextInstructions = new ArrayList<>(next.instructions());
+                nextInstructions.remove(merged.getTerminator());
+                for (final var instr : nextInstructions) {
+                    merged.add(instr);
+                }
+                i++;
             }
 
-            newInstructions.addAll(block.instructions());
-
-            if (block.instructions().isEmpty()) {
-                lastInstruction = null;
-            } else {
-                lastInstruction = block.instructions().getLast();
-            }
-
-            previousLabel = block.label();
-        }
-
-        if (!newInstructions.isEmpty()) {
-            final var newBlock = new IRBasicBlock(previousLabel, newInstructions);
-            newBlocks.add(newBlock);
+            newBlocks.add(merged);
+            i++;
         }
 
         return irFunction.withBlocks(newBlocks);
     }
 
-    private static boolean shouldRemoveInstruction(final IRInstruction instruction, final String label) {
-        if (instruction instanceof IRInstruction.Branch branch) {
-            return branch.targetLabel().equals(label);
+    /** Aantal keer dat elk blok-label als sprongdoel wordt genoemd. */
+    private static Map<String, Integer> countPredecessors(final List<IRBasicBlock> blocks) {
+        final Map<String, Integer> counts = new HashMap<>();
+        for (final var block : blocks) {
+            for (final var successor : block.getSuccessors().values()) {
+                if (successor != null) {
+                    counts.merge(successor, 1, Integer::sum);
+                }
+            }
         }
+        return counts;
+    }
 
-        return false;
+    private static boolean branchesTo(final IRInstruction terminator, final String label) {
+        return terminator instanceof IRInstruction.Branch branch
+                && branch.targetLabel().equals(label);
     }
 }

@@ -497,9 +497,12 @@ public class FunctionEmitter {
                 && t.name().startsWith("%phi")
                 && !into.containsKey(t.name())
                 && t.type() != null) {
-            LLVMTypeRef slotType = types.map(t.type() instanceof IRType.Ptr p
-                    ? p.pointee() : t.type());
-            into.put(t.name(), slotType);
+            // De phi-temp HÉÉLT de waarde: het slot moet dus groot genoeg zijn
+            // voor die waarde zelf. `t.type()` is het alloca-elementtype, precies
+            // wat de ASM-backend via SlotAllocator.slotOfAlloca reserveert.
+            // Een extra pointee-unwrap zou een referentie-Ptr tot `i8` afbreken
+            // (1 byte) terwijl de store er 8 bytes in wegschrijft.
+            into.put(t.name(), types.map(t.type()));
         }
     }
 

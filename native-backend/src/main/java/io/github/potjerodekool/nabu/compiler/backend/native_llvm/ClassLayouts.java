@@ -12,6 +12,8 @@ import io.github.potjerodekool.nabu.lang.Flags;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;
+import org.bytedeco.llvm.LLVM.LLVMBasicBlockRef;
+import org.bytedeco.llvm.LLVM.LLVMBuilderRef;
 import org.bytedeco.llvm.LLVM.LLVMContextRef;
 import org.bytedeco.llvm.LLVM.LLVMModuleRef;
 import org.bytedeco.llvm.LLVM.LLVMTargetDataRef;
@@ -807,11 +809,10 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         if (superLayout != null && !superLayout.vtableOrder.isEmpty()) {
             // Eerst de slots van de super-klasse (in canonieke volgorde),
             // overrides vervangen de functiepointer maar houden de slot-index.
-            String superModuleName = superLayout.internalName;
             for (int i = 0; i < superLayout.vtableOrder.size(); i++) {
                 IRFunction superFnRef = superLayout.vtableOrder.get(i);
                 String superFn = superFnRef.name;
-                IRFunction override = findOverride(virtuals, superFn, superModuleName);
+                IRFunction override = findOverride(virtuals, superFnRef);
                 IRFunction placed = override != null ? override : superFnRef;
                 slotFns.add(placed);
                 layout.vtableOrder.add(placed);
@@ -890,6 +891,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
                 if (fnRef == null || fnRef.isNull())
                     throw new IllegalStateException(
                             "Vtable-functie niet gedeclareerd: " + fn.name);
+                emitAbstractSlotStub(fn, fnRef);
                 initArr.put(i, fnRef);
             }
             vtableInit = LLVMConstArray(ptrType, initArr, slotFns.size());
@@ -903,30 +905,56 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
     }
 
     /**
-     * Zoekt in {@code ownVirtuals} de implementatie die de super-methode
-     * {@code superFnFullName} overridet (zelfde methodenaam + parameterlijst).
-     * De reguliere bovengrens wordt via {@code superModuleName} opgezocht (de
-     * interne naam van de super-klasse, met '/'), niet via naam-parsing van de
-     * functie-full-name.
+     * Abstracte methode zonder body die op een vtable-slot staat: geef het
+     * symbool een unreachable-stub, zodat de vtable-referentie daadwerkelijk
+     * linkt.
+     *
+     * <p>Een abstracte methode krijgt in de IR geen blokken
+     * ({@code IRBuilder.beginFunction} maakt voor {@code Flags.ABSTRACT} geen
+     * entry-block) en dus ook geen {@code define} in fase 4 — alleen een
+     * declaration. Toch bevat de vtable van de abstracte klasse (en die van
+     * tussenklassen die de methode niet overriden) een pointer naar dat
+     * symbool. Zo'n globale constante gaat als live referentie de
+     * object-file in, met een undefined reference tot gevolg bij het linken.
+     *
+     * <p>Slot-functies van concrete methoden hebben wél IR-blokken en worden
+     * in fase 4 gedefinieerd; die raken we hier niet. Externe (native)
+     * functies moeten extern blijven en worden eveneens overgeslagen. De
+     * check op {@code LLVMIsDeclaration} maakt de stub idempotent: een
+     * abstracte methode die door meerdere vtables wordt gedeeld, krijgt er
+     * precies één.
+     */
+    private void emitAbstractSlotStub(IRFunction fn, LLVMValueRef fnRef) {
+        if (!fn.blocks().isEmpty() || fn.isExternal()) return;
+        if (LLVMIsDeclaration(fnRef) == 0) return;
+
+        LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx, fnRef,
+                new BytePointer("entry"));
+        LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
+        LLVMPositionBuilderAtEnd(builder, entry);
+        LLVMBuildUnreachable(builder);
+        LLVMDisposeBuilder(builder);
+    }
+
+    /**
+     * Zoekt in {@code ownVirtuals} de implementatie die {@code superFn} overridet
+     * (zelfde methodenaam + parameterlijst).
+     *
+     * <p>De vergelijking gaat rechtstreeks op het {@code superFn}-object uit de
+     * super-vtable. Een eerdere variant zocht de super-functie nogmaals op in
+     * het module van de <i>directe</i> super-klasse; een slot dat hoger in de
+     * ancestor-keten thuishoort (bv. {@code self()} uit {@code AbstractHandler},
+     * geërfd via {@code AbstractParseResultHandler}) staat in dat module niet en
+     * de lookup faalde stilletjes. Het gevolg: de override van de subklasse
+     * werd níet op het bestaande slot geplaatst maar als extra slot
+     * toegevoegd, terwijl het abstracte ancestor-symbool (zonder body) in de
+     * vtable bleef staan — een undefined reference bij het linken.
      */
     private io.github.potjerodekool.nabu.backend.ir.IRFunction findOverride(
             List<io.github.potjerodekool.nabu.backend.ir.IRFunction> ownVirtuals,
-            String superFnFullName,
-            String superModuleName) {
-        IRModule superMod = modulesByInternalName.get(superModuleName);
-        io.github.potjerodekool.nabu.backend.ir.IRFunction superFn = null;
-        if (superMod != null) {
-            for (var f : superMod.functions()) {
-                if (f.name.equals(superFnFullName)) {
-                    superFn = f;
-                    break;
-                }
-            }
-        }
-        if (superFn == null) return null;
-
+            io.github.potjerodekool.nabu.backend.ir.IRFunction superFn) {
         for (var own : ownVirtuals) {
-            if (methodTail(own.name).equals(methodTail(superFnFullName))
+            if (methodTail(own.name).equals(methodTail(superFn.name))
                     && sameParameters(own, superFn)) {
                 return own;
             }

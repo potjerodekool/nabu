@@ -118,8 +118,13 @@ public void setReflectionRegistry(
                 }
                 for (var block : fn.blocks()) {
                     for (IRInstruction instr : block.instructions()) {
-                        if (instr instanceof IRInstruction.Call call
-                                && call.function() != null
+                        if (instr instanceof IRInstruction.Call raw) {
+                            // Array-clone met eigenaar-owner -> het generieke
+                            // Object_clone-symbool (zie CallTargets): dezelfde
+                            // normalisatie als de emissie, zodat declaratie en
+                            // aanroep hetzelfde symbool delen.
+                            final IRInstruction.Call call = CallTargets.normalize(raw);
+                            if (call.function() != null
                                 && !call.function().endsWith("_super")
                                 && !call.function().endsWith("_init")
                                 // Per parameterlijst kijken, niet per naam: de
@@ -139,7 +144,8 @@ public void setReflectionRegistry(
                                 // opnieuw als extern verklaren, dat zou de echte
                                 // functie overschrijven met een verkeerde signatuur.
                                 && this.classLayouts.resolveFunction(call.function()) == null) {
-                            functions.declareSignature(call);
+                                functions.declareSignature(call);
+                            }
                         }
                     }
                 }

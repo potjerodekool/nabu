@@ -705,16 +705,21 @@ public class InstructionEmitter {
         return new ArrayList<>(FnKeys.callParams(call));
     }
 
-    private void emitCall(IRInstruction.Call call) {
+    private void emitCall(IRInstruction.Call rawCall) {
         // Super-constructor-aanroep (super(...)): de <Class>_super-call is een
         // frontend-bridge. Als de super-klasse in deze compilatie zit, emitteer
         // een DIRECTE call naar diens <Class>_init (args bevatten al 'this' als
         // eerste parameter); anders blijft het een no-op (de super heeft dan
         // geen native state die hier geïnitialiseerd moet worden).
-        if (call.function().endsWith("_super")) {
-            tryEmitSuperConstructor(call);
+        if (rawCall.function().endsWith("_super")) {
+            tryEmitSuperConstructor(rawCall);
             return;
         }
+
+        // Array-clone met eigenaar-owner -> generiek Object_clone-symbool
+        // (zie CallTargets); vóór de dispatch-routes, want een array heeft
+        // geen vtable.
+        final IRInstruction.Call call = CallTargets.normalize(rawCall);
 
         // Virtuele dispatch: als de receiver een bekende klasse is met een
         // vtable-slot voor deze methode, roepen we indirect via de vtable aan.

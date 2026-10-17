@@ -35,7 +35,6 @@ class BoxedToStringE2eIT {
         Path srcDir = tempDir.resolve("src");
         Files.createDirectories(srcDir);
         Files.writeString(srcDir.resolve("Main.java"), """
-                import java.text.BreakIterator;
                 public class Main {
                     public static void main(String[] args) throws Exception {
                         Object i = Integer.valueOf(7);
@@ -45,7 +44,7 @@ class BoxedToStringE2eIT {
                         System.out.println(i.getClass().getName());
                         Object l = Long.valueOf(8L);
                         System.out.println(l.toString());
-                        System.out.println(BreakIterator.DONE + " " + Character.MAX_RADIX + " " + Long.MIN_VALUE);
+                        System.out.println(java.text.BreakIterator.DONE + " " + Character.MAX_RADIX + " " + Long.MIN_VALUE);
                     }
                 }
                 """, StandardCharsets.UTF_8);

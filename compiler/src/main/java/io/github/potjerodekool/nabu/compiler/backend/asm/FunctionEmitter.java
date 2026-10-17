@@ -819,6 +819,35 @@ private void emitUnreachable() {
         emitCallWithDescriptor(call, opcode, owner, functionName, descriptor);
     }
 
+    /**
+     * Of {@code owner} een interface is. Een invokestatic op een interface
+     * (JVMS 4.4.2: InterfaceMethodref) gaf anders bij het aanroepen van bv.
+     * {@code Map.Entry.comparingByKey()} een IncompatibleClassChangeError.
+     * De IR draagt die informatie niet; bekend zijn de eigen klasse en de
+     * klassen van het platform (JDK). Een statische methode van een interface
+     * uit dezelfde compilatie, aangeroepen vanuit een andere klasse, valt
+     * hier nog buiten.
+     */
+    private boolean isInterfaceOwner(final String owner) {
+        if (owner.equals(ownerInternalName)) {
+            return codeEmitter.isOwnerInterface();
+        }
+        if (owner.startsWith("[")) {
+            return false;
+        }
+        return INTERFACE_OWNERS.computeIfAbsent(owner, name -> {
+            try {
+                return Class.forName(name.replace('/', '.'), false,
+                        ClassLoader.getPlatformClassLoader()).isInterface();
+            } catch (final ClassNotFoundException | LinkageError e) {
+                return false;
+            }
+        });
+    }
+
+    private static final java.util.Map<String, Boolean> INTERFACE_OWNERS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private void emitCallWithDescriptor(final IRInstruction.Call call,
                                         final int opcode,
                                         final String owner,
@@ -859,6 +888,7 @@ private void emitUnreachable() {
                 functionName,
                 descriptor,
                 opcode == Opcodes.INVOKEINTERFACE
+                        || (opcode == Opcodes.INVOKESTATIC && isInterfaceOwner(owner))
         );
 
         storeResult(call.result());

@@ -45,6 +45,7 @@ public class AsmByteCodeEmitter {
     private final ClassVisitor classVisitor;
     private final Map<String, IRGlobal> globalMap = new HashMap<>();
     private String ownerInternalName;
+    private boolean ownerIsInterface;
 
     public AsmByteCodeEmitter() {
         cw = new ClassWriter(
@@ -64,6 +65,11 @@ public class AsmByteCodeEmitter {
 
     public IRGlobal getGlobal(final String name) {
         return globalMap.get(name);
+    }
+
+    /** Of de klasse die nu ge-emit wordt een interface is. */
+    boolean isOwnerInterface() {
+        return ownerIsInterface;
     }
 
     
@@ -109,6 +115,7 @@ public class AsmByteCodeEmitter {
         final var access = resolveModuleAccess(module);
         final var internalName = BytecodeHelper.toInternalName(module.name);
         this.ownerInternalName = internalName;
+        this.ownerIsInterface = (access & Opcodes.ACC_INTERFACE) != 0;
         final String signature = module.genericSignature();
         final var superName = module.superType() != null
                 ? BytecodeHelper.toInternalName(module.superType())

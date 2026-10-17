@@ -1167,6 +1167,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitFieldAccessExpression(final FieldAccessExpressionTree fieldAccessExpression,
                                              final Scope scope) {
+        if (resolveQualifiedClassName(fieldAccessExpression, scope)) {
+            return defaultAnswer(fieldAccessExpression, scope);
+        }
+
         final var selected = fieldAccessExpression.getSelected();
         acceptTree(selected, scope);
 
@@ -1262,6 +1266,105 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         fieldAccessExpression.setType(fieldAccessExpression.getField().getType());
         return defaultAnswer(fieldAccessExpression, scope);
+    }
+
+    /**
+     * Een volledig gekwalificeerde klassenaam als expressie, zoals
+     * {@code java.text.BreakIterator} in {@code java.text.BreakIterator.DONE}
+     * (JLS 6.5.2). De wortel {@code java} is geen variabele of type, dus werd
+     * elke naam in de keten als onbekend symbool gemeld. Als de wortel niet
+     * resolveert en de hele keten een (eventueel geneste) klasse aanduidt,
+     * krijgen de pakketdelen een pakketsymbool en de klassedelen hun type.
+     * Een keten die eindigt op een veld of methode valt hier buiten: de
+     * aanroeper resolveert dan eerst de kortere keten (de klasse) zelf.
+     */
+    private boolean resolveQualifiedClassName(final FieldAccessExpressionTree fieldAccess,
+                                              final Scope scope) {
+        final List<IdentifierTree> parts = new java.util.ArrayList<>();
+        if (!collectNameChain(fieldAccess, parts)) {
+            return false;
+        }
+        final var root = parts.getFirst();
+        if (root.getSymbol() != null && !(root.getSymbol() instanceof ErrorSymbol)) {
+            return false;
+        }
+        if (scope.resolve(root.getName()) != null || resolveType(root.getName(), scope) != null) {
+            return false;
+        }
+        final var module = scope.findModuleElement();
+        for (int classIndex = 1; classIndex < parts.size(); classIndex++) {
+            final var packageName = parts.subList(0, classIndex).stream()
+                    .map(IdentifierTree::getName)
+                    .collect(Collectors.joining("."));
+            String binaryName = packageName + "." + parts.get(classIndex).getName();
+            final List<TypeMirror> classTypes = new java.util.ArrayList<>();
+            TypeElement current = loadExistingClass(module, binaryName);
+            if (current == null) {
+                continue;
+            }
+            classTypes.add(current.asType());
+            for (int i = classIndex + 1; i < parts.size() && current != null; i++) {
+                binaryName = binaryName + "$" + parts.get(i).getName();
+                current = loadExistingClass(module, binaryName);
+                if (current != null) {
+                    classTypes.add(current.asType());
+                }
+            }
+            if (current == null) {
+                return false;
+            }
+            final var symbolTable = compilerContext.getSymbolTable();
+            for (int i = 0; i < classIndex; i++) {
+                final var name = parts.subList(0, i + 1).stream()
+                        .map(IdentifierTree::getName)
+                        .collect(Collectors.joining("."));
+                final var packageSymbol = symbolTable.lookupPackage(module, name);
+                parts.get(i).setSymbol(packageSymbol);
+                parts.get(i).setType(packageSymbol.asType());
+            }
+            for (int i = classIndex; i < parts.size(); i++) {
+                parts.get(i).setSymbol(null);
+                parts.get(i).setType(classTypes.get(i - classIndex));
+            }
+            setChainTypes(fieldAccess, parts);
+            return true;
+        }
+        return false;
+    }
+
+    /** Verzamelt de identifiers van een keten {@code a.b.c}; false bij iets anders dan namen. */
+    private static boolean collectNameChain(final ExpressionTree expression, final List<IdentifierTree> parts) {
+        if (expression instanceof FieldAccessExpressionTree fieldAccess) {
+            if (!collectNameChain(fieldAccess.getSelected(), parts)) {
+                return false;
+            }
+            parts.add(fieldAccess.getField());
+            return true;
+        }
+        if (expression instanceof IdentifierTree identifier) {
+            parts.add(identifier);
+            return true;
+        }
+        return false;
+    }
+
+    /** Elk tussenknooppunt van de keten krijgt het type van zijn laatste naam. */
+    private static void setChainTypes(final ExpressionTree expression, final List<IdentifierTree> parts) {
+        if (expression instanceof FieldAccessExpressionTree fieldAccess) {
+            setChainTypes(fieldAccess.getSelected(), parts);
+            fieldAccess.setType(fieldAccess.getField().getType());
+        }
+    }
+
+    /** Een klasse die echt bestaat (class- of bronbestand), anders null. */
+    private TypeElement loadExistingClass(final ModuleElement module, final String binaryName) {
+        final var element = loader.loadClass(module, binaryName);
+        if (element instanceof ClassSymbol classSymbol
+                && !(element instanceof ErrorSymbol)
+                && (classSymbol.getClassFile() != null || classSymbol.getSourceFile() != null)) {
+            return classSymbol;
+        }
+        return null;
     }
 
     @Override

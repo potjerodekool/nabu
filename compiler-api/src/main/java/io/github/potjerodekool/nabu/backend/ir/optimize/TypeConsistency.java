@@ -199,7 +199,7 @@ public final class TypeConsistency {
     }
 
     private static String typeKey(final IRType type) {
-        if (type instanceof IRType.Int(int bits)) return "I" + bits;
+        if (type instanceof IRType.Int(int bits, boolean unsignedInt)) return "I" + bits;
         if (type instanceof IRType.Float(int bits)) return "F" + bits;
         if (type instanceof IRType.Bool) return "Z";
         if (type instanceof IRType.Ptr ptr) return "R" + typeToString(ptr.pointee());

@@ -1474,7 +1474,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             case "Ljava/lang/Character;" -> {
                 boxClass = "java.lang.Character";
                 // char is I16 in het IR; accepteer ook I32 (bv. na promotie)
-                expectedPrimitives = List.of(IRType.I16, IRType.I32);
+                expectedPrimitives = List.of(IRType.CHAR, IRType.I16, IRType.I32);
             }
             case "Ljava/lang/Long;" -> {
                 boxClass = "java.lang.Long";
@@ -1548,7 +1548,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         // Alleen boksen wanneer het argument momenteel een primitieve
         // waarde is en de parameter een referentie verwacht.
-        if (value.type() instanceof IRType.Int(int bits)) {
+        if (value.type() instanceof IRType.Int(int bits, boolean unsignedInt)) {
             final String boxClass = argTypeMirror != null
                     && argTypeMirror.getKind() == TypeKind.CHAR
                     ? "java.lang.Character"
@@ -1600,7 +1600,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         final String boxClass;
         final String boxMethodName;
         final IRType argType;
-        if (value.type() instanceof IRType.Int(int bits)) {
+        if (value.type() instanceof IRType.Int(int bits, boolean unsignedInt)) {
             boxClass = boxClassForBits(bits);
             boxMethodName = boxClass.replace('.', '_') + "_valueOf";
             argType = value.type();
@@ -2091,7 +2091,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             case DOUBLE -> builder.constFloat((Double) value);
             case BYTE -> builder.constInt(((Byte) value).longValue(), 8);
             case SHORT -> builder.constInt(((Short) value).longValue(), 16);
-            case CHAR -> builder.constInt(((Character) value), 16);
+            case CHAR -> new IRValue.ConstInt((Character) value, IRType.CHAR);
             case STRING -> builder.constString((String) value, TypeMirrorToIRType.toJvmDescriptor(literal.getType()));
             case NULL -> IRValue.nullPtr(IRType.I8);
             case CLASS -> IRValue.nullPtr(IRType.I8); // class-literal als opaque ptr
@@ -3131,7 +3131,7 @@ if (argVal != null) args.add(argVal);
         return switch (type) {
             case IRType.Void ignored -> "V";
             case IRType.Bool ignored -> "Z";
-            case IRType.Int(int bits) -> switch (bits) {
+            case IRType.Int(int bits, boolean unsignedInt) -> switch (bits) {
                 case 8 -> "B";
                 case 16 -> "S";
                 case 64 -> "J";
@@ -3703,7 +3703,7 @@ if (argVal != null) args.add(argVal);
             return false;
         }
         final var suffix = ptr.jvmDescriptor();
-        if (primitiveType instanceof IRType.Int(int bits)) {
+        if (primitiveType instanceof IRType.Int(int bits, boolean unsignedInt)) {
             final var compatible = switch (bits) {
                 case 8 -> Set.of("Ljava/lang/Byte;", "Ljava/lang/Character;",
                         "Ljava/lang/Short;", "Ljava/lang/Integer;");

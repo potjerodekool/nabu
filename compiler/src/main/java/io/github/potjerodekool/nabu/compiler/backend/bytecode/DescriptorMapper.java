@@ -24,7 +24,8 @@ final class DescriptorMapper {
             case Type.VOID -> IRType.VOID;
             case Type.BOOLEAN -> IRType.BOOL;
             case Type.BYTE -> IRType.I8;
-            case Type.CHAR, Type.SHORT -> IRType.I16;
+            case Type.CHAR -> IRType.CHAR;
+            case Type.SHORT -> IRType.I16;
             case Type.INT -> IRType.I32;
             case Type.LONG -> IRType.I64;
             case Type.FLOAT -> IRType.F32;
@@ -44,7 +45,8 @@ final class DescriptorMapper {
     static IRType mapNewArrayType(final int atype) {
         return switch (atype) {
             case Opcodes.T_BOOLEAN -> IRType.BOOL;
-            case Opcodes.T_CHAR, Opcodes.T_SHORT -> IRType.I16;
+            case Opcodes.T_CHAR -> IRType.CHAR;
+            case Opcodes.T_SHORT -> IRType.I16;
             case Opcodes.T_FLOAT -> IRType.F32;
             case Opcodes.T_DOUBLE -> IRType.F64;
             case Opcodes.T_BYTE -> IRType.I8;

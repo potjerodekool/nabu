@@ -9,7 +9,16 @@ public sealed interface IRType permits IRType.Array, IRType.Bool, IRType.Float, 
     //Short|Character = 16
     //Integer = 32
     //Long = 64
-    record Int(int bits) implements IRType {
+    /**
+     * Geheel getal van {@code bits} breed. {@code unsigned} markeert char: in
+     * LLVM net als short een i16, maar JLS 5.1.2 verbreedt char zonder teken
+     * en short met teken. Backends kiezen daarop zext of sext.
+     */
+    record Int(int bits, boolean unsigned) implements IRType {
+        public Int(final int bits) {
+            this(bits, false);
+        }
+
         @Override public String toString() { return "i" + bits; }
     }
 
@@ -63,6 +72,8 @@ public sealed interface IRType permits IRType.Array, IRType.Bool, IRType.Float, 
     // Veelgebruikte constanten
     IRType I8   = new Int(8);
     IRType I16  = new Int(16);
+    /** char: een i16 die zonder teken verbreedt. */
+    IRType CHAR = new Int(16, true);
     IRType I32  = new Int(32);
     IRType I64  = new Int(64);
     IRType F32  = new Float(32);

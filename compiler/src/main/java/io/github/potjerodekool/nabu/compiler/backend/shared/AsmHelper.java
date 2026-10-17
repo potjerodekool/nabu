@@ -72,9 +72,9 @@ public final class AsmHelper {
     public static String createDescriptor(final IRType type) {
         return switch (type) {
             case IRType.Void ignored1 -> "V";
-            case IRType.Int(int bits) -> switch (bits) {
+            case IRType.Int(int bits, boolean unsignedInt) -> switch (bits) {
                 case 8 -> "B";
-                case 16 -> "S";
+                case 16 -> unsignedInt ? "C" : "S";
                 case 32 -> "I";
                 case 64 -> "J";
                 default -> "I";

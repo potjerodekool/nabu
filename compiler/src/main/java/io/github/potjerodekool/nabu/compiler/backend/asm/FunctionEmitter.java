@@ -641,7 +641,7 @@ private void emitUnreachable() {
         return switch (elemType) {
             case IRType.Int t -> switch (t.bits()) {
                 case 8 -> Opcodes.BASTORE;
-                case 16 -> Opcodes.SASTORE;
+                case 16 -> t.unsigned() ? Opcodes.CASTORE : Opcodes.SASTORE;
                 case 32 -> Opcodes.IASTORE;
                 case 64 -> Opcodes.LASTORE;
                 default -> Opcodes.IASTORE;
@@ -737,7 +737,7 @@ private void emitUnreachable() {
                     return Opcodes.I2B;
                 }
                 if (targetInt.bits() == 16) {
-                    return Opcodes.I2S;
+                    return targetInt.unsigned() ? Opcodes.I2C : Opcodes.I2S;
                 }
                 return Opcodes.NOP;
             }
@@ -776,7 +776,7 @@ private void emitUnreachable() {
         final var descriptor = ("java.lang.Character_valueOf".equals(call.function())
                         || "java_lang_Character_valueOf".equals(call.function()))
                 && call.paramTypes().size() == 1
-                && call.paramTypes().getFirst() instanceof IRType.Int(int bits) && bits == 16
+                && call.paramTypes().getFirst() instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 16
                 ? "(C)Ljava/lang/Character;"
                 : BytecodeHelper.createDescriptor(
                         call.paramTypes(),
@@ -971,7 +971,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
     private boolean boxOperand(final IRType type) {
         final String boxClass;
         final String methodSignature;
-        if (type instanceof IRType.Int(int bits)) {
+        if (type instanceof IRType.Int(int bits, boolean unsignedInt)) {
             boxClass = switch (bits) {
                 case 8 -> "java/lang/Byte";
                 case 16 -> "java/lang/Short";
@@ -1322,7 +1322,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
             mv.visitInsn(bits == 64 ? Opcodes.DCMPL : Opcodes.FCMPL);
-        } else if (leftType instanceof IRType.Int(int bits) && bits == 64) {
+        } else if (leftType instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 64) {
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
             mv.visitInsn(Opcodes.LCMP);
@@ -1382,7 +1382,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
             };
         }
 
-        if (leftType instanceof IRType.Int(int bits) && bits == 64) {
+        if (leftType instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 64) {
             return switch (binaryOp.op()) {
                 case LT -> Opcodes.IFLT;
                 case LTE -> Opcodes.IFLE;
@@ -1527,7 +1527,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         if (type instanceof IRType.Ptr || type instanceof IRType.Array
                 || type instanceof IRType.Function) {
             mv.visitInsn(Opcodes.ACONST_NULL);
-        } else if (type instanceof IRType.Int(int bits) && bits == 64) {
+        } else if (type instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 64) {
             mv.visitInsn(Opcodes.LCONST_0);
         } else if (type instanceof IRType.Float(int bits) && bits == 64) {
             mv.visitInsn(Opcodes.DCONST_0);
@@ -1830,7 +1830,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         return switch (elemType) {
             case IRType.Int t -> switch (t.bits()) {
                 case 8 -> Opcodes.BALOAD;
-                case 16 -> Opcodes.SALOAD;
+                case 16 -> t.unsigned() ? Opcodes.CALOAD : Opcodes.SALOAD;
                 case 32 -> Opcodes.IALOAD;
                 case 64 -> Opcodes.LALOAD;
                 default -> Opcodes.IALOAD;

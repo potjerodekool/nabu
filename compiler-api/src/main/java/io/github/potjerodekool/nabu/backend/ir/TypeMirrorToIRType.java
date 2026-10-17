@@ -35,7 +35,7 @@ public final class TypeMirrorToIRType {
             case BOOLEAN -> IRType.BOOL;
             case BYTE    -> new IRType.Int(8);
             case SHORT   -> new IRType.Int(16);
-            case CHAR    -> new IRType.Int(16);   // char = UTF-16 codeunit
+            case CHAR    -> IRType.CHAR;   // char = UTF-16 codeunit
             case INT     -> IRType.I32;
             case LONG    -> IRType.I64;
             case FLOAT   -> IRType.F32;

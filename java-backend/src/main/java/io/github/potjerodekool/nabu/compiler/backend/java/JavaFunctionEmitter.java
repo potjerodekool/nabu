@@ -737,7 +737,7 @@ class JavaFunctionEmitter {
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
             emitOpcode(bits == 64 ? Opcode.DCMPL : Opcode.FCMPL);
-        } else if (leftType instanceof IRType.Int(int bits) && bits == 64) {
+        } else if (leftType instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 64) {
             emitValue(binaryOp.left());
             emitValue(binaryOp.right());
             emitOpcode(Opcode.LCMP);
@@ -789,7 +789,7 @@ class JavaFunctionEmitter {
             };
         }
 
-        if (leftType instanceof IRType.Int(int bits) && bits == 64) {
+        if (leftType instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 64) {
             return switch (binaryOp.op()) {
                 case LT -> Opcode.IFLT;
                 case LTE -> Opcode.IFLE;
@@ -912,7 +912,7 @@ class JavaFunctionEmitter {
         if (type instanceof IRType.Ptr || type instanceof IRType.Array
                 || type instanceof IRType.Function) {
             code.aconst_null();
-        } else if (type instanceof IRType.Int(int bits) && bits == 64) {
+        } else if (type instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 64) {
             code.lconst_0();
         } else if (type instanceof IRType.Float(int bits) && bits == 64) {
             code.dconst_0();
@@ -1222,6 +1222,7 @@ class JavaFunctionEmitter {
             case DCMPG -> code.dcmpg();
             case BALOAD -> code.baload();
             case SALOAD -> code.saload();
+            case CALOAD -> code.caload();
             case IALOAD -> code.iaload();
             case LALOAD -> code.laload();
             case FALOAD -> code.faload();
@@ -1260,7 +1261,7 @@ class JavaFunctionEmitter {
         return switch (elemType) {
             case IRType.Int t -> switch (t.bits()) {
                 case 8 -> Opcode.BALOAD;
-                case 16 -> Opcode.SALOAD;
+                case 16 -> t.unsigned() ? Opcode.CALOAD : Opcode.SALOAD;
                 case 32 -> Opcode.IALOAD;
                 case 64 -> Opcode.LALOAD;
                 default -> Opcode.IALOAD;

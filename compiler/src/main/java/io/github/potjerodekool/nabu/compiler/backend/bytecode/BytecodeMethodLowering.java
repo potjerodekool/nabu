@@ -844,7 +844,8 @@ public final class BytecodeMethodLowering {
             case Opcodes.I2D, Opcodes.L2D, Opcodes.F2D -> IRType.F64;
             case Opcodes.L2I, Opcodes.F2I, Opcodes.D2I -> IRType.I32;
             case Opcodes.I2B -> IRType.I8;
-            case Opcodes.I2C, Opcodes.I2S -> IRType.I16;
+            case Opcodes.I2C -> IRType.CHAR;
+            case Opcodes.I2S -> IRType.I16;
             default -> throw new IllegalStateException();
         };
         stack.push(builder.emitCast(v, target));
@@ -859,7 +860,8 @@ public final class BytecodeMethodLowering {
             case Opcodes.FALOAD -> IRType.F32;
             case Opcodes.DALOAD -> IRType.F64;
             case Opcodes.BALOAD -> IRType.I8;
-            case Opcodes.CALOAD, Opcodes.SALOAD -> IRType.I16;
+            case Opcodes.CALOAD -> IRType.CHAR;
+            case Opcodes.SALOAD -> IRType.I16;
             case Opcodes.AALOAD -> new IRType.Ptr(IRType.I8);
             default -> throw new IllegalStateException();
         };
@@ -876,7 +878,8 @@ public final class BytecodeMethodLowering {
             case Opcodes.FASTORE -> IRType.F32;
             case Opcodes.DASTORE -> IRType.F64;
             case Opcodes.BASTORE -> IRType.I8;
-            case Opcodes.CASTORE, Opcodes.SASTORE -> IRType.I16;
+            case Opcodes.CASTORE -> IRType.CHAR;
+            case Opcodes.SASTORE -> IRType.I16;
             case Opcodes.AASTORE -> new IRType.Ptr(IRType.I8);
             default -> throw new IllegalStateException();
         };
@@ -1933,7 +1936,8 @@ public final class BytecodeMethodLowering {
         final char c = arrayDescriptor.charAt(1);
         return switch (c) {
             case 'B' -> IRType.I8;
-            case 'C', 'S' -> IRType.I16;
+            case 'C' -> IRType.CHAR;
+            case 'S' -> IRType.I16;
             case 'I' -> IRType.I32;
             case 'J' -> IRType.I64;
             case 'F' -> IRType.F32;

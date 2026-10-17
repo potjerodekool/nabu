@@ -923,7 +923,7 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
      * (long en double).
      */
     private static boolean isWide(final IRType type) {
-        if (type instanceof IRType.Int(int bits)) {
+        if (type instanceof IRType.Int(int bits, boolean unsignedInt)) {
             return bits == 64;
         }
         return type instanceof IRType.Float(int bits) && bits == 64;

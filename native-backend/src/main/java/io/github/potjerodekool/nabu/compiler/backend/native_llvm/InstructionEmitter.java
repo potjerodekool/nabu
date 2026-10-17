@@ -207,8 +207,17 @@ public class InstructionEmitter {
         if (isIntegerType(leftType) && isIntegerType(rightType)) {
             int lw = LLVMGetIntTypeWidth(leftType);
             int rw = LLVMGetIntTypeWidth(rightType);
-            if (lw < rw) left = coerceInt(left, rightType);
-            else if (rw < lw) right = coerceInt(right, leftType);
+            final boolean leftUnsigned = isUnsigned(op.left());
+            final boolean rightUnsigned = isUnsigned(op.right());
+            if ((leftUnsigned || rightUnsigned) && lw > 1 && rw > 1 && lw < 32 && rw < 32) {
+                // Een char rekent en vergelijkt als int (JLS 5.6.2): twee i16's
+                // vergeleken met slt maakten van een char >= 0x8000 een
+                // negatief getal.
+                LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+                left = coerceInt(left, i32, leftUnsigned);
+                right = coerceInt(right, i32, rightUnsigned);
+            } else if (lw < rw) left = coerceInt(left, rightType, leftUnsigned);
+            else if (rw < lw) right = coerceInt(right, leftType, rightUnsigned);
         } else if (isPointerType(leftType) && isIntegerType(rightType)) {
             right = intToPointer(right, leftType);
         } else if (isIntegerType(leftType) && isPointerType(rightType)) {
@@ -345,10 +354,8 @@ public class InstructionEmitter {
         LLVMValueRef value = resolveValue(operand);
         if (type instanceof IRType.Int intType && intType.bits() < 32) {
             // nabu_int_to_string neemt i32, maar char/byte/short zijn hier
-            // nog smal (bv. het resultaat van String.charAt). JLS 5.3
-            // promoteert char naar int zonder teken, dus zero-extend.
-            value = LLVMBuildZExt(builder, value,
-                    LLVMInt32TypeInContext(ctx), new BytePointer(".toint"));
+            // nog smal. Een char verbreedt zonder teken, byte/short met.
+            value = coerceInt(value, LLVMInt32TypeInContext(ctx), intType.unsigned());
         }
         PointerPointer<Pointer> args = new PointerPointer<>(1);
         args.put(0, value);
@@ -402,13 +409,23 @@ public class InstructionEmitter {
      * (net als in {@link #emitCast}) ten onrechte teken-uitgebreid.
      */
     private LLVMValueRef coerceInt(LLVMValueRef value, LLVMTypeRef target) {
+        return coerceInt(value, target, false);
+    }
+
+    /** Als {@link #coerceInt(LLVMValueRef, LLVMTypeRef)}; {@code unsigned} (char) verbreedt met nullen. */
+    private LLVMValueRef coerceInt(LLVMValueRef value, LLVMTypeRef target, boolean unsigned) {
         int from = LLVMGetIntTypeWidth(LLVMTypeOf(value));
         int to = LLVMGetIntTypeWidth(target);
         if (from == to) return value;
         if (from > to) return LLVMBuildTrunc(builder, value, target, ".trunc");
-        return from == 1
+        return from == 1 || unsigned
                 ? LLVMBuildZExt(builder, value, target, ".zext")
                 : LLVMBuildSExt(builder, value, target, ".sext");
+    }
+
+    /** Of de IR-waarde een char is (een i16 die zonder teken verbreedt). */
+    private static boolean isUnsigned(final IRValue value) {
+        return value != null && value.type() instanceof IRType.Int intType && intType.unsigned();
     }
 
     /** Een integer die als referentie gebruikt wordt (in bytecode: de 0 van ifnull). */
@@ -421,9 +438,13 @@ public class InstructionEmitter {
 
     /** Past {@code value} aan naar {@code target} als beide integers zijn. */
     private LLVMValueRef coerceTo(LLVMValueRef value, LLVMTypeRef target) {
+        return coerceTo(value, target, false);
+    }
+
+    private LLVMValueRef coerceTo(LLVMValueRef value, LLVMTypeRef target, boolean unsigned) {
         LLVMTypeRef actual = LLVMTypeOf(value);
         if (isIntegerType(actual) && isIntegerType(target)) {
-            return coerceInt(value, target);
+            return coerceInt(value, target, unsigned);
         }
         if (isIntegerType(actual) && isPointerType(target)
                 && LLVMIsConstant(value) != 0 && LLVMIsNull(value) != 0) {
@@ -854,7 +875,7 @@ public class InstructionEmitter {
             // de operand-stack), de geschreven waarde kan smaller zijn
             // (boolean/byte/char/short): zonder aanpassing blijven de hoge
             // bits van het slot ongedefinieerd.
-            value = coerceTo(value, LLVMGetAllocatedType(slot));
+            value = coerceTo(value, LLVMGetAllocatedType(slot), isUnsigned(store.value()));
         } else {
             // Hetzelfde voor een statisch veld (global) en een objectveld: de
             // bytecode zet een boolean/byte/char/short als int (`iconst_1;
@@ -862,9 +883,9 @@ public class InstructionEmitter {
             // schreef 4 bytes en overschreef de buren.
             final LLVMValueRef global = LLVMIsAGlobalVariable(ptr);
             if (global != null && !global.isNull()) {
-                value = coerceTo(value, LLVMGlobalGetValueType(global));
+                value = coerceTo(value, LLVMGlobalGetValueType(global), isUnsigned(store.value()));
             } else if (isObjectFieldAccess(target)) {
-                value = coerceTo(value, types.map(objectFieldPointeeType(target)));
+                value = coerceTo(value, types.map(objectFieldPointeeType(target)), isUnsigned(store.value()));
             }
         }
         LLVMBuildStore(builder, value, ptr);
@@ -1730,7 +1751,8 @@ public class InstructionEmitter {
             LLVMGetParamTypes(fnType, paramTypes);
             for (int i = 0; i < argCount; i++) {
                 LLVMValueRef arg = new LLVMValueRef(args.get(i));
-                LLVMValueRef coerced = coerceTo(arg, paramTypes.get(LLVMTypeRef.class, i));
+                final boolean unsigned = unsignedArgs != null && unsignedArgs.length == argCount && unsignedArgs[i];
+                LLVMValueRef coerced = coerceTo(arg, paramTypes.get(LLVMTypeRef.class, i), unsigned);
                 if (coerced != arg) args.put(i, coerced);
             }
         }
@@ -1941,7 +1963,7 @@ public class InstructionEmitter {
             // `ireturn` van een boolean/byte/char/short-methode levert een int.
             LLVMTypeRef returnType = LLVMGetReturnType(LLVMGlobalGetValueType(
                     LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder))));
-            LLVMBuildRet(builder, coerceTo(resolveValue(ret.value()), returnType));
+            LLVMBuildRet(builder, coerceTo(resolveValue(ret.value()), returnType, isUnsigned(ret.value())));
         }
     }
 
@@ -1963,16 +1985,20 @@ public class InstructionEmitter {
         boolean dstInt = isIntegerType(target);
         boolean srcFp = isFloatingType(actual);
         boolean dstFp = isFloatingType(target);
+        // Een char verbreedt zonder teken (JLS 5.1.2): (int) van U+FFFF is 65535.
+        boolean srcUnsigned = isUnsigned(cast.source());
         LLVMValueRef result;
         if (srcInt && dstInt) {
             int from = LLVMGetIntTypeWidth(actual);
             int to = LLVMGetIntTypeWidth(target);
             if (from == to) result = src;
             else if (from > to) result = LLVMBuildTrunc(builder, src, target, name);
-            else if (from == 1) result = LLVMBuildZExt(builder, src, target, name);
+            else if (from == 1 || srcUnsigned) result = LLVMBuildZExt(builder, src, target, name);
             else result = LLVMBuildSExt(builder, src, target, name);
         } else if (srcInt && dstFp) {
-            result = LLVMBuildSIToFP(builder, src, target, name);
+            result = srcUnsigned
+                    ? LLVMBuildUIToFP(builder, src, target, name)
+                    : LLVMBuildSIToFP(builder, src, target, name);
         } else if (srcFp && dstInt) {
             result = LLVMBuildFPToSI(builder, src, target, name);
         } else if (srcFp && dstFp) {
@@ -2515,7 +2541,16 @@ private void emitThrow(IRInstruction.Throw throwInst) {
     // Hulp
     // -------------------------------------------------------
 
+    /**
+     * Per argument van de laatst gebouwde argumentlijst: of het een char is.
+     * emitCallOrInvoke past de argumenten daarna pas aan de parametertypes
+     * aan en ziet zelf alleen LLVM-waarden.
+     */
+    private boolean[] unsignedArgs;
+
     private PointerPointer<Pointer> buildArgs(java.util.List<IRValue> args) {
+        unsignedArgs = new boolean[args.size()];
+        for (int i = 0; i < args.size(); i++) unsignedArgs[i] = isUnsigned(args.get(i));
         LLVMValueRef[] arr = args.stream()
                 .map(this::resolveValue)
                 .toArray(LLVMValueRef[]::new);

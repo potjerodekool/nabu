@@ -1020,7 +1020,7 @@ public void setReflectionRegistry(
                 LLVMInt8TypeInContext(ctx), LLVMInt16TypeInContext(ctx)};
         final IRType[] irParams = {
                 new IRType.Int(32), new IRType.Int(64), new IRType.Bool(), new IRType.Float(64),
-                new IRType.Float(32), new IRType.Int(16), new IRType.Int(8), new IRType.Int(16)};
+                new IRType.Float(32), IRType.I16, IRType.I8, IRType.CHAR};
         final LLVMValueRef[] result = new LLVMValueRef[owners.length];
         for (int kind = 0; kind < owners.length; kind++) {
             final String base = "java.lang." + owners[kind] + "_valueOf";

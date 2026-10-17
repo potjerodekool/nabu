@@ -468,14 +468,21 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 if (isStringConcatContext(binaryExpression, leftType, rightType, leftIsString, rightIsString)) {
                     // String-concat: resultaat blijft String
                     yield leftIsString ? leftType : stringType;
-                } else if (leftType != null && leftType.isPrimitiveType()) {
-                    yield leftType;
-                } else if (rightType != null && rightType.isPrimitiveType()) {
-                    yield rightType;
                 } else {
-                    yield null;
+                    final TypeMirror promoted = binaryNumericPromotion(leftType, rightType);
+                    if (promoted != null) {
+                        yield promoted;
+                    } else if (leftType != null && leftType.isPrimitiveType()) {
+                        yield leftType;
+                    } else if (rightType != null && rightType.isPrimitiveType()) {
+                        yield rightType;
+                    } else {
+                        yield null;
+                    }
                 }
             }
+            case MUL, DIV, MOD, BITAND, BITOR, BITXOR -> binaryNumericPromotion(leftType, rightType);
+            case LSHIFT, RSHIFT, URSHIFT -> unaryNumericPromotion(leftType);
             default -> null;
         };
 
@@ -916,6 +923,57 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitDoWhileStatement(final DoWhileStatementTree doWhileStatement, final Scope scope) {
         super.visitDoWhileStatement(doWhileStatement, scope);
         return defaultAnswer(doWhileStatement, scope);
+    }
+
+    /**
+     * Binaire numerieke promotie (JLS 5.6.2): na unboxing double, float, long
+     * of anders int. Zonder dit kreeg {@code c + 1} (char + int) het type char
+     * en koos println de char-overload; {@code int * long} werd int. Twee
+     * booleans (bij &amp;, | en ^) blijven boolean. Null als een kant geen
+     * (geboxte) primitieve is.
+     */
+    private TypeMirror binaryNumericPromotion(final TypeMirror leftType, final TypeMirror rightType) {
+        final TypeMirror left = unboxedPrimitive(leftType);
+        final TypeMirror right = unboxedPrimitive(rightType);
+        if (left == null || right == null) {
+            return null;
+        }
+        final TypeKind l = left.getKind();
+        final TypeKind r = right.getKind();
+        if (l == TypeKind.BOOLEAN || r == TypeKind.BOOLEAN) {
+            return l == r ? left : null;
+        }
+        if (l == TypeKind.DOUBLE || r == TypeKind.DOUBLE) {
+            return types.getPrimitiveType(TypeKind.DOUBLE);
+        }
+        if (l == TypeKind.FLOAT || r == TypeKind.FLOAT) {
+            return types.getPrimitiveType(TypeKind.FLOAT);
+        }
+        if (l == TypeKind.LONG || r == TypeKind.LONG) {
+            return types.getPrimitiveType(TypeKind.LONG);
+        }
+        return types.getPrimitiveType(TypeKind.INT);
+    }
+
+    /** Unaire numerieke promotie (JLS 5.6.1): byte/short/char worden int. */
+    private TypeMirror unaryNumericPromotion(final TypeMirror type) {
+        final TypeMirror primitive = unboxedPrimitive(type);
+        if (primitive == null) {
+            return null;
+        }
+        final TypeKind kind = primitive.getKind();
+        return kind == TypeKind.BYTE || kind == TypeKind.SHORT || kind == TypeKind.CHAR
+                ? types.getPrimitiveType(TypeKind.INT) : primitive;
+    }
+
+    private TypeMirror unboxedPrimitive(final TypeMirror type) {
+        if (type == null) {
+            return null;
+        }
+        if (type.isPrimitiveType()) {
+            return type;
+        }
+        return types.isBoxType(type) ? types.unboxedType(type) : null;
     }
 
     private BinaryExpressionTree transformBinaryExpression(final BinaryExpressionTree binaryExpression,

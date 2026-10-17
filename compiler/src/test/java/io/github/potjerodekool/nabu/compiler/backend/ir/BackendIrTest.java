@@ -39,7 +39,8 @@ class BackendIrTest {
             assertSame(IRType.BOOL, TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.BOOLEAN)));
             assertEquals(new IRType.Int(8), TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.BYTE)));
             assertEquals(new IRType.Int(16), TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.SHORT)));
-            assertEquals(new IRType.Int(16), TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.CHAR)));
+            // char is een i16 die zonder teken verbreedt, short niet.
+            assertEquals(new IRType.Int(16, true), TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.CHAR)));
             assertSame(IRType.I32, TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.INT)));
             assertSame(IRType.I64, TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.LONG)));
             assertSame(IRType.F32, TypeMirrorToIRType.map(new CPrimitiveType(TypeKind.FLOAT)));

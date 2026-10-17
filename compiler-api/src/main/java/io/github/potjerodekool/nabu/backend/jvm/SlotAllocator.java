@@ -87,7 +87,7 @@ public final class SlotAllocator {
     }
 
     private static String typeKey(final IRType type) {
-        if (type instanceof IRType.Int(int bits)) return "I" + bits;
+        if (type instanceof IRType.Int(int bits, boolean unsignedInt)) return "I" + bits;
         if (type instanceof IRType.Float(int bits)) return "F" + bits;
         if (type instanceof IRType.Bool) return "Z";
         if (type instanceof IRType.Ptr ptr) return "R" + typeToString(ptr.pointee());
@@ -176,7 +176,7 @@ public final class SlotAllocator {
         if (type instanceof IRType.Float(int bits1) && bits1 == 64) {
             return 2;
         }
-        if (type instanceof IRType.Int(int bits) && bits == 64) {
+        if (type instanceof IRType.Int(int bits, boolean unsignedInt) && bits == 64) {
             return 2;
         }
         return 1;

@@ -1118,6 +1118,29 @@ class JavaFunctionEmitter {
         if (name.startsWith("@")) {
             name = name.substring(1);
         }
+        // Met een bekende eigenaar is de naam `<eigenaar>_<veld>`: alleen het
+        // eigenaar-voorvoegsel eraf (een veldnaam kan zelf '_' bevatten,
+        // bv. MAX_VALUE). Zie FunctionEmitter.resolveFieldName (ASM).
+        final IRType ownerType =
+                (global != null && global.ownerType() != null)
+                        ? global.ownerType()
+                        : named.ownerType();
+        if (ownerType != null) {
+            final var internal = BytecodeHelper.toInternalName(ownerType);
+            final var dotted = internal.replace('/', '.');
+            if (name.startsWith(dotted + "_")) {
+                return name.substring(dotted.length() + 1);
+            }
+            if (name.startsWith(internal + "_")) {
+                return name.substring(internal.length() + 1);
+            }
+            // Velden uit broncode: `<SimpleName>_<veld>` (zie IrGeneratingVisitor).
+            final var simple = internal.substring(Math.max(internal.lastIndexOf('/'), internal.lastIndexOf('$')) + 1);
+            if (name.startsWith(simple + "_")) {
+                return name.substring(simple.length() + 1);
+            }
+            return name;
+        }
         final var sepIndex = name.lastIndexOf('_');
         if (sepIndex > -1) {
             return name.substring(sepIndex + 1);

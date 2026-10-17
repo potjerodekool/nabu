@@ -2437,7 +2437,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             // Declareer als extern als nog niet aanwezig
             IRType fieldType = TypeMirrorToIRType.map(
                     fieldSymbol.asType());
-            builder.declareExternalGlobal(globalName, fieldType, fieldSymbol.isStatic());
+            builder.declareExternalGlobal(globalName, fieldType,
+                    TypeMirrorToIRType.map(fieldSymbol.getEnclosingElement().asType()),
+                    fieldSymbol.isStatic());
             IRValue globalPtr = builder.lookup(globalName);
 
             return builder.emitLoad(TypeMirrorToIRType.map(field.getSymbol().asType()), globalPtr);

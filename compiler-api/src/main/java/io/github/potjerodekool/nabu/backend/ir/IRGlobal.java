@@ -37,7 +37,14 @@ public record IRGlobal(
     public static IRGlobal external(final String name,
                                     final IRType type,
                                     final boolean isStatic) {
-        return new IRGlobal(name, type, null, Linkage.EXTERNAL, false, null, isStatic);
+        return external(name, type, null, isStatic);
+    }
+
+    public static IRGlobal external(final String name,
+                                    final IRType type,
+                                    final IRType ownerType,
+                                    final boolean isStatic) {
+        return new IRGlobal(name, type, null, Linkage.EXTERNAL, false, ownerType, isStatic);
     }
 
     public static IRGlobal stringLiteral(String name, String value) {

@@ -526,7 +526,20 @@ public class IRBuilder {
     public IRValue declareExternalGlobal(final String name,
                                          final IRType type,
                                          final boolean isStatic) {
-        module.addGlobal(IRGlobal.external(name, type, isStatic));
+        return declareExternalGlobal(name, type, null, isStatic);
+    }
+
+    /**
+     * Als {@link #declareExternalGlobal(String, IRType, boolean)}, met de
+     * eigenaar van het veld. Zonder eigenaar splitste de ASM-backend de naam
+     * op de laatste '_': {@code java.lang.Integer_MAX_VALUE} werd klasse
+     * {@code java/lang/Integer_MAX}, veld {@code VALUE}.
+     */
+    public IRValue declareExternalGlobal(final String name,
+                                         final IRType type,
+                                         final IRType ownerType,
+                                         final boolean isStatic) {
+        module.addGlobal(IRGlobal.external(name, type, ownerType, isStatic));
         return new IRValue.Named(
                 "@" + name,
                 new IRType.Ptr(type),

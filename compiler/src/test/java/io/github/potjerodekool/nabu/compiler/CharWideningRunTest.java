@@ -91,4 +91,26 @@ class CharWideningRunTest {
         assertEquals("65535 65535 65536 32768 36865 36864 65535 -1 2147483653 true",
                 cls.getMethod("run").invoke(null));
     }
+
+    /**
+     * Een statisch veld met '_' in de naam: de ASM-backend splitste de global
+     * {@code java.lang.Integer_MAX_VALUE} op de laatste '_' tot klasse
+     * {@code java/lang/Integer_MAX} met veld {@code VALUE}.
+     */
+    @Test
+    void staticFieldWithUnderscoreInName() throws Exception {
+        final var cls = compileAndLoad("Consts", """
+                package mini;
+                public class Consts {
+                    static int MY_LIMIT = 7;
+                    public static String run() {
+                        MY_LIMIT = MY_LIMIT + 1;
+                        return Integer.MAX_VALUE + " " + Long.MIN_VALUE + " "
+                                + Character.MAX_RADIX + " " + Consts.MY_LIMIT;
+                    }
+                }
+                """);
+        assertEquals("2147483647 -9223372036854775808 36 8",
+                cls.getMethod("run").invoke(null));
+    }
 }

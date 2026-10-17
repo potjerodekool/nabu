@@ -1740,6 +1740,11 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
             if (name.startsWith(internal + "_")) {
                 return name.substring(internal.length() + 1);
             }
+            // Velden uit broncode: `<SimpleName>_<veld>` (zie IrGeneratingVisitor).
+            final var simple = internal.substring(Math.max(internal.lastIndexOf('/'), internal.lastIndexOf('$')) + 1);
+            if (name.startsWith(simple + "_")) {
+                return name.substring(simple.length() + 1);
+            }
             return name;
         }
         final var sepIndex = name.lastIndexOf('_');

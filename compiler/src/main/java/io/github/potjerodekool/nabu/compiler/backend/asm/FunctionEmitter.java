@@ -800,7 +800,7 @@ private void emitUnreachable() {
                 // keurt de verifier de bytecode af.
                 owner = BytecodeHelper.toInternalName(receiverType);
             } else {
-                owner = BytecodeHelper.toInternalName(mangledOwner);
+                owner = qualifyingOwner(BytecodeHelper.toInternalName(mangledOwner), call);
             }
             functionName = methodName;
         } else {
@@ -828,6 +828,62 @@ private void emitUnreachable() {
      * uit dezelfde compilatie, aangeroepen vanuit een andere klasse, valt
      * hier nog buiten.
      */
+    /**
+     * JLS 13.1: de eigenaar in de MethodRef is het statische type van de
+     * receiver, niet de klasse die de methode declareert. Dat telt als die
+     * klasse niet publiek is: `sb.append(x)` met eigenaar
+     * java/lang/AbstractStringBuilder gaf een IllegalAccessError. Alleen
+     * voor zo'n ontoegankelijke JDK-klasse, en alleen bij een receiver met
+     * een klasse-descriptor.
+     */
+    private String qualifyingOwner(final String declaringOwner, final IRInstruction.Call call) {
+        if (call.callKind() != CallKind.VIRTUAL || call.args().isEmpty()
+                || !(call.args().getFirst().type() instanceof IRType.Ptr receiver)
+                || receiver.jvmDescriptor() == null
+                || !receiver.jvmDescriptor().startsWith("L")) {
+            return declaringOwner;
+        }
+        final String receiverOwner = receiver.jvmDescriptor()
+                .substring(1, receiver.jvmDescriptor().length() - 1);
+        if (receiverOwner.equals(declaringOwner) || isAccessibleOwner(declaringOwner)) {
+            return declaringOwner;
+        }
+        return receiverOwner;
+    }
+
+    private static boolean isAccessibleOwner(final String owner) {
+        return ACCESSIBLE_OWNERS.computeIfAbsent(owner, name -> {
+            try {
+                return java.lang.reflect.Modifier.isPublic(Class.forName(name.replace('/', '.'), false,
+                        ClassLoader.getPlatformClassLoader()).getModifiers());
+            } catch (final ClassNotFoundException | LinkageError e) {
+                return true;
+            }
+        });
+    }
+
+    private static final java.util.Map<String, Boolean> ACCESSIBLE_OWNERS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** De wrapperklasse van een primitieve descriptor (Z -> java/lang/Boolean), anders null. */
+    private static String primitiveWrapper(final String descriptor) {
+        if (descriptor == null || descriptor.length() != 1) {
+            return null;
+        }
+        return switch (descriptor.charAt(0)) {
+            case 'Z' -> "java/lang/Boolean";
+            case 'B' -> "java/lang/Byte";
+            case 'C' -> "java/lang/Character";
+            case 'S' -> "java/lang/Short";
+            case 'I' -> "java/lang/Integer";
+            case 'J' -> "java/lang/Long";
+            case 'F' -> "java/lang/Float";
+            case 'D' -> "java/lang/Double";
+            case 'V' -> "java/lang/Void";
+            default -> null;
+        };
+    }
+
     private boolean isInterfaceOwner(final String owner) {
         if (owner.equals(ownerInternalName)) {
             return codeEmitter.isOwnerInterface();
@@ -1495,7 +1551,14 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
             case IRValue.ConstUndef ignored -> emitDefaultValue(value.type());
             case IRValue.ConstClass(IRType.Ptr type) -> {
                 final var descriptor = type.jvmDescriptor();
-                mv.visitLdcInsn(Type.getType(descriptor));
+                final var wrapper = primitiveWrapper(descriptor);
+                if (wrapper != null) {
+                    // boolean.class e.d.: een CONSTANT_Class "Z" bestaat niet
+                    // (NoClassDefFoundError: Z); javac leest Boolean.TYPE.
+                    mv.visitFieldInsn(Opcodes.GETSTATIC, wrapper, "TYPE", "Ljava/lang/Class;");
+                } else {
+                    mv.visitLdcInsn(Type.getType(descriptor));
+                }
             }
             case IRValue.Temp(String name, IRType type) -> {
                 if (pendingComparisons.containsKey(name)) {
@@ -1619,6 +1682,22 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         }
     }
 
+    private IRInstruction.Alloca findAlloca(final String... names) {
+        for (final var block : blocks) {
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.Alloca alloca) {
+                    final var name = IRValue.nameOf(alloca.result());
+                    for (final var candidate : names) {
+                        if (candidate.equals(name)) {
+                            return alloca;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     private void emitSamConversion(final Handle implHandle,
                                    final IRType.Function fnType,
                                    final String interfaceDescriptor,
@@ -1667,7 +1746,13 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
             } else {
                 capturedName = "%" + i;
             }
-            final var slot = slots.slotOf(capturedName, capturedVarTypes.get(i));
+            // Een gecapturede lokale variabele of parameter staat in het slot
+            // van haar alloca (%x.ptr / %x.arg.ptr; SsaBuilder promoveert die
+            // niet). slotOf("x") was een ander, nooit beschreven slot.
+            final var alloca = findAlloca("%" + capturedName + ".ptr", "%" + capturedName + ".arg.ptr");
+            final var slot = alloca != null
+                    ? slots.slotOfAlloca(IRValue.nameOf(alloca.result()), alloca.allocType())
+                    : slots.slotOf(capturedName, capturedVarTypes.get(i));
             final var loadOpcode = resolveLoadOpcode(capturedVarTypes.get(i));
             mv.visitVarInsn(loadOpcode, slot);
         }
@@ -1682,6 +1767,15 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         );
     }
 
+    private static boolean isPublicObjectMethod(final java.lang.reflect.Method method) {
+        try {
+            Object.class.getMethod(method.getName(), method.getParameterTypes());
+            return true;
+        } catch (final NoSuchMethodException e) {
+            return false;
+        }
+    }
+
     private java.lang.reflect.Method findSamMethod(final Type functionalInterface) {
         try {
             final var clazz = Class.forName(
@@ -1689,6 +1783,11 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
                     Thread.currentThread().getContextClassLoader());
             for (final var m : clazz.getMethods()) {
                 if (m.isDefault() || java.lang.reflect.Modifier.isStatic(m.getModifiers()) || m.getDeclaringClass() == Object.class) {
+                    continue;
+                }
+                // Een interface mag Object-methoden abstract herdeclareren
+                // (Comparator.equals); die tellen niet als SAM (JLS 9.8).
+                if (isPublicObjectMethod(m)) {
                     continue;
                 }
                 if (java.lang.reflect.Modifier.isAbstract(m.getModifiers())) {

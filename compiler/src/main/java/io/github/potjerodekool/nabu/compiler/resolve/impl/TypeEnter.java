@@ -361,6 +361,28 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 .orElse(null);
 
         if (realSymbol != null) {
+            // Typeargumenten behouden (zie canonicalizeDeclaredType). Het
+            // eerder opgeloste type is hier een fouttype zonder argumenten
+            // (de geneste naam was nog niet vindbaar); de argumenten staan
+            // dan alleen nog op de TypeApply-boom:
+            // `class Builder extends ArgSpec.Builder<Builder>`.
+            List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
+            if (typeArguments.isEmpty()
+                    && classDeclaration.getExtending() instanceof io.github.potjerodekool.nabu.tree.expression.TypeApplyTree typeApply
+                    && typeApply.getTypeParameters() != null) {
+                typeArguments = typeApply.getTypeParameters().stream()
+                        .map(Tree::getType)
+                        .filter(Objects::nonNull)
+                        .toList();
+                if (typeArguments.size() != typeApply.getTypeParameters().size()) {
+                    typeArguments = List.of();
+                }
+            }
+            if (!typeArguments.isEmpty()) {
+                return compilerContext.getTypes().getDeclaredType(
+                        (ClassSymbol) realSymbol,
+                        typeArguments.toArray(new TypeMirror[0]));
+            }
             return ((ClassSymbol) realSymbol).asType();
         }
 
@@ -433,6 +455,15 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             return type;
         }
 
+        // De typeargumenten behouden: `class Pos extends Base<Pos>` werd anders
+        // de generieke declaratie Base<T>, en een self-type builder
+        // (T label() in Base<T extends Base<T>>) leverde dan T i.p.v. Pos op.
+        if (type instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredType
+                && !declaredType.getTypeArguments().isEmpty()) {
+            return compilerContext.getTypes().getDeclaredType(
+                    canonical,
+                    declaredType.getTypeArguments().toArray(new TypeMirror[0]));
+        }
         return canonical.asType();
     }
 
@@ -772,6 +803,16 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
         method.setReturnType(returnType);
 
+        // Standaardwaarde van een annotatie-element (AnnotationDefault),
+        // zoals een element-waarde in een annotatie (zie visitAssignment).
+        if (function.getDefaultValue() != null) {
+            acceptTree(function.getDefaultValue(), functionScope);
+            final var defaultValue = toAnnotationValue(function.getDefaultValue());
+            if (defaultValue != null) {
+                method.setDefaultValue(defaultValue);
+            }
+        }
+
         function.getParameters().forEach(it ->
                 acceptTree(it, functionScope));
 
@@ -884,6 +925,45 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 .flags(variableDeclaratorTree.getFlags())
                 .constantValue(constantValue)
                 .build();
+    }
+
+    private ClassDeclaration sourceDeclaration(final TypeElement typeElement) {
+        final var qualifiedName = typeElement.getQualifiedName();
+        return symbolToTreeMap.entrySet().stream()
+                .filter(entry -> entry.getKey().getQualifiedName().equals(qualifiedName))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean isSourceEnumConstant(final TypeElement typeElement, final String name) {
+        final var declaration = sourceDeclaration(typeElement);
+        if (declaration == null || declaration.getKind() != Kind.ENUM) {
+            return false;
+        }
+        for (final var member : declaration.getEnclosedElements()) {
+            if (member instanceof VariableDeclaratorTree constant
+                    && constant.getKind() == Kind.ENUM_CONSTANT
+                    && constant.getName().getName().equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Object sourceConstantValue(final TypeElement typeElement, final String fieldName) {
+        final var declaration = sourceDeclaration(typeElement);
+        if (declaration == null) {
+            return null;
+        }
+        for (final var member : declaration.getEnclosedElements()) {
+            if (member instanceof VariableDeclaratorTree field
+                    && field.getName().getName().equals(fieldName)
+                    && Flags.hasFlag(field.getFlags(), Flags.FINAL)) {
+                return getConstantValue(field.getValue());
+            }
+        }
+        return null;
     }
 
     private Object getConstantValue(final Tree tree) {
@@ -1215,7 +1295,51 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                     AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
             case FieldAccessExpressionTree fieldAccessExpressionTree -> {
                 final var type = (DeclaredType) fieldAccessExpressionTree.getSelected().getType();
-                final var value = (VariableElement) fieldAccessExpressionTree.getField().getSymbol();
+                var value = (VariableElement) fieldAccessExpressionTree.getField().getSymbol();
+                // Een enumconstante (`RetentionPolicy.RUNTIME`) waarvan het
+                // veldsymbool hier nog niet is opgelost: zelf opzoeken. Anders
+                // werd het een klasse-waarde, gold @Retention niet en waren
+                // picocli's annotaties tijdens runtime onzichtbaar.
+                if (value == null
+                        && !"class".equals(fieldAccessExpressionTree.getField().getName())
+                        && type != null
+                        && type.asTypeElement() != null) {
+                    final var fieldName = fieldAccessExpressionTree.getField().getName();
+                    value = type.asTypeElement().getEnclosedElements().stream()
+                            .filter(element -> element.getKind() == ElementKind.ENUM_CONSTANT
+                                    && element.getSimpleName().equals(fieldName))
+                            .map(element -> (VariableElement) element)
+                            .findFirst()
+                            .orElse(null);
+                    if (value == null && isSourceEnumConstant(type.asTypeElement(), fieldName)) {
+                        // Enum uit broncode die nog niet is ingevoerd: alleen
+                        // naam en type zijn nodig voor de annotatiewaarde.
+                        value = new VariableSymbolBuilderImpl()
+                                .kind(ElementKind.ENUM_CONSTANT)
+                                .simpleName(fieldName)
+                                .type(type)
+                                .build();
+                    }
+                    if (value == null) {
+                        // Een constante (`default CommandSpec.DEFAULT_COMMAND_NAME`):
+                        // haar waarde, niet een klasse-waarde ("Invalid default").
+                        var constant = type.asTypeElement().getEnclosedElements().stream()
+                                .filter(element -> element.getKind() == ElementKind.FIELD
+                                        && element.getSimpleName().equals(fieldName))
+                                .map(element -> ((VariableElement) element).getConstantValue())
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
+                        if (constant == null) {
+                            // Klasse uit broncode die nog niet is ingevoerd:
+                            // de literal-initializer van het final veld.
+                            constant = sourceConstantValue(type.asTypeElement(), fieldName);
+                        }
+                        if (constant != null) {
+                            yield AnnotationBuilder.createConstantValue(constant);
+                        }
+                    }
+                }
 
                 if (value != null) {
                     yield AnnotationBuilder.createEnumValue(

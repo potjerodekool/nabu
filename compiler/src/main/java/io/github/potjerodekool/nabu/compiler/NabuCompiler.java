@@ -160,6 +160,7 @@ public class NabuCompiler implements Compiler {
 
                 final IrGeneratingVisitor visitor = new IrGeneratingVisitor();
                 visitor.acceptTree(compilationUnit, null);
+                io.github.potjerodekool.nabu.backend.ir.IRModule.linkNests(visitor.getModules());
 
                 for (final var module : visitor.getModules()) {
                     // Type-inferentie vóór SSA (per module)

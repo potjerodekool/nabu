@@ -72,9 +72,39 @@ public class IsSubType implements TypeVisitor<Boolean, TypeMirror> {
         return qualifiedName == null ? "" : qualifiedName.replace('$', '.');
     }
 
+    /**
+     * Paren (subtype, supertype) die nu worden gecontroleerd. F-begrensde
+     * types ({@code Builder<T extends Builder<T>>}, picocli's ArgSpec.Builder)
+     * maken de controle cyclisch: X <: T leidt via de bovengrens tot
+     * X <: Builder<T> en via het typeargument weer tot X <: T. Een paar dat al
+     * in behandeling is, geldt als waar (coinductief); de dieptegrens vangt
+     * cycli via steeds nieuwe type-instanties af.
+     */
+    private final java.util.Set<String> inProgress = new java.util.HashSet<>();
+    private int depth;
+
     @Override
     public Boolean visitDeclaredType(final DeclaredType declaredType,
                                      final TypeMirror otherType) {
+        if (depth > 64) {
+            return true;
+        }
+        final String key = System.identityHashCode(declaredType) + "<:" + System.identityHashCode(otherType)
+                + ":" + declaredType + "<:" + otherType;
+        if (!inProgress.add(key)) {
+            return true;
+        }
+        depth++;
+        try {
+            return isSubDeclaredType(declaredType, otherType);
+        } finally {
+            depth--;
+            inProgress.remove(key);
+        }
+    }
+
+    private Boolean isSubDeclaredType(final DeclaredType declaredType,
+                                      final TypeMirror otherType) {
 
         final var other = otherType instanceof VariableType variableType
                 ? variableType.getInterferedType()

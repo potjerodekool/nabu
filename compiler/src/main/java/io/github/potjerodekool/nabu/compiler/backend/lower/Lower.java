@@ -784,6 +784,12 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     @Override
     public Tree visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
                                                  final LowerScope scope) {
+        if (variableDeclaratorStatement.getVariableType() == null
+                || variableDeclaratorStatement.getVariableType().getType() == null) {
+            // Impliciet getypeerde lambda-parameter (`(a, b) -> ...`): geen
+            // waarde en geen type om naar te casten.
+            return variableDeclaratorStatement;
+        }
         var newValue = (ExpressionTree) accept(variableDeclaratorStatement.getValue(), scope);
         // Een kale array-initializer (`int[] x = { 1, 2 };`) heeft geen
         // elementtype in de bron. Zonder type zou de IR-gen VOID-arrays

@@ -252,6 +252,17 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
                 lambdaCheck(variableDeclaratorStatement.getValue(), variableType);
                 acceptTree(variableDeclaratorStatement.getValue(), scope);
+                // Net als bij een methode-argument: met het doeltype bekend
+                // de impliciete parameters typeren en de body opnieuw
+                // resolven. In `Comparator<String> c = (a, b) -> a.length()`
+                // bleef `a.length()` anders onopgelost en de body leeg.
+                if (variableDeclaratorStatement.getValue() instanceof LambdaExpressionTree lambda
+                        && variableType instanceof DeclaredType
+                        && variableType.asTypeElement() != null
+                        && variableType.asTypeElement().isFunctionalInterface()) {
+                    resetImplicitLambdaParameters(lambda);
+                    postResolve(lambda, variableType, scope);
+                }
             }
         }
 
@@ -307,6 +318,15 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         }
 
         return null;
+    }
+
+    /** Laat postResolve de impliciete parameters opnieuw (getypeerd) definiëren. */
+    private static void resetImplicitLambdaParameters(final LambdaExpressionTree lambda) {
+        for (final var variable : lambda.getVariables()) {
+            if (variable instanceof IdentifierTree identifier) {
+                identifier.setSymbol(null);
+            }
+        }
     }
 
     private void lambdaCheck(final Tree value, final TypeMirror variableType) {
@@ -731,7 +751,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                             List.of()
                     )
             );
-            lambdaExpression.setType(partialType);
+            // Een al bekend doeltype (variabele, return; zie lambdaCheck) niet
+            // overschrijven: de lambda kreeg anders geen SAM-conversie.
+            if (!(lambdaExpression.getType() instanceof DeclaredType)) {
+                lambdaExpression.setType(partialType);
+            }
         } else {
             // Lambda zonder target type — maak een ongedetermineerd type aan
             // dat tijdens type-inferentie wordt opgelost.
@@ -745,7 +769,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                             List.of()
                     )
             );
-            lambdaExpression.setType(partialType);
+            // Een al bekend doeltype (variabele, return; zie lambdaCheck) niet
+            // overschrijven: de lambda kreeg anders geen SAM-conversie.
+            if (!(lambdaExpression.getType() instanceof DeclaredType)) {
+                lambdaExpression.setType(partialType);
+            }
 
             // Definieer de impliciete parameters en bezoek de body, zodat
             // identifiers binnen de lambda op zijn minst met een unknown-type
@@ -820,7 +848,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                             List.of()
                     )
             );
-            lambdaExpression.setType(partialType);
+            // Een al bekend doeltype (variabele, return; zie lambdaCheck) niet
+            // overschrijven: de lambda kreeg anders geen SAM-conversie.
+            if (!(lambdaExpression.getType() instanceof DeclaredType)) {
+                lambdaExpression.setType(partialType);
+            }
             lambdaExpression.getVariables().forEach(variable -> {
                 if (variable instanceof IdentifierTree identifier) {
                     if (identifier.getSymbol() == null) {
@@ -1187,9 +1219,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     ? selectedRetType
                     : (varElement != null ? varElement.asType() : null);
 
+            // Alleen een array heeft een length-lengte; `values[0][3].length`
+            // met Text[][] values is het veld `length` van Text.
             if (selectedVarType instanceof ArrayType
                     || (selected instanceof ArrayAccessExpressionTree
-                    && arrayAccessLeafType((ArrayAccessExpressionTree) selected) != null)) {
+                    && arrayAccessLeafType((ArrayAccessExpressionTree) selected) instanceof ArrayType)) {
                 final var intType = types.getPrimitiveType(TypeKind.INT);
                 fieldAccessExpression.getField().setType(intType);
                 fieldAccessExpression.setType(intType);

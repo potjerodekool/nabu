@@ -219,9 +219,20 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         return qualifiedName;
     }
 
+    /**
+     * JLS 9.8: een interface met precies één abstracte methode (methoden van
+     * Object niet meegeteld), met of zonder {@code @FunctionalInterface}. De
+     * klasse wordt eerst gecompleteerd: de annotatie was anders pas zichtbaar
+     * nadat iets anders de klasse had geladen, en een lambda in
+     * {@code IntSupplier s = () -> 1} kreeg dan geen doeltype.
+     */
     @Override
     public boolean isFunctionalInterface() {
-        return hasAnnotation(Constants.FUNCTIONAL_INTERFACE);
+        complete();
+        if (getKind() != ElementKind.INTERFACE) {
+            return false;
+        }
+        return findSingleAbstractMethod() != null;
     }
 
     @Override
@@ -229,12 +240,61 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
         if (!isFunctionalInterface()) {
             return null;
         }
+        return findSingleAbstractMethod();
+    }
 
-        return getEnclosedElements().stream()
-                .filter(element -> element.getKind() == ElementKind.METHOD)
-                .map(element -> (ExecutableElement) element)
-                .findFirst()
-                .orElse(null);
+    /**
+     * De enige abstracte methode van deze interface en haar superinterfaces,
+     * of null. Een methode wordt herkend op naam en aantal parameters, zodat
+     * een generieke herdeclaratie in een subinterface (UnaryOperator) met die
+     * van de superinterface (Function.apply) samenvalt; een default in een
+     * subinterface dekt een abstracte methode van de super af. Ook de eerste
+     * declaratie telt, niet de eerste methode: Comparator heeft tientallen
+     * default- en statische methoden en een abstracte {@code equals(Object)}.
+     */
+    private ExecutableElement findSingleAbstractMethod() {
+        final Set<String> seen = new HashSet<>();
+        final Map<String, ExecutableElement> abstractMethods = new LinkedHashMap<>();
+        final Deque<TypeElement> pending = new ArrayDeque<>();
+        final Set<TypeElement> visited = new HashSet<>();
+        pending.add(this);
+        while (!pending.isEmpty()) {
+            final TypeElement current = pending.poll();
+            if (!visited.add(current)) {
+                continue;
+            }
+            if (current instanceof ClassSymbol classSymbol) {
+                classSymbol.complete();
+            }
+            for (final Element element : current.getEnclosedElements()) {
+                if (element.getKind() != ElementKind.METHOD
+                        || !(element instanceof ExecutableElement method)
+                        || method.isStatic()
+                        || method.isPrivate()) {
+                    continue;
+                }
+                final String key = method.getSimpleName() + "/" + method.getParameters().size();
+                if (!seen.add(key) || method.isDefault() || isPublicObjectMethod(method)) {
+                    continue;
+                }
+                abstractMethods.put(key, method);
+            }
+            for (final TypeMirror superInterface : current.getInterfaces()) {
+                final TypeElement element = superInterface.asTypeElement();
+                if (element != null) {
+                    pending.add(element);
+                }
+            }
+        }
+        return abstractMethods.size() == 1 ? abstractMethods.values().iterator().next() : null;
+    }
+
+    /** equals(Object), hashCode() en toString() tellen niet mee (JLS 9.8). */
+    private static boolean isPublicObjectMethod(final ExecutableElement method) {
+        final String name = method.getSimpleName();
+        final int arity = method.getParameters().size();
+        return ("equals".equals(name) && arity == 1)
+                || (("hashCode".equals(name) || "toString".equals(name)) && arity == 0);
     }
 
     @Override

@@ -67,6 +67,30 @@ public final class CallKindResolver {
     }
 
     /**
+     * Als {@link #resolve(MethodInvocationTree)}, vanuit {@code currentClass}.
+     * Een private instantiemethode van een ANDERE klasse (een nestmate, bv.
+     * CommandLine roept {@code CommandSpec.copy()} aan) mag niet met
+     * invokespecial: de verifier eist dat de eigenaar de huidige klasse of een
+     * superklasse is. Sinds Java 11 (JEP 181) is dat invokevirtual, of
+     * invokeinterface voor een interface.
+     */
+    public static CallKind resolve(final MethodInvocationTree invocation, final TypeElement currentClass) {
+        final CallKind kind = resolve(invocation);
+        if (kind != CallKind.SPECIAL || currentClass == null || isSuper(invocation)) {
+            return kind;
+        }
+        final var symbol = invocation.getMethodType().getMethodSymbol();
+        if (symbol == null || symbol.getKind() == ElementKind.CONSTRUCTOR || !symbol.isPrivate()) {
+            return kind;
+        }
+        if (symbol.getEnclosingElement() instanceof TypeElement owner
+                && !owner.getQualifiedName().equals(currentClass.getQualifiedName())) {
+            return owner.getKind().isInterface() ? CallKind.INTERFACE : CallKind.VIRTUAL;
+        }
+        return kind;
+    }
+
+    /**
      * Geeft het ExecutableElement terug dat aan de aanroep hangt,
      * of null als dat niet beschikbaar is.
      */

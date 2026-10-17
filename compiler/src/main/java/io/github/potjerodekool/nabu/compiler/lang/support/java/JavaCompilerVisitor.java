@@ -418,6 +418,11 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         final var returnType = (ExpressionTree) ctx.unannType().accept(this);
         final var name = (IdentifierTree) ctx.identifier().accept(this);
+        // `String separator() default "=";` — zonder de standaardwaarde gaf
+        // reflectie IncompleteAnnotationException voor elk weggelaten element.
+        final var defaultValue = ctx.defaultValue() != null
+                ? (ExpressionTree) ctx.defaultValue().elementValue().accept(this)
+                : null;
 
         return new FunctionBuilder()
                 .lineNumber(ctx.getStart().getLine())
@@ -430,6 +435,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .receiver(null)
                 .parameters(List.of())
                 .thrownTypes(List.of())
+                .defaultValue(defaultValue)
                 .body(new CBlockStatementTree(List.of()))
                 .build();
     }

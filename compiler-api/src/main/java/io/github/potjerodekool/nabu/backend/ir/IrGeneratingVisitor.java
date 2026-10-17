@@ -199,6 +199,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (classSymbol.getKind().isInterface()) {
             classFlags |= Flags.INTERFACE;
         }
+        if (classSymbol.getKind() == ElementKind.ANNOTATION_TYPE) {
+            // @interface: de ASM-backend zet daarop ACC_ANNOTATION; anders is
+            // het een gewone interface en ziet reflectie de annotatie niet.
+            classFlags |= Flags.ANNOTATION;
+        }
         if (classSymbol.getKind() == ElementKind.ENUM) {
             // De parser zet alleen Kind.ENUM; de ACC_ENUM-vlag moet
             // expliciet naar de IR-vlaggen vertaald worden.
@@ -1185,6 +1190,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             paramAnnotations.add(pa);
         }
         irFunction.setParameterAnnotations(paramAnnotations);
+        irFunction.setAnnotationDefault(methodSymbol.getDefaultValue());
 
         // Method-level generic signature
         final var typeParamElements = methodSymbol.getTypeParameters();
@@ -2539,7 +2545,7 @@ IRBuilder param) {
                 .map(p -> TypeMirrorToIRType.map(p.asType()))
                 .toList();
 
-        CallKind callKind = CallKindResolver.resolve(invocation);
+        CallKind callKind = CallKindResolver.resolve(invocation, currentTypeElement);
         String methodName = CallKindResolver.resolveName(invocation);
         ExpressionTree target = CallKindResolver.resolveTarget(invocation);
 
@@ -2565,6 +2571,26 @@ IRBuilder param) {
                 scope.lookup("this").ifPresent(args::add);
             } else {
                 IRValue receiver = acceptTree(target, builder);
+                // Is de declarerende klasse niet publiek (StringBuilder.setLength
+                // komt uit AbstractStringBuilder), dan moet de JVM-aanroep het
+                // statische receivertype als eigenaar hebben (JLS 13.1). Na
+                // SSA/phi-merging draagt de receiver soms geen descriptor meer;
+                // een cast direct voor de aanroep houdt hem (ASM: checkcast,
+                // LLVM: no-op).
+                final TypeMirror targetType = target.getType() != null
+                        ? target.getType()
+                        : target instanceof MethodInvocationTree targetInvocation
+                                && targetInvocation.getMethodType() != null
+                                ? targetInvocation.getMethodType().getReturnType()
+                                : null;
+                if (receiver != null
+                        && owner instanceof TypeElement declaringType
+                        && !declaringType.isPublic()
+                        && !samePackage(declaringType, currentTypeElement)
+                        && targetType instanceof io.github.potjerodekool.nabu.type.DeclaredType receiverType
+                        && receiver.type() instanceof IRType.Ptr) {
+                    receiver = builder.emitCast(receiver, TypeMirrorToIRType.map(receiverType));
+                }
                 if (receiver != null) args.add(receiver);
             }
         } else if (callKind != CallKind.STATIC) {
@@ -2760,7 +2786,152 @@ if (argVal == null) continue;
                     builder.emitCall(callKind, fullName, returnType, paramTypes, args);
         };
 
-        return castCallResultIfNeeded(methodType, call);
+        return castCallResultIfNeeded(methodType, call, invocation);
+    }
+
+    /**
+     * De returntype-variabele van een generieke methode die de resolver niet
+     * substitueerde, afgeleid uit het argument met dezelfde vorm: voor
+     * {@code <T> T[] toArray(T[] a)} met {@code new Text[0]} is het resultaat
+     * een Text[]. Zonder checkcast stond er een Object[] op de stack en keurde
+     * de verifier {@code return list.toArray(new Text[0])} af. Null als er
+     * niets af te leiden valt.
+     */
+    private TypeMirror inferReturnFromArguments(final ExecutableType methodType,
+                                                final MethodInvocationTree invocation) {
+        if (invocation == null) {
+            return null;
+        }
+        final var returnType = methodType.getMethodSymbol().getReturnType();
+        final boolean array = returnType instanceof io.github.potjerodekool.nabu.type.ArrayType;
+        final TypeMirror variable = array
+                ? ((io.github.potjerodekool.nabu.type.ArrayType) returnType).getComponentType()
+                : returnType;
+        if (!(variable instanceof io.github.potjerodekool.nabu.type.TypeVariable typeVariable)) {
+            return null;
+        }
+        if (!array) {
+            final var fromReceiver = inferFromReceiver(methodType, invocation, typeVariable);
+            if (fromReceiver != null) {
+                return fromReceiver;
+            }
+        }
+        final var parameters = methodType.getMethodSymbol().getParameters();
+        final var arguments = invocation.getArguments();
+        for (int i = 0; i < parameters.size() && i < arguments.size(); i++) {
+            final var parameterType = parameters.get(i).asType();
+            final boolean sameShape = array
+                    ? parameterType instanceof io.github.potjerodekool.nabu.type.ArrayType parameterArray
+                            && isTypeVariable(parameterArray.getComponentType(), typeVariable)
+                    : isTypeVariable(parameterType, typeVariable);
+            if (!sameShape) {
+                continue;
+            }
+            final var argumentType = arguments.get(i).getType();
+            if (argumentType != null
+                    && (argumentType.getKind() == TypeKind.DECLARED || argumentType.getKind() == TypeKind.ARRAY)
+                    && (!array || argumentType.getKind() == TypeKind.ARRAY)) {
+                return argumentType;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Een typevariabele van de klasse die de methode declareert, ingevuld via
+     * het statische type van de receiver: bij {@code Base<T extends Base<T>>}
+     * met {@code T label(String)} en receiver {@code Pos extends Base<Pos>}
+     * is het resultaat een Pos. Zo bouwt picocli zijn specs
+     * ({@code PositionalParamSpec.builder().paramLabel(..).build()}); zonder
+     * checkcast keurde de verifier de aanroep van build() af.
+     */
+    private TypeMirror inferFromReceiver(final ExecutableType methodType,
+                                         final MethodInvocationTree invocation,
+                                         final io.github.potjerodekool.nabu.type.TypeVariable typeVariable) {
+        final var declaring = methodType.getMethodSymbol().getEnclosingElement();
+        if (!(declaring instanceof TypeElement declaringType)) {
+            return null;
+        }
+        final var target = CallKindResolver.resolveTarget(invocation);
+        TypeMirror receiverType = target != null ? target.getType() : null;
+        if (receiverType == null && target == null && currentTypeElement != null) {
+            receiverType = currentTypeElement.asType();
+        }
+        if (!(receiverType instanceof io.github.potjerodekool.nabu.type.DeclaredType receiver)) {
+            return null;
+        }
+        final var substituted = substituteAlongSupertypes(receiver, declaringType,
+                typeVariable.asElement().getSimpleName(), new java.util.HashMap<>(), 0);
+        return substituted != null
+                && (substituted.getKind() == TypeKind.DECLARED || substituted.getKind() == TypeKind.ARRAY)
+                ? substituted : null;
+    }
+
+    private TypeMirror substituteAlongSupertypes(final io.github.potjerodekool.nabu.type.DeclaredType type,
+                                                 final TypeElement declaring,
+                                                 final String variableName,
+                                                 final java.util.Map<String, TypeMirror> outer,
+                                                 final int depth) {
+        final var element = type.asTypeElement();
+        if (element == null || depth > 20) {
+            return null;
+        }
+        // Typeargumenten van dit niveau, met de variabelen van het niveau
+        // eronder (de subklasse) al ingevuld.
+        final java.util.Map<String, TypeMirror> bindings = new java.util.HashMap<>();
+        final var parameters = element.getTypeParameters();
+        final var arguments = type.getTypeArguments();
+        for (int i = 0; i < parameters.size() && i < arguments.size(); i++) {
+            TypeMirror argument = arguments.get(i);
+            if (argument instanceof io.github.potjerodekool.nabu.type.TypeVariable argumentVariable
+                    && argumentVariable.asElement() != null) {
+                argument = outer.getOrDefault(argumentVariable.asElement().getSimpleName(), argument);
+            }
+            bindings.put(parameters.get(i).getSimpleName(), argument);
+        }
+        if (element.getQualifiedName().equals(declaring.getQualifiedName())) {
+            return bindings.get(variableName);
+        }
+        final List<TypeMirror> supertypes = new ArrayList<>();
+        if (element.getSuperclass() != null) {
+            supertypes.add(element.getSuperclass());
+        }
+        supertypes.addAll(element.getInterfaces());
+        for (final var supertype : supertypes) {
+            if (supertype instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredSupertype) {
+                final var result = substituteAlongSupertypes(declaredSupertype, declaring, variableName, bindings, depth + 1);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Of twee klassen in hetzelfde pakket zitten. */
+    private static boolean samePackage(final TypeElement first, final TypeElement second) {
+        if (first == null || second == null) {
+            return false;
+        }
+        final var firstPackage = packageOf(first);
+        final var secondPackage = packageOf(second);
+        return firstPackage != null && secondPackage != null && firstPackage.equals(secondPackage);
+    }
+
+    private static String packageOf(final Element element) {
+        for (Element current = element; current != null; current = current.getEnclosingElement()) {
+            if (current instanceof io.github.potjerodekool.nabu.lang.model.element.PackageElement packageElement) {
+                return packageElement.getQualifiedName();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isTypeVariable(final TypeMirror type,
+                                          final io.github.potjerodekool.nabu.type.TypeVariable typeVariable) {
+        return type instanceof io.github.potjerodekool.nabu.type.TypeVariable other
+                && other.asElement() != null && typeVariable.asElement() != null
+                && other.asElement().getSimpleName().equals(typeVariable.asElement().getSimpleName());
     }
 
     // Bij generieke methodes kan de gesubstitueerde (resolved) return
@@ -2768,16 +2939,34 @@ if (argVal == null) continue;
     // erased Object, resolved byte[]). JVMS vereist dan een expliciete
     // CHECKCAST zodat de stack (erased) matcht met de declared return.
     private IRValue castCallResultIfNeeded(final ExecutableType methodType,
-                                           final IRValue call) {
+                                           final IRValue call,
+                                           final MethodInvocationTree invocation) {
         final var erasedReturnType = methodType.getMethodSymbol().getReturnType();
-        final var resolvedReturnType = methodType.getReturnType();
+        var resolvedReturnType = methodType.getReturnType();
 
         if (call == null || erasedReturnType == null || resolvedReturnType == null) {
             return call;
         }
 
-        if (erasedReturnType == resolvedReturnType) {
-            return call;
+        // JLS 10.7: clone() van een array T[] geeft T[], maar de aanroep van
+        // Object.clone levert Object op (`names = builder.names.clone()`).
+        if ("clone".equals(methodType.getMethodSymbol().getSimpleName())
+                && methodType.getMethodSymbol().getParameters().isEmpty()) {
+            final var target = CallKindResolver.resolveTarget(invocation);
+            if (target != null && target.getType() instanceof io.github.potjerodekool.nabu.type.ArrayType arrayType) {
+                return builder.emitCast(call, TypeMirrorToIRType.map(arrayType));
+            }
+        }
+
+        final boolean unresolved = resolvedReturnType instanceof io.github.potjerodekool.nabu.type.TypeVariable
+                || (resolvedReturnType instanceof io.github.potjerodekool.nabu.type.ArrayType resolvedArray
+                        && resolvedArray.getComponentType() instanceof io.github.potjerodekool.nabu.type.TypeVariable);
+        if (erasedReturnType == resolvedReturnType || unresolved) {
+            final var inferred = inferReturnFromArguments(methodType, invocation);
+            if (inferred == null) {
+                return call;
+            }
+            resolvedReturnType = inferred;
         }
 
         final var kind = resolvedReturnType.getKind();
@@ -3085,6 +3274,12 @@ if (argVal != null) args.add(argVal);
         }
         if (sub instanceof io.github.potjerodekool.nabu.type.ArrayType
                 && sup instanceof io.github.potjerodekool.nabu.type.DeclaredType) {
+            return Boolean.FALSE;
+        }
+        // Een klasse is nooit een array: `new BigDecimal(String)` koos anders
+        // BigDecimal(char[]), want beide scoren gelijk op referentietypes.
+        if (sub instanceof io.github.potjerodekool.nabu.type.DeclaredType
+                && sup instanceof io.github.potjerodekool.nabu.type.ArrayType) {
             return Boolean.FALSE;
         }
         return null;
@@ -4501,7 +4696,18 @@ if (argVal != null) args.add(argVal);
                 .map(p -> p.getSimpleName())
                 .toList();
 
-        return new IRValue.FunctionRef(fnName, fnType, null, null, null, null, allParamNames);
+        final var functionRef = new IRValue.FunctionRef(fnName, fnType, null, null, null, null, allParamNames);
+
+        // Het doeltype bepaalt de SAM-conversie (invokedynamic/LambdaMetafactory).
+        // Die gebeurde alleen voor een methode-argument; een lambda in een
+        // variabele (`IntSupplier s = () -> 1`), veld of return werd een kale
+        // MethodHandle en was na de cast null.
+        if (lambdaExpression.getType() instanceof io.github.potjerodekool.nabu.type.DeclaredType targetType
+                && targetType.asElement() instanceof TypeElement targetElement
+                && targetElement.isFunctionalInterface()) {
+            return wrapWithSamConversion(functionRef, targetElement, targetType);
+        }
+        return functionRef;
     }
 
     private IRValue.FunctionRef wrapWithSamConversion(final IRValue.FunctionRef fnRef,

@@ -26,11 +26,23 @@ import io.github.potjerodekool.nabu.tree.statement.VariableDeclaratorTree;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.List;
 import java.util.Set;
 
 public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
+
+    /**
+     * Of de veld-initializer die nu bezocht wordt statisch is; null buiten een
+     * veld. Een lambda daarin heeft geen omringende functie: javac noemt hem
+     * {@code lambda$static$N} of {@code lambda$new$N} (met {@code this}).
+     */
+    private Boolean fieldInitializerStatic;
 
     public LambdaToMethod() {
     }
@@ -63,20 +75,52 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         final var currentFunction = scope.getCurrentFunctionDeclaration();
         final var classSymbol = (ClassSymbol) classDeclaration.getClassSymbol();
 
-        lambdaExpression.getVariables().forEach(variable ->
-                acceptTree(variable, scope)
-        );
+        // De eigen parameters van de lambda. Ze werden in de OMRINGENDE scope
+        // gedefinieerd, zodat een volgende lambda ze als capture meekreeg; een
+        // impliciete parameter (`(a, b) -> ...`) werd helemaal niet
+        // gedefinieerd en ontbrak in de signatuur.
+        final List<Element> lambdaParameters = new ArrayList<>();
+        for (final var variable : lambdaExpression.getVariables()) {
+            if (variable instanceof IdentifierTree identifier) {
+                // Het symbool heeft nog het voorlopige onbekende type; het
+                // echte type staat op de identifier.
+                lambdaParameters.add(new VariableSymbolBuilderImpl()
+                        .kind(ElementKind.PARAMETER)
+                        .simpleName(identifier.getName())
+                        .type(identifier.getType())
+                        .build());
+            } else if (variable instanceof VariableDeclaratorTree declarator
+                    && declarator.getName().getSymbol() != null) {
+                lambdaParameters.add(declarator.getName().getSymbol());
+            }
+        }
 
-        acceptTree(lambdaExpression.getBody(), new ImmutableScope(
-                scope,
-                scope.getOwner()
-        ));
+        // Alleen de locals die de body gebruikt worden gecaptured (JLS 15.27.2),
+        // niet alles wat in scope is: een ongebruikte, later of conditioneel
+        // toegewezen local werd anders uit een nooit beschreven slot geladen.
+        final var recording = new RecordingScope(scope);
+        acceptTree(lambdaExpression.getBody(), recording);
+        final var parameterNames = lambdaParameters.stream()
+                .map(Element::getSimpleName)
+                .collect(Collectors.toSet());
+        final List<Element> captured = new ArrayList<>();
+        for (final var local : visibleLocals(scope)) {
+            if (recording.referenced.contains(local.getSimpleName())
+                    && !parameterNames.contains(local.getSimpleName())) {
+                captured.add(local);
+            }
+        }
 
+        final String enclosingName = currentFunction != null
+                ? currentFunction.getSimpleName()
+                : Boolean.TRUE.equals(fieldInitializerStatic) ? "static" : "new";
         final var method = (MethodSymbol) createLambdaMethod(
                 scope,
-                currentFunction.getSimpleName(),
+                enclosingName,
                 lambdaExpression,
-                classSymbol
+                classSymbol,
+                captured,
+                lambdaParameters
         );
 
         classSymbol.addEnclosedElement(method);
@@ -90,10 +134,36 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         return null;
     }
 
+    /**
+     * De locals van {@code scope} en de omringende scopes tot en met de
+     * functie, buitenste eerst, in declaratievolgorde.
+     */
+    private static List<Element> visibleLocals(final LambdaScope scope) {
+        final Deque<LambdaScope> chain = new ArrayDeque<>();
+        for (LambdaScope current = scope; current != null; current = current.getParent()) {
+            chain.push(current);
+            if (current.getOwner() instanceof Function) {
+                break;
+            }
+        }
+        final Map<String, Element> result = new LinkedHashMap<>();
+        for (final var current : chain) {
+            for (final var name : current.locals()) {
+                final var element = current.resolve(name);
+                if (element != null) {
+                    result.put(name, element);
+                }
+            }
+        }
+        return new ArrayList<>(result.values());
+    }
+
     private ExecutableElement createLambdaMethod(final LambdaScope scope,
                                                  final String functionName,
                                                  final LambdaExpressionTree lambdaExpression,
-                                                 final ClassSymbol classSymbol) {
+                                                 final ClassSymbol classSymbol,
+                                                 final List<Element> captured,
+                                                 final List<Element> lambdaParameters) {
         final var context = scope.getLambdaContext();
 
         final var lambdaFunctionName = context.generateLambdaMethodName(
@@ -103,18 +173,33 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         final var lambdaType = (DeclaredType) lambdaExpression.getType();
         final var lambdaClass = (TypeElement) lambdaType.asElement();
 
+        // Het returntype van de SAM-methode zoals geïnstantieerd voor het
+        // doeltype (UnaryOperator<String>.apply -> String), niet de kale
+        // declaratie met typevariabele T.
+        var returnType = lambdaExpression.getLambdaMethodType() != null
+                ? lambdaExpression.getLambdaMethodType().getReturnType()
+                : lambdaClass.findFunctionalMethod().getReturnType();
+        if (returnType instanceof io.github.potjerodekool.nabu.type.TypeVariable typeVariable) {
+            returnType = typeVariable.getUpperBound();
+        }
+
         final var method = new MethodSymbolBuilderImpl()
                 .simpleName(lambdaFunctionName)
                 .enclosingElement(classSymbol)
-                .returnType(lambdaClass.findFunctionalMethod().getReturnType())
+                .returnType(returnType)
                 .flags(
                         Flags.PRIVATE + Flags.STATIC + Flags.SYNTHETIC
                 )
                 .build();
 
         final var currentFunction = scope.getCurrentFunctionDeclaration();
-        final var enclosingMethodSymbol = (MethodSymbol) currentFunction.getMethodSymbol();
-        if (enclosingMethodSymbol != null && !enclosingMethodSymbol.isStatic()) {
+        final var enclosingMethodSymbol = currentFunction != null
+                ? (MethodSymbol) currentFunction.getMethodSymbol()
+                : null;
+        final boolean instanceContext = currentFunction != null
+                ? enclosingMethodSymbol != null && !enclosingMethodSymbol.isStatic()
+                : Boolean.FALSE.equals(fieldInitializerStatic);
+        if (instanceContext) {
             final var thisType = classSymbol.asType();
             final var thisParameter = new VariableSymbolBuilderImpl()
                     .kind(ElementKind.PARAMETER)
@@ -125,46 +210,24 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
             method.addParameter(thisParameter);
         }
 
-        addParameters(scope, method);
+        addParameters(method, captured);
+        addParameters(method, lambdaParameters);
 
         lambdaExpression.setLambdaMethodType(method.asType());
 
         return method;
     }
 
-    private void addParameters(final LambdaScope scope,
-                               final ExecutableElement executableElement) {
-        final var method = (MethodSymbol) executableElement;
-
-        final var locals = scope.locals();
-
-        locals.forEach(localName -> {
-            final var originalElement = scope.resolve(localName);
-            final var typeMirror = originalElement.asType();
-
-            final var parameterElement = new VariableSymbolBuilderImpl()
+    private void addParameters(final MethodSymbol method,
+                               final List<Element> elements) {
+        for (final var element : elements) {
+            method.addParameter(new VariableSymbolBuilderImpl()
                     .kind(ElementKind.PARAMETER)
-                    .simpleName(localName)
-                    .type(typeMirror)
+                    .simpleName(element.getSimpleName())
+                    .type(element.asType())
                     .enclosingElement(method)
-                    .build();
-
-            method.addParameter(parameterElement);
-
-            final var param = TreeMaker.variableDeclarator(
-                    Kind.PARAMETER,
-                    new Modifiers(),
-                    createTypeExpression(originalElement.asType()),
-                    IdentifierTree.create(originalElement.getSimpleName()),
-                    null,
-                    null,
-                    -1,
-                    -1
-            );
-
-            param.getName().setSymbol(parameterElement);
-            param.getVariableType().setType(originalElement.asType());
-        });
+                    .build());
+        }
     }
 
     private Function createLambdaFunction(final ExecutableElement method,
@@ -173,7 +236,18 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
                 method
         );
 
-        final var lambdaBody = asBlockStatement(lambdaExpression.getBody());
+        // JLS 15.27.3: een expressie-body van een lambda met een niet-void
+        // functiemethode is `return <expr>;`. Als expression-statement viel de
+        // methode zonder return van het einde en gooide ze een RuntimeException.
+        var body = lambdaExpression.getBody();
+        if (body instanceof io.github.potjerodekool.nabu.tree.statement.ExpressionStatementTree expressionStatement) {
+            body = expressionStatement.getExpression();
+        }
+        final var lambdaBody = body instanceof ExpressionTree expression
+                && method.getReturnType().getKind() != io.github.potjerodekool.nabu.type.TypeKind.VOID
+                ? asBlockStatement(TreeMaker.returnStatement(expression,
+                        expression.getLineNumber(), expression.getColumnNumber()))
+                : asBlockStatement(body);
 
         return new FunctionBuilder()
                 .kind(Kind.METHOD)
@@ -226,6 +300,22 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
     @Override
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variableDeclaratorStatement,
                                                    final LambdaScope scope) {
+        // Eerst de initializer: een lambda in `IntSupplier s = () -> 1` werd
+        // anders nooit omgezet (de IR kreeg geen lambda-methode en de
+        // variabele bleef null). Daarna pas de variabele zelf in scope; de
+        // initializer kan hem niet capturen.
+        if (variableDeclaratorStatement.getValue() != null && scope != null) {
+            final Boolean previous = fieldInitializerStatic;
+            if (variableDeclaratorStatement.getKind() == Kind.FIELD) {
+                final var symbol = variableDeclaratorStatement.getName().getSymbol();
+                fieldInitializerStatic = symbol != null && symbol.isStatic();
+            }
+            try {
+                acceptTree(variableDeclaratorStatement.getValue(), scope);
+            } finally {
+                fieldInitializerStatic = previous;
+            }
+        }
         if (scope != null) {
             scope.define(variableDeclaratorStatement.getName().getSymbol());
         }
@@ -274,5 +364,39 @@ class ImmutableScope extends LambdaScope {
         return owner != getOwner()
                 ? new ImmutableScope(this, owner)
                 : this;
+    }
+}
+
+
+/**
+ * Scope voor de body van een lambda: zoekt op in de omringende scope en
+ * onthoudt welke namen de body gebruikt, voor precieze capture.
+ */
+class RecordingScope extends LambdaScope {
+
+    final Set<String> referenced = new java.util.HashSet<>();
+
+    RecordingScope(final LambdaScope parentScope) {
+        super(parentScope, parentScope.getOwner(), parentScope.getLambdaContext());
+    }
+
+    @Override
+    public Set<String> locals() {
+        return Set.of();
+    }
+
+    @Override
+    public void define(final Element element) {
+    }
+
+    @Override
+    public Element resolve(final String name) {
+        referenced.add(name);
+        return getParent().resolve(name);
+    }
+
+    @Override
+    public LambdaScope childScope(final Tree owner) {
+        return this;
     }
 }

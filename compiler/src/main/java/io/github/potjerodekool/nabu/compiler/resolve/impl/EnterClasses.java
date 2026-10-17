@@ -103,7 +103,9 @@ public class EnterClasses implements PatternTreeVisitor<Void, Scope> {
                         packageElement
                 );
 
-        clazz.setKind(ElementKind.valueOf(classDeclaration.getKind().name()));
+        // Via kindOf: een top-level @interface (Kind.ANNOTATION) bestaat niet
+        // als ElementKind en liet de compiler crashen.
+        clazz.setKind(kindOf(classDeclaration));
         clazz.setNestingKind(NestingKind.valueOf(classDeclaration.getNestingKind().name()));
         clazz.setFlags(classDeclaration.getModifiers().getFlags());
         clazz.setSimpleName(classDeclaration.getSimpleName());

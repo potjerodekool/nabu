@@ -21,6 +21,10 @@ public class IRModule {
     private String sourceFile = "<onbekend>";
     private String sourceDir  = ".";
     private String genericSignature;
+    /** De top-level klasse van de nest (JVMS 4.7.28), of null als dit de host is of er geen nest is. */
+    private String nestHost;
+    /** Voor een nest-host: de geneste klassen uit dezelfde compilatie-eenheid (JVMS 4.7.29). */
+    private final List<String> nestMembers = new ArrayList<>();
 
     public IRModule(final String name) {
         this(0, name);
@@ -133,7 +137,52 @@ public class IRModule {
         newModule.sourceDir = this.sourceDir;
         newModule.sealedClass = this.sealedClass;
         newModule.permittedSubclasses = this.permittedSubclasses != null ? List.copyOf(this.permittedSubclasses) : null;
+        newModule.nestHost = this.nestHost;
+        newModule.nestMembers.addAll(this.nestMembers);
         return newModule;
+    }
+
+    public String nestHost() {
+        return nestHost;
+    }
+
+    public void nestHost(final String nestHost) {
+        this.nestHost = nestHost;
+    }
+
+    public List<String> nestMembers() {
+        return Collections.unmodifiableList(nestMembers);
+    }
+
+    public void addNestMember(final String member) {
+        this.nestMembers.add(member);
+    }
+
+    /**
+     * Legt de nest-relaties vast tussen modules uit één compilatie-eenheid:
+     * {@code a.Outer$Inner} en {@code a.Outer$1} horen bij host {@code a.Outer}.
+     * Zonder NestHost/NestMembers gaf private toegang tussen geneste klassen
+     * (een private methode of veld van de andere klasse) een
+     * IllegalAccessError, sinds javac's nestmates (JEP 181) zonder synthetische
+     * accessors.
+     */
+    public static void linkNests(final List<IRModule> modules) {
+        final Map<String, IRModule> byName = new LinkedHashMap<>();
+        for (final var module : modules) {
+            byName.put(module.name, module);
+        }
+        for (final var module : modules) {
+            final int lastDot = module.name.lastIndexOf('.');
+            final int dollar = module.name.indexOf('$', lastDot + 1);
+            if (dollar <= lastDot + 1) {
+                continue;
+            }
+            final var host = byName.get(module.name.substring(0, dollar));
+            if (host != null) {
+                module.nestHost = host.name;
+                host.nestMembers.add(module.name);
+            }
+        }
     }
 
     public boolean sealedClass() {

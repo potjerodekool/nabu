@@ -80,12 +80,16 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
                 .map(this::toLambdaVariable)
                 .toList();
 
-        final var body = (StatementTree) acceptTree(lambdaExpression.getBody(), param);
+        final var body = acceptTree(lambdaExpression.getBody(), param);
+        final var builder = lambdaExpression.builder().variables(variables);
 
-        return lambdaExpression.builder()
-                .variables(variables)
-                .body(body)
-                .build();
+        // Een expressie-lambda (`() -> a + b`) heeft een expressie als body.
+        if (body instanceof ExpressionTree expressionBody) {
+            builder.body(expressionBody);
+        } else {
+            builder.body((StatementTree) body);
+        }
+        return builder.build();
     }
 
     private Tree toLambdaVariable(final Tree tree) {

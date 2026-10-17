@@ -89,7 +89,14 @@ public class SsaBuilder {
                 }
             }
         }
+        final var capturedAllocas = capturedAllocaNames(function);
         for (final var alloca : allocas) {
+            if (capturedAllocas.contains(IRValue.nameOf(alloca.result()))) {
+                // Door een lambda gecaptured: de backend laadt de waarde bij
+                // het maken van de lambda uit het slot van de variabele
+                // (FunctionRef.capturedVarNames), niet via een SSA-waarde.
+                continue;
+            }
             if (loadsInHandlerBlock(function, IRValue.nameOf(alloca.result()), handlerBlocks)
                     || !loadsInReachableBlocksOnly(function,
                             IRValue.nameOf(alloca.result()),
@@ -171,6 +178,38 @@ public class SsaBuilder {
 
         // Stap 7: Verwijder overgebleven alloca's die niet meer gebruikt worden
         removeAllocas(function, promotableAllocas);
+    }
+
+    /**
+     * De alloca's ({@code %x.ptr}, of {@code %x.arg.ptr} voor een parameter)
+     * van variabelen die een lambda in deze functie captured. Gepromoveerd tot
+     * SSA verdween de variabele (bv. als constante gepropageerd) en laadde de
+     * lambda-creatie een nooit beschreven slot.
+     */
+    private static Set<String> capturedAllocaNames(final IRFunction function) {
+        final Set<String> names = new HashSet<>();
+        for (final var block : function.blocks()) {
+            for (final var instr : block.instructions()) {
+                final List<IRValue> operands = switch (instr) {
+                    case IRInstruction.Store store -> List.of(store.value());
+                    case IRInstruction.Call call -> call.args();
+                    case IRInstruction.IndirectCall call -> call.args();
+                    case IRInstruction.Return ret -> ret.value() != null ? List.of(ret.value()) : List.of();
+                    case IRInstruction.Move move -> List.of(move.value());
+                    case IRInstruction.Cast cast -> List.of(cast.source());
+                    default -> List.of();
+                };
+                for (final var operand : operands) {
+                    if (operand instanceof IRValue.FunctionRef ref && ref.capturedVarNames() != null) {
+                        for (final var captured : ref.capturedVarNames()) {
+                            names.add("%" + captured + ".ptr");
+                            names.add("%" + captured + ".arg.ptr");
+                        }
+                    }
+                }
+            }
+        }
+        return names;
     }
 
     private static boolean loadsInHandlerBlock(final IRFunction function,

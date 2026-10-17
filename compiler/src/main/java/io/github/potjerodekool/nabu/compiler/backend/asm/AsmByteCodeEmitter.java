@@ -82,6 +82,11 @@ public class AsmByteCodeEmitter {
         } else {
             if (Flags.hasFlag(module.flags, Flags.INTERFACE)) {
                 access = Opcodes.ACC_PUBLIC + Opcodes.ACC_ABSTRACT + Opcodes.ACC_INTERFACE;
+                // @interface (JVMS 4.1): zonder ACC_ANNOTATION is het een
+                // gewone interface en vindt getAnnotation() hem niet.
+                if (Flags.hasFlag(module.flags, Flags.ANNOTATION)) {
+                    access += Opcodes.ACC_ANNOTATION;
+                }
             } else {
                 access = Opcodes.ACC_SUPER;
 
@@ -121,9 +126,18 @@ public class AsmByteCodeEmitter {
                 ? BytecodeHelper.toInternalName(module.superType())
                 : "java/lang/Object";
 
-        final var interfaces = module.interfaces().stream()
+        var interfaces = module.interfaces().stream()
                 .map(BytecodeHelper::toInternalName)
                 .toArray(String[]::new);
+        // Een @interface breidt impliciet java.lang.annotation.Annotation uit
+        // (JLS 9.6); zonder die superinterface weigert reflectie hem als
+        // annotatietype ("Attempt to create proxy for a non-annotation type").
+        if ((access & Opcodes.ACC_ANNOTATION) != 0
+                && !java.util.Arrays.asList(interfaces).contains("java/lang/annotation/Annotation")) {
+            final var withAnnotation = java.util.Arrays.copyOf(interfaces, interfaces.length + 1);
+            withAnnotation[interfaces.length] = "java/lang/annotation/Annotation";
+            interfaces = withAnnotation;
+        }
 
         final var rawSourceFile = module.sourceFile();
         final var fileName = rawSourceFile.contains("/") || rawSourceFile.contains("\\")
@@ -132,6 +146,14 @@ public class AsmByteCodeEmitter {
 
         classVisitor.visit(classVersion, access, internalName, signature, superName, interfaces);
         classVisitor.visitSource(fileName, null);
+
+        // Nestmates (JVMS 4.7.28/29): private toegang tussen geneste klassen.
+        if (module.nestHost() != null) {
+            classVisitor.visitNestHost(BytecodeHelper.toInternalName(module.nestHost()));
+        }
+        for (final var member : module.nestMembers()) {
+            classVisitor.visitNestMember(BytecodeHelper.toInternalName(member));
+        }
 
         // Emit PermittedSubclasses attribute for sealed classes
         if (module.sealedClass()) {
@@ -167,6 +189,11 @@ public class AsmByteCodeEmitter {
 
     private void emitFunction(final IRFunction function) {
         if (function.isExternal()) {
+            return;
+        }
+        // Een interface heeft geen constructor (JVMS 4.6: "Interface cannot
+        // have a method named <init>"); de IR geeft elke klasse er een.
+        if (ownerIsInterface && function.isConstructor()) {
             return;
         }
 
@@ -207,6 +234,12 @@ public class AsmByteCodeEmitter {
         );
 
         emitAnnotations(function.annotations(), methodVisitor::visitAnnotation);
+
+        if (function.annotationDefault() != null) {
+            final var defaultVisitor = methodVisitor.visitAnnotationDefault();
+            emitAnnotationValue(defaultVisitor, null, function.annotationDefault());
+            defaultVisitor.visitEnd();
+        }
 
         // Parameter-annotations emit
         final var paramAnns = function.parameterAnnotations();
@@ -488,6 +521,17 @@ public class AsmByteCodeEmitter {
         for (final var entry : annotation.getElementValues().entrySet()) {
             final var methodName = entry.getKey().getSimpleName();
             final var value = entry.getValue();
+            // JLS 9.7.1: één waarde voor een array-element (`description =
+            // "..."`) is de verkorte vorm van een array met één element; als
+            // kale waarde gaf reflectie AnnotationTypeMismatchException.
+            final var elementType = entry.getKey().getReturnType();
+            if (elementType instanceof io.github.potjerodekool.nabu.type.ArrayType
+                    && !(value instanceof ArrayAttribute)) {
+                final var arrayVisitor = av.visitArray(methodName);
+                emitAnnotationValue(arrayVisitor, null, value);
+                arrayVisitor.visitEnd();
+                continue;
+            }
             emitAnnotationValue(av, methodName, value);
         }
     }
@@ -794,7 +838,13 @@ private static void resolveSlotTypeConflicts(final Map<Integer, IRType> slotType
                 reads.add(op.right());
             }
             case IRInstruction.Load ld -> reads.add(ld.ptr());
-            case IRInstruction.Store st -> reads.add(st.value());
+            case IRInstruction.Store st -> {
+                reads.add(st.value());
+                // Een veld-store (`obj.f = v`) leest obj.
+                if (st.ptr() instanceof IRValue.Values) {
+                    reads.add(st.ptr());
+                }
+            }
             case IRInstruction.Move m -> reads.add(m.value());
             case IRInstruction.Call call -> reads.addAll(call.args());
             case IRInstruction.IndirectCall ic -> {
@@ -825,7 +875,25 @@ private static void resolveSlotTypeConflicts(final Map<Integer, IRType> slotType
             }
             default -> {}
         }
-        return reads;
+        // Een veldtoegang is Values(obj, veld): obj wordt gelezen. Als kale
+        // Values telde hij niet mee, en de blokproloog wiste het slot van een
+        // object dat over blokgrenzen leeft (picocli: `multiple.matchedSubgroups`
+        // gaf een NullPointerException).
+        final var flattened = new java.util.ArrayList<IRValue>();
+        for (final var read : reads) {
+            flattenValues(read, flattened);
+        }
+        return flattened;
+    }
+
+    private static void flattenValues(final IRValue value, final List<IRValue> out) {
+        if (value instanceof IRValue.Values values) {
+            for (final var nested : values.values()) {
+                flattenValues(nested, out);
+            }
+        } else if (value != null) {
+            out.add(value);
+        }
     }
 
     private static List<IRValue> writtenTemps(final IRInstruction instr) {
@@ -834,7 +902,11 @@ private static void resolveSlotTypeConflicts(final Map<Integer, IRType> slotType
             case IRInstruction.BinaryOp op -> writes.add(op.result());
             case IRInstruction.Load ld -> writes.add(ld.result());
             case IRInstruction.Alloca al -> writes.add(al.result());
-            case IRInstruction.Store st -> writes.add(st.ptr());
+            case IRInstruction.Store st -> {
+                if (!(st.ptr() instanceof IRValue.Values)) {
+                    writes.add(st.ptr());
+                }
+            }
             case IRInstruction.Move m -> writes.add(m.result());
             case IRInstruction.Call call -> {
                 if (call.result() != null) writes.add(call.result());
@@ -872,9 +944,11 @@ private static void resolveSlotTypeConflicts(final Map<Integer, IRType> slotType
     private static java.util.Set<Integer> computePrologSkip(
             final java.util.Set<Integer> liveIn,
             final boolean isHandler) {
-        if (isHandler) {
-            return java.util.Set.of();
-        }
+        // Ook een handler slaat live-in slots over: de volledige proloog wiste
+        // variabelen die vóór de try al een waarde hadden (picocli's
+        // Interpreter.parse las in de catch een gewiste `originalArgs`). Elk
+        // slot is al geïnitialiseerd in de proloog van het ingangsblok, dus
+        // het frame bij de handler kent een type voor ieder slot.
         return liveIn;
     }
 

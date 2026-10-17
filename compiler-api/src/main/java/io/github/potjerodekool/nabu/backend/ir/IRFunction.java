@@ -20,6 +20,8 @@ public class IRFunction {
     private final List<CompoundAttribute> annotations = new ArrayList<>();
     private List<List<CompoundAttribute>> parameterAnnotations = List.of();
     private String genericSignature;
+    /** Standaardwaarde van een annotatie-element (JVMS 4.7.22), of null. */
+    private io.github.potjerodekool.nabu.lang.model.element.AnnotationValue annotationDefault;
     private final List<LocalVar> localVariables = new ArrayList<>();
     private Map<String, String> allocaVersions = Map.of();
 
@@ -69,6 +71,7 @@ public class IRFunction {
         newFunction.setAnnotations(this.annotations);
         newFunction.setParameterAnnotations(this.parameterAnnotations);
         newFunction.genericSignature = this.genericSignature;
+        newFunction.annotationDefault = this.annotationDefault;
         newFunction.localVariables.addAll(this.localVariables);
         newFunction.allocaVersions = this.allocaVersions;
         return newFunction;
@@ -128,6 +131,14 @@ public class IRFunction {
 
     public List<List<CompoundAttribute>> parameterAnnotations() {
         return parameterAnnotations;
+    }
+
+    public void setAnnotationDefault(final io.github.potjerodekool.nabu.lang.model.element.AnnotationValue annotationDefault) {
+        this.annotationDefault = annotationDefault;
+    }
+
+    public io.github.potjerodekool.nabu.lang.model.element.AnnotationValue annotationDefault() {
+        return annotationDefault;
     }
 
     public void setGenericSignature(String genericSignature) {

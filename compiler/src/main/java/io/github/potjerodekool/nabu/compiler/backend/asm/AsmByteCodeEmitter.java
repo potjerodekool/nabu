@@ -47,7 +47,14 @@ public class AsmByteCodeEmitter {
     private String ownerInternalName;
     private boolean ownerIsInterface;
 
+    private final java.util.Set<String> compilationInterfaces;
+
     public AsmByteCodeEmitter() {
+        this(java.util.Set.of());
+    }
+
+    public AsmByteCodeEmitter(final java.util.Set<String> compilationInterfaces) {
+        this.compilationInterfaces = compilationInterfaces;
         cw = new ClassWriter(
                 ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES
         ) {
@@ -65,6 +72,11 @@ public class AsmByteCodeEmitter {
 
     public IRGlobal getGlobal(final String name) {
         return globalMap.get(name);
+    }
+
+    /** Of een klasse uit de huidige compilatie (interne naam) een interface is. */
+    boolean isCompilationInterface(final String internalName) {
+        return compilationInterfaces.contains(internalName);
     }
 
     /** Of de klasse die nu ge-emit wordt een interface is. */

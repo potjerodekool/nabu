@@ -29,6 +29,33 @@ import java.util.stream.Collectors;
  */
 public class AsmBackend implements Backend {
 
+    /**
+     * De interfaces (interne namen) uit de huidige compilatie. Een
+     * invokestatic op een interface vereist een InterfaceMethodref; de IR
+     * draagt die informatie niet, en per module kent de emitter alleen zijn
+     * eigen klasse en de JDK.
+     */
+    private java.util.Set<String> compilationInterfaces = java.util.Set.of();
+
+    @Override
+    public void compileAll(final java.util.List<IRModule> modules,
+                           final CompileOptions opts,
+                           final Path output) throws CompileException {
+        final var interfaces = new java.util.HashSet<String>();
+        for (final var module : modules) {
+            if (io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags,
+                    io.github.potjerodekool.nabu.lang.Flags.INTERFACE)) {
+                interfaces.add(module.name.replace('.', '/'));
+            }
+        }
+        compilationInterfaces = java.util.Set.copyOf(interfaces);
+        try {
+            Backend.super.compileAll(modules, opts, output);
+        } finally {
+            compilationInterfaces = java.util.Set.of();
+        }
+    }
+
     @Override
     public void compile(final IRModule module,
                         final CompileOptions opts,
@@ -50,7 +77,7 @@ public class AsmBackend implements Backend {
             }
         }
 
-        final var emitter = new AsmByteCodeEmitter();
+        final var emitter = new AsmByteCodeEmitter(compilationInterfaces);
         emitter.emit(module, opts);
         final var bytecode = emitter.getBytecode();
 

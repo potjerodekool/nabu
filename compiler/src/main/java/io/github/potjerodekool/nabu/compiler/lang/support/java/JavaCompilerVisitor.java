@@ -444,16 +444,31 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     public Object visitInterfaceMethodDeclaration(final Java20Parser.InterfaceMethodDeclarationContext ctx) {
         var modifiers = parseModifiers(ctx.interfaceMethodModifier());
 
-        if (!modifiers.hasFlag(Flags.DEFAULT) && !modifiers.hasFlag(Flags.ABSTRACT)) {
+        // JLS 9.4: alleen een interfacemethode zonder body is abstract; een
+        // static of private methode heeft er een (ACC_ABSTRACT|ACC_STATIC gaf
+        // ClassFormatError "illegal modifiers").
+        if (!modifiers.hasFlag(Flags.DEFAULT) && !modifiers.hasFlag(Flags.ABSTRACT)
+                && !modifiers.hasFlag(Flags.STATIC) && !modifiers.hasFlag(Flags.PRIVATE)) {
             modifiers = modifiers.with(Flags.ABSTRACT);
         }
 
         final var functionHeader = (MethodHeader) ctx.methodHeader().accept(this);
 
+        // Default-, static- en private methoden hebben een body; die werd
+        // weggegooid, zodat zo'n methode alleen een RuntimeException gooide.
+        final BlockStatementTree body;
+        if (modifiers.hasFlag(Flags.ABSTRACT) || ctx.methodBody().block() == null) {
+            body = null;
+        } else if (skipBody) {
+            body = new CBlockStatementTree(List.of());
+        } else {
+            body = (BlockStatementTree) ctx.methodBody().accept(this);
+        }
+
         return createFunction(
                 modifiers,
                 functionHeader,
-                null,
+                body,
                 ctx
         );
     }
@@ -1177,15 +1192,42 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 annotations.add(annotationTree);
             } else if (result instanceof Long flag) {
                 flags += flag;
+            } else {
+                // Modifiers die visitTerminal niet kent (`default` is daar ook
+                // een switch-label): een default-methode werd zo abstract, en
+                // synchronized/native/transient/volatile vielen weg.
+                flags += switch (modifier.getText()) {
+                    case "default" -> Flags.DEFAULT;
+                    case "synchronized" -> Flags.SYNCHRONIZED;
+                    case "native" -> Flags.NATIVE;
+                    case "transient" -> Flags.TRANSIENT;
+                    case "volatile" -> Flags.VOLATILE;
+                    default -> 0L;
+                };
             }
         }
 
         return new Modifiers(annotations, flags);
     }
 
+    /**
+     * De naam van een annotatietype. Een gekwalificeerde naam
+     * ({@code @Outer.Tag}, {@code @java.lang.Deprecated}) wordt één identifier
+     * met de gestippelde naam; de resolver lost die op zoals {@code Map.Entry}.
+     * De cast naar IdentifierTree liet de parser anders crashen.
+     */
+    private IdentifierTree annotationTypeName(final Java20Parser.TypeNameContext ctx) {
+        final var tree = (ExpressionTree) ctx.accept(this);
+        if (tree instanceof IdentifierTree identifier) {
+            return identifier;
+        }
+        return TreeMaker.identifier(ctx.getText(), ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine() + 1);
+    }
+
     @Override
     public Object visitNormalAnnotation(final Java20Parser.NormalAnnotationContext ctx) {
-        final var typeName = (IdentifierTree) ctx.typeName().accept(this);
+        final var typeName = annotationTypeName(ctx.typeName());
         final List<ExpressionTree> arguments = acceptList(ctx.elementValuePairList());
 
         return TreeMaker.annotationTree(
@@ -1236,7 +1278,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitMarkerAnnotation(final Java20Parser.MarkerAnnotationContext ctx) {
-        final var typeName = (IdentifierTree) ctx.typeName().accept(this);
+        final var typeName = annotationTypeName(ctx.typeName());
         return TreeMaker.annotationTree(
                 typeName,
                 List.of(),
@@ -1247,7 +1289,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitSingleElementAnnotation(final Java20Parser.SingleElementAnnotationContext ctx) {
-        final var typeName = (IdentifierTree) ctx.typeName().accept(this);
+        final var typeName = annotationTypeName(ctx.typeName());
         final var elementValue = (ExpressionTree) ctx.elementValue().accept(this);
 
         final var argument = TreeMaker.assignmentExpression(

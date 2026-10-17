@@ -94,6 +94,11 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
     private TypeMirror findMemberTypeInTopLevelClass(final ClassSymbol currentClass,
                                                      final String name) {
+        if (currentClass == null) {
+            // Annotatie op een top-level klasse: opgelost in de scope van de
+            // compilatie-eenheid, zonder huidige klasse.
+            return null;
+        }
         ClassSymbol topLevel = currentClass;
         while (topLevel.getEnclosingElement() instanceof ClassSymbol enclosingSymbol) {
             topLevel = enclosingSymbol;
@@ -1088,12 +1093,50 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             }
         }
 
+        if (type == null && identifier.getName().indexOf('.') > 0) {
+            type = resolveNestedTypeName(identifier.getName(), scope, currentClass);
+        }
+
         if (type == null) {
             type = types.getErrorType(identifier.getName());
         }
 
         identifier.setType(type);
         return identifier;
+    }
+
+    /**
+     * Een gestippelde naam waarvan het eerste segment een type is en de rest
+     * geneste membertypes ({@code @Qa.Tag} als annotatie op klasse Qa zelf).
+     */
+    private TypeMirror resolveNestedTypeName(final String name,
+                                             final Scope scope,
+                                             final ClassSymbol currentClass) {
+        final String[] parts = name.split("\\.");
+        TypeMirror type = scope.resolveType(parts[0]);
+        if (type == null) {
+            type = resolveType(parts[0], currentClass);
+        }
+        for (int i = 1; i < parts.length && type != null; i++) {
+            final var element = type.asTypeElement();
+            if (element == null) {
+                return null;
+            }
+            final String memberName = parts[i];
+            type = ElementFilter.elements(
+                            element,
+                            member -> member.getKind().isClass()
+                                    || member.getKind().isInterface()
+                                    || member.getKind() == ElementKind.ENUM
+                                    || member.getKind() == ElementKind.ANNOTATION_TYPE,
+                            TypeElement.class
+                    ).stream()
+                    .filter(member -> member.getSimpleName().contentEquals(memberName))
+                    .map(TypeElement::asType)
+                    .findFirst()
+                    .orElse(null);
+        }
+        return type;
     }
 
     private TypeMirror resolveType(final String name,

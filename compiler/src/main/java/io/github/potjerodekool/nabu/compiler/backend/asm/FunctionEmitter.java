@@ -888,6 +888,9 @@ private void emitUnreachable() {
         if (owner.equals(ownerInternalName)) {
             return codeEmitter.isOwnerInterface();
         }
+        if (codeEmitter.isCompilationInterface(owner)) {
+            return true;
+        }
         if (owner.startsWith("[")) {
             return false;
         }
@@ -944,7 +947,8 @@ private void emitUnreachable() {
                 functionName,
                 descriptor,
                 opcode == Opcodes.INVOKEINTERFACE
-                        || (opcode == Opcodes.INVOKESTATIC && isInterfaceOwner(owner))
+                        || ((opcode == Opcodes.INVOKESTATIC || opcode == Opcodes.INVOKESPECIAL)
+                                && isInterfaceOwner(owner))
         );
 
         storeResult(call.result());

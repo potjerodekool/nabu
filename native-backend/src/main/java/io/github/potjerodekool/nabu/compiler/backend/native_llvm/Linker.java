@@ -73,32 +73,38 @@ public class Linker {
                 // nabu_throw/_Unwind, nabu_init_object, etc.). gcc koppelt
                 // libgcc_s_seh automatisch.
                 cmd.add(resolveCompiler("gcc"));
+                cmd.add("-g"); cmd.add("-gdwarf-4");
                 cmd.add("-o"); cmd.add(exe.toString());
                 objects.forEach(o -> cmd.add(o.toString()));
-                Path runtimeSrc = runtimeSource();
-                if (runtimeSrc != null) {
-                    cmd.add(runtimeSrc.toString());
-                }
+                addRuntimeSources(cmd, gcStrategy);
                 addGcLibraries(cmd, gcStrategy);
             } else {
                 throw new CompileException(msvcUnsupported(triple));
             }
         } else if (triple != null && triple.contains("apple")) {
             cmd.add("clang");
+            cmd.add("-g");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
+            addRuntimeSources(cmd, gcStrategy);
             addGcLibraries(cmd, gcStrategy);
         } else {
             cmd.add("gcc");
+            cmd.add("-g");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
-            Path runtimeSrc = runtimeSource();
-            if (runtimeSrc != null) {
-                cmd.add(runtimeSrc.toString());
-            }
+            addRuntimeSources(cmd, gcStrategy);
             addGcLibraries(cmd, gcStrategy);
         }
         return cmd;
+    }
+
+    private static void addRuntimeSources(List<String> cmd,
+                                          CompileOptions.GcStrategy gcStrategy) {
+        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
+            cmd.add("-DNABU_GC_BOEHM");
+        }
+        runtimeSources().forEach(src -> cmd.add(src.toString()));
     }
 
     /**
@@ -138,16 +144,31 @@ public class Linker {
         if (env != null && !env.isBlank()) return Path.of(env);
         Path guess = Path.of("runtime", "nabu_runtime.c");
         if (java.nio.file.Files.exists(guess)) return guess;
-        return bundledRuntime();
+        return bundledRuntime("nabu_runtime.c");
+    }
+
+    /**
+     * Alle C-bronnen die meegecompileerd worden: de runtime (SEH/personality,
+     * objectmodel) en jcl_lite (java.lang/java.util-implmentaties). Siblings
+     * van {@link #runtimeSource()}; ontbrekende siblings worden overgeslagen.
+     */
+    private static List<Path> runtimeSources() {
+        Path main = runtimeSource();
+        if (main == null) return List.of();
+        List<Path> srcs = new ArrayList<>();
+        srcs.add(main);
+        Path jcl = main.resolveSibling("jcl_lite.c");
+        if (java.nio.file.Files.exists(jcl)) srcs.add(jcl);
+        return srcs;
     }
 
     private static Path bundledRuntimeCache;
 
-    private static Path bundledRuntime() {
+    private static Path bundledRuntime(String fileName) {
         try {
             if (bundledRuntimeCache != null
-                    && java.nio.file.Files.exists(bundledRuntimeCache)) {
-                return bundledRuntimeCache;
+                    && java.nio.file.Files.exists(bundledRuntimeCache.resolve(fileName))) {
+                return bundledRuntimeCache.resolve(fileName);
             }
 
             final ClassLoader loader = Linker.class.getClassLoader();
@@ -155,26 +176,27 @@ public class Linker {
                 return null;
             }
 
-            try (var in = loader.getResourceAsStream("nabu/runtime/nabu_runtime.c")) {
+            try (var in = loader.getResourceAsStream("nabu/runtime/" + fileName)) {
                 if (in == null) {
                     return null;
                 }
 
                 final Path dir = java.nio.file.Files.createTempDirectory("nabu-runtime");
-                final Path src = dir.resolve("nabu_runtime.c");
+                final Path src = dir.resolve(fileName);
                 java.nio.file.Files.copy(in, src,
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-                // Header ernaast, zodat '#include "nabu_runtime.h"' uit de
-                // include-map van de .c zelf wordt opgelost.
-                try (var header = loader.getResourceAsStream("nabu/runtime/nabu_runtime.h")) {
-                    if (header != null) {
-                        java.nio.file.Files.copy(header, dir.resolve("nabu_runtime.h"),
-                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                for (final String extra : new String[] {"nabu_runtime.c", "nabu_runtime.h", "jcl_lite.c"}) {
+                    if (extra.equals(fileName)) continue;
+                    try (var e = loader.getResourceAsStream("nabu/runtime/" + extra)) {
+                        if (e != null) {
+                            java.nio.file.Files.copy(e, dir.resolve(extra),
+                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        }
                     }
                 }
 
-                bundledRuntimeCache = src;
+                bundledRuntimeCache = dir;
                 return src;
             }
         } catch (java.io.IOException e) {

@@ -3,8 +3,13 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
+import org.bytedeco.javacpp.BytePointer;
+import org.bytedeco.llvm.LLVM.LLVMModuleRef;
+import org.bytedeco.llvm.LLVM.LLVMValueRef;
 
 import java.util.List;
+
+import static org.bytedeco.llvm.global.LLVM.LLVMGetNamedFunction;
 
 /**
  * Overload-sleutels voor LLVM-functiedeclaraties.
@@ -72,11 +77,66 @@ static String fnKeyLoose(final String fnName, final List<IRType> paramTypes) {
 }
 
 /**
+ * Deterministische onderscheidingscode voor de parameterlijst van een
+ * overloade declaratie: precies dezelfde type-keys als de overload-sleutel
+ * uit {@link #fnKey}, maar zonder de functienaam.
+ *
+ * <p>Dient als suffix voor het LLVM-symbool van een overload; zie
+ * {@link #stableSymbol}.
+ */
+static String symbolSuffix(final List<IRType> paramTypes) {
+    final var sb = new StringBuilder();
+    if (paramTypes != null) {
+        for (final var t : paramTypes) {
+            sb.append(typeKey(t));
+        }
+    }
+    return sb.toString();
+}
+
+/**
+ * Symboolnaam voor een nieuwe declaratie onder {@code fnName} in {@code mod}.
+ *
+ * <p>LLVM uniekt dubbele functienamen automatisch met een volgnummer uit de
+ * symbolentabel ({@code java.lang.String_indexOf.694}). Dat nummer schuift
+ * zodra er ook maar één symbol eerder of later bijkomt in de module, waardoor
+ * de undefined-symbolen die de runtime moet definiëren bij iedere
+ * herbouw weglopen. Daarom krijgt een bezette naam een suffix uit de
+ * parameter-keys: deterministisch, en gelijk aan de overload-sleutel die de
+ * call-emissie al gebruikt om de juiste functiewaarde te vinden.
+ *
+ * <p>Een vrije naam blijft ongewijzigd (de bestaande runtime-symbolen zoals
+ * {@code java_lang_Exception_init} zijn kaal). Alleen ad-hoc- en
+ * overload-declaraties komen hier; namen die al een échte IRFunction dragen
+ * worden vóór deze call geblokkeerd (fase 2.5 respectievelijk de
+ * key-controle in {@code declareExternalConstructor}).
+ */
+static String stableSymbol(final LLVMModuleRef mod,
+                           final String fnName,
+                           final List<IRType> paramTypes) {
+    final LLVMValueRef existing = LLVMGetNamedFunction(mod, new BytePointer(fnName));
+    if (existing == null || existing.isNull()) {
+        return fnName;
+    }
+    final String suffix = symbolSuffix(paramTypes);
+    String candidate = fnName + "$" + suffix;
+    // Defensief: alleen bereikbaar wanneer twee declaraties dezelfde
+    // suffix produceren (afgeknapte profiellijst); volgorde is
+    // deterministisch, dus ook deze uitweg is stabiel.
+    int n = 2;
+    while (true) {
+        final LLVMValueRef clash = LLVMGetNamedFunction(mod, new BytePointer(candidate));
+        if (clash == null || clash.isNull()) return candidate;
+        candidate = fnName + "$" + suffix + "_" + n++;
+    }
+}
+
+/**
  * De parameterlijst van een IRFunction, met de *impliciete receiver* genormaliseerd
  * naar een descriptor-loze pointer.
  *
  * <p>De receiver mag nooit meewegen in de overload-sleutel: de declaratie
- * beschrijft `this` met de descriptor van de eigen klas, terwijl een call-site
+ * beschrijft `this` met de descriptor van de eigen klasse, terwijl een call-site
  * `this` met het statische receiver-type beschrijft — dat mag een subklasse zijn
  * en hoeft dus niet gelijk te zijn. Zonder normalisatie mist de call zijn eigen
  * symbool (`PI32I32` vs `P523beb0aI32I32`).

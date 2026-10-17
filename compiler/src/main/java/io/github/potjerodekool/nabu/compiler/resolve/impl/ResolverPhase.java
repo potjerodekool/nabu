@@ -169,7 +169,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     return it.getType();
                 }).toList();
 
-        clazz.setInterfaces(interfaces);
+        // Een anonieme klasse heeft geen implements-clausule; haar interface
+        // komt uit de new-expressie (zie visitNewClass).
+        if (!interfaces.isEmpty() || clazz.getNestingKind() != NestingKind.ANONYMOUS) {
+            clazz.setInterfaces(interfaces);
+        }
 
         final var permits = classDeclaration.getPermits().stream()
                 .map(permit -> {
@@ -413,6 +417,39 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             acceptTree(catcher.getBody(), scope);
         }
         return null;
+    }
+
+    /**
+     * Type van een unaire expressie (JLS §15.14-15.15): {@code !x} is boolean,
+     * {@code ++x}/{@code x--} houden het type van de variabele, {@code -x},
+     * {@code +x} en {@code ~x} het (unboxed, gepromoveerde) operandtype. Zonder
+     * type faalde de overload-keuze voor een argument als {@code pos++}.
+     */
+    @Override
+    public Object visitUnaryExpression(final UnaryExpressionTree unaryExpression, final Scope scope) {
+        final Object result = super.visitUnaryExpression(unaryExpression, scope);
+        if (unaryExpression.getType() != null) {
+            return result;
+        }
+        final var operandType = compilerContext.getTreeUtils().typeOf(unaryExpression.getExpression());
+        final TypeMirror type = switch (unaryExpression.getTag()) {
+            case NOT -> types.getPrimitiveType(TypeKind.BOOLEAN);
+            case POST_INC, POST_DEC, PRE_INC, PRE_DEC -> operandType;
+            default -> {
+                if (operandType == null) {
+                    yield null;
+                }
+                final TypeMirror primitive = types.isBoxType(operandType)
+                        ? types.unboxedType(operandType) : operandType;
+                final TypeKind kind = primitive.getKind();
+                yield kind == TypeKind.BYTE || kind == TypeKind.SHORT || kind == TypeKind.CHAR
+                        ? types.getPrimitiveType(TypeKind.INT) : primitive;
+            }
+        };
+        if (type != null) {
+            unaryExpression.setType(type);
+        }
+        return result;
     }
 
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
@@ -969,8 +1006,16 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitSwitchStatement(final SwitchStatement switchStatement, final Scope scope) {
         acceptTree(switchStatement.getSelector(), scope);
+        // Zonder symbool (bv. `column.overflow`, een veldtoegang) het statische
+        // type van de selector: anders vonden enum-labels als `case WRAP:`
+        // hun constante niet.
+        Element selectorElement = switchStatement.getSelector().getSymbol();
+        if (selectorElement == null && switchStatement.getSelector().getType() != null
+                && switchStatement.getSelector().getType().asElement() instanceof TypeElement selectorType) {
+            selectorElement = selectorType;
+        }
         final var switchScope = new SwitchScope(
-                switchStatement.getSelector().getSymbol(),
+                selectorElement,
                 scope
         );
         switchStatement.getCases().forEach(caseStatement -> acceptTree(caseStatement, switchScope));
@@ -1268,6 +1313,20 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     && anonymousClass.getCompleter() != Completer.NULL_COMPLETER) {
                 anonymousClass.complete();
             }
+            // JLS §15.9.5: een anonieme klasse breidt het genoemde type uit,
+            // of implementeert het (en breidt Object uit) als het een
+            // interface is. Zonder dit stond er Object zonder interfaces, en
+            // zag de codegen de anonieme klasse niet als implementatie.
+            if (classDeclaration.getClassSymbol() instanceof ClassSymbol anonymousClass
+                    && newClassExpression.getType() instanceof DeclaredType namedType
+                    && namedType.asTypeElement() != null) {
+                if (namedType.asTypeElement().getKind().isInterface()) {
+                    anonymousClass.setSuperClass(compilerContext.getTypes().getObjectType());
+                    anonymousClass.setInterfaces(List.of(namedType));
+                } else {
+                    anonymousClass.setSuperClass(namedType);
+                }
+            }
 
             acceptTree(classDeclaration, scope);
         }
@@ -1427,10 +1486,14 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var switchScope = (SwitchScope) scope;
         final var selectorElement = switchScope.getSelectorElement();
 
-        if (selectorElement instanceof VariableElement variableElement
-                && variableElement.asType().asElement() instanceof TypeElement typeElement
-                && typeElement.getKind() == ElementKind.ENUM
+        final TypeElement selectorTypeElement = selectorElement instanceof TypeElement te ? te
+                : selectorElement instanceof VariableElement variableElement
+                        && variableElement.asType().asElement() instanceof TypeElement te2 ? te2
+                : null;
+        if (selectorTypeElement != null
+                && selectorTypeElement.getKind() == ElementKind.ENUM
                 && constantCaseLabel.getExpression() instanceof IdentifierTree identifierTree) {
+            final var typeElement = selectorTypeElement;
 
             final var name = identifierTree.getName();
 

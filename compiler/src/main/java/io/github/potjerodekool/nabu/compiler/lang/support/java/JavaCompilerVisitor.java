@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.compiler.frontend.parser.MethodHeader;
 import io.github.potjerodekool.nabu.compiler.frontend.parser.WildcardBound;
 import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tree.*;
+import io.github.potjerodekool.nabu.tree.statement.CaseStatement;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
@@ -518,7 +519,16 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitConstantDeclaration(final Java20Parser.ConstantDeclarationContext ctx) {
-        final var fieldModifiers = parseModifiers(ctx.constantModifier());
+        // JLS §9.3: een interface-veld is impliciet public static final. Zonder
+        // die vlaggen werd picocli's IStyle.CSI als instantieveld van `this`
+        // gelezen (Style.on() gaf "fg_red31m" i.p.v. de escape-code).
+        var modifiers = parseModifiers(ctx.constantModifier());
+        for (final long implicit : new long[] {Flags.PUBLIC, Flags.STATIC, Flags.FINAL}) {
+            if (!modifiers.hasFlag(implicit)) {
+                modifiers = modifiers.with(implicit);
+            }
+        }
+        final var fieldModifiers = modifiers;
         final var type = (ExpressionTree) ctx.unannType().accept(this);
         final List<VariableDeclaratorTree> variableDeclarators = acceptList(ctx.variableDeclaratorList());
 
@@ -721,6 +731,129 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
+    }
+
+    /**
+     * {@code switch (e) { case A: ... }} en {@code switch (e) { case A -> ... }}
+     * (JLS §14.11). Ontbrak: elk switch-statement in Java-source verdween
+     * geruisloos (o.a. picocli's TextTable.putValue).
+     */
+    @Override
+    public Object visitSwitchStatement(final Java20Parser.SwitchStatementContext ctx) {
+        final var selector = (ExpressionTree) ctx.expression().accept(this);
+        final var block = ctx.switchBlock();
+        final var cases = new ArrayList<CaseStatement>();
+
+        for (final var rule : block.switchRule()) {
+            final List<CaseLabel> labels = switchLabels(rule.switchLabel());
+            final Tree body;
+            if (rule.block() != null) {
+                body = (Tree) rule.block().accept(this);
+            } else if (rule.throwStatement() != null) {
+                body = (Tree) rule.throwStatement().accept(this);
+            } else {
+                body = TreeMaker.expressionStatement(
+                        (ExpressionTree) rule.expression().accept(this),
+                        rule.getStart().getLine(),
+                        rule.getStart().getCharPositionInLine());
+            }
+            cases.add(CaseStatement.create(CaseStatement.CaseKind.RULE, labels, body,
+                    rule.getStart().getLine(), rule.getStart().getCharPositionInLine()));
+        }
+
+        for (final var group : block.switchBlockStatementGroup()) {
+            final List<CaseLabel> labels = new ArrayList<>();
+            for (final var label : group.switchLabel()) {
+                labels.addAll(switchLabels(label));
+            }
+            final List<StatementTree> statements = acceptList(group.blockStatements());
+            cases.add(CaseStatement.create(CaseStatement.CaseKind.STATEMENT, labels,
+                    TreeMaker.blockStatement(statements,
+                            group.getStart().getLine(), group.getStart().getCharPositionInLine()),
+                    group.getStart().getLine(), group.getStart().getCharPositionInLine()));
+        }
+
+        // Afsluitende labels zonder statements (`case X: }`).
+        if (block.switchRule().isEmpty() && !block.switchLabel().isEmpty()) {
+            final List<CaseLabel> labels = new ArrayList<>();
+            for (final var label : block.switchLabel()) {
+                labels.addAll(switchLabels(label));
+            }
+            cases.add(CaseStatement.create(CaseStatement.CaseKind.STATEMENT, labels,
+                    TreeMaker.blockStatement(List.of(),
+                            block.getStart().getLine(), block.getStart().getCharPositionInLine()),
+                    block.getStart().getLine(), block.getStart().getCharPositionInLine()));
+        }
+
+        return new io.github.potjerodekool.nabu.tree.statement.builder.SwitchStatementBuilder()
+                .selector(selector)
+                .cases(cases)
+                .lineNumber(ctx.getStart().getLine())
+                .columnNumber(ctx.getStart().getCharPositionInLine())
+                .build();
+    }
+
+    // break/continue/labeled/synchronized/assert (JLS §14.7, §14.10, §14.15,
+    // §14.16, §14.19): ontbraken in de Java-frontend en verdwenen geruisloos;
+    // een `break` in een lus deed niets, een synchronized-blok verloor zijn body.
+
+    @Override
+    public Object visitBreakStatement(final Java20Parser.BreakStatementContext ctx) {
+        return io.github.potjerodekool.nabu.tree.statement.BreakStatement.create(
+                labelTarget(ctx.identifier()), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    }
+
+    @Override
+    public Object visitContinueStatement(final Java20Parser.ContinueStatementContext ctx) {
+        return io.github.potjerodekool.nabu.tree.statement.ContinueStatement.create(
+                labelTarget(ctx.identifier()), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    }
+
+    private Tree labelTarget(final Java20Parser.IdentifierContext identifier) {
+        return identifier != null ? IdentifierTree.create(identifier.getText()) : null;
+    }
+
+    @Override
+    public Object visitLabeledStatement(final Java20Parser.LabeledStatementContext ctx) {
+        return io.github.potjerodekool.nabu.tree.statement.LabeledStatement.create(
+                ctx.identifier().getText(), (StatementTree) ctx.statement().accept(this),
+                ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    }
+
+    @Override
+    public Object visitLabeledStatementNoShortIf(final Java20Parser.LabeledStatementNoShortIfContext ctx) {
+        return io.github.potjerodekool.nabu.tree.statement.LabeledStatement.create(
+                ctx.identifier().getText(), (StatementTree) ctx.statementNoShortIf().accept(this),
+                ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    }
+
+    @Override
+    public Object visitSynchronizedStatement(final Java20Parser.SynchronizedStatementContext ctx) {
+        return io.github.potjerodekool.nabu.tree.statement.SynchronizedStatement.create(
+                (ExpressionTree) ctx.expression().accept(this), (BlockStatementTree) ctx.block().accept(this),
+                ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    }
+
+    @Override
+    public Object visitAssertStatement(final Java20Parser.AssertStatementContext ctx) {
+        final var condition = (ExpressionTree) ctx.expression(0).accept(this);
+        final var detail = ctx.expression().size() > 1 ? (ExpressionTree) ctx.expression(1).accept(this) : null;
+        return io.github.potjerodekool.nabu.tree.statement.AssertStatement.create(
+                condition, detail, ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+    }
+
+    private List<CaseLabel> switchLabels(final Java20Parser.SwitchLabelContext ctx) {
+        final List<CaseLabel> labels = new ArrayList<>();
+        if (ctx.caseConstant().isEmpty()) {
+            labels.add(DefaultCaseLabel.create(ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
+            return labels;
+        }
+        for (final var constant : ctx.caseConstant()) {
+            labels.add(ConstantCaseLabel.create(
+                    (ExpressionTree) constant.conditionalExpression().accept(this),
+                    constant.getStart().getLine(), constant.getStart().getCharPositionInLine()));
+        }
+        return labels;
     }
 
     @Override
@@ -1954,13 +2087,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         } else if (ctx.StringLiteral() != null) {
             node = ctx.StringLiteral();
             var text = node.getText();
-            value = text.substring(1, text.length() - 1);
+            value = unescapeJava(text.substring(1, text.length() - 1));
         } else if (ctx.NullLiteral() != null) {
             node = ctx.NullLiteral();
             value = null;
         } else if (ctx.CharacterLiteral() != null) {
             node = ctx.CharacterLiteral();
-            value = ctx.CharacterLiteral().getText().charAt(1);
+            final var text = ctx.CharacterLiteral().getText();
+            value = unescapeJava(text.substring(1, text.length() - 1)).charAt(0);
         } else if (ctx.FloatingPointLiteral() != null) {
             node = ctx.FloatingPointLiteral();
             final var text = node.getText().replace("_", "");
@@ -1982,6 +2116,47 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
 
         return TreeMaker.literalExpressionTree(value, node.getSymbol().getLine(), node.getSymbol().getCharPositionInLine());
+    }
+
+    /**
+     * De waarde van de tekst tussen de quotes van een string- of char-literal:
+     * eerst unicode-escapes (JLS 3.3), dan de escape-sequenties van JLS 3.10.7
+     * (newline, tab, octaal, ...). Ontbrak: een char-literal met een
+     * escape werd de backslash zelf, en picocli's ESC-teken (CSI) kwam
+     * letterlijk als escape-tekst in de uitvoer.
+     */
+    static String unescapeJava(final String raw) {
+        if (raw.indexOf('\\') < 0) {
+            return raw;
+        }
+        final StringBuilder sb = new StringBuilder(raw.length());
+        int i = 0;
+        while (i < raw.length()) {
+            final char c = raw.charAt(i);
+            if (c == '\\' && i + 1 < raw.length() && raw.charAt(i + 1) == 'u' && isUnicodeEscapeStart(raw, i)) {
+                int j = i + 1;
+                while (j < raw.length() && raw.charAt(j) == 'u') {
+                    j++;
+                }
+                if (j + 4 <= raw.length()) {
+                    sb.append((char) Integer.parseInt(raw.substring(j, j + 4), 16));
+                    i = j + 4;
+                    continue;
+                }
+            }
+            sb.append(c);
+            i++;
+        }
+        return sb.toString().translateEscapes();
+    }
+
+    /** Een backslash begint alleen een unicode-escape als hij zelf niet ge-escaped is (oneven aantal). */
+    private static boolean isUnicodeEscapeStart(final String raw, final int index) {
+        int backslashes = 0;
+        for (int k = index; k >= 0 && raw.charAt(k) == '\\'; k--) {
+            backslashes++;
+        }
+        return backslashes % 2 == 1;
     }
 
     private long valueOfJavaIntLiteral(final String text) {
@@ -2522,12 +2697,15 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             result = (ExpressionTree) ctx.expressionName().accept(this);
         }
 
-        final ExpressionTree pfe = accept(ctx.pfE());
-
-        if (pfe != null) {
-            result = TreeMaker.fieldAccessExpressionTree(
+        // `x++` / `x--` als (deel van een) expressie (JLS §15.14): een
+        // post-increment, geen veldtoegang. Werd eerder een FieldAccess met de
+        // operator als veld, zodat `charAt(i++)` i nooit ophoogde (picocli's
+        // getCJKAdjustedLength bleef eeuwig lussen).
+        for (var pfe = ctx.pfE(); pfe != null; pfe = pfe.pfE()) {
+            final Tag tag = "++".equals(pfe.getChild(0).getText()) ? Tag.POST_INC : Tag.POST_DEC;
+            result = TreeMaker.unaryExpressionTree(
+                    tag,
                     result,
-                    (IdentifierTree) pfe,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );

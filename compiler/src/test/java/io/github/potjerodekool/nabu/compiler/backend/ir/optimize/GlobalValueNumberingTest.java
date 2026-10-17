@@ -5,6 +5,7 @@ import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.optimize.GlobalValueNumbering;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
+import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -88,6 +89,39 @@ class GlobalValueNumberingTest {
         // Basis GVN herkent geen commutativiteit
         assertFalse(new GlobalValueNumbering().run(function),
                 "Basis GVN herkent geen commutatieve equivalentie");
+    }
+
+    @Test
+    void testOperandsFromOutsideTheBlockAreNotConfused() {
+        // %1 = min < 0
+        // %2 = max < 0  → min en max zijn parameters (niet in dit blok
+        //                 gedefinieerd); ze kregen allebei value number 0, dus
+        //                 werd %2 = %1 en las picocli's Range `max < 0` als `min < 0`.
+        final var min = new IRValue.Temp("min", IRType.I32);
+        final var max = new IRValue.Temp("max", IRType.I32);
+        final var module = buildModule(b -> {
+            b.beginFunction("foo", IRType.I32, List.of(min, max), 0);
+            b.emitBinaryOp(IRInstruction.BinaryOp.Op.LT, min, b.constInt(0));
+            b.emitBinaryOp(IRInstruction.BinaryOp.Op.LT, max, b.constInt(0));
+            b.emitReturn(b.constInt(0));
+        });
+
+        assertFalse(new GlobalValueNumbering().run(module.functions().getFirst()),
+                "Expressies over verschillende parameters mogen niet samenvallen");
+    }
+
+    @Test
+    void testSameOutsideOperandIsStillShared() {
+        final var x = new IRValue.Temp("x", IRType.I32);
+        final var module = buildModule(b -> {
+            b.beginFunction("foo", IRType.I32, List.of(x), 0);
+            b.emitBinaryOp(IRInstruction.BinaryOp.Op.ADD, x, b.constInt(1));
+            b.emitBinaryOp(IRInstruction.BinaryOp.Op.ADD, x, b.constInt(1));
+            b.emitReturn(b.constInt(0));
+        });
+
+        assertTrue(new GlobalValueNumbering().run(module.functions().getFirst()),
+                "x + 1 tweemaal over dezelfde parameter is wél dezelfde waarde");
     }
 
     @Test

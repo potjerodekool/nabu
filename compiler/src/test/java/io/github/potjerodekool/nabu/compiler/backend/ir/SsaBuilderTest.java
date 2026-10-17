@@ -715,6 +715,9 @@ class InstructionPrinter {
             case BITAND -> "bitand";
             case BITOR -> "bitor";
             case BITXOR -> "bitxor";
+            case SHL -> "shl";
+            case SHR -> "shr";
+            case USHR -> "ushr";
             case EQ -> "eq";
             case NEQ -> "neq";
             case LT -> "lt";

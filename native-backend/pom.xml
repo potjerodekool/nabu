@@ -100,15 +100,22 @@
             </resource>
             <!-- nabu-runtime bundelen: de linker (MinGW-gcc-pad) heeft
                  nabu_runtime.c/.h nodig om de SEH-persoonlijkheid/linktijd-
-                 functies mee te compileren. Bundelen in de plugin-jar is de
-                 enige betrouwbare plek voor een maven-deployment (geen
-                 repo-checkout gegarandeerd). -->
+                 functies mee te compileren, en jcl_lite.c voor de
+                 java.lang/java.util-runtime-helpers (zie Linker.runtimeSources()).
+                 Bundelen in de plugin-jar is de enige betrouwbare plek voor
+                 een maven-deployment (geen repo-checkout gegarandeerd).
+                 Zonder jcl_lite.c in deze includes-lijst valt de linker terug
+                 op de bundled-in-jar-kopie zonder jcl_lite.c zodra het
+                 CWD-relatieve runtime/-pad niet bestaat (bv. bij een build
+                 vanuit een ander project zoals cli-demo) -> honderden
+                 'undefined reference' linkfouten voor java.*/java_*-symbolen. -->
             <resource>
                 <directory>${project.basedir}/../runtime</directory>
                 <targetPath>nabu/runtime</targetPath>
                 <includes>
                     <include>nabu_runtime.c</include>
                     <include>nabu_runtime.h</include>
+                    <include>jcl_lite.c</include>
                 </includes>
             </resource>
         </resources>
@@ -183,6 +190,7 @@
                         </goals>
                         <configuration>
                             <outputDirectory>${user.home}/.nabu/plugins</outputDirectory>
+                            <overWriteIfNewer>true</overWriteIfNewer>
                             <resources>
                                 <resource>
                                     <directory>${project.build.directory}</directory>

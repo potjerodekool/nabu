@@ -315,6 +315,24 @@ public class IRBuilder {
         return temp;
     }
 
+    /**
+     * Zelfde als {@link #emitAllocaArray(int, IRType)}, maar met een
+     * runtime-berekende grootte (bv. voor bytecode-gelowerde
+     * {@code newarray}/{@code anewarray}, waar de array-grootte van de
+     * operand-stack komt in plaats van een compile-time-constante).
+     */
+    public IRValue emitAllocaArray(final IRValue size,
+                                   final IRType type) {
+        final var temp = fresh(type);
+        emit(new IRInstruction.AllocaArray(
+                temp,
+                type,
+                size,
+                currentLocation
+        ));
+        return temp;
+    }
+
     public IRValue emitLoad(IRValue ptr) {
         return emitLoad(null, ptr);
     }
@@ -539,16 +557,54 @@ public class IRBuilder {
     }
 
     public IRValue constString(String value) {
-        String globalName = ".str." + stringCounter++;
+        String globalName = stringGlobalName();
         module.addGlobal(IRGlobal.stringLiteral(globalName, value));
         return new IRValue.Named("@" + globalName, new IRType.Ptr(IRType.I8));
     }
 
     public IRValue constString(String value,
                                final String jvmDescriptor) {
-        String globalName = ".str." + stringCounter++;
+        String globalName = stringGlobalName();
         module.addGlobal(IRGlobal.stringLiteral(globalName, value));
         return new IRValue.Named("@" + globalName, new IRType.Ptr(IRType.I8, jvmDescriptor));
+    }
+
+    /**
+     * Naam voor een string-literal-global, uniek over de HELE batchcompilatie.
+     *
+     * {@code stringCounter} is een instantieveld: elke klasse/module krijgt haar
+     * EIGEN {@code IRBuilder} en telt dus zelf vanaf 0. Zolang er maar één klasse
+     * per keer gecompileerd werd was ".str." + stringCounter prima, maar de
+     * native-backend compileert alle klassen van het programma (de hele
+     * batch, bv. GreetCommand + alle vendored picocli-klassen) in ÉÉN
+     * gedeelde LLVM-module. Twee klassen die toevallig hetzelfde kale getal
+     * genereerden (bv. allebei een eigen ".str.2") botsten dan op dezelfde
+     * LLVM-globalnaam: de backend emitteert de EERST-verwerkte klasse's
+     * string-data onder die naam, en elke latere klasse die ONDER DEZELFDE
+     * NAAM een ANDERE string probeerde te registreren verwees daardoor
+     * stilzwijgend naar de verkeerde, allang bestaande data van de eerste
+     * klasse — niet naar zijn eigen, inhoudelijk andere literal. Zichtbaar
+     * effect: tientallen semantisch onverwante call-sites (Class.forName,
+     * Assert.notNull-boodschappen, enum-namen, ...) in volledig andere
+     * klassen verwezen allemaal naar hetzelfde ene ".str.2"-global van een
+     * compleet andere klasse (hier: GreetCommand's eigen " times"-literal),
+     * met kapotte class-lookups en berichten door het hele programma als
+     * gevolg. Het module-name (uniek per klasse) als voorvoegsel sluit die
+     * botsing voorgoed uit, ongeacht hoeveel klassen er in de batch zitten
+     * of in welke volgorde ze verwerkt worden.
+     */
+    private String stringGlobalName() {
+        return ".str." + sanitizeForGlobalName(module.name) + "." + stringCounter++;
+    }
+
+    private static String sanitizeForGlobalName(final String name) {
+        if (name == null || name.isEmpty()) return "anon";
+        final StringBuilder sb = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            final char c = name.charAt(i);
+            sb.append(Character.isLetterOrDigit(c) ? c : '_');
+        }
+        return sb.toString();
     }
 
     // -------------------------------------------------------

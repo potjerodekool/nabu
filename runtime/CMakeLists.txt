@@ -3,7 +3,7 @@ project(nabu_runtime C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_library(nabu_runtime SHARED nabu_runtime.c)
+add_library(nabu_runtime SHARED nabu_runtime.c jcl_lite.c)
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(nabu_runtime pthread gcc_s)

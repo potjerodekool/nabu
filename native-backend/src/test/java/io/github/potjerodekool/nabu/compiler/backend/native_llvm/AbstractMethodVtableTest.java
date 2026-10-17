@@ -119,6 +119,70 @@ class AbstractMethodVtableTest {
                 "Het abstracte symbool heeft alleen een declaration:\n" + ll);
     }
 
+    /**
+     * Een {@code final} override vervangt het super-slot net als een gewone:
+     * {@code final} verbiedt alleen verdere overrides. picocli's pad via
+     * {@code Charset.defaultCharset()} riep anders het abstracte
+     * {@code CharsetProvider.charsetForName} aan, omdat
+     * {@code StandardCharsets.charsetForName} {@code public final} is.
+     */
+    @Test
+    void finalOverrideReplacesTheAbstractSuperSlot() throws Exception {
+        IRBuilder b = new IRBuilder("test/Leaf");
+        b.superType(MID_TYPE);
+        var thisParam = new IRValue.Temp("this", LEAF_TYPE);
+        b.beginFunction("Leaf_self", LEAF_TYPE, List.of(thisParam), Flags.FINAL);
+        b.emitReturn(thisParam);
+        b.endFunction();
+
+        String ll = compile(List.of(baseModule(), midModule(), b.build()));
+
+        String leafVtable = globalInitializer(ll, "_ZNabutest_LeafEvtable");
+        assertTrue(leafVtable.contains("@Leaf_self"),
+                "De final override hoort op het slot van Base_self:\n" + leafVtable);
+        assertFalse(leafVtable.contains("@Base_self"),
+                "De abstracte Base_self hoort niet in Leaf's vtable:\n" + leafVtable);
+    }
+
+    /**
+     * Een klasse zonder expliciete super (impliciet {@code extends Object})
+     * erft de vtable-prefix van het gecompileerde java.lang.Object, en een
+     * native virtuele methode van Object (hashCode) krijgt een slot dat de
+     * override deelt. Anders stond op Object's equals-slot van picocli's
+     * ArgSpec diens applyInitialValue, en riep HashMap die aan.
+     */
+    @Test
+    void implicitObjectSubclassSharesObjectsSlots() throws Exception {
+        IRType objectType = new IRType.Ptr(IRType.I8, "Ljava/lang/Object;");
+        IRBuilder object = new IRBuilder("java.lang.Object");
+        var objThis = new IRValue.Temp("this", objectType);
+        object.beginFunction("java.lang.Object_equals", IRType.BOOL,
+                List.of(objThis, new IRValue.Temp("o", objectType)), 0L);
+        object.emitReturn(object.constBool(false));
+        object.endFunction();
+        object.beginFunction("java.lang.Object_hashCode", IRType.I32, List.of(objThis), Flags.NATIVE);
+        object.endFunction();
+
+        IRType fooType = new IRType.Ptr(IRType.I8, "Ltest/Foo;");
+        IRBuilder foo = new IRBuilder("test/Foo");
+        var fooThis = new IRValue.Temp("this", fooType);
+        foo.beginFunction("Foo_aaa", IRType.I32, List.of(fooThis), 0L);
+        foo.emitReturn(foo.constInt(1));
+        foo.endFunction();
+        foo.beginFunction("Foo_hashCode", IRType.I32, List.of(fooThis), 0L);
+        foo.emitReturn(foo.constInt(42));
+        foo.endFunction();
+
+        String ll = compile(List.of(object.build(), foo.build()));
+        int objectHash = slotIndexOfVtable(ll, "_ZNabujava_lang_ObjectEvtable", "java.lang.Object_hashCode");
+        assertTrue(objectHash >= 0, "Object.hashCode (native) hoort een vtable-slot:\n" + evtableInitializers(ll));
+        assertEquals(objectHash, slotIndexOfVtable(ll, "_ZNabutest_FooEvtable", "Foo_hashCode"),
+                "Foo.hashCode hoort op het slot van Object.hashCode:\n" + evtableInitializers(ll));
+        assertEquals(slotIndexOfVtable(ll, "_ZNabujava_lang_ObjectEvtable", "java.lang.Object_equals"),
+                slotIndexOfVtable(ll, "_ZNabutest_FooEvtable", "java.lang.Object_equals"),
+                "Foo erft Object.equals op hetzelfde slot:\n" + evtableInitializers(ll));
+    }
+
     private String compile(List<IRModule> modules) throws Exception {
         Path out = tempDir.resolve("out.o");
         new NativeLLVMBackend().compileToObject(modules, options(), out);

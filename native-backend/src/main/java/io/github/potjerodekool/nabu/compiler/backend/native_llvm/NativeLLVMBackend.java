@@ -12,6 +12,7 @@ import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.debug.SourceLocation;
 import io.github.potjerodekool.nabu.util.CompileException;
 import org.bytedeco.javacpp.BytePointer;
+import org.bytedeco.javacpp.PointerScope;
 import org.bytedeco.llvm.LLVM.*;
 
 import java.nio.file.Files;
@@ -98,12 +99,23 @@ public class NativeLLVMBackend implements Backend {
     }
 
     private void loadNativeImageConfigs(final Path outputObj) {
-        final var classPathRoot = outputObj.toAbsolutePath().getParent();
-        if (classPathRoot == null) {
+        // De config kan aan twee kanten staan: in de class-output-root zelf
+        // (javac/Filer schrijft META-INF/native-image in de output-map, bv.
+        // target/classes) óf naast de .o in diens parent (zoals de e2e-tests).
+        // Scan beide; outputObj is een map bij compileAll(targetDirectory).
+        final var abs = outputObj.toAbsolutePath();
+        final var roots = new java.util.ArrayList<java.nio.file.Path>();
+        if (java.nio.file.Files.isDirectory(abs)) {
+            roots.add(abs);
+        }
+        if (abs.getParent() != null) {
+            roots.add(abs.getParent());
+        }
+        if (roots.isEmpty()) {
             return;
         }
         final var configs = io.github.potjerodekool.nabu.compiler.backend.native_llvm.config
-                .NativeImageConfigScanner.scan(java.util.List.of(classPathRoot));
+                .NativeImageConfigScanner.scan(roots);
         for (final var config : configs) {
             reflectionRegistry.register(config);
         }
@@ -126,12 +138,18 @@ public class NativeLLVMBackend implements Backend {
      * {@code Main_main}. Als er nog geen letterlijke {@code main} is maar wel
      * zo'n entry-methode, synthetiseren we:
      *
-     *   i32 @main() {
-     *     call void @<entry>(null, null, ...)   // per parameter
+     *   i32 @main(i32 %argc, i8* %argv) {
+     *     %args = call i8* @nabu_args_from_argv(i32 %argc, i8* %argv)
+     *     call void @<entry>(null, ..., %args)   // %args is de LAATSTE param
      *     ret i32 0
      *   }
      *
-     * Het aantal nulls volgt de parameterlijst van de entry: bv. een Java
+     * De echte argc/argv van het besturingssysteem worden via
+     * {@code nabu_args_from_argv} (runtime/jcl_lite.c) omgezet naar een
+     * java.lang.String[] en als LAATSTE argument aan de entry-methode
+     * doorgegeven; eventuele parameters daarvóór (alleen 'this' in de
+     * nabu-instance-vorm) blijven null. Zonder dit zou de entry-methode
+     * nooit de echte commandline-argumenten zien: bv. een Java
      * {@code static void main(String[])} heeft één parameter (de args), een
      * nabu-instance {@code fun main(args: String[])} twee (this + args).
      */
@@ -148,17 +166,34 @@ public class NativeLLVMBackend implements Backend {
 
         IRType.Ptr opaque = new IRType.Ptr(IRType.I8);
 
+        // De native main() krijgt de ECHTE argc/argv van het besturingssysteem
+        // en zet ze via de runtime-helper om naar een java.lang.String[] vóór
+        // de entry-methode wordt aangeroepen (zie nabu_args_from_argv in
+        // jcl_lite.c en de declaratie in LLVMModuleEmitter.declareRuntimeHelpers).
+        IRValue.Temp argcParam = new IRValue.Temp("argc", IRType.I32);
+        IRValue.Temp argvParam = new IRValue.Temp("argv", opaque);
+        IRValue.Temp argsArray = new IRValue.Temp("main.args", opaque);
+
         List<IRValue> args = new java.util.ArrayList<>(entry.params.size());
         for (int i = 0; i < entry.params.size(); i++) {
-            args.add(new IRValue.ConstNull(opaque));
+            // De LAATSTE parameter is de args-array; alles daarvóór (enkel
+            // 'this' in de instance-vorm) blijft null, zoals voorheen.
+            args.add(i == entry.params.size() - 1
+                    ? argsArray
+                    : new IRValue.ConstNull(opaque));
         }
         List<IRType> paramTypes = entry.params.stream()
                 .map(IRValue::type)
                 .toList();
 
         IRFunction bridge = new IRFunction("main", IRType.I32,
-                List.of(), SourceLocation.UNKNOWN, 0);
+                List.of(argcParam, argvParam), SourceLocation.UNKNOWN, 0);
         IRBasicBlock entryBlock = new IRBasicBlock("entry");
+        if (!entry.params.isEmpty()) {
+            entryBlock.add(new IRInstruction.Call(CallKind.STATIC, opaque,
+                    List.of(IRType.I32, opaque), argsArray, "nabu_args_from_argv",
+                    List.of(argcParam, argvParam), SourceLocation.UNKNOWN));
+        }
         if (IRType.I32.equals(entry.returnType)) {
             // main(): int → geef het resultaat door als exit-code (handig voor
             // runnable e2e-tests zonder exception-handling).
@@ -198,6 +233,34 @@ public class NativeLLVMBackend implements Backend {
         compileToObject(modules, opts, outputObj, triple);
     }
 
+    /**
+     * Laat bridge-methoden weg die alleen in returntype van hun doel
+     * verschillen (bv. {@code Object convert(String)} naast
+     * {@code String convert(String)}): de JVM heeft ze nodig, maar hier
+     * delen ze het LLVM-symbool van het doel, en de vtable/itable koppelt al
+     * op naam en parameters. (Zelfde keuze als de bytecode-lowering.)
+     */
+    static IRModule withoutReturnOnlyBridges(final IRModule module) {
+        final List<IRFunction> functions = module.functions();
+        final List<IRFunction> kept = functions.stream()
+                .filter(fn -> !isReturnOnlyBridge(fn, functions))
+                .toList();
+        return kept.size() == functions.size() ? module : module.withFunctions(kept);
+    }
+
+    private static boolean isReturnOnlyBridge(final IRFunction fn, final List<IRFunction> functions) {
+        if (!io.github.potjerodekool.nabu.lang.Flags.hasFlag(fn.getFlags(),
+                io.github.potjerodekool.nabu.lang.Flags.BRIDGE)) {
+            return false;
+        }
+        final var paramTypes = fn.params.stream().map(IRValue::type).toList();
+        return functions.stream().anyMatch(other -> other != fn
+                && other.name.equals(fn.name)
+                && !io.github.potjerodekool.nabu.lang.Flags.hasFlag(other.getFlags(),
+                        io.github.potjerodekool.nabu.lang.Flags.BRIDGE)
+                && other.params.stream().map(IRValue::type).toList().equals(paramTypes));
+    }
+
     private void compileToObject(List<IRModule> modules,
                                  CompileOptions opts,
                                  Path outputObj,
@@ -206,10 +269,28 @@ public class NativeLLVMBackend implements Backend {
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
 
-        try {
+        try (PointerScope scope = new PointerScope()) {
+            long t0 = System.nanoTime();
             var emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
             emitter.setReflectionRegistry(reflectionRegistry);
-            emitter.emitAll(modules);
+            emitter.emitAll(modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList());
+            final java.util.List<String> unresolved = emitter.stubUnresolvedSymbols();
+            if (!unresolved.isEmpty()) {
+                final Path unresolvedPath = replaceExtension(outputObj, ".unresolved.txt");
+                try {
+                    java.nio.file.Files.write(unresolvedPath, unresolved);
+                } catch (final java.io.IOException e) {
+                    System.err.println("[NativeLLVMBackend] kon " + unresolvedPath
+                            + " niet schrijven: " + e.getMessage());
+                }
+                System.err.println("[NativeLLVMBackend] waarschuwing: " + unresolved.size()
+                        + " aangeroepen JDK-functies hebben geen implementatie (native,"
+                        + " signature-polymorf of niet gevonden) en breken het programma af"
+                        + " als ze worden uitgevoerd. Lijst: " + unresolvedPath);
+            }
+            long t1 = System.nanoTime();
+            System.err.println("[NativeLLVMBackend] emitAll (" + modules.size() + " IR-modules -> LLVM-IR): "
+                    + (t1 - t0) / 1_000_000L + " ms");
 
             LLVMSetTarget(llvmMod, new BytePointer(triple));
 
@@ -228,14 +309,25 @@ public class NativeLLVMBackend implements Backend {
             // .ll eerst schrijven: ook als validatie faalt is de IR
             // beschikbaar voor inspectie.
             Path llPath = replaceExtension(outputObj, ".ll");
+            long t2 = System.nanoTime();
             emitLLVMIR(llvmMod, llPath);
+            long t3 = System.nanoTime();
+            System.err.println("[NativeLLVMBackend] .ll wegschrijven: " + (t3 - t2) / 1_000_000L + " ms");
 
             validate(llvmMod);
+            long t4 = System.nanoTime();
+            System.err.println("[NativeLLVMBackend] validate: " + (t4 - t3) / 1_000_000L + " ms");
 
-            if (opts.optLevel() != CompileOptions.OptLevel.NONE)
+            if (opts.optLevel() != CompileOptions.OptLevel.NONE) {
                 optimize(llvmMod, machine, opts.optLevel());
+            }
+            long t5 = System.nanoTime();
+            System.err.println("[NativeLLVMBackend] optimize (" + opts.optLevel() + "): "
+                    + (t5 - t4) / 1_000_000L + " ms");
 
             emitObjectFile(llvmMod, machine, outputObj, err);
+            long t6 = System.nanoTime();
+            System.err.println("[NativeLLVMBackend] emitObjectFile: " + (t6 - t5) / 1_000_000L + " ms");
             LLVMDisposeTargetMachine(machine);
 
         } finally {
@@ -261,7 +353,7 @@ public class NativeLLVMBackend implements Backend {
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(module.name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
 
-        try {
+        try (PointerScope scope = new PointerScope()) {
             var emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
             emitter.emit(module);
 

@@ -19,6 +19,7 @@
         <includes>
           <include>nabu_runtime.c</include>
           <include>nabu_runtime.h</include>
+          <include>jcl_lite.c</include>
         </includes>
       </resource>
     </resources>
@@ -80,6 +81,7 @@
             </goals>
             <configuration>
               <outputDirectory>${user.home}/.nabu/plugins</outputDirectory>
+              <overWriteIfNewer>true</overWriteIfNewer>
               <resources>
                 <resource>
                   <directory>${project.build.directory}</directory>
@@ -104,6 +106,14 @@
       <exclusions>
         <exclusion>
           <artifactId>asm-util</artifactId>
+          <groupId>org.ow2.asm</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>asm-tree</artifactId>
+          <groupId>org.ow2.asm</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>asm-analysis</artifactId>
           <groupId>org.ow2.asm</groupId>
         </exclusion>
       </exclusions>

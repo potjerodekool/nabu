@@ -338,10 +338,36 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
         final var arguments = newClassExpression.getArguments().stream()
                 .map(it -> (ExpressionTree) acceptTree(it, param))
                 .toList();
+        // De body van een anonieme klasse (in place, zoals visitClass);
+        // zonder dit bleven bv. try/finally en enhanced-for erin ongelowered.
+        // Alleen echte anonieme klassen: enum-constanten dragen hier ook een
+        // declaratie (zonder eigen symbool).
+        final var classDeclaration = newClassExpression.getClassDeclaration();
+        if (classDeclaration != null
+                && classDeclaration.getClassSymbol() != null
+                && classDeclaration.getClassSymbol().getNestingKind()
+                        == io.github.potjerodekool.nabu.lang.model.element.NestingKind.ANONYMOUS) {
+            acceptTree(classDeclaration, param);
+        }
         return newClassExpression.builder()
                 .name(name)
                 .arguments(arguments)
                 .build();
+    }
+
+    @Override
+    public Tree visitLabeledStatement(final LabeledStatement labeledStatement, final P param) {
+        final var statement = (StatementTree) acceptTree(labeledStatement.getStatement(), param);
+        return LabeledStatement.create(labeledStatement.getLabel(), statement,
+                labeledStatement.getLineNumber(), labeledStatement.getColumnNumber());
+    }
+
+    @Override
+    public Tree visitSynchronizedStatement(final SynchronizedStatement synchronizedStatement, final P param) {
+        final var expression = (ExpressionTree) acceptTree(synchronizedStatement.getExpression(), param);
+        final var body = (BlockStatementTree) acceptTree(synchronizedStatement.getBody(), param);
+        return SynchronizedStatement.create(expression, body,
+                synchronizedStatement.getLineNumber(), synchronizedStatement.getColumnNumber());
     }
 
     @Override

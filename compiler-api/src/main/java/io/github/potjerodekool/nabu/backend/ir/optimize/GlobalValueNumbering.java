@@ -33,66 +33,79 @@ public class GlobalValueNumbering implements OptimizationPass {
         return changed;
     }
 
+    /** Sleutel van een expressie: opcode plus de value-keys van beide operanden. */
+    private record ExprKey(IRInstruction.BinaryOp.Op op, Object left, Object right) {
+    }
+
     private boolean gvnBlock(final IRBasicBlock block) {
         boolean changed = false;
 
-        // Value numbers: temp name → value number
+        // Value numbers: temp name → value number. Een temp die in dit blok
+        // niet gedefinieerd wordt (parameter, waarde uit een ander blok) krijgt
+        // bij eerste gebruik een eigen nummer: twee verschillende parameters
+        // mogen nooit hetzelfde nummer delen.
         final Map<String, Long> valueNumbers = new HashMap<>();
+        final long[] nextVN = {1};
 
-        // Hash → het eerder geziene resultaat dat die hash heeft
-        final Map<Integer, IRValue> seenExpressions = new HashMap<>();
-
-        long nextVN = 1;
+        // Exacte sleutel → het eerder geziene resultaat. Geen int-hash als
+        // sleutel: een botsing zou twee verschillende expressies samenvoegen.
+        final Map<ExprKey, IRValue> seenExpressions = new HashMap<>();
 
         for (final var instr : new ArrayList<>(block.instructions())) {
             if (instr instanceof IRInstruction.Phi) {
                 // Phi's hebben speciale behandeling nodig; sla over
                 final var name = IRValue.nameOf(instr.result());
-                valueNumbers.put(name, nextVN++);
+                valueNumbers.put(name, nextVN[0]++);
                 continue;
             }
 
             if (instr instanceof IRInstruction.BinaryOp op) {
-                final var leftVN = getValueNumber(op.left(), valueNumbers);
-                final var rightVN = getValueNumber(op.right(), valueNumbers);
+                final var leftKey = valueKey(op.left(), valueNumbers, nextVN);
+                final var rightKey = valueKey(op.right(), valueNumbers, nextVN);
+                final var existing = leftKey != null && rightKey != null
+                        ? seenExpressions.get(new ExprKey(op.op(), leftKey, rightKey))
+                        : null;
 
-                final var hash = Objects.hash(op.op(), leftVN, rightVN);
-
-                final var existing = seenExpressions.get(hash);
                 if (existing != null && existing != op.result()) {
                     // Vervang door het eerdere resultaat
                     block.setInstruction(block.instructions().indexOf(instr),
                             new IRInstruction.Move(op.result(), existing, op.location()));
                     changed = true;
                 } else {
-                    final var vn = nextVN++;
-                    valueNumbers.put(IRValue.nameOf(op.result()), vn);
-                    seenExpressions.put(hash, op.result());
+                    valueNumbers.put(IRValue.nameOf(op.result()), nextVN[0]++);
+                    if (leftKey != null && rightKey != null) {
+                        seenExpressions.put(new ExprKey(op.op(), leftKey, rightKey), op.result());
+                    }
                 }
             } else if (instr.result() != null &&
                        instr.result() instanceof IRValue.Temp temp) {
                 // Andere instructies met resultaat: ken een nieuw VN toe
-                valueNumbers.put(temp.name(), nextVN++);
+                valueNumbers.put(temp.name(), nextVN[0]++);
             }
         }
 
         return changed;
     }
 
-    private long getValueNumber(final IRValue value,
-                                final Map<String, Long> valueNumbers) {
+    /**
+     * De identiteit van een operand voor GVN, of null als die niet betrouwbaar
+     * te bepalen is (dan wordt de expressie niet samengevoegd).
+     */
+    private Object valueKey(final IRValue value,
+                            final Map<String, Long> valueNumbers,
+                            final long[] nextVN) {
         if (value instanceof IRValue.ConstInt c) {
-            return c.value() + 1000_000; // constanten krijgen offset
+            return "i" + c.type() + ":" + c.value();
         }
 
         if (value instanceof IRValue.ConstBool b) {
-            return b.value() ? 2000_001 : 2000_000;
+            return b.value() ? "true" : "false";
         }
 
         if (value instanceof IRValue.Temp temp) {
-            return valueNumbers.getOrDefault(temp.name(), 0L);
+            return valueNumbers.computeIfAbsent(temp.name(), n -> nextVN[0]++);
         }
 
-        return 0L;
+        return null;
     }
 }

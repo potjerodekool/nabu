@@ -291,9 +291,8 @@ class LowerTest extends AbstractCompilerTest {
                 .type(null)
                 .build();
 
-        stateClass.addEnclosedElement(onConstant);
-
         stateClass.setMembers(new WritableScope());
+        stateClass.addEnclosedElement(onConstant);
 
         final var selector = IdentifierTree.create("state");
 
@@ -332,9 +331,9 @@ class LowerTest extends AbstractCompilerTest {
         final var result = lower.acceptTree(switchStatement, lowerScope);
         final var actual = TreePrinter.print(result);
         final var expected = """
-                switch(foo.bar.TT$1.$SwitchMap$foo$bar$State[state.ordinal()])
+                switch(state.ordinal())
                 {
-                    case ON : {
+                    case 0 : {
                 
                     }
                 

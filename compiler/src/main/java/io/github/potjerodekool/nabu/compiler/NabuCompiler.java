@@ -14,6 +14,7 @@ import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.impl.LambdaToMethodPhase;
 import io.github.potjerodekool.nabu.compiler.incremental.IncrementalBuildState;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
+import io.github.potjerodekool.nabu.compiler.backend.bytecode.BytecodeReachabilityCompiler;
 import io.github.potjerodekool.nabu.tools.*;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.io.impl.NabuCFileManager;
@@ -140,9 +141,18 @@ public class NabuCompiler implements Compiler {
             // object-model relaties over klassen heen (super-velden,
             // override-slots, super-constructor-ketens) moeten ook over
             // bronbestanden heen in één backend-run worden opgelost.
-            final var compileOptions = CompileOptions.defaults().withJavaVersion(targetVersion);
+            final var gcStrategy = getGcStrategy(compilerOptions);
+            final var optLevel = getOptLevel(compilerOptions);
+            final var compileOptions = new CompileOptions(
+                    optLevel,
+                    false,
+                    null,
+                    gcStrategy,
+                    targetVersion
+            );
             final var allModules = new ArrayList<io.github.potjerodekool.nabu.backend.ir.IRModule>();
 
+            final long irGenStart = System.nanoTime();
             for (final var compilationUnit : compilationUnits) {
                 final String sourceName = producedBySource != null
                         ? IncrementalBuildState.normalizePath(compilationUnit.getFileObject().getFileName())
@@ -171,8 +181,53 @@ public class NabuCompiler implements Compiler {
                 }
             }
 
+            // Fase 2 (BYTECODE_COMPILATION_PLAN.md): sluit de verzameling IRModules
+            // aan met bytecode-gelowerde klassen die geen Nabu-source hebben
+            // (bv. java.util.regex.Pattern/Matcher), gestart vanaf expliciete
+            // seed-klassen (--bytecode-classes=com.foo.Bar,com.foo.Baz).
+            final long irGenMillis = (System.nanoTime() - irGenStart) / 1_000_000L;
+            System.err.println("[NabuCompiler] Nabu-source IR-generatie (" + allModules.size()
+                    + " modules): " + irGenMillis + " ms");
+
+            final var bytecodeClassesOption = compilerOptions.getOption(CompilerOption.BYTECODE_CLASSES);
+
+            if (bytecodeClassesOption.isPresent() && !bytecodeClassesOption.get().isBlank()) {
+                final var alreadyCompiled = new java.util.HashSet<String>();
+                for (final var module : allModules) {
+                    alreadyCompiled.add(module.name);
+                }
+
+                final var seeds = java.util.Arrays.stream(bytecodeClassesOption.get().split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .map(s -> s.replace('.', '/'))
+                        .toList();
+
+                final var jdkHomeOverride = compilerOptions.getOption(CompilerOption.BYTECODE_JDK_HOME)
+                        .orElse(null);
+                final var reachabilityCompiler = new BytecodeReachabilityCompiler(
+                        compilerContext.getFileManager(),
+                        alreadyCompiled,
+                        jdkHomeOverride
+                );
+                final long reachStart = System.nanoTime();
+                // allModules bevat op dit punt alleen de Nabu-source-
+                // modules (de bytecode-sluiting is nog niet toegevoegd) -
+                // nodig om te bepalen welke methodes van de SEED-klassen
+                // daadwerkelijk vanuit Nabu-source aangeroepen worden (zie
+                // BytecodeReachabilityCompiler.findCalledSeedMethodNames).
+                allModules.addAll(reachabilityCompiler.compileClosure(seeds, java.util.List.copyOf(allModules)));
+                final long reachMillis = (System.nanoTime() - reachStart) / 1_000_000L;
+                System.err.println("[NabuCompiler] Bytecode-reachability-sluiting + lowering: "
+                        + reachMillis + " ms (" + allModules.size() + " modules totaal)");
+            }
+
             try {
+                final long backendStart = System.nanoTime();
                 codeBackend.compileAll(allModules, compileOptions, targetDirectory);
+                final long backendMillis = (System.nanoTime() - backendStart) / 1_000_000L;
+                System.err.println("[NabuCompiler] Backend (codegen/optimalisatie/linken): "
+                        + backendMillis + " ms");
             } catch (final CompileException e) {
                 compilerDiagnosticListener.report(new DefaultDiagnostic(
                         Diagnostic.Kind.ERROR,
@@ -195,6 +250,60 @@ public class NabuCompiler implements Compiler {
     private String getBackendName(final CompilerOptions compilerOptions) {
         return compilerOptions.getOption(CompilerOption.BACKEND)
                 .orElse("ASM");
+    }
+
+    /**
+     * GC-strategie voor de native backend, via de {@code --gc} compiler-optie
+     * (bv. {@code -Pllvm}'s {@code compilerArgs} in een Maven-build: {@code
+     * <arg>--gc=BOEHM</arg>}). Standaard {@code NONE} (stack-alloca, zoals
+     * voorheen) om bestaand gedrag voor bestaande builds/tests niet te
+     * wijzigen — maar let op: {@code NONE} is alleen geschikt wanneer geen
+     * object een functie-aanroep moet overleven (dus niet voor exceptions
+     * die verder dan hun eigen frame moeten propageren, of voor objecten die
+     * worden teruggegeven/opgeslagen). Onbekende waarden vallen terug op
+     * {@code NONE} met een waarschuwing, in plaats van een onduidelijke
+     * runtime-crash later.
+     */
+    /**
+     * Optimalisatieniveau voor de native backend, via de {@code --opt}
+     * compiler-optie ({@code NONE}, {@code DEFAULT} of {@code AGGRESSIVE}).
+     * Standaard {@code DEFAULT} (ongewijzigd bestaand gedrag: LLVM's
+     * "default&lt;O2&gt;"-pijplijn, inclusief de LLVM-inliner). Diagnostisch
+     * gebruik: {@code --opt=NONE} draait alleen {@code mem2reg} (geen
+     * inlining, geen SROA) — nuttig om uit te sluiten dat LLVM's O2-pijplijn
+     * (met name de inliner) een probleem veroorzaakt bij de niet-standaard
+     * Itanium-landingpad-over-Windows-SEH exception-opzet van deze backend.
+     */
+    private CompileOptions.OptLevel getOptLevel(final CompilerOptions compilerOptions) {
+        final var raw = compilerOptions.getOption(CompilerOption.OPT).orElse(null);
+
+        if (raw == null || raw.isBlank()) {
+            return CompileOptions.OptLevel.DEFAULT;
+        }
+
+        try {
+            return CompileOptions.OptLevel.valueOf(raw.trim().toUpperCase());
+        } catch (final IllegalArgumentException e) {
+            System.err.println("nabu: onbekende --opt waarde '" + raw
+                    + "', gebruik NONE, DEFAULT of AGGRESSIVE. Terugval op DEFAULT.");
+            return CompileOptions.OptLevel.DEFAULT;
+        }
+    }
+
+    private CompileOptions.GcStrategy getGcStrategy(final CompilerOptions compilerOptions) {
+        final var raw = compilerOptions.getOption(CompilerOption.GC).orElse(null);
+
+        if (raw == null || raw.isBlank()) {
+            return CompileOptions.GcStrategy.NONE;
+        }
+
+        try {
+            return CompileOptions.GcStrategy.valueOf(raw.trim().toUpperCase());
+        } catch (final IllegalArgumentException e) {
+            System.err.println("nabu: onbekende --gc waarde '" + raw
+                    + "', gebruik NONE, BOEHM of REFCOUNT. Terugval op NONE.");
+            return CompileOptions.GcStrategy.NONE;
+        }
     }
 
     @Override

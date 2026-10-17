@@ -169,6 +169,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
 
     public void setNestingKind(final NestingKind nestingKind) {
         this.nestingKind = nestingKind;
+        this.qualifiedName = null;
     }
 
     private void resolveQualifiedName() {
@@ -183,7 +184,10 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
                     ? qn.getQualifiedName()
                     : enclosing.getSimpleName();
 
-            final var separator = nestingKind == NestingKind.MEMBER ? "$" : ".";
+            // Ook een anonieme klasse krijgt de binaire vorm (Outer$1), zoals
+            // javac: die naam belandt in descriptors en module-namen.
+            final var separator = nestingKind == NestingKind.MEMBER
+                    || nestingKind == NestingKind.ANONYMOUS ? "$" : ".";
 
             qualifiedName = enclosingName + separator + getSimpleName();
         } else {

@@ -49,6 +49,12 @@ public class FunctionEmitter {
      * handler-blok geëmit, de catch-body in dit aparte blok.
      */
     private final Map<String, LLVMBasicBlockRef> handlerBodyBlocks = new HashMap<>();
+    /** De JDK-symbolen die de C-runtime zelf definieert (zie {@link RuntimeSymbols}). */
+    private final java.util.Set<String> runtimeSymbols = RuntimeSymbols.load();
+    private static final boolean TRACE_OVERRIDES = System.getenv("NABU_TRACE_OVERRIDES") != null
+            || Boolean.getBoolean("nabu.traceOverrides");
+    /** Handler-label -> stackslot waarin het landingspad de gevangen exception zet. */
+    private final Map<String, LLVMValueRef> handlerExceptionSlots = new HashMap<>();
 
     /**
      * Namen die uitsluitend als ad-hoc extern zijn gedeclareerd (call zonder
@@ -58,6 +64,14 @@ public class FunctionEmitter {
      * werkelijk geëmitteerde functie zou vervangen door een lege stub.
      */
     private final Set<String> adHocExternalNames = new HashSet<>();
+
+    /**
+     * LLVM-functies van {@code <clinit>}-functies (statische
+     * initializers). Deze worden nooit door de JVM-semantiek expliciet
+     * aangeroepen; de native backend registreert ze als constructors in
+     * {@code @llvm.global_ctors} zodat ze vóór {@code main} draaien.
+     */
+    private final List<LLVMValueRef> clinitFunctions = new ArrayList<>();
 
     /**
      * Layouts van de klassen in de gecompileerde modules. Nodig om bij het
@@ -129,14 +143,24 @@ public class FunctionEmitter {
      * Mag worden aangeroepen voor wederzijds-recursieve functies.
      */
     public void declareSignature(IRFunction fn) {
-        final String symbol = symbolOf(fn);
+        final String baseSymbol = symbolOf(fn);
+        final List<IRType> paramKey = FnKeys.declaredParamsOf(fn);
+        // Botsingsvrije, deterministische naam vóór LLVMAddFunction: zonder
+        // dit uniekt LLVM een naam die al bestaat zelf met een volgnummer uit
+        // de symbolentabel (zie FnKeys.stableSymbol's javadoc), en dan wijst
+        // de "@"+baseSymbol-registratie hieronder niet meer naar de ECHTE
+        // (hernoemde) functie. Twee overloads die de IR-naam delen (bv.
+        // `Builder_ansi` voor zowel `ansi()` als `ansi(Ansi)`) overschreven
+        // elkaar zo stilletjes in globalValueMap, waardoor BEIDE vtable-slots
+        // naar de laatst-gedeclareerde overload wezen (crash in
+        // ColorScheme.Builder-dispatch: zie ColorScheme_init-SIGSEGV).
+        final String symbol = FnKeys.stableSymbol(mod, baseSymbol, paramKey);
         LLVMTypeRef[] paramArray = types.mapParams(fn.params);
         LLVMTypeRef   retType    = types.map(fn.returnType);
 
         PointerPointer<Pointer> paramTypes = types.toPointerPointer(paramArray);
         LLVMTypeRef   fnType  = LLVMFunctionType(retType, paramTypes,
                                     fn.params.size(), 0);
-        final List<IRType> paramKey = FnKeys.declaredParamsOf(fn);
         LLVMValueRef  llvmFn  = LLVMAddFunction(mod,
                                     new BytePointer(symbol), fnType);
 
@@ -160,7 +184,45 @@ public class FunctionEmitter {
         // Overload-sleutel: dezelfde fn onder `<naam>#<params>` registreren
         // (Range.min()/Range.min(int) deelden voorheen één LLVM-signature,
         // waardoor GetParam(i) van de latere overload garbage opleverde).
-        globalValueMap.put("@" + FnKeys.fnKey(symbol, paramKey), llvmFn);
+        globalValueMap.put("@" + FnKeys.fnKey(baseSymbol, paramKey), llvmFn);
+        // Kale naam blijft bij de EERSTE overload horen (zelfde conventie als
+        // de ad-hoc call-declaratie hieronder): een latere overload met
+        // dezelfde IR-naam overschrijft hem niet meer stilletjes.
+        globalValueMap.putIfAbsent("@" + baseSymbol, llvmFn);
+        // Extra, klasse-gekwalificeerde sleutel: de kale overload-sleutel
+        // hierboven ("Builder_build#") is GEEN garantie tegen botsingen
+        // tussen klassen — de IR gebruikt overal de SIMPLE eigenaar
+        // ("Builder" voor élke nested Builder-klasse), dus zes verschillende
+        // klassen met een no-arg build() deelden letterlijk dezelfde
+        // overload-sleutel. emitBody() vond daardoor altijd de LAATST
+        // geregistreerde llvmFn terug en plakte ALLE zes method-bodies als
+        // losse, onbereikbare basic blocks aan ÉÉN LLVM-functie (het eerste,
+        // bereikbare blok bleef een kale 'unreachable' -> SIGSEGV zodra iets
+        // die functie aanriep, bv. ColorScheme.Builder.build()). De
+        // gekwalificeerde naam (via classLayouts, IdentityHashMap per
+        // IRFunction-instantie) IS wél uniek per klasse en voorkomt dat.
+        final String qualified = classLayouts != null
+                ? classLayouts.qualifiedName(fn) : null;
+        if (qualified != null) {
+            globalValueMap.put("@" + qualifiedKey(fn, qualified, paramKey), llvmFn);
+        }
+
+        if (!fn.isExternal() && baseSymbol.contains("<clinit>")) {
+            clinitFunctions.add(llvmFn);
+        }
+    }
+
+    /**
+     * Registreert alle tot nu toe gedecleareerde {@code <clinit>}-functies als
+     * constructors in {@code @llvm.global_ctors}, zodat statische velden
+     * geïnitialiseerd zijn vóór {@code main} (JVM doet dit lazy; de native
+     * backend kiest voor eager — dezelfde aanpak als deel-runtime's reflectie-
+     * en GC-init).
+     */
+    public void registerClinitCtors(final ModuleCtors ctors) {
+        for (LLVMValueRef clinit : clinitFunctions) {
+            ctors.add(clinit);
+        }
     }
 
     /**
@@ -176,6 +238,23 @@ public class FunctionEmitter {
                 ? null
                 : classLayouts.constructorSymbol(fn);
         return ctorSymbol != null ? ctorSymbol : fn.name;
+    }
+
+    /**
+     * Klasse-gekwalificeerde overload-sleutel voor {@code fn}, uniek per
+     * IRFunction-instantie. Een constructor die de IR-naam met een methode
+     * deelt, levert dezelfde gekwalificeerde naam op (beide
+     * {@code Owner_init}); zonder de extra symbool-suffix zou de
+     * constructor-registratie de sleutel van de methode overschrijven en wees
+     * het vtable-slot van de methode naar de constructor.
+     */
+    private String qualifiedKey(final IRFunction fn, final String qualified,
+                                final List<IRType> paramKey) {
+        final String symbol = symbolOf(fn);
+        final String q = symbol.equals(fn.name)
+                ? qualified
+                : qualified + symbol.substring(fn.name.length());
+        return FnKeys.fnKey(q, paramKey);
     }
 
     /**
@@ -200,19 +279,26 @@ public class FunctionEmitter {
         PointerPointer<Pointer> paramTypes = types.toPointerPointer(paramArray);
         LLVMTypeRef fnType = LLVMFunctionType(retType, paramTypes,
                 paramArray.length, 0);
+        // Bezette naam (overload)? Dan een deterministische suffix i.p.v.
+        // LLVM's volgnummer-unieking — zie FnKeys.stableSymbol.
+        final String symbol = FnKeys.stableSymbol(mod, fnName, callParams);
         LLVMValueRef llvmFn = LLVMAddFunction(mod,
-                new BytePointer(fnName), fnType);
+                new BytePointer(symbol), fnType);
 
         Reference.reachabilityFence(paramTypes);
         Reference.reachabilityFence(paramArray);
 
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
-                "LLVMAddFunction mislukt voor: " + fnName);
+                    "LLVMAddFunction mislukt voor: " + symbol);
 
         LLVMSetLinkage(llvmFn, LLVMExternalLinkage);
         adHocExternalNames.add(fnName);
-        globalValueMap.put("@" + fnName, llvmFn);
+        globalValueMap.put("@" + symbol, llvmFn);
+        // De gewone naam blijft bij de eerste (kaal-genaamde) overload
+        // horen: een latere overload overschrijft hem niet, anders zou een
+        // legacy-lookup op de kale naam aan een verkeerd symbool binden.
+        globalValueMap.putIfAbsent("@" + fnName, llvmFn);
         globalValueMap.put("@" + FnKeys.fnKey(fnName, callParams), llvmFn);
     }
 
@@ -233,14 +319,45 @@ public class FunctionEmitter {
 
         final String symbol = symbolOf(fn);
         final List<IRType> paramKey = FnKeys.declaredParamsOf(fn);
+        // Eerst de klasse-gekwalificeerde sleutel (uniek per IRFunction-
+        // instantie, dus per klasse): zonder deze stap vindt een kale
+        // overload-sleutel die door meerdere klassen wordt gedeeld (bv.
+        // "Builder_build#", gedeeld door elke nested Builder-klasse met een
+        // no-arg build()) altijd de LAATST gedeclareerde llvmFn, en plakt
+        // deze body als een los, onbereikbaar basic block aan de verkeerde
+        // (reeds-bezette) functie — zie declareSignature().
+        final String qualified = classLayouts != null
+                ? classLayouts.qualifiedName(fn) : null;
+        LLVMValueRef llvmFn = qualified != null
+                ? globalValueMap.get("@" + qualifiedKey(fn, qualified, paramKey))
+                : null;
         final var overloadKey = FnKeys.fnKey(symbol, paramKey);
-        LLVMValueRef llvmFn = globalValueMap.get("@" + overloadKey);
+        if (llvmFn == null || llvmFn.isNull()) {
+            llvmFn = globalValueMap.get("@" + overloadKey);
+        }
         if (llvmFn == null || llvmFn.isNull()) {
             llvmFn = globalValueMap.get("@" + symbol);
         }
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
                 "Functie niet gedeclareerd: " + overloadKey);
+
+        // Substitutie: levert de C-runtime dit symbool, dan wint die
+        // implementatie en blijft de functie hier een externe declaratie.
+        // Geldt voor VM-gebonden JDK-methoden (System, Class, Thread,
+        // reflectie, ...) waarvan de bytecode zonder VM-opstart en natives
+        // niet kan werken.
+        if (runtimeSymbols.contains(LLVMGetValueName(llvmFn).getString())) {
+            // Een echte (gecompileerde) body die de C-runtime vervangt: het
+            // mixen van beide representaties is een bekende valkuil (een
+            // C-StringBuilder.append op een gecompileerd object verloor zijn
+            // tekst). NABU_TRACE_OVERRIDES=1 / -Dnabu.traceOverrides toont welke.
+            if (!fn.blocks().isEmpty() && TRACE_OVERRIDES) {
+                System.err.println("[nabu/LLVM] C-runtime vervangt gecompileerde body: "
+                        + LLVMGetValueName(llvmFn).getString());
+            }
+            return;
+        }
 
         // Schone lokale staat per functie
         Map<String, LLVMValueRef> localMap = new HashMap<>();
@@ -252,6 +369,7 @@ public class FunctionEmitter {
         // zijn instructies daar in emiteren: landingpads hopen zich dan op in
         // één functie en verwijzingen wijzen naar een andere functie.
         handlerBodyBlocks.clear();
+        handlerExceptionSlots.clear();
         instructions.setLocalValueMap(localMap);
         instructions.setFunctionEmitter(this);
         currentFnNameForDiagnostics = fn.name;
@@ -372,6 +490,34 @@ public class FunctionEmitter {
             }
         }
 
+        // Eén body-blok en één exception-slot per handler-label, gedeeld door
+        // alle try-ranges die naar die handler leiden. Bytecode laat dezelfde
+        // handler door meerdere ranges gebruiken (bv. een finally die in
+        // stukken is geknipt, of een handler die in de ene range de eerste en
+        // in een andere een latere clause is); een body-blok per range zou
+        // alle blokken behalve het laatste zonder instructies achterlaten.
+        if (!chains.isEmpty()) {
+            LLVMBasicBlockRef entryBlock = blockMap.get(fn.blocks().get(0).label());
+            LLVMValueRef firstInstr = LLVMGetFirstInstruction(entryBlock);
+            if (firstInstr != null && !firstInstr.isNull()) {
+                LLVMPositionBuilder(builder, entryBlock, firstInstr);
+            } else {
+                LLVMPositionBuilderAtEnd(builder, entryBlock);
+            }
+            for (HandlerChain chain : chains) {
+                for (String handlerLabel : chain.handlerLabels()) {
+                    if (handlerBodyBlocks.containsKey(handlerLabel)) continue;
+                    handlerBodyBlocks.put(handlerLabel,
+                            LLVMAppendBasicBlockInContext(ctx, llvmFn,
+                                    new BytePointer("handler." + handlerLabel + ".body")));
+                    handlerExceptionSlots.put(handlerLabel, LLVMBuildAlloca(
+                            builder, LLVMPointerTypeInContext(ctx, 0),
+                            new BytePointer(".exn.slot." + handlerLabel)));
+                }
+            }
+            LLVMPositionBuilderAtEnd(builder, entryBlock);
+        }
+
         // Personality functie instellen als er try-regio's zijn
         if (!chains.isEmpty()) {
             LLVMValueRef personality = globalValueMap.get("@__gcc_personality_v0");
@@ -398,14 +544,39 @@ public class FunctionEmitter {
             instructions.refCounts().emitSlotInitFlags();
         }
 
-        // Instructies emitteren per blok
+        // Instructies emitteren per blok, in reverse post-order: zo is de
+        // definitie van elke SSA-waarde al geëmitteerd vóór elk gebruik dat ze
+        // domineert. In IR-volgorde kwam bv. een lus-update-blok vóór de
+        // body-tail die de nieuwe waarde berekent; resolveValue gaf dan undef
+        // en picocli's quoteElements verloor zijn accumulator (`result += ..`).
+        // De LLVM-bloklayout blijft de IR-volgorde (blockMap is al aangemaakt).
+        final Map<String, List<String>> exceptionSuccessors = new HashMap<>();
+        for (var entry : chainByProtected.entrySet()) {
+            exceptionSuccessors.put(entry.getKey(), entry.getValue().handlerLabels());
+        }
+        // Alle lokale slots vooraf: de bytecode-lowering plaatst een Alloca waar
+        // de variabele voor het eerst geschreven wordt, en in reverse
+        // post-order kan een store elders dan eerder aan de beurt zijn
+        // (`store .., ptr undef`). emitAlloca zet ze sowieso in het entry-blok.
+        final java.util.Set<IRInstruction> preEmitted =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        if (!fn.blocks().isEmpty()) {
+            LLVMPositionBuilderAtEnd(builder, blockMap.get(fn.blocks().get(0).label()));
+        }
         for (IRBasicBlock block : fn.blocks()) {
+            for (var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.Alloca) {
+                    instructions.emit(instr);
+                    preEmitted.add(instr);
+                }
+            }
+        }
+        for (IRBasicBlock block : reversePostOrder(fn, exceptionSuccessors)) {
             // Een catch-handler uit een keten heeft geen eigen LLVM-blok meer:
             // de catch-body gaat in het body-blok dat de keten heeft gemaakt,
             // en de oorspronkelijke IR-handlerblok blijft leeg.
             LLVMBasicBlockRef handlerBody = handlerBodyBlocks.get(block.label());
-            LLVMPositionBuilderAtEnd(builder,
-                    handlerBody != null ? handlerBody : blockMap.get(block.label()));
+            LLVMPositionBuilderAtEnd(builder, blockMap.get(block.label()));
 
             // Eén landingspad per try-range, in het blok van de eerste
             // handler uit die range. De catch-body van élke handler uit de
@@ -416,8 +587,31 @@ public class FunctionEmitter {
                 emitLandingPadChain(chain);
             }
 
+            if (block == fn.blocks().get(0) && classLayouts != null && fn.name != null
+                    && !fn.name.endsWith("_clinit") && !fn.name.contains("<clinit>")
+                    && (fn.isConstructor()
+                            || io.github.potjerodekool.nabu.lang.Flags.hasFlag(
+                                    fn.getFlags(), io.github.potjerodekool.nabu.lang.Flags.STATIC))) {
+                // Een statische methode of constructor initialiseert zijn
+                // klasse bij het eerste gebruik (JLS §12.4.1).
+                instructions.emitClassInit(classLayouts.ownerInternalName(fn.name));
+            }
+
+            if (handlerBody != null) {
+                // De catch-body leest de exception uit het slot van zijn eigen
+                // handler: welk landingspad hem ook bereikte, die heeft hem
+                // daar neergezet.
+                LLVMPositionBuilderAtEnd(builder, handlerBody);
+                String exnName = "%exn." + block.label();
+                LLVMValueRef exn = LLVMBuildLoad2(builder,
+                        LLVMPointerTypeInContext(ctx, 0),
+                        handlerExceptionSlots.get(block.label()), exnName);
+                instructions.getLocalValueMap().put(exnName, exn);
+            }
+
             for (var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.TryCatchRegion) continue;
+                if (preEmitted.contains(instr)) continue;
                 instructions.emit(instr);
             }
 
@@ -435,6 +629,73 @@ public class FunctionEmitter {
         // REFCOUNT: de ene exit-pad afronden (returns sprongen er tijdens het
         // emitteren naartoe).
         instructions.refCounts().finishFunction();
+    }
+
+    /**
+     * De blokken van {@code fn} in reverse post-order vanaf het entry-blok,
+     * over normale sprongen en exception-randen (beschermd blok → handlers).
+     * Onbereikbare blokken volgen daarna in IR-volgorde.
+     */
+    static List<IRBasicBlock> reversePostOrder(final IRFunction fn,
+                                               final Map<String, List<String>> exceptionSuccessors) {
+        final List<IRBasicBlock> blocks = fn.blocks();
+        if (blocks.isEmpty()) {
+            return blocks;
+        }
+        final Map<String, IRBasicBlock> byLabel = new HashMap<>();
+        for (IRBasicBlock block : blocks) {
+            byLabel.put(block.label(), block);
+        }
+        final java.util.Set<String> visited = new java.util.HashSet<>();
+        final List<IRBasicBlock> postOrder = new java.util.ArrayList<>();
+        // Iteratieve DFS (diepe CFG's van grote methodes).
+        final java.util.Deque<java.util.Iterator<String>> stack = new java.util.ArrayDeque<>();
+        final java.util.Deque<IRBasicBlock> path = new java.util.ArrayDeque<>();
+        final IRBasicBlock entry = blocks.get(0);
+        visited.add(entry.label());
+        path.push(entry);
+        stack.push(successorsOf(entry, exceptionSuccessors).iterator());
+        while (!stack.isEmpty()) {
+            final var it = stack.peek();
+            if (it.hasNext()) {
+                final IRBasicBlock next = byLabel.get(it.next());
+                if (next != null && visited.add(next.label())) {
+                    path.push(next);
+                    stack.push(successorsOf(next, exceptionSuccessors).iterator());
+                }
+            } else {
+                stack.pop();
+                postOrder.add(path.pop());
+            }
+        }
+        final List<IRBasicBlock> order = new java.util.ArrayList<>(postOrder.size());
+        for (int i = postOrder.size() - 1; i >= 0; i--) {
+            order.add(postOrder.get(i));
+        }
+        for (IRBasicBlock block : blocks) {
+            if (!visited.contains(block.label())) {
+                order.add(block);
+            }
+        }
+        return order;
+    }
+
+    private static List<String> successorsOf(final IRBasicBlock block,
+                                             final Map<String, List<String>> exceptionSuccessors) {
+        final List<String> successors = new java.util.ArrayList<>();
+        for (var instr : block.instructions()) {
+            if (instr instanceof IRInstruction.Branch branch) {
+                successors.add(branch.targetLabel());
+            } else if (instr instanceof IRInstruction.CondBranch condBranch) {
+                successors.add(condBranch.trueLabel());
+                successors.add(condBranch.falseLabel());
+            }
+        }
+        final List<String> handlers = exceptionSuccessors.get(block.label());
+        if (handlers != null) {
+            successors.addAll(handlers);
+        }
+        return successors;
     }
 
     /** Een try-range met al zijn handlers, in IR-volgorde. */
@@ -600,11 +861,12 @@ public class FunctionEmitter {
         // Function-eigenaar voor de nieuwe blokken
         LLVMValueRef currentFn = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
 
-        // Een body-blok per handler uit de range.
+        // Het (gedeelde) body-blok per handler uit de range; de exception gaat
+        // via het slot van elke handler naar zijn body.
         List<LLVMBasicBlockRef> bodyBlocks = new ArrayList<>(handlerLabels.size());
         for (String handlerLabel : handlerLabels) {
-            bodyBlocks.add(LLVMAppendBasicBlockInContext(ctx, currentFn,
-                    new BytePointer("handler." + handlerLabel + ".body")));
+            bodyBlocks.add(handlerBodyBlocks.get(handlerLabel));
+            LLVMBuildStore(builder, exPtr, handlerExceptionSlots.get(handlerLabel));
         }
         // Eén resume-blok: geen enkele clause matcht, dus de unwind gaat door.
         LLVMBasicBlockRef resumeBlock = LLVMAppendBasicBlockInContext(ctx, currentFn,
@@ -625,21 +887,13 @@ public class FunctionEmitter {
             if (exType == null) {
                 // catch-all: geen type-check, spring direct naar de body.
                 LLVMBuildBr(builder, bodyBlocks.get(i));
-                // De keten stopt hier: elke clause erna is onbereikbaar. Die
-                // body-blokken krijgen daarom een terminator (unreachable) om
-                // een LLVM-blok zonder terminator te vermijden.
-                for (int j = i + 1; j < handlerLabels.size(); j++) {
-                    LLVMPositionBuilderAtEnd(builder, bodyBlocks.get(j));
-                    LLVMBuildUnreachable(builder);
-                }
+                // De keten stopt hier: elke clause erna is vanuit deze range
+                // onbereikbaar. Hun (gedeelde) body-blokken krijgen hun
+                // instructies gewoon bij het emitteren van hun eigen IR-blok.
                 // Het resume-blok is nu zonder springdoel; geef het een
                 // terminator zodat het geen blok zonder terminator wordt.
                 LLVMPositionBuilderAtEnd(builder, resumeBlock);
                 LLVMBuildUnreachable(builder);
-                LLVMPositionBuilderAtEnd(builder, bodyBlocks.get(i));
-                for (int j = 0; j < handlerLabels.size(); j++) {
-                    handlerBodyBlocks.put(handlerLabels.get(j), bodyBlocks.get(j));
-                }
                 return;
             }
 
@@ -706,10 +960,6 @@ public class FunctionEmitter {
         Reference.reachabilityFence(resumeParamTypes);
         Reference.reachabilityFence(resumeArgs);
 
-        for (int i = 0; i < handlerLabels.size(); i++) {
-            handlerBodyBlocks.put(handlerLabels.get(i), bodyBlocks.get(i));
-        }
-        LLVMPositionBuilderAtEnd(builder, bodyBlocks.get(0));
         Reference.reachabilityFence(keepAlive);
     }
 

@@ -41,6 +41,7 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
             ADD, SUB, MUL, DIV, MOD,
             AND, OR, XOR,
             BITAND, BITOR, BITXOR,
+            SHL, SHR, USHR,
             EQ, NEQ, LT, LTE, GT, GTE
         }
     }

@@ -123,7 +123,8 @@ public void setReflectionRegistry(
                             // Object_clone-symbool (zie CallTargets): dezelfde
                             // normalisatie als de emissie, zodat declaratie en
                             // aanroep hetzelfde symbool delen.
-                            final IRInstruction.Call call = CallTargets.normalize(raw);
+                            final IRInstruction.Call call = this.classLayouts.canonicalize(
+                                    CallTargets.normalize(raw));
                             if (call.function() != null
                                 && !call.function().endsWith("_super")
                                 && !call.function().endsWith("_init")
@@ -155,6 +156,10 @@ public void setReflectionRegistry(
         // 3. Objectmodel (struct-layouts + type-info + vtable/itable) — na
         //    signaturen. Ouders vóór kinderen binnen één registerAll.
         this.classLayouts.registerAll(mod, modules);
+        emitStringMeta();
+        emitPropertiesMeta();
+        emitEnumTable(modules);
+        emitCtorTable(modules);
 
         // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
         //     nabu_reflection_info-globals + @llvm.global_ctors-registratie.
@@ -164,6 +169,17 @@ public void setReflectionRegistry(
         new ReflectionInfoEmitter(ctx, mod, globalValueMap)
                 .emit(mod, this.classLayouts, modules, reflectionRegistry, ctors);
         registerBoehmGcInit(ctors);
+        registerObjectVtable(ctors);
+        registerBootstrapInit(ctors);
+        // <clinit>-functies draaien precies één keer (JLS §12.4): lazy via de
+        // `.clinit.once`-bewaking bij toegang tot een statisch veld en aan het
+        // begin van statische methoden en constructors, en daarnaast eager
+        // vóór main voor klassen waarvan niet elke toegang bewaakt wordt
+        // (source-klassen met korte eigenaarnamen). Eager wordt ook de
+        // once-wrapper aangeroepen, niet de kale initializer: die draaide
+        // anders twee keer, en de lazy run vond dan half-geïnitialiseerde of
+        // gereset statische velden.
+        registerClassInitCtors(ctors, modules);
         ctors.emit();
 
         // 4. Bodies
@@ -179,6 +195,387 @@ public void setReflectionRegistry(
                 functions.emitBody(fn);
             }
         }
+    }
+
+    /**
+     * Geeft elke JDK-functie die wél wordt aangeroepen maar nergens een
+     * definitie heeft (een native methode, een signature-polymorfe
+     * MethodHandle/VarHandle-aanroep, ...) een stub die bij aanroep
+     * {@code nabu_unresolved(naam)} aanroept. Zonder definitie faalt de link
+     * op een undefined reference, ook als het pad nooit wordt uitgevoerd.
+     *
+     * <p>Symbolen die de C-runtime levert blijven extern.
+     *
+     * @return de namen die een stub kregen, gesorteerd.
+     */
+    public List<String> stubUnresolvedSymbols() {
+        final java.util.Set<String> runtime = RuntimeSymbols.load();
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final PointerPointer<Pointer> trapParams = new PointerPointer<>(1);
+        trapParams.put(0, ptrType);
+        final LLVMTypeRef trapType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                trapParams, 1, 0);
+        final LLVMValueRef trap = LLVMAddFunction(mod, "nabu_unresolved", trapType);
+
+        final List<String> stubbed = new java.util.ArrayList<>();
+        final LLVMBuilderRef stubBuilder = LLVMCreateBuilderInContext(ctx);
+        for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn != null && !fn.isNull();
+             fn = LLVMGetNextFunction(fn)) {
+            if (LLVMIsDeclaration(fn) == 0 || LLVMGetIntrinsicID(fn) != 0) continue;
+            final var firstUse = LLVMGetFirstUse(fn);
+            if (firstUse == null || firstUse.isNull()) continue;
+            final String name = LLVMGetValueName(fn).getString();
+            // Alleen JDK-leden (`pkg.Owner_member`): C-runtime-, libc- en
+            // GC-symbolen hebben geen punt in hun naam.
+            if (name.indexOf('.') < 0 || name.startsWith("llvm.") || runtime.contains(name)) {
+                continue;
+            }
+            LLVMPositionBuilderAtEnd(stubBuilder,
+                    LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("entry")));
+            final LLVMValueRef symbolName = LLVMBuildGlobalStringPtr(stubBuilder,
+                    new BytePointer(name), new BytePointer(".unresolved.name"));
+            final PointerPointer<Pointer> args = new PointerPointer<>(1);
+            args.put(0, symbolName);
+            final boolean nativeSetup = (name.endsWith("_registerNatives")
+                    || name.endsWith("_initIDs"))
+                    && LLVMGetTypeKind(LLVMGetReturnType(LLVMGlobalGetValueType(fn)))
+                            == LLVMVoidTypeKind;
+            if (nativeSetup) {
+                // Koppelt in een JVM de native methoden van de klasse aan hun
+                // implementatie; hier valt er niets te koppelen. Wordt vanuit
+                // <clinit> aangeroepen, dus afbreken zou elk programma bij
+                // het opstarten stoppen.
+                LLVMBuildRetVoid(stubBuilder);
+                continue;
+            }
+            LLVMBuildCall2(stubBuilder, trapType, trap, args, 1, "");
+            LLVMBuildUnreachable(stubBuilder);
+            java.lang.ref.Reference.reachabilityFence(args);
+            stubbed.add(name);
+        }
+        LLVMDisposeBuilder(stubBuilder);
+        java.lang.ref.Reference.reachabilityFence(trapParams);
+        java.util.Collections.sort(stubbed);
+        return stubbed;
+    }
+
+    /**
+     * Emitteert {@code nabu_string_meta} (type-info, vtable en itable van
+     * java.lang.String) voor de C-runtime en schakelt string-literals over op
+     * echte String-objecten. Zonder meegecompileerde String blijft alles
+     * nul en blijven strings C-strings.
+     */
+    private void emitStringMeta() {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final ClassLayouts.ClassLayout layout = this.classLayouts.getFor(
+                new io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr(
+                        io.github.potjerodekool.nabu.backend.ir.types.IRType.I8,
+                        "Ljava/lang/String;"));
+        LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
+                new BytePointer("_ZNabujava_lang_StringEtype_info"));
+        if (typeInfo != null && typeInfo.isNull()) typeInfo = null;
+        final boolean compiled = layout != null && layout.vtableGlobal != null
+                && typeInfo != null;
+
+        final LLVMValueRef nullPtr = LLVMConstNull(ptrType);
+        final LLVMValueRef[] fields = {
+                compiled ? typeInfo : nullPtr,
+                compiled ? layout.vtableGlobal : nullPtr,
+                compiled && layout.itableGlobal != null ? layout.itableGlobal : nullPtr};
+        final LLVMValueRef init = LLVMConstStructInContext(ctx,
+                new PointerPointer<>(fields), fields.length, 0);
+        final LLVMValueRef meta = LLVMAddGlobal(mod, LLVMTypeOf(init),
+                new BytePointer("nabu_string_meta"));
+        LLVMSetInitializer(meta, init);
+        LLVMSetGlobalConstant(meta, 1);
+
+        if (compiled) {
+            constants.setStringLayout(layout.structType, this.classLayouts.objectHeaderType(),
+                    typeInfo, layout.vtableGlobal, layout.itableGlobal);
+        }
+    }
+
+    /**
+     * Emitteert {@code nabu_properties_meta}: alles wat de C-runtime nodig
+     * heeft om voor {@code System.getProperties()} een échte, uit bytecode
+     * gecompileerde {@code java.util.Properties} te bouwen — type-info,
+     * vtable, itable, objectgrootte, de no-arg-constructor en
+     * {@code setProperty(String, String)}.
+     *
+     * <p>Een runtime-eigen Properties-object (alleen header plus state-slot)
+     * kreeg de vtable van Object; de gecompileerde aanroepers dispatchen via
+     * de vtable van Properties en sprongen dan naar slot 28 van een te korte
+     * tabel. Ontbreekt iets (Properties niet bereikt), dan blijft alles nul
+     * en valt de runtime terug op haar eigen object.
+     */
+    private void emitPropertiesMeta() {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        final ClassLayouts.ClassLayout layout = this.classLayouts.getFor(
+                new io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr(
+                        io.github.potjerodekool.nabu.backend.ir.types.IRType.I8,
+                        "Ljava/util/Properties;"));
+        LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
+                new BytePointer("_ZNabujava_util_PropertiesEtype_info"));
+        if (typeInfo != null && typeInfo.isNull()) typeInfo = null;
+        final LLVMValueRef ctor = definedFunction("java/util/Properties",
+                "java.util.Properties_init", List.of());
+        final LLVMValueRef setProperty = definedFunction("java/util/Properties",
+                "java.util.Properties_setProperty", List.of("Ljava/lang/String;", "Ljava/lang/String;"));
+        final boolean compiled = layout != null && layout.vtableGlobal != null
+                && typeInfo != null && ctor != null && setProperty != null;
+
+        final LLVMValueRef nullPtr = LLVMConstNull(ptrType);
+        long size = 0;
+        if (compiled) {
+            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+            size = LLVMABISizeOfType(dl, layout.structType);
+            LLVMDisposeTargetData(dl);
+        }
+        final LLVMValueRef[] fields = {
+                compiled ? typeInfo : nullPtr,
+                compiled ? layout.vtableGlobal : nullPtr,
+                compiled && layout.itableGlobal != null ? layout.itableGlobal : nullPtr,
+                LLVMConstInt(i64, size, 0),
+                compiled ? ctor : nullPtr,
+                compiled ? setProperty : nullPtr};
+        final LLVMValueRef init = LLVMConstStructInContext(ctx,
+                new PointerPointer<>(fields), fields.length, 0);
+        final LLVMValueRef meta = LLVMAddGlobal(mod, LLVMTypeOf(init),
+                new BytePointer("nabu_properties_meta"));
+        LLVMSetInitializer(meta, init);
+        LLVMSetGlobalConstant(meta, 1);
+    }
+
+    /**
+     * Emitteert {@code nabu_ctor_table} ({@code { i8* internalName, ptr type,
+     * ptr vtable, ptr itable, i64 size, ptr init }} per instantieerbare
+     * klasse met een no-arg-constructor) en {@code nabu_ctor_count}. Daarmee
+     * implementeert de runtime {@code Constructor.newInstance()} en
+     * {@code Class.newInstance()} (Class en Constructor zijn VM-gebonden) door
+     * een echt, gecompileerd object te bouwen. De JDK instantieert zo o.a. zijn
+     * locale-provider-adapters ({@code LocaleProviderAdapter.forType}), wat
+     * String.format met {@code %d} nodig heeft.
+     */
+    private void emitCtorTable(final List<IRModule> modules) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(6);
+        for (int i = 0; i < 6; i++) {
+            memberTypes.put(i, i == 4 ? i64 : ptrType);
+        }
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 6, 0);
+        final List<LLVMValueRef> entries = new java.util.ArrayList<>();
+        final java.util.Set<String> seen = new java.util.HashSet<>();
+        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        int index = 0;
+        for (final IRModule module : modules) {
+            if (io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags, io.github.potjerodekool.nabu.lang.Flags.ABSTRACT)
+                    || io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags, io.github.potjerodekool.nabu.lang.Flags.INTERFACE)) {
+                continue;
+            }
+            final String internalName = ClassLayouts.normalizeInternalName(module.name);
+            if (internalName == null || !seen.add(internalName)) {
+                continue;
+            }
+            final IRFunction init = module.functions().stream()
+                    .filter(fn -> fn.name != null && fn.name.endsWith("_init") && fn.isConstructor()
+                            && fn.params.size() == 1 && !fn.isExternal() && !fn.blocks().isEmpty())
+                    .findFirst().orElse(null);
+            if (init == null) {
+                continue;
+            }
+            final LLVMValueRef initValue = this.classLayouts.functionValue(init);
+            final ClassLayouts.ClassLayout layout = this.classLayouts.getFor(
+                    new io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr(
+                            io.github.potjerodekool.nabu.backend.ir.types.IRType.I8,
+                            "L" + internalName + ";"));
+            LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
+                    new BytePointer("_ZNabu" + this.classLayouts.typeSymbol(internalName) + "Etype_info"));
+            if (initValue == null || initValue.isNull() || layout == null || layout.vtableGlobal == null
+                    || typeInfo == null || typeInfo.isNull()) {
+                continue;
+            }
+            final LLVMValueRef nameStr = LLVMConstStringInContext(ctx, new BytePointer(internalName),
+                    internalName.length(), 0);
+            final LLVMValueRef nameGlobal = LLVMAddGlobal(mod, LLVMTypeOf(nameStr),
+                    new BytePointer(".ctor.name." + (index++)));
+            LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(nameGlobal, 1);
+            LLVMSetInitializer(nameGlobal, nameStr);
+            final LLVMValueRef[] fields = {
+                    nameGlobal,
+                    typeInfo,
+                    layout.vtableGlobal,
+                    layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType),
+                    LLVMConstInt(i64, LLVMABISizeOfType(dl, layout.structType), 0),
+                    initValue};
+            entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
+        }
+        LLVMDisposeTargetData(dl);
+        final PointerPointer<Pointer> elems = new PointerPointer<>(Math.max(1, entries.size()));
+        for (int i = 0; i < entries.size(); i++) {
+            elems.put(i, entries.get(i));
+        }
+        final LLVMTypeRef arrayType = LLVMArrayType(entryType, entries.size());
+        final LLVMValueRef table = LLVMAddGlobal(mod, arrayType, new BytePointer("nabu_ctor_table"));
+        LLVMSetInitializer(table, LLVMConstArray(entryType, elems, entries.size()));
+        LLVMSetGlobalConstant(table, 1);
+        final LLVMValueRef count = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx), new BytePointer("nabu_ctor_count"));
+        LLVMSetInitializer(count, LLVMConstInt(LLVMInt32TypeInContext(ctx), entries.size(), 0));
+        LLVMSetGlobalConstant(count, 1);
+    }
+
+    /**
+     * Emitteert {@code nabu_enum_table} ({@code { i8* internalName, ptr values }}
+     * per enum-klasse) en {@code nabu_enum_count}: daarmee implementeert de
+     * runtime Class.isEnum/getEnumConstants/enumConstantDirectory (Class is
+     * VM-gebonden) door de echte, gecompileerde {@code values()} aan te roepen.
+     * Enum.valueOf — o.a. picocli's TraceLevel en enum-opties — loopt daarlangs.
+     */
+    private void emitEnumTable(final List<IRModule> modules) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(2);
+        memberTypes.put(0, ptrType);
+        memberTypes.put(1, ptrType);
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 2, 0);
+        final List<LLVMValueRef> entries = new java.util.ArrayList<>();
+        int index = 0;
+        for (final IRModule module : modules) {
+            if (!io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags, io.github.potjerodekool.nabu.lang.Flags.ENUM)) {
+                continue;
+            }
+            final IRFunction values = module.functions().stream()
+                    .filter(fn -> fn.name != null && fn.name.endsWith("_values") && fn.params.isEmpty()
+                            && !fn.blocks().isEmpty()
+                            && io.github.potjerodekool.nabu.lang.Flags.hasFlag(fn.getFlags(),
+                                    io.github.potjerodekool.nabu.lang.Flags.STATIC))
+                    .findFirst().orElse(null);
+            final LLVMValueRef fnValue = values != null ? this.classLayouts.functionValue(values) : null;
+            if (fnValue == null || fnValue.isNull()) {
+                continue;
+            }
+            final String internalName = ClassLayouts.normalizeInternalName(module.name);
+            final LLVMValueRef nameStr = LLVMConstStringInContext(ctx, new BytePointer(internalName),
+                    internalName.length(), 0);
+            final LLVMValueRef nameGlobal = LLVMAddGlobal(mod, LLVMTypeOf(nameStr),
+                    new BytePointer(".enum.name." + (index++)));
+            LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(nameGlobal, 1);
+            LLVMSetInitializer(nameGlobal, nameStr);
+            final PointerPointer<Pointer> members = new PointerPointer<>(2);
+            members.put(0, nameGlobal);
+            members.put(1, fnValue);
+            entries.add(LLVMConstNamedStruct(entryType, members, 2));
+        }
+        final PointerPointer<Pointer> elems = new PointerPointer<>(Math.max(1, entries.size()));
+        for (int i = 0; i < entries.size(); i++) {
+            elems.put(i, entries.get(i));
+        }
+        final LLVMTypeRef arrayType = LLVMArrayType(entryType, entries.size());
+        final LLVMValueRef table = LLVMAddGlobal(mod, arrayType, new BytePointer("nabu_enum_table"));
+        LLVMSetInitializer(table, LLVMConstArray(entryType, elems, entries.size()));
+        LLVMSetGlobalConstant(table, 1);
+        final LLVMValueRef count = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx), new BytePointer("nabu_enum_count"));
+        LLVMSetInitializer(count, LLVMConstInt(LLVMInt32TypeInContext(ctx), entries.size(), 0));
+        LLVMSetGlobalConstant(count, 1);
+    }
+
+    /**
+     * De LLVM-functie van de instantiemethode {@code name} van
+     * {@code ownerInternalName} met precies deze expliciete parametertypes
+     * (JVM-descriptors; een primitief als {@code "Z"} e.d.), mits het module
+     * haar met een body definieert; anders null (een declaratie zonder body
+     * wordt later een abort-stub). Overloads delen de IR-naam, dus de keuze
+     * gaat op de parameters.
+     */
+    private LLVMValueRef definedFunction(final String ownerInternalName,
+                                         final String name,
+                                         final List<String> paramDescriptors) {
+        final IRModule owner = this.classLayouts.moduleOf(ownerInternalName);
+        if (owner == null) {
+            return null;
+        }
+        for (final IRFunction fn : owner.functions()) {
+            if (!name.equals(fn.name) || fn.isExternal() || fn.blocks().isEmpty()
+                    || fn.params.size() != paramDescriptors.size() + 1) {
+                continue;
+            }
+            boolean matches = true;
+            for (int i = 0; i < paramDescriptors.size() && matches; i++) {
+                matches = paramDescriptors.get(i).equals(descriptorOf(fn.params.get(i + 1).type()));
+            }
+            if (matches) {
+                final LLVMValueRef value = this.classLayouts.functionValue(fn);
+                return value != null && !value.isNull() ? value : null;
+            }
+        }
+        return null;
+    }
+
+    private static String descriptorOf(final io.github.potjerodekool.nabu.backend.ir.types.IRType type) {
+        if (type instanceof io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr p) {
+            return p.jvmDescriptor();
+        }
+        if (type instanceof io.github.potjerodekool.nabu.backend.ir.types.IRType.Bool) {
+            return "Z";
+        }
+        if (type instanceof io.github.potjerodekool.nabu.backend.ir.types.IRType.Int i) {
+            return switch (i.bits()) {
+                case 8 -> "B";
+                case 16 -> "S";
+                case 64 -> "J";
+                default -> "I";
+            };
+        }
+        return null;
+    }
+
+    /**
+     * Roept de gesynthetiseerde {@code nabu.runtime.Bootstrap.init()} aan
+     * (zie BytecodeReachabilityCompiler.BOOTSTRAP_CLASS): het deel van
+     * {@code System.initPhase1} dat de JDK-bytecode nodig heeft — de
+     * JavaLangAccess-implementatie en System.out/err — als bytecode. Draait
+     * vóór de {@code <clinit>}s; zonder bytecode-sluiting bestaat de functie
+     * niet en gebeurt er niets.
+     */
+    /**
+     * Eén module-constructor per source-klasse met een {@code <clinit>}: haar
+     * once-wrapper. Uit bytecode gecompileerde klassen ({@code pkg.Owner_clinit})
+     * zijn volledig bewaakt en initialiseren puur lazy, zoals op de JVM: eager
+     * draaiden anders ook initializers van JDK-klassen die het programma nooit
+     * gebruikt (DateTimeFormatterBuilder.<clinit> gooide InternalError).
+     */
+    private void registerClassInitCtors(final ModuleCtors ctors, final List<IRModule> modules) {
+        for (final IRModule module : modules) {
+            final boolean hasClinit = module.functions().stream()
+                    .anyMatch(fn -> fn.name != null && !fn.blocks().isEmpty() && fn.params.isEmpty()
+                            && fn.name.contains("<clinit>"));
+            if (!hasClinit) {
+                continue;
+            }
+            final LLVMValueRef once = instructions.classInitFunction(
+                    ClassLayouts.normalizeInternalName(module.name), mod);
+            if (once != null && !once.isNull()) {
+                ctors.add(once);
+            }
+        }
+    }
+
+    private void registerBootstrapInit(final ModuleCtors ctors) {
+        final IRModule bootstrap = this.classLayouts.moduleOf("nabu/runtime/Bootstrap");
+        if (bootstrap == null) {
+            return;
+        }
+        final IRFunction init = bootstrap.functions().stream()
+                .filter(fn -> fn.name.equals("nabu.runtime.Bootstrap_init") && fn.params.isEmpty()
+                        && !fn.blocks().isEmpty())
+                .findFirst().orElse(null);
+        final LLVMValueRef initFn = init != null ? this.classLayouts.functionValue(init) : null;
+        if (initFn == null || initFn.isNull()) {
+            return;
+        }
+        ctors.add(initFn);
     }
 
     private void declareRuntimeHelpers() {
@@ -269,6 +666,20 @@ public void setReflectionRegistry(
         LLVMSetLinkage(concatFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_concat", concatFn);
 
+        // --- argv -> String[] (altijd nodig voor de main()-bridge) ---
+        // i8* nabu_args_from_argv(i32 argc, i8* argv). 'argv' is in de
+        // LLVM-IR van deze backend een opaque i8*, net als elke andere
+        // pointer (zie i8ptr hierboven) -- de C-kant (jcl_lite.c) kent het
+        // echte char** type.
+        PointerPointer<Pointer> argsFromArgvParams = new PointerPointer<>(2);
+        argsFromArgvParams.put(0, LLVMInt32TypeInContext(ctx));
+        argsFromArgvParams.put(1, i8ptr);
+        LLVMTypeRef argsFromArgvFnType = LLVMFunctionType(i8ptr, argsFromArgvParams, 2, 0);
+        LLVMValueRef argsFromArgvFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_args_from_argv"), argsFromArgvFnType);
+        LLVMSetLinkage(argsFromArgvFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_args_from_argv", argsFromArgvFn);
+
         // --- Primitief -> string (voor concat met een numerieke operand) ---
         // i8* nabu_int_to_string(i32), i8* nabu_long_to_string(i64)
         LLVMValueRef intToString = LLVMAddFunction(mod,
@@ -334,14 +745,20 @@ public void setReflectionRegistry(
         LLVMSetGlobalConstant(excNameGlobal, 1);
         LLVMSetInitializer(excNameGlobal, excNameStr);
 
-        // struct nabu_type_info { i8* name, i64 size, i8* super_type, i32 field_count }
+        // struct nabu_type_info { i8* name, i64 size, i8* super_type, i32 field_count,
+        //                         i8** interfaces, i32 interface_count,
+        //                         nabu_type_field* instance_fields, i32 instance_field_count }
         LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
-        PointerPointer<Pointer> excInfoTypes = new PointerPointer<>(4);
+        PointerPointer<Pointer> excInfoTypes = new PointerPointer<>(8);
         excInfoTypes.put(0, i8ptr);
         excInfoTypes.put(1, i64);
         excInfoTypes.put(2, i8ptr);
         excInfoTypes.put(3, i32);
-        LLVMTypeRef excInfoType = LLVMStructTypeInContext(ctx, excInfoTypes, 4, 0);
+        excInfoTypes.put(4, i8ptr);
+        excInfoTypes.put(5, i32);
+        excInfoTypes.put(6, i8ptr);
+        excInfoTypes.put(7, i32);
+        LLVMTypeRef excInfoType = LLVMStructTypeInContext(ctx, excInfoTypes, 8, 0);
         Reference.reachabilityFence(excInfoTypes);
 
         LLVMValueRef excTypeInfo = LLVMAddGlobal(mod, excInfoType,
@@ -349,12 +766,16 @@ public void setReflectionRegistry(
         LLVMSetLinkage(excTypeInfo, LLVMExternalLinkage);
         LLVMSetGlobalConstant(excTypeInfo, 1);
 
-        PointerPointer<Pointer> excInfoFields = new PointerPointer<>(4);
+        PointerPointer<Pointer> excInfoFields = new PointerPointer<>(8);
         excInfoFields.put(0, excNameGlobal);
         excInfoFields.put(1, LLVMConstInt(i64, 0, 0));
         excInfoFields.put(2, LLVMConstNull(i8ptr));
         excInfoFields.put(3, LLVMConstInt(i32, 0, 0));
-        LLVMValueRef excInit = LLVMConstNamedStruct(excInfoType, excInfoFields, 4);
+        excInfoFields.put(4, LLVMConstNull(i8ptr));
+        excInfoFields.put(5, LLVMConstInt(i32, 0, 0));
+        excInfoFields.put(6, LLVMConstNull(i8ptr));
+        excInfoFields.put(7, LLVMConstInt(i32, 0, 0));
+        LLVMValueRef excInit = LLVMConstNamedStruct(excInfoType, excInfoFields, 8);
         LLVMSetInitializer(excTypeInfo, excInit);
         Reference.reachabilityFence(excInit);
         globalValueMap.put("@nabu_exception_typeinfo", excTypeInfo);
@@ -373,6 +794,55 @@ public void setReflectionRegistry(
                 new BytePointer("nabu_init_object"), initObjType);
         LLVMSetLinkage(initObjFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_init_object", initObjFn);
+
+        // --- Class-literals: i8* nabu_class_literal(i8* name) ---
+        // Een class-literal is een (geïnterneerd) Class-object van de runtime,
+        // geen kale C-string met de naam: achter een Object-referentie krijgt
+        // het virtuele aanroepen (equals), en die lezen een vtable uit de header.
+        PointerPointer<Pointer> classLitParams = new PointerPointer<>(1);
+        classLitParams.put(0, i8ptr);
+        LLVMValueRef classLitFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_class_literal"),
+                LLVMFunctionType(i8ptr, classLitParams, 1, 0));
+        LLVMSetLinkage(classLitFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_class_literal", classLitFn);
+
+        // --- void nabu_set_object_vtable(i8* vtable) ---
+        PointerPointer<Pointer> setVtableParams = new PointerPointer<>(1);
+        setVtableParams.put(0, i8ptr);
+        LLVMValueRef setVtableFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_object_vtable"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setVtableParams, 1, 0));
+        LLVMSetLinkage(setVtableFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_object_vtable", setVtableFn);
+
+        // --- void nabu_set_object_itable(i8* itable) ---
+        PointerPointer<Pointer> setItableParams = new PointerPointer<>(1);
+        setItableParams.put(0, i8ptr);
+        LLVMValueRef setItableFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_object_itable"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setItableParams, 1, 0));
+        LLVMSetLinkage(setItableFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_object_itable", setItableFn);
+
+        // --- void nabu_set_throwable_message_fn(i8* fn) ---
+        PointerPointer<Pointer> setMsgParams = new PointerPointer<>(1);
+        setMsgParams.put(0, i8ptr);
+        LLVMValueRef setMsgFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_throwable_message_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setMsgFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_throwable_message_fn", setMsgFn);
+
+        // --- void nabu_register_type_infos(i8* table, i32 count) ---
+        PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
+        regTypesParams.put(0, i8ptr);
+        regTypesParams.put(1, LLVMInt32TypeInContext(ctx));
+        LLVMValueRef regTypesFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_register_type_infos"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), regTypesParams, 2, 0));
+        LLVMSetLinkage(regTypesFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_register_type_infos", regTypesFn);
 
         // --- GC-specifieke helpers ---
         switch (opts.gcStrategy()) {
@@ -435,6 +905,87 @@ public void setReflectionRegistry(
         LLVMDisposeBuilder(builder);
 
         ctors.add(thunk);
+    }
+
+    /**
+     * Geeft de runtime de vtable van java.lang.Object en de library-itable, voor
+     * de header van library-objecten (zie nabu_set_object_vtable/-itable). Vroeg
+     * geregistreerd: een {@code <clinit>} kan al library-objecten aanmaken, en
+     * die houden de tabellen die op dat moment bekend zijn.
+     */
+    private void registerObjectVtable(final ModuleCtors ctors) {
+        final ClassLayouts.ClassLayout object = classLayouts.get("java/lang/Object");
+        final LLVMValueRef vtable = object != null ? object.vtableGlobal : null;
+        final LLVMValueRef itable = classLayouts.libraryItable();
+        final LLVMValueRef getMessage = throwableGetMessage();
+        // Alleen nodig als het programma Class.getSuperclass() aanroept (de
+        // runtime zoekt dan de klasse op naam op).
+        final LLVMValueRef superclassFn = LLVMGetNamedFunction(mod, "java.lang.Class_getSuperclass");
+        // Ook voor Unsafe.objectFieldOffset: de runtime zoekt de veldoffset in
+        // de type-info van de klasse met die naam.
+        final LLVMValueRef fieldOffsetFn = LLVMGetNamedFunction(mod, "jdk.internal.misc.Unsafe_objectFieldOffset1");
+        // En voor Class.forName: die kent alleen klassen uit de type-tabel.
+        final LLVMValueRef forNameFn = LLVMGetNamedFunction(mod, "java.lang.Class_forName");
+        final boolean needsTypeTable = (superclassFn != null && !superclassFn.isNull())
+                || (fieldOffsetFn != null && !fieldOffsetFn.isNull())
+                || (forNameFn != null && !forNameFn.isNull());
+        final LLVMValueRef[] typeTable = needsTypeTable ? classLayouts.buildTypeInfoTable(mod) : null;
+        if (vtable == null && itable == null && getMessage == null && typeTable == null) {
+            return;
+        }
+
+        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                new PointerPointer<>(0), 0, 0);
+        final LLVMValueRef thunk = LLVMAddFunction(mod,
+                new BytePointer("nabu_object_vtable_init"), fnType);
+        LLVMSetLinkage(thunk, LLVMInternalLinkage);
+
+        final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
+        final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
+        LLVMPositionBuilderAtEnd(builder, block);
+        if (vtable != null) {
+            callSetter(builder, "@nabu_set_object_vtable", vtable);
+        }
+        if (itable != null) {
+            callSetter(builder, "@nabu_set_object_itable", itable);
+        }
+        if (getMessage != null) {
+            callSetter(builder, "@nabu_set_throwable_message_fn", getMessage);
+        }
+        if (typeTable != null) {
+            final LLVMValueRef register = globalValueMap.get("@nabu_register_type_infos");
+            final PointerPointer<Pointer> args = new PointerPointer<>(2);
+            args.put(0, typeTable[0]);
+            args.put(1, typeTable[1]);
+            LLVMBuildCall2(builder, LLVMGlobalGetValueType(register), register, args, 2, "");
+            Reference.reachabilityFence(args);
+        }
+        LLVMBuildRetVoid(builder);
+        LLVMDisposeBuilder(builder);
+
+        ctors.addEarly(thunk);
+    }
+
+    /**
+     * Het gecompileerde {@code Throwable.getMessage()} (uit JDK-bytecode), zodat
+     * de runtime bij een onbehandelde exception de melding kan tonen; null als
+     * het programma die methode niet met een body bevat.
+     */
+    private LLVMValueRef throwableGetMessage() {
+        final IRFunction fn = classLayouts.resolveFunction("java.lang.Throwable_getMessage");
+        if (fn == null || fn.blocks().isEmpty() || fn.params.size() != 1) {
+            return null;
+        }
+        final LLVMValueRef value = LLVMGetNamedFunction(mod, "java.lang.Throwable_getMessage");
+        return value != null && !value.isNull() ? value : null;
+    }
+
+    private void callSetter(final LLVMBuilderRef builder, final String name, final LLVMValueRef table) {
+        final LLVMValueRef setter = globalValueMap.get(name);
+        final PointerPointer<Pointer> args = new PointerPointer<>(1);
+        args.put(0, table);
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(setter), setter, args, 1, "");
+        Reference.reachabilityFence(args);
     }
 
     /**

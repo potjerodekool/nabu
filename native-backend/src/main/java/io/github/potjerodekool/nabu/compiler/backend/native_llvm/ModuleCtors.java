@@ -36,9 +36,18 @@ final class ModuleCtors {
 
     private static final int CTOR_PRIORITY = 65535;
 
+    /**
+     * Prioriteit voor constructors die vóór alle gewone moeten draaien
+     * (lager = eerder; 0-100 is gereserveerd voor de toolchain).
+     */
+    private static final int EARLY_CTOR_PRIORITY = 101;
+
+    private record Ctor(int priority, LLVMValueRef fn) {
+    }
+
     private final LLVMContextRef ctx;
     private final LLVMModuleRef  mod;
-    private final List<LLVMValueRef> ctors = new ArrayList<>();
+    private final List<Ctor> ctors = new ArrayList<>();
     private boolean emitted;
 
     ModuleCtors(final LLVMContextRef ctx, final LLVMModuleRef mod) {
@@ -48,11 +57,23 @@ final class ModuleCtors {
 
     /** Voegt een {@code void(void)}-functie toe die vóór {@code main} draait. */
     void add(final LLVMValueRef fn) {
+        add(CTOR_PRIORITY, fn);
+    }
+
+    /**
+     * Als {@link #add}, maar de functie draait vóór alle gewone constructors
+     * (en dus vóór elke {@code <clinit>}), ongeacht de volgorde van registratie.
+     */
+    void addEarly(final LLVMValueRef fn) {
+        add(EARLY_CTOR_PRIORITY, fn);
+    }
+
+    private void add(final int priority, final LLVMValueRef fn) {
         if (emitted) {
             throw new IllegalStateException(
                     "llvm.global_ctors is al geëmit; registreer alle constructors vóór emit()");
         }
-        ctors.add(fn);
+        ctors.add(new Ctor(priority, fn));
     }
 
     /**
@@ -89,8 +110,8 @@ final class ModuleCtors {
         final PointerPointer<Pointer> elems = new PointerPointer<>(n);
         for (int i = 0; i < n; i++) {
             final PointerPointer<Pointer> elemInit = new PointerPointer<>(3);
-            elemInit.put(0, LLVMConstInt(i32, CTOR_PRIORITY, 0));
-            elemInit.put(1, ctors.get(i));
+            elemInit.put(0, LLVMConstInt(i32, ctors.get(i).priority(), 0));
+            elemInit.put(1, ctors.get(i).fn());
             elemInit.put(2, LLVMConstNull(i8Ptr));
             elems.put(i, LLVMConstNamedStruct(entryType, elemInit, 3));
             Reference.reachabilityFence(elemInit);

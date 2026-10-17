@@ -404,10 +404,10 @@ private void emitUnreachable() {
                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
                 false);
 
-        if (binaryOp.left() instanceof IRValue.Temp) {
+        if (inlinedTemplateText(binaryOp.left()) == null) {
             emitValue(binaryOp.left());
         }
-        if (binaryOp.right() instanceof IRValue.Temp) {
+        if (inlinedTemplateText(binaryOp.right()) == null) {
             emitValue(binaryOp.right());
         }
 
@@ -431,22 +431,35 @@ private void emitUnreachable() {
 
     private void appendTemplatePart(final IRValue value,
                                     final StringBuilder template) {
+        final var text = inlinedTemplateText(value);
+        template.append(text != null ? text : "\u0001");
+    }
+
+    /**
+     * De tekst van een string-literal die direct in het concat-recept komt, of
+     * {@code null} als de operand een argument van de call-site wordt. Recept,
+     * descriptor en gepushte operanden moeten hierover overeenstemmen, anders
+     * faalt de bootstrap met "Mismatched number of concat arguments" (bv. een
+     * door de optimizer tot constante gevouwen {@code j++}). Literals met de
+     * recept-tags \u0001/\u0002 gaan als argument mee.
+     */
+    private String inlinedTemplateText(final IRValue value) {
         if (isStringConstant(value) && value instanceof IRValue.Named named) {
             final var global = findGlobal(named.name());
-            if (global != null && global.initializer() instanceof IRValue.ConstString(String value1)) {
-                template.append(value1);
-                return;
+            if (global != null && global.initializer() instanceof IRValue.ConstString(String text)
+                    && text.indexOf('\u0001') < 0 && text.indexOf('\u0002') < 0) {
+                return text;
             }
         }
-        template.append("\u0001");
+        return null;
     }
 
     private void generateDescriptorForStringConcat(final IRInstruction.BinaryOp binaryOp,
                                                    final StringBuilder stringBuilder) {
-        if (binaryOp.left() instanceof IRValue.Temp) {
+        if (inlinedTemplateText(binaryOp.left()) == null) {
             stringBuilder.append(BytecodeHelper.createDescriptor(binaryOp.left().type()));
         }
-        if (binaryOp.right() instanceof IRValue.Temp) {
+        if (inlinedTemplateText(binaryOp.right()) == null) {
             stringBuilder.append(BytecodeHelper.createDescriptor(binaryOp.right().type()));
         }
     }
@@ -579,7 +592,34 @@ private void emitUnreachable() {
             case IRType.Ptr p -> p.pointee();
             case IRType t -> t;
         };
-        mv.visitTypeInsn(Opcodes.ANEWARRAY, BytecodeHelper.toInternalName(componentType));
+        // Een primitief component is NEWARRAY, geen ANEWARRAY: `new int[3]`
+        // werd anders een array van klasse "I" ('[LI;'). Het element-type uit
+        // de array-descriptor heeft voorrang (char vs short zijn beide i16).
+        final String arrayDescriptor = allocaArray.allocType() instanceof IRType.Ptr ptr
+                && ptr.jvmDescriptor() != null && ptr.jvmDescriptor().startsWith("[")
+                ? ptr.jvmDescriptor() : null;
+        final String elementDescriptor = arrayDescriptor != null ? arrayDescriptor.substring(1)
+                : BytecodeHelper.createDescriptor(componentType);
+        final int primitiveCode = switch (elementDescriptor) {
+            case "Z" -> Opcodes.T_BOOLEAN;
+            case "C" -> Opcodes.T_CHAR;
+            case "F" -> Opcodes.T_FLOAT;
+            case "D" -> Opcodes.T_DOUBLE;
+            case "B" -> Opcodes.T_BYTE;
+            case "S" -> Opcodes.T_SHORT;
+            case "I" -> Opcodes.T_INT;
+            case "J" -> Opcodes.T_LONG;
+            default -> -1;
+        };
+        if (primitiveCode >= 0) {
+            mv.visitIntInsn(Opcodes.NEWARRAY, primitiveCode);
+        } else if (elementDescriptor.startsWith("L") && elementDescriptor.endsWith(";")) {
+            mv.visitTypeInsn(Opcodes.ANEWARRAY, elementDescriptor.substring(1, elementDescriptor.length() - 1));
+        } else if (elementDescriptor.startsWith("[")) {
+            mv.visitTypeInsn(Opcodes.ANEWARRAY, elementDescriptor);
+        } else {
+            mv.visitTypeInsn(Opcodes.ANEWARRAY, BytecodeHelper.toInternalName(componentType));
+        }
         storeResult(allocaArray.result());
     }
 
@@ -623,8 +663,15 @@ private void emitUnreachable() {
             // Geen conversie nodig (bv. byte -> int, of gelijke types)
         } else if (conversionOpcode == Integer.MIN_VALUE) {
             final var castInternalName = BytecodeHelper.toInternalName(cast.targetType());
-            final String safeCastName = isInternalName(castInternalName)
-                    ? castInternalName : "java/lang/Object";
+            // Een array-type heeft zijn descriptor als internal name
+            // (JVMS §4.2.1): `checkcast [Lmini/Color;`. Die viel eerder terug
+            // op Object, waardoor de cast verdween en enum.values()
+            // ($VALUES.clone()) de verifier niet doorkwam.
+            final String arrayDescriptor = cast.targetType() instanceof IRType.Ptr ptr
+                    && ptr.jvmDescriptor() != null && ptr.jvmDescriptor().startsWith("[")
+                    ? ptr.jvmDescriptor() : null;
+            final String safeCastName = arrayDescriptor != null ? arrayDescriptor
+                    : isInternalName(castInternalName) ? castInternalName : "java/lang/Object";
             // JLS 5.1.7: een primitieve bron-waarde bij een reference-
             // cast-target is een boxing-conversie (bv. de char-retourwaarde
             // van Character.toLowerCase naar Character). Zonder boxing
@@ -724,10 +771,17 @@ private void emitUnreachable() {
 
     private void emitCall(final IRInstruction.Call call) {
         final var opcode = resolveInvokeOpcode(call.callKind());
-        final var descriptor = BytecodeHelper.createDescriptor(
-                call.paramTypes(),
-                call.returnType()
-        );
+        // char en short zijn allebei i16 in het IR; Character.valueOf bestaat
+        // alleen als (C) (boxing van een char-literal in een Character-veld).
+        final var descriptor = ("java.lang.Character_valueOf".equals(call.function())
+                        || "java_lang_Character_valueOf".equals(call.function()))
+                && call.paramTypes().size() == 1
+                && call.paramTypes().getFirst() instanceof IRType.Int(int bits) && bits == 16
+                ? "(C)Ljava/lang/Character;"
+                : BytecodeHelper.createDescriptor(
+                        call.paramTypes(),
+                        call.returnType()
+                );
 
         var functionName = call.function();
         final var sepIndex = functionName.lastIndexOf('_');
@@ -754,6 +808,22 @@ private void emitUnreachable() {
             owner = ownerInternalName;
         }
 
+        if (descriptor.indexOf('S') >= 0) {
+            final String realName = isConstructorCall(call) || isSuperCall(call) ? "<init>" : functionName;
+            final String fixed = CharDescriptors.resolve(owner, realName, descriptor);
+            if (!fixed.equals(descriptor)) {
+                emitCallWithDescriptor(call, opcode, owner, functionName, fixed);
+                return;
+            }
+        }
+        emitCallWithDescriptor(call, opcode, owner, functionName, descriptor);
+    }
+
+    private void emitCallWithDescriptor(final IRInstruction.Call call,
+                                        final int opcode,
+                                        final String owner,
+                                        final String functionName,
+                                        final String descriptor) {
         if (isSuperCall(call)) {
             emitSuperCall(call, owner, descriptor);
             return;
@@ -815,7 +885,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
                 && varargsArrayDescriptor.startsWith("[")
                 && args.size() == fixedArgs + 1
                 && args.getLast().type() instanceof IRType.Ptr argPtrF
-                && varargsArrayDescriptor.equals(argPtrF.jvmDescriptor());
+                && isAssignableArrayDescriptor(argPtrF.jvmDescriptor(), varargsArrayDescriptor);
         // Varargs: laatste paramType is een array; de staart (inclusief een
         // LEEGE staart) moet in een array-object worden verzameld, anders
         // verwacht de verifier een ontbrekend Object[]-argument. (Geldt ook
@@ -846,6 +916,31 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
                 args.subList(fixedArgs, args.size()),
                 varargsArrayDescriptor
         );
+    }
+
+    /**
+     * Of een array met descriptor {@code argDescriptor} zonder inpakken aan
+     * de varargs-parameter {@code paramDescriptor} gegeven kan worden: de
+     * IR bundelt varargs al, dus {@code String[]} voor {@code CharSequence...}
+     * is de array zelf (JLS §15.12.4.2), maar {@code int[]} voor
+     * {@code Object...} niet.
+     */
+    private static boolean isAssignableArrayDescriptor(final String argDescriptor,
+                                                       final String paramDescriptor) {
+        if (argDescriptor == null || !argDescriptor.startsWith("[")) {
+            return false;
+        }
+        if (argDescriptor.equals(paramDescriptor)) {
+            return true;
+        }
+        final int argDims = argDescriptor.lastIndexOf('[') + 1;
+        final int paramDims = paramDescriptor.lastIndexOf('[') + 1;
+        final String argElement = argDescriptor.substring(argDims);
+        final String paramElement = paramDescriptor.substring(paramDims);
+        if (argDims == paramDims) {
+            return argElement.startsWith("L") && paramElement.startsWith("L");
+        }
+        return argDims > paramDims && "Ljava/lang/Object;".equals(paramElement);
     }
 
     private void emitArrayValue(final List<? extends IRValue> elements, final String arrayDescriptor) {
@@ -1629,13 +1724,27 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         // Owner-informatie wordt gedragen door ownerType/global.ownerType:
         // dan is de naam gewoon de veldnaam. Splitsen op '_' alleen voor de
         // legacy 'owner_veldname'-codering (owner in de naam, geen ownerType).
-        final var ownerFromName = (global == null || global.ownerType() == null)
-                && named.ownerType() == null;
-        if (ownerFromName) {
-            final var sepIndex = name.lastIndexOf('_');
-            if (sepIndex > -1) {
-                return name.substring(sepIndex + 1);
+        final IRType ownerType =
+                (global != null && global.ownerType() != null)
+                        ? global.ownerType()
+                        : named.ownerType();
+        if (ownerType != null) {
+            // Definitieplekken coderen de eigenaar mee in de globalnaam
+            // (`<dottedOwner>_<veld>`), terwijl de eigenaar óók in
+            // ownerType staat: reduceer tot de kale veldnaam.
+            final var internal = BytecodeHelper.toInternalName(ownerType);
+            final var dotted = internal.replace('/', '.');
+            if (name.startsWith(dotted + "_")) {
+                return name.substring(dotted.length() + 1);
             }
+            if (name.startsWith(internal + "_")) {
+                return name.substring(internal.length() + 1);
+            }
+            return name;
+        }
+        final var sepIndex = name.lastIndexOf('_');
+        if (sepIndex > -1) {
+            return name.substring(sepIndex + 1);
         }
         return name;
     }

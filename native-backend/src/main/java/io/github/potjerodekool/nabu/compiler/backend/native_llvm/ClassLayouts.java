@@ -21,7 +21,11 @@ import org.bytedeco.llvm.LLVM.LLVMTypeRef;
 import org.bytedeco.llvm.LLVM.LLVMValueRef;
 
 import java.lang.ref.Reference;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -64,12 +68,52 @@ import static org.bytedeco.llvm.global.LLVM.*;
  */
 public class ClassLayouts {
 
-    /** Standaard library-hiërarchie voor type-info-synthese (bovenkant van andere klassen). */
+    /**
+     * Standaard library-hiërarchie voor type-info-synthese (bovenkant van andere
+     * klassen). Elke hier NIET genoemde library-klasse viel vroeger direct terug op
+     * "java/lang/Object" als super — ook als de ECHTE Java-hiërarchie via
+     * RuntimeException/Exception/Throwable loopt. Voor een Nabu-gecompileerde klasse
+     * die een library-exceptionklasse extend (bv. picocli's eigen
+     * PicocliException/ParameterException extends RuntimeException, vendored en hier
+     * dus als gewone Nabu-source meegecompileerd) betekende dat: de gesynthetiseerde
+     * super-keten sprong van RuntimeException direct naar Object, zonder Exception/
+     * Throwable ertussen. Een `catch (Exception e)`/`catch (Throwable t)` op zo'n
+     * exception faalde daardoor stilzwijgend via nabu_instanceof (geen bezochte naam
+     * matchte), en de exception liep tot een onbehandelde exception (abort). Deze
+     * tabel vult de ontbrekende tussenschakels voor de gangbare java.lang/java.io/
+     * java.util-exceptionhiërarchie aan; alles wat hier niet in staat valt — zoals
+     * voorheen — terug op "java/lang/Object".
+     */
     private static String librarySuperOf(String internalName) {
         if (internalName == null) return null;
         return switch (internalName) {
-            case "java/lang/Exception" -> "java/lang/Throwable";
             case "java/lang/Throwable" -> "java/lang/Object";
+            case "java/lang/Exception" -> "java/lang/Throwable";
+            case "java/lang/Error" -> "java/lang/Throwable";
+            case "java/lang/RuntimeException" -> "java/lang/Exception";
+            case "java/lang/IndexOutOfBoundsException" -> "java/lang/RuntimeException";
+            case "java/lang/ArrayIndexOutOfBoundsException" -> "java/lang/IndexOutOfBoundsException";
+            case "java/lang/StringIndexOutOfBoundsException" -> "java/lang/IndexOutOfBoundsException";
+            case "java/lang/IllegalArgumentException" -> "java/lang/RuntimeException";
+            case "java/lang/NumberFormatException" -> "java/lang/IllegalArgumentException";
+            case "java/lang/IllegalStateException" -> "java/lang/RuntimeException";
+            case "java/lang/NullPointerException" -> "java/lang/RuntimeException";
+            case "java/lang/ClassCastException" -> "java/lang/RuntimeException";
+            case "java/lang/UnsupportedOperationException" -> "java/lang/RuntimeException";
+            case "java/lang/ArithmeticException" -> "java/lang/RuntimeException";
+            case "java/lang/NegativeArraySizeException" -> "java/lang/RuntimeException";
+            case "java/lang/ArrayStoreException" -> "java/lang/RuntimeException";
+            case "java/lang/ReflectiveOperationException" -> "java/lang/Exception";
+            case "java/lang/ClassNotFoundException" -> "java/lang/ReflectiveOperationException";
+            case "java/lang/NoSuchMethodException" -> "java/lang/ReflectiveOperationException";
+            case "java/lang/NoSuchFieldException" -> "java/lang/ReflectiveOperationException";
+            case "java/lang/InstantiationException" -> "java/lang/ReflectiveOperationException";
+            case "java/lang/IllegalAccessException" -> "java/lang/ReflectiveOperationException";
+            case "java/util/NoSuchElementException" -> "java/lang/RuntimeException";
+            case "java/util/ConcurrentModificationException" -> "java/lang/RuntimeException";
+            case "java/io/IOException" -> "java/lang/Exception";
+            case "java/io/FileNotFoundException" -> "java/io/IOException";
+            case "java/io/UncheckedIOException" -> "java/lang/RuntimeException";
             case "java/lang/Object" -> null;
             default -> "java/lang/Object"; // onbekende library-klasse: Object is de veilige bovenkant
         };
@@ -147,6 +191,22 @@ public class ClassLayouts {
             if (paramTypes != null) {
                 Integer v = virtualSlots.get(slotKey(methodFullName, paramTypes));
                 if (v != null) return v;
+                // Geen exacte sleutel: een call-site zonder descriptor (bv. een
+                // `load i8*`) past op een overload met hetzelfde soort-profiel,
+                // maar alleen als dat er precies één is.
+                final int compatible = uniqueCompatibleSlot(methodFullName, paramTypes);
+                if (compatible >= 0) return compatible;
+                // Staan er onder deze naam wél overloads met een profiel in de
+                // vtable, maar niet dit profiel, dan is dit een methode zonder
+                // slot (bv. een private overload, die bytecode sinds Java 11
+                // ook met invokevirtual aanroept). Het slot van de kale naam
+                // is dan dat van een ANDERE overload: `String.split(String,
+                // int, boolean)` riep zo via het slot van `split(String, int)`
+                // zichzelf eindeloos aan. Geen slot = directe call.
+                final String overloadPrefix = methodFullName + "#";
+                for (final String key : virtualSlots.keySet()) {
+                    if (key.startsWith(overloadPrefix)) return -1;
+                }
             }
             return vtableSlot(methodFullName);
         }
@@ -156,9 +216,48 @@ public class ClassLayouts {
             return virtualSlotKey(methodFullName, paramTypes);
         }
 
+        /** Per naam: de parameterlijst en het slot van elke geregistreerde overload. */
+        private final Map<String, List<Map.Entry<List<IRType>, Integer>>> overloadSlots = new HashMap<>();
+
+        private void addOverload(String name, List<IRType> paramTypes, int slot) {
+            overloadSlots.computeIfAbsent(name, k -> new ArrayList<>()).add(Map.entry(paramTypes, slot));
+        }
+
+        /**
+         * Het slot van de enige overload onder {@code name} waarmee
+         * {@code paramTypes} verenigbaar is (zelfde soort per parameter; waar
+         * beide een descriptor hebben, dezelfde), of -1 bij geen of meerdere.
+         */
+        private int uniqueCompatibleSlot(String name, List<IRType> paramTypes) {
+            final var overloads = overloadSlots.get(name);
+            if (overloads == null) return -1;
+            int found = -1;
+            for (final var overload : overloads) {
+                if (!compatibleParams(overload.getKey(), paramTypes)) continue;
+                if (found >= 0 && found != overload.getValue()) return -1;
+                found = overload.getValue();
+            }
+            return found;
+        }
+
+        private static boolean compatibleParams(List<IRType> declared, List<IRType> call) {
+            if (declared.size() != call.size()) return false;
+            for (int i = 0; i < declared.size(); i++) {
+                final IRType d = declared.get(i);
+                final IRType c = call.get(i);
+                if (!typeProfile(d, false).equals(typeProfile(c, false))) return false;
+                if (i > 0 && d instanceof IRType.Ptr dp && c instanceof IRType.Ptr cp
+                        && dp.jvmDescriptor() != null && cp.jvmDescriptor() != null
+                        && !dp.jvmDescriptor().equals(cp.jvmDescriptor())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         /** Retourneert het itable-slot voor een interface-methode (full name), of -1. */
-        public int itableSlot(String interfaceMethodFullName) {
-            Integer v = itableSlots.get(interfaceMethodFullName);
+        public int itableSlot(String interfaceMethodFullName, List<IRType> paramTypes) {
+            Integer v = itableSlots.get(interfaceSlotKey(interfaceMethodFullName, paramTypes));
             return v != null ? v : -1;
         }
     }
@@ -169,6 +268,10 @@ public class ClassLayouts {
     private final Map<String, ClassLayout> byInternalName = new LinkedHashMap<>();
     // normalized internal name -> module (voor super-resolutie)
     private final Map<String, IRModule> modulesByInternalName = new LinkedHashMap<>();
+    /** Call-target -> het target op de declarerende eigenaar (zie {@link #canonicalize}). */
+    private final Map<String, String> declaringTargets = new HashMap<>();
+    /** Interne klassenaam -> de lid-namen van de functies die de module declareert. */
+    private final Map<String, Set<String>> memberNames = new HashMap<>();
 
     /**
      * Functie-resolutie-index: de IR gebruikt voor een gedeclareerde functie de
@@ -203,7 +306,43 @@ public class ClassLayouts {
      * deze volgorde, zodat een call via interface I (die alleen I's eigen
      * slot-index kent) altijd de implementatie van de dynamische klasse treft.
      */
+    /**
+     * Globale itable-slots, per interface-methode ÉN parameterlijst
+     * ({@link FnKeys#fnKey}): overloads (Appendable.append(char) /
+     * append(CharSequence) / append(CharSequence, int, int)) krijgen elk een
+     * eigen slot. Op naam alleen deelden ze één slot, gevuld met een
+     * willekeurige overload, en riep Formatter append(char) aan met een
+     * CharSequence (onzin-tekst).
+     */
     private final Map<String, Integer> interfaceSlots = new LinkedHashMap<>();
+    /** Per slot-sleutel: de functienaam van de call-site en diens parameters. */
+    private final Map<String, InterfaceSlotSig> interfaceSlotSigs = new HashMap<>();
+
+    private record InterfaceSlotSig(String function, List<IRType> paramTypes) {
+    }
+
+    /** De slot-sleutel van een interface-aanroep: naam + parameterlijst. */
+    static String interfaceSlotKey(final String function, final List<IRType> paramTypes) {
+        return FnKeys.fnKey(function, paramTypes);
+    }
+
+    private String slotFunction(final String slotKey) {
+        final InterfaceSlotSig sig = interfaceSlotSigs.get(slotKey);
+        return sig != null ? sig.function() : slotKey;
+    }
+
+    private IRFunction resolveSlotFunction(final String slotKey) {
+        final InterfaceSlotSig sig = interfaceSlotSigs.get(slotKey);
+        return sig != null ? resolveFunction(sig.function(), sig.paramTypes()) : resolveFunction(slotKey);
+    }
+    /**
+     * Interne namen van interfaces waarvan minstens één klasse in deze
+     * compilatie (direct of via super-interface) de implementer is. Zonder
+     * implementerende klasse is de itable van elke runtime-instantie leeg en
+     * kan interface-dispatch alleen slagen als de call direct naar de
+     * interface-functie valt (bv. annotatie-instanties uit de C-runtime).
+     */
+    private final java.util.Set<String> interfacesWithImplementers = new java.util.HashSet<>();
     /** Unieke, symbool-veilige naam voor de type-info/vtable/itable-globals. */
     private final Map<String, String> typeSymbols = new LinkedHashMap<>();
 
@@ -252,11 +391,14 @@ public class ClassLayouts {
      */
     public void indexModules(List<IRModule> modules) {
         modulesByInternalName.clear();
+        declaringTargets.clear();
+        memberNames.clear();
         functionsByQualifiedName.clear();
         overloadsByName.clear();
         qualifiedNames.clear();
         constructorSymbols.clear();
         interfaceSlots.clear();
+        interfaceSlotSigs.clear();
 
 for (IRModule m : modules) {
             String internal = normalizeInternalName(m.name);
@@ -328,7 +470,9 @@ for (IRModule m : modules) {
     private static void registerSlot(final ClassLayout layout, final String name,
                                      final int slot, final List<IRType> paramTypes) {
         if (name == null || paramTypes == null) return;
-        layout.virtualSlots.putIfAbsent(virtualSlotKey(name, paramTypes), slot);
+        if (layout.virtualSlots.putIfAbsent(virtualSlotKey(name, paramTypes), slot) == null) {
+            layout.addOverload(name, paramTypes, slot);
+        }
     }
 
     /**
@@ -337,18 +481,27 @@ for (IRModule m : modules) {
      * <p>Overloads delen de IR-functienaam, dus alleen de naam onderscheidt ze
      * niet. Zonder deze sleutel delen drie {@code addSubcommand}-varianten één
      * slot-index en belandt een call in de verkeerde functiepointer.
+     *
+     * <p>Referentieparameters tellen met hun descriptor mee: picocli's
+     * {@code arity(String)} en {@code arity(Range)} kregen anders allebei
+     * {@code #PP}, en {@code arity(String)} riep via dat gedeelde slot
+     * zichzelf aan met een Range. De receiver (positie 0) telt als kale
+     * {@code P}: de declaratie beschrijft {@code this} met de eigen klasse,
+     * een call-site met het statische type van de ontvanger.
      */
     static String virtualSlotKey(final String name, final List<IRType> paramTypes) {
         final var sb = new StringBuilder(name).append('#');
-        for (final var t : paramTypes) {
-            sb.append(typeProfile(t));
+        for (int i = 0; i < paramTypes.size(); i++) {
+            sb.append(typeProfile(paramTypes.get(i), i > 0));
         }
         return sb.toString();
     }
 
-    private static String typeProfile(final IRType t) {
+    private static String typeProfile(final IRType t, final boolean withDescriptor) {
         if (t == null) return "O";
-        if (t instanceof IRType.Ptr) return "P";
+        if (t instanceof IRType.Ptr p) {
+            return withDescriptor && p.jvmDescriptor() != null ? "P" + p.jvmDescriptor() : "P";
+        }
         if (t instanceof IRType.Int i) return "I" + i.bits();
         if (t instanceof IRType.Float f) return "F" + f.bits();
         if (t instanceof IRType.Bool) return "Z";
@@ -437,7 +590,10 @@ for (IRModule m : modules) {
                                 && call.callKind() == CallKind.INTERFACE
                                 && call.function() != null
                                 && resolveFunction(call.function()) != null) {
-                            callTargets.add(call.function());
+                            final String key = interfaceSlotKey(call.function(), call.paramTypes());
+                            callTargets.add(key);
+                            interfaceSlotSigs.putIfAbsent(key,
+                                    new InterfaceSlotSig(call.function(), call.paramTypes()));
                         }
                     }
                 }
@@ -504,9 +660,18 @@ for (IRModule m : modules) {
         if (candidates.size() == 1) return candidates.getFirst();
 
         if (paramTypes != null) {
+            final IRFunction mostSpecific = mostSpecificOverload(
+                    candidates, paramTypes, expectedReturnType);
+            if (mostSpecific != null) return mostSpecific;
             if (expectedReturnType != null) {
                 for (final var candidate : candidates) {
                     if (sameParamProfile(candidate, paramTypes)
+                            && sameReturnType(candidate, expectedReturnType)) {
+                        return candidate;
+                    }
+                }
+                for (final var candidate : candidates) {
+                    if (sameParamKinds(candidate, paramTypes)
                             && sameReturnType(candidate, expectedReturnType)) {
                         return candidate;
                     }
@@ -522,10 +687,63 @@ for (IRModule m : modules) {
                 if (sameParamProfile(candidate, paramTypes)) return candidate;
             }
             for (final var candidate : candidates) {
+                if (sameParamKinds(candidate, paramTypes)) return candidate;
+            }
+            for (final var candidate : candidates) {
                 if (candidate.params.size() == paramTypes.size()) return candidate;
             }
         }
         return candidates.getFirst();
+    }
+
+    /**
+     * De overload die qua parameter-descriptors het best bij de call-site
+     * past, of null als geen enkele kandidaat op het pointer/primitief-profiel
+     * past.
+     *
+     * <p>Het profiel stelt alle referenties gelijk, zodat de eerste kandidaat
+     * won: {@code isNonDefault(String[], String[])} bond aan
+     * {@code isNonDefault(Object, Object)} in plaats van aan
+     * {@code isNonDefault(Object[], Object[])}, en riep daarna
+     * {@code equals} aan op een array. Per parameter telt: exact dezelfde
+     * descriptor het zwaarst, daarna array-op-array, daarna
+     * niet-array-op-niet-array; een array-parameter tegenover een
+     * niet-array-argument valt af.
+     */
+    private static IRFunction mostSpecificOverload(final List<IRFunction> candidates,
+                                                   final List<IRType> paramTypes,
+                                                   final IRType expectedReturnType) {
+        IRFunction best = null;
+        int bestScore = -1;
+        boolean informative = false;
+        for (final var candidate : candidates) {
+            if (!sameParamProfile(candidate, paramTypes)) continue;
+            if (expectedReturnType != null && !sameReturnType(candidate, expectedReturnType)) continue;
+            int score = 0;
+            boolean rejected = false;
+            for (int i = 0; i < paramTypes.size() && !rejected; i++) {
+                final String declared = descriptorOf(candidate.params.get(i).type());
+                final String actual = descriptorOf(paramTypes.get(i));
+                if (declared == null || actual == null) continue;
+                informative = true;
+                final boolean declaredArray = declared.startsWith("[");
+                final boolean actualArray = actual.startsWith("[");
+                if (declared.equals(actual)) score += 3;
+                else if (declaredArray && actualArray) score += 2;
+                else if (declaredArray) rejected = true;
+                else if (!actualArray) score += 1;
+            }
+            if (!rejected && score > bestScore) {
+                best = candidate;
+                bestScore = score;
+            }
+        }
+        // Zonder descriptors valt er niets te wegen: het oude gedrag kiest dan.
+        return informative ? best : null;
+    }
+
+    private static String descriptorOf(final IRType type) {
+        return type instanceof IRType.Ptr p ? p.jvmDescriptor() : null;
     }
 
     /** Of de returntype van {@code fn} past bij wat de call-site verwacht. */
@@ -542,6 +760,26 @@ for (IRModule m : modules) {
         if (found != null && !found.isEmpty()) return found;
         final var single = resolveFunction(callTarget);
         return single != null ? List.of(single) : List.of();
+    }
+
+    /**
+     * Zwakker dan {@link #sameParamProfile}: referenties zijn onderling
+     * uitwisselbaar, ongeacht hun descriptor. Een argument van een SUBTYPE
+     * ({@code new LinkedHashSet(List)} tegen {@code LinkedHashSet(Collection)})
+     * heeft een andere descriptor dan de parameter en miste zo het exacte
+     * profiel; de arity-fallback koos dan de eerste overload met evenveel
+     * parameters - hier {@code LinkedHashSet(int)}.
+     */
+    private static boolean sameParamKinds(final IRFunction fn,
+                                          final List<IRType> paramTypes) {
+        if (fn.params.size() != paramTypes.size()) return false;
+        for (int i = 0; i < paramTypes.size(); i++) {
+            final IRType declared = fn.params.get(i).type();
+            final IRType actual = paramTypes.get(i);
+            if (declared instanceof IRType.Ptr && actual instanceof IRType.Ptr) continue;
+            if (!profile(declared, actual)) return false;
+        }
+        return true;
     }
 
     /** Vergelijkt de IR-parameters met de call-site-parameter-types. */
@@ -589,9 +827,26 @@ for (IRModule m : modules) {
     }
 
     /** De globale itable-slot van een interface-methode, of -1. */
-    public int interfaceSlotIndex(String interfaceMethod) {
-        Integer slot = interfaceSlots.get(interfaceMethod);
+    public int interfaceSlotIndex(String interfaceMethod, List<IRType> paramTypes) {
+        Integer slot = interfaceSlots.get(interfaceSlotKey(interfaceMethod, paramTypes));
+        if (slot == null) {
+            slot = uniqueSlotByName(interfaceSlots, interfaceMethod);
+        }
         return slot != null ? slot : -1;
+    }
+
+    /** Het enige slot van een methodenaam (één overload in gebruik), anders null. */
+    private Integer uniqueSlotByName(final Map<String, Integer> slots, final String function) {
+        Integer found = null;
+        for (final Map.Entry<String, Integer> e : slots.entrySet()) {
+            if (function.equals(slotFunction(e.getKey()))) {
+                if (found != null) {
+                    return null;
+                }
+                found = e.getValue();
+            }
+        }
+        return found;
     }
 
     /** Het unieke symbool voor een constructor die met een methode botst, of null. */
@@ -606,7 +861,7 @@ for (IRModule m : modules) {
     }
 
     /** Een symbool dat veilig in een LLVM-globalnaam gebruikt kan worden. */
-    private String typeSymbol(String internalName) {
+    String typeSymbol(String internalName) {
         return typeSymbols.computeIfAbsent(internalName, name -> {
             StringBuilder sb = new StringBuilder(name.length());
             for (int i = 0; i < name.length(); i++) {
@@ -646,6 +901,152 @@ for (IRModule m : modules) {
                 buildItable(mod, m, layout);
             }
         }
+        // Fase C: welke interfaces hebben implementerende klassen in deze
+        // compilatie? Doorslaggevend voor de dispatch-keuze in
+        // InstructionEmitter.tryEmitInterfaceCall.
+        collectInterfacesWithImplementers(order);
+        buildLibraryItable(mod);
+    }
+
+    /** De itable voor library-objecten (zie {@link #buildLibraryItable}), of null. */
+    private LLVMValueRef libraryItable;
+
+    public LLVMValueRef libraryItable() {
+        return libraryItable;
+    }
+
+    /**
+     * Een tabel met de type-info van elke gecompileerde klasse (geen
+     * interfaces), zodat de runtime een klasse op naam kan vinden — o.a. voor
+     * {@code Class.getSuperclass()}, dat de super-keten van de klasse met díe
+     * naam nodig heeft. Retourneert {@code {tabel, aantal}} of null als er geen
+     * klassen zijn.
+     */
+    public LLVMValueRef[] buildTypeInfoTable(LLVMModuleRef mod) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final List<LLVMValueRef> infos = new ArrayList<>();
+        for (ClassLayout layout : byInternalName.values()) {
+            if (!layout.isInterface && layout.typeInfoGlobal != null) {
+                infos.add(layout.typeInfoGlobal);
+            }
+        }
+        if (infos.isEmpty()) {
+            return null;
+        }
+        final PointerPointer<Pointer> entries = new PointerPointer<>(infos.size());
+        for (int i = 0; i < infos.size(); i++) {
+            entries.put(i, infos.get(i));
+        }
+        final LLVMTypeRef type = LLVMArrayType(ptrType, infos.size());
+        final LLVMValueRef table = LLVMAddGlobal(mod, type, new BytePointer("_ZNabuTypeInfoTable"));
+        LLVMSetLinkage(table, LLVMInternalLinkage);
+        LLVMSetGlobalConstant(table, 1);
+        LLVMSetInitializer(table, LLVMConstArray(ptrType, entries, infos.size()));
+        Reference.reachabilityFence(entries);
+        return new LLVMValueRef[]{table,
+                LLVMConstInt(LLVMInt32TypeInContext(ctx), infos.size(), 0)};
+    }
+
+    /**
+     * De itable voor objecten die de C-runtime maakt (jcl-lite: Field, Method,
+     * collecties, ...). Die hebben geen eigen itable, maar belanden wél achter
+     * een interface-referentie: {@code AnnotatedElement.isAnnotationPresent} op
+     * een runtime-Field laadde {@code itable[slot]} uit een NULL-itable. Elke slot
+     * wijst hier naar de functie van de interface zelf — de C-implementatie uit
+     * de runtime, de default-body of de abstracte stub — precies wat een directe
+     * aanroep zou doen.
+     */
+    private void buildLibraryItable(LLVMModuleRef mod) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final int n = interfaceSlots.size();
+        if (n == 0) {
+            return;
+        }
+        final PointerPointer<Pointer> entries = new PointerPointer<>(n);
+        for (Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
+            final IRFunction interfaceFn = resolveSlotFunction(slot.getKey());
+            final LLVMValueRef value = interfaceFn != null ? functionValue(interfaceFn) : null;
+            // Een abstracte interface-methode zonder body heeft alleen een
+            // definitie als het een JDK-lid is (`pkg.Owner_member`): dat levert
+            // de runtime, of het krijgt een nabu_unresolved-stub. Een abstracte
+            // methode uit de eigen sources (`Greeter_greet`) niet — die slot
+            // blijft leeg, anders faalt de link op een undefined reference.
+            final boolean linkable = value != null && !value.isNull()
+                    && (interfaceFn.isExternal() || !interfaceFn.blocks().isEmpty()
+                        || LLVMGetValueName(value).getString().indexOf('.') >= 0);
+            final LLVMValueRef fn = linkable ? value : null;
+            entries.put(slot.getValue(), fn != null && !fn.isNull() ? fn : LLVMConstNull(ptrType));
+        }
+        final LLVMTypeRef type = LLVMArrayType(ptrType, n);
+        final LLVMValueRef global = LLVMAddGlobal(mod, type, new BytePointer("_ZNabuLibraryEitable"));
+        LLVMSetLinkage(global, LLVMInternalLinkage);
+        LLVMSetGlobalConstant(global, 1);
+        LLVMSetInitializer(global, LLVMConstArray(ptrType, entries, n));
+        Reference.reachabilityFence(entries);
+        libraryItable = global;
+    }
+
+    /**
+     * Vult {@link #interfacesWithImplementers}: interfaces waarvan minstens
+     * één niet-interface-module in de batch (of diens super-klasse) de
+     * implementeert. Superinterfaces van zulke interfaces worden meegenomen
+     * (een implementer van een subinterface implementeert de hele keten).
+     */
+    private void collectInterfacesWithImplementers(final List<IRModule> order) {
+        final var owners = new java.util.LinkedHashSet<String>();
+        for (final String interfaceMethod : interfaceSlots.keySet()) {
+            owners.add(ownerOf(slotFunction(interfaceMethod)));
+        }
+        // Ook interfaces zonder eigen methoden (IScope extends IGetter, ISetter):
+        // een call via zo'n statisch type gebruikt de itable alleen als de
+        // interface implementers heeft.
+        for (final IRModule m : order) {
+            if (Flags.hasFlag(m.flags, Flags.INTERFACE)) {
+                owners.add(m.name);
+            }
+        }
+        for (final IRModule m : order) {
+            if (Flags.hasFlag(m.flags, Flags.INTERFACE)) {
+                continue;
+            }
+            final String name = normalizeInternalName(m.name);
+            for (final String owner : owners) {
+                if (implementsInterface(name, owner)) {
+                    interfacesWithImplementers.add(normalizeInternalName(owner));
+                }
+            }
+        }
+        // Propageer naar superinterfaces (fixpoint; de interface-hiërarchie is
+        // acyclisch, maar het aantal niveaus is niet vooraf bekend).
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (final IRModule m : order) {
+                if (!Flags.hasFlag(m.flags, Flags.INTERFACE)
+                        || !interfacesWithImplementers.contains(normalizeInternalName(m.name))) {
+                    continue;
+                }
+                for (final IRType ext : m.interfaces()) {
+                    if (ext instanceof IRType.Ptr p && p.jvmDescriptor() != null) {
+                        final String sup = normalizeInternalName(fromDescriptor(p.jvmDescriptor()));
+                        if (modulesByInternalName.containsKey(sup)
+                                && interfacesWithImplementers.add(sup)) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Of er in deze compilatie een klasse bestaat die de interface implementeert
+     * (direct of via super-interface). {@code false} betekent: itable-dispatch
+     * kan op geen enkel batch-object slagen.
+     */
+    public boolean hasImplementers(final String interfaceInternalName) {
+        return interfaceInternalName != null
+                && interfacesWithImplementers.contains(normalizeInternalName(interfaceInternalName));
     }
 
     private List<IRModule> topologicalOrder(List<IRModule> modules) {
@@ -680,12 +1081,177 @@ for (IRModule m : modules) {
     /** Retourneert de normalized internal name van de directe super-klasse, of null. */
     public String superInternalName(String internalName) {
         IRModule m = modulesByInternalName.get(internalName);
+        if (m != null && m.superType() == null
+                && !Flags.hasFlag(m.flags, Flags.INTERFACE)
+                && !"java/lang/Object".equals(internalName)
+                && modulesByInternalName.containsKey("java/lang/Object")) {
+            // De frontend laat een impliciete `extends Object` weg. Is Object
+            // (uit bytecode) gecompileerd, dan erft de klasse diens vtable-
+            // prefix: JDK-code roept equals/hashCode/toString aan via de
+            // slots van Object. Zonder die prefix stond op slot 0 (equals) van
+            // picocli's ArgSpec diens applyInitialValue, en riep HashMap die aan.
+            return "java/lang/Object";
+        }
         if (m == null || m.superType() == null || !(m.superType() instanceof IRType.Ptr p)
                 || p.jvmDescriptor() == null) {
             return null;
         }
         String sup = fromDescriptor(p.jvmDescriptor());
         return modulesByInternalName.containsKey(sup) ? sup : null;
+    }
+
+    /**
+     * De naam van hetzelfde lid (methode of statisch veld) in de directe
+     * super-klasse: {@code pkg.Sub_member} -> {@code pkg.Super_member}, of
+     * null als de eigenaar of zijn super-klasse niet in deze compilatie zit.
+     *
+     * <p>De eigenaar is de langste prefix vóór een {@code '_'} die een bekende
+     * module is: lidnamen bevatten zelf ook underscores ({@code MAX_VALUE}).
+     */
+    public String superCallTarget(String callTarget) {
+        int idx = ownerSplit(callTarget);
+        if (idx < 0) return null;
+        String sup = superInternalName(normalizeInternalName(callTarget.substring(0, idx)));
+        return sup != null ? sup.replace('/', '.') + callTarget.substring(idx) : null;
+    }
+
+    /**
+     * Herschrijft een call naar een GEËRFD lid op de klasse of interface die
+     * het lid daadwerkelijk declareert: bytecode (en de source-frontend) mag
+     * als eigenaar het statische type van de receiver noemen
+     * ({@code LinkedHashSet.add}, {@code List.stream}, {@code Map.getClass}),
+     * terwijl de functie, het vtable-slot en het itable-slot onder de
+     * declarerende eigenaar staan ({@code HashSet_add},
+     * {@code Collection_stream}, {@code Object_getClass}). Zonder deze stap
+     * vindt de dispatch geen slot en wordt het een directe call naar een
+     * symbool dat nergens gedefinieerd is.
+     */
+    public IRInstruction.Call canonicalize(final IRInstruction.Call call) {
+        final String fn = call.function();
+        if (fn == null || fn.endsWith("_init") || fn.endsWith("_clinit")
+                || fn.endsWith("_super")) {
+            return call;
+        }
+        final String profile = profileOf(call.paramTypes());
+        final String declaring = declaringTargets.computeIfAbsent(fn + "#" + profile,
+                k -> findDeclaringTarget(fn, profile));
+        if (declaring.equals(fn)) return call;
+        return new IRInstruction.Call(
+                call.callKind(), call.returnType(), call.paramTypes(),
+                call.result(), declaring, call.args(), call.location());
+    }
+
+    /**
+     * Het exacte parameterprofiel (met descriptors, zoals de overload-sleutel):
+     * alleen het soort type is te grof, want {@code update(byte[])} en
+     * {@code update(ByteBuffer)} zijn dan dezelfde overload.
+     */
+    private static String profileOf(final List<IRType> paramTypes) {
+        return FnKeys.fnKey("", paramTypes);
+    }
+
+    private String findDeclaringTarget(final String callTarget, final String profile) {
+        final int idx = ownerSplit(callTarget);
+        if (idx < 0) return callTarget;
+        final String owner = normalizeInternalName(callTarget.substring(0, idx));
+        final String member = callTarget.substring(idx + 1);
+        if (declaresMember(owner, member, profile)) return callTarget;
+
+        // Eerst de super-klasse-keten (een concrete implementatie wint van
+        // een interface-declaratie), daarna de interfaces breadth-first.
+        final List<String> classes = new ArrayList<>();
+        classes.add(owner);
+        for (String sup = superInternalName(owner); sup != null && !classes.contains(sup);
+             sup = superInternalName(sup)) {
+            if (declaresMember(sup, member, profile)) return sup.replace('/', '.') + "_" + member;
+            classes.add(sup);
+        }
+        final java.util.ArrayDeque<String> pending = new java.util.ArrayDeque<>(classes);
+        final Set<String> seen = new HashSet<>(classes);
+        while (!pending.isEmpty()) {
+            final IRModule module = modulesByInternalName.get(pending.poll());
+            if (module == null) continue;
+            for (final IRType implemented : module.interfaces()) {
+                if (!(implemented instanceof IRType.Ptr p) || p.jvmDescriptor() == null) continue;
+                final String itf = normalizeInternalName(fromDescriptor(p.jvmDescriptor()));
+                if (!modulesByInternalName.containsKey(itf) || !seen.add(itf)) continue;
+                if (declaresMember(itf, member, profile)) return itf.replace('/', '.') + "_" + member;
+                pending.add(itf);
+            }
+        }
+        // Een interface erft de publieke methoden van Object (JLS §9.2).
+        if (declaresMember("java/lang/Object", member, profile)) {
+            return "java.lang.Object_" + member;
+        }
+        return callTarget;
+    }
+
+    /**
+     * Of de module {@code internalName} het lid {@code member} declareert.
+     *
+     * <p>Voor een module uit bytecode (functienamen beginnen met de
+     * gekwalificeerde klassenaam) telt ook het parameterprofiel: declareert
+     * de klasse wel {@code write(int)} maar niet {@code write(byte[])}, dan
+     * hoort een aanroep van die laatste bij de voorouder. Voor source-modules
+     * verschilt de naam- en parameterconventie per frontend-pad; daar is elke
+     * suffix na een '_' een mogelijke lid-naam en telt alleen de naam. Een
+     * vals "declareert zelf" laat de call ongemoeid; een vals "declareert
+     * niet" zou hem naar een voorouder omleiden.
+     */
+    private boolean declaresMember(final String internalName, final String member,
+                                   final String profile) {
+        final IRModule module = modulesByInternalName.get(internalName);
+        if (module == null) return false;
+        final Set<String> names = memberNames.computeIfAbsent(internalName, k -> {
+            final String qualified = internalName.replace('/', '.') + "_";
+            final Set<String> found = new HashSet<>();
+            for (final IRFunction fn : module.functions()) {
+                if (fn.name == null) continue;
+                if (fn.name.startsWith(qualified)) {
+                    final String name = fn.name.substring(qualified.length());
+                    found.add(name);
+                    found.add(name + "#" + profileOf(FnKeys.declaredParamsOf(fn)));
+                    if (fn.isExternal() && !fn.params.isEmpty()) {
+                        // Een native methode is extern gedeclareerd met de
+                        // receiver als gewone eerste parameter (`%arg0`), dus
+                        // het profiel zonder die receiver telt ook.
+                        found.add(name + "#" + profileOf(fn.params.stream()
+                                .skip(1).map(IRValue::type).toList()));
+                    }
+                    found.add("#bytecode");
+                    continue;
+                }
+                for (int i = fn.name.indexOf('_'); i >= 0; i = fn.name.indexOf('_', i + 1)) {
+                    found.add(fn.name.substring(i + 1));
+                }
+            }
+            return found;
+        });
+        if (!names.contains(member)) return false;
+        return !names.contains("#bytecode") || names.contains(member + "#" + profile);
+    }
+
+    /**
+     * De interne naam van de eigenaar van een lid-naam
+     * ({@code pkg.Owner_member} -> {@code pkg/Owner}), of null als die
+     * eigenaar niet in deze compilatie zit.
+     */
+    public String ownerInternalName(String callTarget) {
+        int idx = ownerSplit(callTarget);
+        return idx < 0 ? null : normalizeInternalName(callTarget.substring(0, idx));
+    }
+
+    /** Index van de {@code '_'} tussen eigenaar en lid, of -1. */
+    private int ownerSplit(String callTarget) {
+        if (callTarget == null) return -1;
+        for (int idx = callTarget.lastIndexOf('_'); idx > 0;
+             idx = callTarget.lastIndexOf('_', idx - 1)) {
+            if (modulesByInternalName.containsKey(
+                    normalizeInternalName(callTarget.substring(0, idx)))) {
+                return idx;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -739,7 +1305,24 @@ for (IRModule m : modules) {
                 superTypeInfo = librarySuperTypeInfo(mod, superInternal);
             }
         }
-        LLVMValueRef typeInfo = emitTypeInfo(mod, internalName, structType, counter, module, superTypeInfo);
+        // Eigen instantievelden met hun byte-offset, voor
+        // Unsafe.objectFieldOffset (bv. ConcurrentHashMap.SIZECTL) op elke
+        // gecompileerde klasse — niet alleen de reflect-config-klassen.
+        final List<Map.Entry<String, Long>> instanceFields = new ArrayList<>();
+        {
+            final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+            int fieldCounter = 0;
+            for (IRField field : module.fields()) {
+                final Integer idx = indexMap.get(fieldCounter++);
+                if (idx != null) {
+                    instanceFields.add(Map.entry(field.name(),
+                            LLVMOffsetOfElement(dl, structType, idx)));
+                }
+            }
+            LLVMDisposeTargetData(dl);
+        }
+        LLVMValueRef typeInfo = emitTypeInfo(mod, internalName, structType, counter, module, superTypeInfo,
+                instanceFields);
 
         ClassLayout layout = new ClassLayout(internalName, structType, typeInfo);
         // Een interface heeft geen klassen-vtable; dispatch loopt via de itable.
@@ -786,16 +1369,31 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
             return;
         }
 
-        List<IRFunction> virtuals =
+        // Kandidaten voor een override van een super-slot: ook final methoden.
+        // `final` verbiedt alleen verdere overrides; de methode overschrijft
+        // zelf wel degelijk haar ouder. Zonder deze kandidaten bleef bv. het
+        // abstracte CharsetProvider.charsetForName in de vtable van
+        // StandardCharsets staan (diens override is `public final`) en sprong
+        // Charset.defaultCharset() naar een unreachable-stub.
+        List<IRFunction> overrideCandidates =
                 module.functions().stream()
                         .filter(f -> !Flags.hasFlag(f.getFlags(), Flags.STATIC))
                         .filter(f -> !Flags.hasFlag(f.getFlags(), Flags.PRIVATE))
-                        .filter(f -> !Flags.hasFlag(f.getFlags(), Flags.FINAL))
                         .filter(f -> !f.isConstructor())
                         .filter(f -> !f.name.endsWith("_super"))
-                        .filter(f -> !f.isExternal())
+                        // Een native instantiemethode (Object.hashCode) is ook
+                        // virtueel: zonder slot konden overrides als
+                        // ArgSpec.hashCode niet via Object gedispatcht worden.
+                        // De runtime (of een stub) levert het symbool.
+                        .filter(f -> !f.isExternal()
+                                || (Flags.hasFlag(f.getFlags(), Flags.NATIVE)
+                                    && layout.internalName.equals(ownerInternalName(f.name))))
                         .sorted(java.util.Comparator.comparing(f -> f.name))
                         .toList();
+        // Nieuwe slots alleen voor niet-final methoden (zoals voorheen).
+        List<IRFunction> virtuals = overrideCandidates.stream()
+                .filter(f -> !Flags.hasFlag(f.getFlags(), Flags.FINAL))
+                .toList();
 
         String superName = superInternalName(layout.internalName);
         ClassLayout superLayout = superName != null ? byInternalName.get(superName) : null;
@@ -812,30 +1410,42 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
             for (int i = 0; i < superLayout.vtableOrder.size(); i++) {
                 IRFunction superFnRef = superLayout.vtableOrder.get(i);
                 String superFn = superFnRef.name;
-                IRFunction override = findOverride(virtuals, superFnRef);
+                IRFunction override = findOverride(overrideCandidates, superFnRef);
                 IRFunction placed = override != null ? override : superFnRef;
                 slotFns.add(placed);
                 layout.vtableOrder.add(placed);
                 layout.virtualSlots.put(placed.name, i);
                 layout.virtualSlots.putIfAbsent(superFn, i);
+                // Ook onder naam + parameterprofiel: de kale naam onderscheidt
+                // de overloads van een geërfde methode niet (write(int) en
+                // write(byte[]) delen 'OutputStream_write').
+                registerSlot(layout, superFn, i,
+                        superFnRef.params.stream().map(IRValue::type).toList());
                 if (override != null) {
                     registerSlot(layout, override.name, i,
                             override.params.stream().map(IRValue::type).toList());
                 }
             }
             // Daarna eigen nieuwe virtuele methoden (die de super niet heeft)
+            // Sleutel = naam + parameterprofiel (virtualSlotKey), niet de kale
+            // naam: anders deelt een tweede nieuwe overload met dezelfde naam
+            // (bv. twee builder-overloads die geen van beide de super hebben)
+            // stilzwijgend geen slot en valt een call terug op het slot van de
+            // eerste overload -- een ABI-mismatch die als een willekeurige
+            // functiepointer (of een vtable/constructor-adres) oplevert.
             Set<String> placed = new java.util.HashSet<>();
             for (IRFunction f : layout.vtableOrder) {
-                placed.add(f.name);
+                placed.add(virtualSlotKey(f.name, f.params.stream().map(IRValue::type).toList()));
             }
             for (var v : virtuals) {
-                if (!placed.contains(v.name)) {
+                String key = virtualSlotKey(v.name, v.params.stream().map(IRValue::type).toList());
+                if (!placed.contains(key)) {
                     slotFns.add(v);
                     layout.vtableOrder.add(v);
                     layout.virtualSlots.put(v.name, slotFns.size() - 1);
                     registerSlot(layout, v.name, slotFns.size() - 1,
                             v.params.stream().map(IRValue::type).toList());
-                    placed.add(v.name);
+                    placed.add(key);
                 }
             }
         } else {
@@ -857,11 +1467,23 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         for (var v : virtuals) {
             String qualified = qualifiedName(v);
             if (qualified != null) {
-                Integer slot = layout.virtualSlots.get(v.name);
+                // v's EIGEN slot via de overload-sleutel opzoeken, niet via de
+                // kale naam (layout.virtualSlots.get(v.name)): die kale-naam-
+                // entry is 'last write wins' over alle overloads (zie de
+                // hoofdlus hierboven) en wijst dus voor een 0-arg overload
+                // zomaar naar het slot van een andere overload met dezelfde
+                // IR-naam. Dat registreerde de gekwalificeerde alias van de
+                // getter onder het slot van de setter (en vice versa), en een
+                // call via de gekwalificeerde naam -- wat elke cross-package
+                // dispatch gebruikt -- trof dan de verkeerde functie.
+                final List<IRType> vParams = v.params.stream().map(IRValue::type).toList();
+                Integer slot = layout.virtualSlots.get(virtualSlotKey(v.name, vParams));
+                if (slot == null) {
+                    slot = layout.virtualSlots.get(v.name);
+                }
                 if (slot != null) {
                     layout.virtualSlots.putIfAbsent(qualified, slot);
-                    registerSlot(layout, qualified, slot,
-                            v.params.stream().map(IRValue::type).toList());
+                    registerSlot(layout, qualified, slot, vParams);
                 }
             }
         }
@@ -883,8 +1505,32 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
                 IRFunction fn = slotFns.get(i);
                 // Eerst de overload-sleutel: die is uniek per parameterlijst.
                 // De kale naam dekt maar één van de overloads.
-                LLVMValueRef fnRef = globalValueMap.get("@" + FnKeys.fnKey(
-                        fn.name, fn.params.stream().map(IRValue::type).toList()));
+                // FnKeys.declaredParamsOf (zonder de impliciete receiver),
+                // niet fn.params.stream()...type() (mét receiver): de
+                // registratie in FunctionEmitter.declareSignature strippt
+                // 'this' uit de overload-sleutel. Met receiver erin matchte
+                // het slot van een 0-arg overload (bv. Builder.ansi())
+                // toevallig de sleutel van een 1-arg overload (Builder.ansi
+                // (Ansi)) met dezelfde IR-naam, en kregen beide vtable-slots
+                // dezelfde (verkeerde) functiepointer.
+                // Klasse-gekwalificeerde sleutel eerst: de kale overload-
+                // sleutel ("Builder_build#") is GEEN garantie tegen botsingen
+                // tussen klassen die de simple owner-naam delen (elke nested
+                // Builder-klasse heet in de IR gewoon "Builder"). Zonder dit
+                // kon de vtable-opbouw van klasse A de nog-ongedefinieerde
+                // LLVM-functie van klasse B's gelijknamige slot vinden
+                // (last-match via de kale sleutel) en daar, als B's eigen fn
+                // toevallig GEEN blocks had, een unreachable-stub in planten
+                // (emitAbstractSlotStub) — waarna B's ECHTE body in fase 4
+                // als een los, onbereikbaar tweede blok bovenop kwam.
+                final String qualified = qualifiedName(fn);
+                LLVMValueRef fnRef = qualified != null
+                        ? globalValueMap.get("@" + FnKeys.fnKey(qualified, FnKeys.declaredParamsOf(fn)))
+                        : null;
+                if (fnRef == null || fnRef.isNull()) {
+                    fnRef = globalValueMap.get("@" + FnKeys.fnKey(
+                            fn.name, FnKeys.declaredParamsOf(fn)));
+                }
                 if (fnRef == null || fnRef.isNull()) {
                     fnRef = functionValueByName(fn.name);
                 }
@@ -1012,7 +1658,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         LLVMValueRef[] entries = new LLVMValueRef[interfaceSlots.size()];
         for (Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
             String interfaceMethod = slot.getKey();
-            if (isInterface && declaresInterfaceMethod(layout.internalName, interfaceMethod)) {
+            if (isInterface && declaresInterfaceMethod(layout.internalName, slotFunction(interfaceMethod))) {
                 // Slot-index vastleggen; de vulling hoort bij de implementerende klasse.
                 layout.itableSlots.put(interfaceMethod, slot.getValue());
                 continue;
@@ -1072,9 +1718,50 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
      * eigen functie van de interface (default-method), en anders op null — een
      * klasse die de interface helemaal niet implementeert krijgt géén itable-slot.
      */
+    /** De expliciete parameters van een functie: bij een instantiemethode zonder de receiver. */
+    private static List<IRType> explicitParams(final IRFunction fn) {
+        final List<IRType> all = fn.params.stream().map(IRValue::type).toList();
+        if (Flags.hasFlag(fn.getFlags(), Flags.STATIC) || all.isEmpty()) {
+            return all;
+        }
+        return all.subList(1, all.size());
+    }
+
     private LLVMValueRef findInterfaceImplementation(String classInternalName, String interfaceMethod) {
-        IRFunction interfaceFn = resolveFunction(interfaceMethod);
+        IRFunction interfaceFn = resolveSlotFunction(interfaceMethod);
         if (interfaceFn == null) return null;
+
+        // Eerst exact op de parameterlijst van de call-site: de interface-
+        // module declareert niet elke overload (alleen wat gelowered is), dus
+        // resolveFunction kan een andere overload teruggeven dan het slot
+        // bedoelt (Appendable.append(char) voor append(CharSequence, int, int)).
+        final InterfaceSlotSig sig = interfaceSlotSigs.get(interfaceMethod);
+        if (sig != null) {
+            final String wanted = FnKeys.fnKey("", sig.paramTypes());
+            final String tail = methodTail(sig.function());
+            String c = classInternalName;
+            while (c != null) {
+                IRModule module = modulesByInternalName.get(c);
+                if (module != null) {
+                    for (IRFunction fn : module.functions()) {
+                        if (fn.isConstructor() || Flags.hasFlag(fn.getFlags(), Flags.STATIC)) continue;
+                        if (fn.name.endsWith("_super")) continue;
+                        if (methodTail(fn.name).equals(tail)
+                                && FnKeys.fnKey("", explicitParams(fn)).equals(wanted)) {
+                            LLVMValueRef value = functionValue(fn);
+                            if (value != null) return value;
+                        }
+                    }
+                }
+                c = superInternalName(c);
+            }
+            if (!FnKeys.fnKey("", explicitParams(interfaceFn)).equals(wanted)) {
+                // De gevonden interface-functie is een andere overload: niet
+                // die (verkeerde) implementatie kiezen. De default/stub van
+                // precies deze overload bestaat niet; laat het slot leeg.
+                return null;
+            }
+        }
 
         String current = classInternalName;
         while (current != null) {
@@ -1096,7 +1783,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         // Geen implementatie in de klassen-keten. Dan pas de interface-functie
         // zelf gebruiken (default-method met body, of abstracte stub) — en alleen
         // als de klasse de interface daadwerkelijk implementeert.
-        if (implementsInterface(classInternalName, ownerOf(interfaceMethod))) {
+        if (implementsInterface(classInternalName, ownerOf(slotFunction(interfaceMethod)))) {
             return functionValue(interfaceFn);
         }
         return null;
@@ -1112,18 +1799,36 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
     private boolean implementsInterface(String classInternalName, String interfaceOwner) {
         final String target = normalizeInternalName(interfaceOwner);
         if (target == null) return false;
+        // Ook via superinterfaces: picocli's CommandUserObject implementeert
+        // IScope, en IScope (zonder eigen methoden) breidt IGetter uit. Alleen
+        // de directe interfaces bekijken liet IGetter zonder implementers, en
+        // `scope.get()` werd een directe call naar de body-loze IGetter_get.
+        final Deque<String> pending = new ArrayDeque<>();
+        final Set<String> seen = new HashSet<>();
         String current = classInternalName;
         while (current != null) {
             IRModule module = modulesByInternalName.get(current);
             if (module != null) {
                 for (IRType implemented : module.interfaces()) {
-                    if (target.equals(normalizeInternalName(
-                            implemented instanceof IRType.Ptr p ? p.jvmDescriptor() : null))) {
-                        return true;
-                    }
+                    final String name = normalizeInternalName(
+                            implemented instanceof IRType.Ptr p ? p.jvmDescriptor() : null);
+                    if (name != null) pending.add(name);
                 }
             }
             current = superInternalName(current);
+        }
+        while (!pending.isEmpty()) {
+            final String itf = pending.poll();
+            if (!seen.add(itf)) continue;
+            if (target.equals(itf)) return true;
+            final IRModule itfModule = modulesByInternalName.get(itf);
+            if (itfModule != null) {
+                for (IRType ext : itfModule.interfaces()) {
+                    final String name = normalizeInternalName(
+                            ext instanceof IRType.Ptr p ? p.jvmDescriptor() : null);
+                    if (name != null) pending.add(name);
+                }
+            }
         }
         return false;
     }
@@ -1133,10 +1838,22 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
      * zeker de juiste variant), dan de gewone naam. Let op dat een constructor
      * die met een methode botst onder een eigen symbool staat.
      */
-    private LLVMValueRef functionValue(IRFunction fn) {
+    LLVMValueRef functionValue(IRFunction fn) {
         String symbol = firstNonNull(constructorSymbol(fn), fn.name);
-        List<IRType> paramTypes = fn.params.stream().map(p -> p.type()).toList();
-        LLVMValueRef value = globalValueMap.get("@" + FnKeys.fnKey(symbol, paramTypes));
+        // Zie buildVtable: declaredParamsOf (zonder receiver) om consistent
+        // te blijven met hoe FunctionEmitter.declareSignature de
+        // overload-sleutel registreert.
+        List<IRType> paramTypes = FnKeys.declaredParamsOf(fn);
+        // Klasse-gekwalificeerde sleutel eerst (zie buildVtable's zelfde
+        // aanpassing): de kale sleutel alleen is geen garantie tegen
+        // botsingen tussen klassen die de simple owner-naam delen.
+        final String qualified = qualifiedName(fn);
+        LLVMValueRef value = qualified != null
+                ? globalValueMap.get("@" + FnKeys.fnKey(qualified, paramTypes))
+                : null;
+        if (value == null || value.isNull()) {
+            value = globalValueMap.get("@" + FnKeys.fnKey(symbol, paramTypes));
+        }
         if (value == null || value.isNull()) {
             value = globalValueMap.get("@" + symbol);
         }
@@ -1177,7 +1894,8 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
                                       LLVMTypeRef structType,
                                       int fieldCount,
                                       IRModule module,
-                                      LLVMValueRef superTypeInfo) {
+                                      LLVMValueRef superTypeInfo,
+                                      List<Map.Entry<String, Long>> instanceFields) {
         LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
         LLVMTypeRef i64   = LLVMInt64TypeInContext(ctx);
         LLVMTypeRef i32   = LLVMInt32TypeInContext(ctx);
@@ -1202,27 +1920,26 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         // gesynthetiseerde library-type-info (Exception-keten) of null.
         LLVMValueRef superPtr = superTypeInfo != null ? superTypeInfo : LLVMConstNull(i8Ptr);
 
-        // struct nabu_type_info { i8* name, i64 size, i8* super_type, i32 field_count }
-        PointerPointer<Pointer> info = new PointerPointer<>(4);
-        info.put(0, i8Ptr);
-        info.put(1, i64);
-        info.put(2, i8Ptr);
-        info.put(3, i32);
-        LLVMTypeRef infoType = LLVMStructTypeInContext(ctx, info, 4, 0);
-        Reference.reachabilityFence(info);
+        LLVMTypeRef infoType = typeInfoStructType();
 
         String infoName = "_ZNabu" + typeSymbol(internalName) + "Etype_info";
         LLVMValueRef infoGlobal = LLVMAddGlobal(mod, infoType, new BytePointer(infoName));
         LLVMSetLinkage(infoGlobal, LLVMExternalLinkage);
         LLVMSetGlobalConstant(infoGlobal, 1);
 
+        final List<String> interfaces = implementedInterfaceNames(module);
+
         // init
-        PointerPointer<Pointer> initFields = new PointerPointer<>(4);
+        PointerPointer<Pointer> initFields = new PointerPointer<>(8);
         initFields.put(0, nameGlobalVal);
         initFields.put(1, LLVMConstInt(i64, size, 0));
         initFields.put(2, superPtr);
         initFields.put(3, LLVMConstInt(i32, fieldCount, 0));
-        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 4);
+        initFields.put(4, interfaceNameArray(mod, internalName, interfaces));
+        initFields.put(5, LLVMConstInt(i32, interfaces.size(), 0));
+        initFields.put(6, instanceFieldArray(mod, internalName, instanceFields));
+        initFields.put(7, LLVMConstInt(i32, instanceFields.size(), 0));
+        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 8);
         LLVMSetInitializer(infoGlobal, init);
         Reference.reachabilityFence(initFields);
         Reference.reachabilityFence(init);
@@ -1263,14 +1980,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         LLVMSetInitializer(nameGlobalVal, nameStr);
         globalValueMap.put("@" + nameGlobal, nameGlobalVal);
 
-        // struct nabu_type_info { i8* name, i64 size, i8* super_type, i32 field_count }
-        PointerPointer<Pointer> info = new PointerPointer<>(4);
-        info.put(0, i8Ptr);
-        info.put(1, i64);
-        info.put(2, i8Ptr);
-        info.put(3, i32);
-        LLVMTypeRef infoType = LLVMStructTypeInContext(ctx, info, 4, 0);
-        Reference.reachabilityFence(info);
+        LLVMTypeRef infoType = typeInfoStructType();
 
         String infoName = "_ZNabu" + typeSymbol(internalName) + "Etype_info";
         LLVMValueRef infoGlobal = LLVMAddGlobal(mod, infoType, new BytePointer(infoName));
@@ -1281,12 +1991,16 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         long size = LLVMABISizeOfType(dl, objectHeaderType());
         LLVMDisposeTargetData(dl);
 
-        PointerPointer<Pointer> initFields = new PointerPointer<>(4);
+        PointerPointer<Pointer> initFields = new PointerPointer<>(8);
         initFields.put(0, nameGlobalVal);
         initFields.put(1, LLVMConstInt(i64, size, 0));
         initFields.put(2, parentInfo != null ? parentInfo : LLVMConstNull(i8Ptr));
         initFields.put(3, LLVMConstInt(i32, 0, 0));
-        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 4);
+        initFields.put(4, LLVMConstNull(i8Ptr));
+        initFields.put(5, LLVMConstInt(i32, 0, 0));
+        initFields.put(6, LLVMConstNull(i8Ptr));
+        initFields.put(7, LLVMConstInt(i32, 0, 0));
+        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 8);
         LLVMSetInitializer(infoGlobal, init);
         Reference.reachabilityFence(initFields);
         Reference.reachabilityFence(init);
@@ -1294,6 +2008,126 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         globalValueMap.put("@" + infoName, infoGlobal);
         librarySuperTypes.put(internalName, infoGlobal);
         return infoGlobal;
+    }
+
+    /**
+     * {@code struct nabu_type_info { i8* name, i64 size, i8* super_type,
+     * i32 field_count, i8** interfaces, i32 interface_count,
+     * nabu_type_field* instance_fields, i32 instance_field_count }} — moet
+     * overeenkomen met runtime/nabu_runtime.h.
+     */
+    LLVMTypeRef typeInfoStructType() {
+        LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
+        LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        PointerPointer<Pointer> info = new PointerPointer<>(8);
+        info.put(0, i8Ptr);
+        info.put(1, LLVMInt64TypeInContext(ctx));
+        info.put(2, i8Ptr);
+        info.put(3, i32);
+        info.put(4, i8Ptr);
+        info.put(5, i32);
+        info.put(6, i8Ptr);
+        info.put(7, i32);
+        LLVMTypeRef infoType = LLVMStructTypeInContext(ctx, info, 8, 0);
+        Reference.reachabilityFence(info);
+        return infoType;
+    }
+
+    /**
+     * Een {@code [n x { i8*, i64 }]}-global ({@code nabu_type_field}: naam en
+     * byte-offset) met de eigen instantievelden, of null bij geen.
+     */
+    private LLVMValueRef instanceFieldArray(LLVMModuleRef mod, String internalName,
+                                            List<Map.Entry<String, Long>> instanceFields) {
+        LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
+        if (instanceFields.isEmpty()) {
+            return LLVMConstNull(i8Ptr);
+        }
+        LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        PointerPointer<Pointer> memberTypes = new PointerPointer<>(2);
+        memberTypes.put(0, i8Ptr);
+        memberTypes.put(1, i64);
+        LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 2, 0);
+        Reference.reachabilityFence(memberTypes);
+
+        PointerPointer<Pointer> entries = new PointerPointer<>(instanceFields.size());
+        for (int i = 0; i < instanceFields.size(); i++) {
+            final String name = instanceFields.get(i).getKey();
+            LLVMValueRef str = LLVMConstStringInContext(ctx, new BytePointer(name), name.length(), 0);
+            LLVMValueRef strGlobal = LLVMAddGlobal(mod, LLVMTypeOf(str),
+                    new BytePointer(".type.fld." + typeSymbol(internalName) + "." + i));
+            LLVMSetLinkage(strGlobal, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(strGlobal, 1);
+            LLVMSetInitializer(strGlobal, str);
+            PointerPointer<Pointer> members = new PointerPointer<>(2);
+            members.put(0, strGlobal);
+            members.put(1, LLVMConstInt(i64, instanceFields.get(i).getValue(), 0));
+            entries.put(i, LLVMConstStructInContext(ctx, members, 2, 0));
+            Reference.reachabilityFence(members);
+        }
+        LLVMTypeRef arrayType = LLVMArrayType(entryType, instanceFields.size());
+        LLVMValueRef array = LLVMAddGlobal(mod, arrayType,
+                new BytePointer(".type.flds." + typeSymbol(internalName)));
+        LLVMSetLinkage(array, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(array, 1);
+        LLVMSetInitializer(array, LLVMConstArray(entryType, entries, instanceFields.size()));
+        Reference.reachabilityFence(entries);
+        return array;
+    }
+
+    /**
+     * De interne namen van alle interfaces die {@code module} implementeert:
+     * de directe plus, voor zover in deze compilatie bekend, hun
+     * superinterfaces. Interfaces van super-klassen staan in de type-info van
+     * die super-klassen; {@code nabu_instanceof} loopt de keten af.
+     */
+    private List<String> implementedInterfaceNames(IRModule module) {
+        final Set<String> out = new LinkedHashSet<>();
+        if (module == null) {
+            return List.of();
+        }
+        final Deque<IRType> work = new ArrayDeque<>(module.interfaces());
+        while (!work.isEmpty()) {
+            if (!(work.poll() instanceof IRType.Ptr p) || p.jvmDescriptor() == null) {
+                continue;
+            }
+            final String name = fromDescriptor(p.jvmDescriptor());
+            if (!out.add(name)) {
+                continue;
+            }
+            final IRModule itf = modulesByInternalName.get(normalizeInternalName(name));
+            if (itf != null) {
+                work.addAll(itf.interfaces());
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    /** Een {@code [n x i8*]}-global met de interfacenamen als C-strings, of null bij geen. */
+    private LLVMValueRef interfaceNameArray(LLVMModuleRef mod, String internalName, List<String> names) {
+        LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
+        if (names.isEmpty()) {
+            return LLVMConstNull(i8Ptr);
+        }
+        PointerPointer<Pointer> entries = new PointerPointer<>(names.size());
+        for (int i = 0; i < names.size(); i++) {
+            final String name = names.get(i);
+            LLVMValueRef str = LLVMConstStringInContext(ctx, new BytePointer(name), name.length(), 0);
+            LLVMValueRef strGlobal = LLVMAddGlobal(mod, LLVMTypeOf(str),
+                    new BytePointer(".type.itf." + typeSymbol(internalName) + "." + i));
+            LLVMSetLinkage(strGlobal, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(strGlobal, 1);
+            LLVMSetInitializer(strGlobal, str);
+            entries.put(i, strGlobal);
+        }
+        LLVMTypeRef arrayType = LLVMArrayType(i8Ptr, names.size());
+        LLVMValueRef array = LLVMAddGlobal(mod, arrayType,
+                new BytePointer(".type.itfs." + typeSymbol(internalName)));
+        LLVMSetLinkage(array, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(array, 1);
+        LLVMSetInitializer(array, LLVMConstArray(i8Ptr, entries, names.size()));
+        Reference.reachabilityFence(entries);
+        return array;
     }
 
 public ClassLayout get(String internalName) {
@@ -1477,6 +2311,13 @@ public ClassLayout get(String internalName) {
         int slash = name.lastIndexOf('/');
         if (slash >= 0) name = name.substring(slash + 1);
         int nested = name.lastIndexOf('$');
+        // Anonieme klasse (`Outer$Inner$1`): de frontend noemt haar functies
+        // naar de volledige geneste naam; alleen "1" zou tussen alle anonieme
+        // klassen botsen.
+        if (nested >= 0 && nested + 1 < name.length()
+                && name.substring(nested + 1).chars().allMatch(Character::isDigit)) {
+            return name.substring(name.lastIndexOf('.') + 1);
+        }
         if (nested >= 0) return name.substring(nested + 1);
         return name.isEmpty() ? null : name;
     }
@@ -1485,8 +2326,13 @@ public ClassLayout get(String internalName) {
     static String fromDescriptor(String desc) {
         if (desc == null) return null;
         String s = desc;
-        if (s.startsWith("L")) s = s.substring(1);
-        if (s.endsWith(";")) s = s.substring(0, s.length() - 1);
+        // Alleen een échte descriptor uitpakken: een interne naam die met een
+        // 'L' begint (klasse `Loud` in het default package) werd anders `oud`,
+        // waardoor `Louder extends Loud` aan een gesynthetiseerde library-
+        // type-info hing i.p.v. aan die van de gecompileerde klasse.
+        if (s.length() > 2 && s.charAt(0) == 'L' && s.endsWith(";")) {
+            s = s.substring(1, s.length() - 1);
+        }
         // De frontend noemt modules met puntjes ('mini.Outer$Impl'), terwijl
         // jvmDescriptoren slashes gebruiken ('Lmini/Outer$Impl;'). Zonder deze
         // omzetting vond een lookup op het type van een parameter/local

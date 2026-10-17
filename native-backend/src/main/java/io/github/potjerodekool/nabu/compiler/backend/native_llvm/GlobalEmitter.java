@@ -47,24 +47,46 @@ public class GlobalEmitter {
         // hun type is [N x i8], niet ptr
         if (global.initializer() instanceof IRValue.ConstString(String value)) {
             emitStringGlobal(global.name(), value, global.linkage(), global.constant());
+            constants.registerStringGlobal(global.name(), value);
             return;
         }
 
         LLVMTypeRef  llvmType   = types.map(global.type());
-        LLVMValueRef llvmGlobal = LLVMAddGlobal(mod, llvmType,
-                new BytePointer(global.name()));
+        LLVMValueRef llvmGlobal = lookupExisting(global.name());
 
-        LLVMSetLinkage(llvmGlobal, ConstantResolver.toLLVMLinkage(global.linkage()));
-        LLVMSetGlobalConstant(llvmGlobal, global.constant() ? 1 : 0);
+        if (llvmGlobal == null) {
+            llvmGlobal = LLVMAddGlobal(mod, llvmType,
+                    new BytePointer(global.name()));
 
-        if (global.initializer() != null) {
+            LLVMSetLinkage(llvmGlobal, ConstantResolver.toLLVMLinkage(global.linkage()));
+            LLVMSetGlobalConstant(llvmGlobal, global.constant() ? 1 : 0);
+
+            if (global.initializer() != null) {
+                LLVMSetInitializer(llvmGlobal,
+                    constants.resolveInitializer(global.initializer(), global.linkage()));
+            } else {
+                LLVMSetInitializer(llvmGlobal, LLVMConstNull(llvmType));
+            }
+        } else if (global.initializer() != null) {
+            // Zelfde naam, tweede keer (definitie naast extern-declaratie
+            // uit een andere IRModule): merge de initializer — de initializer
+            // van de definitie wint; een null-initializer overschrijft nooit.
             LLVMSetInitializer(llvmGlobal,
                 constants.resolveInitializer(global.initializer(), global.linkage()));
-        } else {
-            LLVMSetInitializer(llvmGlobal, LLVMConstNull(llvmType));
         }
 
         globalValueMap.put("@" + global.name(), llvmGlobal);
+    }
+
+    /**
+     * Bestaande LLVM-global met deze naam (globalValueMap of de module zelf),
+     * zodat identieke namen uit verschillende IRModules niet tot LLVM's
+     * automatische hernoeming (`.43`, `.64`, …) leiden.
+     */
+    private LLVMValueRef lookupExisting(String name) {
+        LLVMValueRef existing = globalValueMap.get("@" + name);
+        if (existing != null) return existing;
+        return LLVMGetNamedGlobal(mod, new BytePointer(name));
     }
 
     /**

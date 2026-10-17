@@ -25,11 +25,26 @@ extern "C" {
  * Type descriptor struct voor runtime type info.
  * Elke nabu-klasse krijgt een static instance van dit type.
  */
+/** Eigen instantieveld van een gecompileerde klasse: naam en byte-offset. */
+typedef struct nabu_type_field {
+    const char *name;
+    size_t      offset;
+} nabu_type_field;
+
 typedef struct nabu_type_info {
     const char *name;
     size_t      size;
     struct nabu_type_info *super_type;
     int         field_count;
+    /* Interne namen van de geïmplementeerde interfaces (incl. bekende
+     * superinterfaces), voor `instanceof Interface`. Moet overeenkomen met
+     * ClassLayouts.typeInfoStructType() in de native-backend. */
+    const char *const *interfaces;
+    int         interface_count;
+    /* Eigen instantievelden (zonder die van super-klassen; die staan in hun
+     * eigen type-info), voor Unsafe.objectFieldOffset. */
+    const nabu_type_field *instance_fields;
+    int         instance_field_count;
 } nabu_type_info;
 
 /**
@@ -75,6 +90,18 @@ int nabu_instanceof(void *obj, const char *type_name);
 char *nabu_concat(const char *a, const char *b);
 
 /**
+ * Bouwt een java.lang.String[] (args) op uit de argv die het besturings-
+ * systeem aan main(argc, argv) geeft, zonder het programmapad (argv[0]).
+ * Gebruikt door de door NativeLLVMBackend.ensureMainEntry gesynthetiseerde
+ * main()-bridge om de echte commandline-argumenten door te geven aan de
+ * Nabu/Java-entrymethode (zie jcl_lite.c).
+ * @param argc Aantal argv-elementen (inclusief het programmapad op index 0)
+ * @param argv De argv die het besturingssysteem aan main() gaf
+ * @return Een nieuw String[] (lengte argc - 1, of 0 als argc <= 1)
+ */
+void *nabu_args_from_argv(int32_t argc, char **argv);
+
+/**
  * Zet een geheel getal om naar zijn decimale stringrepresentatie, zoals Java's
  * {@code String.valueOf(int)} / {@code "" + int}. Nodig voor string-concat met
  * een primitieve operand (bv. {@code arity.min + "..*"}), die de JVM met
@@ -102,6 +129,9 @@ char *nabu_bool_to_string(int32_t value);
  * Wordt nooit teruggekeerd (tenzij geen handler gevonden).
  */
 void nabu_throw(void *exception);
+
+/** Gooit java.lang.NullPointerException (aanroep op een null-ontvanger). */
+void nabu_throw_npe(const char *site);
 
 /**
  * Bepaalt of een gevangen exception-object van het gegeven type is (of een
@@ -147,11 +177,79 @@ void nabu_resume(void *unwind_exc);
  * NONE via de stack. Als de runtime zelf mallocte, zouden zulke objecten onder
  * BOEHM onzichtbaar zijn voor de collector en dus permanent lekken.
  *
- * @param obj       Het gealloceerde geheugen, minstens {@code sizeof(nabu_object)} bytes
+ * De backend reserveert ná de header één extra pointerwoord voor het
+ * *runtime-state-slot* (JCL_STATE_SLOT, offset 40): instancevelden van
+ * library-klassen worden volledig door de runtime beheerd (jcl_lite.c) en
+ * die hangt haar C-struct aan het object via dit slot. De hele reservering
+ * wordt hier nulgezet.
+ *
+ * @param obj       Minstens {@code sizeof(nabu_object) + sizeof(void*)} bytes
  * @param type_name Interne naam van de klasse (bv "java/lang/Exception")
  * @return Dezelfde pointer als `obj`
  */
 void *nabu_init_object(void *obj, const char *type_name);
+
+/**
+ * Als nabu_init_object, maar met expliciete super-klasse (super mag NULL
+ * zijn). Zet de super-keten zodat nabu_instanceof langs de hele keten loopt —
+ * nodig voor exception-hiërarchieën (NumberFormatException -> ... -> Throwable).
+ */
+void *nabu_init_object_ex(void *obj, const char *type_name, const char *super_name);
+
+/**
+ * Registreert de vtable van java.lang.Object; nabu_init_object zet die in de
+ * header van elk library-object, zodat een virtuele Object-methode-aanroep
+ * (equals/toString) erop een geldige functie vindt.
+ */
+void nabu_set_object_vtable(void *vtable);
+
+/**
+ * Registreert de library-itable: per interface-slot de functie van de interface
+ * zelf, voor interface-aanroepen op library-objecten.
+ */
+void nabu_set_object_itable(void *itable);
+
+/**
+ * Registreert Throwable.getMessage(this) van het programma, zodat een
+ * onbehandelde exception ook zijn melding toont.
+ */
+void nabu_set_throwable_message_fn(void *fn);
+
+/**
+ * Registreert de type-info van alle gecompileerde klassen (geen interfaces),
+ * zodat de runtime een klasse op interne naam kan vinden.
+ */
+void nabu_register_type_infos(const void *table, int32_t count);
+
+/** De gecompileerde type-info voor een interne naam ("pkg/Cls"), of NULL. */
+const nabu_type_info *nabu_compiled_type_for(const char *internal_name);
+
+/**
+ * Het (geïnterneerde) Class-object voor een class-literal. iname is de interne
+ * naam ("pkg/Cls") of de descriptor van een primitief ("I").
+ */
+void *nabu_class_literal(const char *iname);
+
+/**
+ * Of `p` een library-object is waarvan de type-pointer ín de runtime-type-cache
+ * staat, en dus géén raw char*-literal. Zie implementatie voor de heuristiek.
+ * Gebruikt door jcl-lite om gemengde (object | char*) argumenten te scheiden.
+ */
+int nabu_jcl_is_object(const void *p);
+
+/* ---------------------------------------------------------------
+ * Library-object state-slot (offset 40, vijfde void*-woord)
+ * ---------------------------------------------------------------
+ *
+ * Library-objecten worden door de backend als `header + slot` geallocceerd;
+ * veldtoegang gaat via runtime-functies (`java.util.List_size(self)`), die
+ * de eigen struct via dit slot ophalen. Zie runtime/jcl_lite.c. */
+
+/** Leest het state-slot van een library-object (NULL als nog niet gevuld). */
+void *nabu_jcl_state(void *obj);
+
+/** Vult het state-slot van een library-object. */
+void nabu_jcl_set_state(void *obj, void *state);
 
 /* -------------------------------------------------------
  * Reference counting (GcStrategy.REFCOUNT)
@@ -310,6 +408,70 @@ void nabu_monitorenter(void *obj);
  * @param obj Pointer naar het lock-object
  */
 void nabu_monitorexit(void *obj);
+
+/* Aangeroepen door de stub van een JDK-functie zonder implementatie (native,
+ * signature-polymorf): meldt het symbool en breekt het programma af. */
+void nabu_unresolved(const char *symbol);
+
+/* ---------------------------------------------------------------
+ * java.lang.String als echt object
+ *
+ * Compileert de backend de JDK-bytecode van java.lang.String mee, dan is een
+ * Java-string een object met header + de velden van die klasse (value, coder,
+ * hash, hashIsZero) en geen kale C-string meer. De backend vult
+ * nabu_string_meta met de type-info, vtable en itable van die klasse; staat
+ * `type` op NULL, dan is String niet meegecompileerd en blijft een Java-string
+ * een C-string.
+ * --------------------------------------------------------------- */
+typedef struct nabu_string_meta_t {
+    void *type;
+    void *vtable;
+    void *itable;
+} nabu_string_meta_t;
+
+extern nabu_string_meta_t nabu_string_meta;
+
+/* ---------------------------------------------------------------
+ * java.util.Properties (uit bytecode gecompileerd)
+ * ---------------------------------------------------------------
+ * De backend emitteert nabu_properties_meta zodat System.getProperties()
+ * een échte gecompileerde Properties bouwt: geheugen van `size` bytes met
+ * deze header, dan `init(self)` en per property `set_property(self, k, v)`
+ * met Java-strings. Staat `type` op NULL, dan is Properties niet
+ * meegecompileerd en levert de runtime haar eigen object.
+ * Moet overeenkomen met LLVMModuleEmitter.emitPropertiesMeta().
+ * --------------------------------------------------------------- */
+typedef struct nabu_properties_meta_t {
+    void *type;
+    void *vtable;
+    void *itable;
+    int64_t size;
+    void (*init)(void *self);
+    void *(*set_property)(void *self, void *key, void *value);
+} nabu_properties_meta_t;
+
+extern const nabu_properties_meta_t nabu_properties_meta;
+
+
+/** Byte-offset van instantieveld `name` van een gecompileerd object (eigen
+ *  klasse of super-klassen), of -1. */
+intptr_t nabu_instance_field_offset(const void *obj, const char *name);
+
+/** De interne klassenaam van een door de backend gecompileerd object, of NULL
+ *  als p dat niet is (bv. een kale C-string of een array). Herkenning: het
+ *  eerste woord wijst naar een type-info binnen het image van het programma. */
+const char *nabu_compiled_type_name(const void *p);
+
+/** Of p een java.lang.String-object is (en dus geen kale C-string). */
+int nabu_is_jstring(const void *p);
+
+/** De tekst van een Java-string als NUL-getermineerde UTF-8; een kale
+ *  C-string komt ongewijzigd terug. */
+const char *nabu_cstr(const void *p);
+
+/** Maakt een Java-string van UTF-8-tekst: een String-object als String is
+ *  meegecompileerd, anders een kopie van de C-string. */
+void *nabu_jstring_new(const char *utf8);
 
 #ifdef __cplusplus
 }

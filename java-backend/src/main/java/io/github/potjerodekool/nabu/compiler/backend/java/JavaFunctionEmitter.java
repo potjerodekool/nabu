@@ -132,6 +132,8 @@ class JavaFunctionEmitter {
                 // TryCatchRegion is metadata; de try-catch-blokken worden
                 // door emitTryCatchRegions geregistreerd.
             }
+            case IRInstruction.Unreachable unreachable -> {
+            }
         }
     }
 

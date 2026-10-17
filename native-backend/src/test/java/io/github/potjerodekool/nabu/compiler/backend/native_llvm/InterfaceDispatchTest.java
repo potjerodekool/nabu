@@ -117,6 +117,56 @@ class InterfaceDispatchTest {
                 "De itable van Other moet @Other_value bevatten:\n" + ll);
     }
 
+    /**
+     * Een interface zonder eigen methoden die een andere uitbreidt (picocli's
+     * {@code IScope extends IGetter}), met een implementerende klasse: een call
+     * via het statische type IScope naar de geërfde {@code get()} hoort via de
+     * itable te lopen. Eerder telde IScope (geen methoden) en IGetter (alleen
+     * via IScope geïmplementeerd) als "zonder implementers", en werd het een
+     * directe call naar de body-loze interface-functie.
+     */
+    @Test
+    void callThroughMethodlessSubinterfaceUsesTheItable() throws Exception {
+        final String getter = "Lpkg/Outer$IGetter;";
+        final String scope = "Lpkg/Outer$IScope;";
+        IRBuilder igetter = new IRBuilder(Flags.INTERFACE, "pkg.Outer$IGetter");
+        igetter.superType(new IRType.Ptr(IRType.I8, "Ljava/lang/Object;"));
+        igetter.beginFunction("IGetter_get", IRType.I32, List.of(
+                new io.github.potjerodekool.nabu.backend.ir.values.IRValue.Temp("this", new IRType.Ptr(IRType.I8, getter))),
+                Flags.ABSTRACT);
+        igetter.endFunction();
+
+        IRBuilder iscope = new IRBuilder(Flags.INTERFACE, "pkg.Outer$IScope");
+        iscope.superType(new IRType.Ptr(IRType.I8, "Ljava/lang/Object;"));
+        iscope.interfaces(List.of(new IRType.Ptr(IRType.I8, getter)));
+
+        IRBuilder impl = new IRBuilder("pkg.Outer$UserObject");
+        impl.interfaces(List.of(new IRType.Ptr(IRType.I8, scope)));
+        impl.beginFunction("UserObject_get", IRType.I32, List.of(
+                new io.github.potjerodekool.nabu.backend.ir.values.IRValue.Temp("this",
+                        new IRType.Ptr(IRType.I8, "Lpkg/Outer$UserObject;"))), 0L);
+        impl.emitReturn(impl.constInt(5));
+        impl.endFunction();
+
+        IRBuilder caller = new IRBuilder("pkg.Outer");
+        IRType scopeType = new IRType.Ptr(IRType.I8, scope);
+        caller.beginFunction("Outer_read", IRType.I32, List.of(
+                new io.github.potjerodekool.nabu.backend.ir.values.IRValue.Temp("s", scopeType)), 0L);
+        var receiver = new io.github.potjerodekool.nabu.backend.ir.values.IRValue.Temp("s", scopeType);
+        var value = caller.emitCall(CallKind.INTERFACE, "pkg.Outer$IGetter_get", IRType.I32,
+                List.of(), List.of(receiver));
+        caller.emitReturn(value);
+        caller.endFunction();
+
+        String ll = compileAndReadLl(List.of(igetter.build(), iscope.build(), impl.build(), caller.build()), boehm());
+        String read = ll.substring(ll.indexOf("define i32 @Outer_read("));
+        read = read.substring(0, read.indexOf("\n}"));
+        assertTrue(read.contains(".ifnptr"), "De call via IScope moet de itable gebruiken:\n" + read);
+        assertFalse(read.contains("@IGetter_get("), "Geen directe call naar IGetter_get:\n" + read);
+        assertTrue(itableMentions(ll, "_ZNabupkg_Outer$UserObjectEitable", "UserObject_get"),
+                "De itable van UserObject moet @UserObject_get bevatten:\n" + ll);
+    }
+
     @Test
     void interfaceCallLoadsItableIndirectlyWithoutDirectCall() throws Exception {
         String ll = compileAndReadLl(frontendShapedModules(), boehm());
@@ -125,6 +175,39 @@ class InterfaceDispatchTest {
         assertTrue(ll.contains(".ifnptr"), "De interface-call moet indirect aanroepen:\n" + ll);
         assertFalse(ll.contains("call i32 @\"pkg.Outer$IHelp_value\""),
                 "Geen directe call naar de interface-functie verwacht:\n" + ll);
+    }
+
+    /**
+     * Interface <b>zonder</b> implementerende klasse in de batch: de itable van
+     * elke runtime-instantie is dan leeg, dus de call moet DIRECT naar de
+     * interface-functie vallen (declare/default-body of C-implementatie) — zo
+     * dispatchen annotatie-instanties uit de C-runtime.
+     */
+    @Test
+    void interfaceWithoutImplementersDispatchesDirectly() throws Exception {
+        IRBuilder help = new IRBuilder(Flags.INTERFACE, "pkg.Outer$IHelp");
+        help.superType(new IRType.Ptr(IRType.I8, "Ljava/lang/Object;"));
+        IRType helpType = new IRType.Ptr(IRType.I8, HELP);
+        var thisOfHelp = new io.github.potjerodekool.nabu.backend.ir.values.IRValue.Temp("this", helpType);
+        help.beginFunction("IHelp_value", IRType.I32, List.of(thisOfHelp), Flags.ABSTRACT);
+        help.endFunction();
+        IRModule helpModule = help.build();
+
+        IRBuilder caller = new IRBuilder("pkg.Outer");
+        caller.beginFunction("Outer_run", IRType.I32, List.of(
+                new io.github.potjerodekool.nabu.backend.ir.values.IRValue.Temp("h", helpType)), 0L);
+        var receiver = new io.github.potjerodekool.nabu.backend.ir.values.IRValue.Temp("h", helpType);
+        caller.emitCall(CallKind.INTERFACE, "pkg.Outer$IHelp_value", IRType.I32,
+                List.of(), List.of(receiver));
+        caller.emitReturn(caller.constInt(0));
+        caller.endFunction();
+
+        String ll = compileAndReadLl(List.of(helpModule, caller.build()), boehm());
+
+        assertTrue(ll.contains("call i32 @IHelp_value"),
+                "Directe call naar de interface-functie verwacht:\n" + ll);
+        assertFalse(ll.contains(".ifnptr"),
+                "Geen itable-dispatch verwacht bij ontbrekende implementer:\n" + ll);
     }
 
     /**
@@ -171,6 +254,27 @@ class InterfaceDispatchTest {
         if (start < 0) return "";
         int end = ll.indexOf('\n', start);
         return ll.substring(start, end < 0 ? ll.length() : end);
+    }
+
+    /**
+     * Objecten uit de C-runtime (bv. een java.lang.reflect.Field) hebben geen
+     * eigen itable, maar belanden wél achter een interface-referentie
+     * ({@code AnnotatedElement.isAnnotationPresent}). De runtime geeft ze de
+     * library-itable, waarin elke slot naar de functie van de interface zelf
+     * wijst — zoals een directe aanroep. Een abstracte methode uit de eigen
+     * sources heeft geen definitie: die slot blijft leeg (anders een
+     * undefined reference bij het linken).
+     */
+    @Test
+    void libraryItableIsRegisteredAndSkipsAbstractSourceMethods() throws Exception {
+        String ll = compileAndReadLl(frontendShapedModules(), boehm());
+
+        assertTrue(ll.contains("@_ZNabuLibraryEitable = internal constant"),
+                "Verwacht een library-itable: " + ll);
+        assertFalse(itableMentions(ll, "_ZNabuLibraryEitable", "IHelp_value"),
+                "Een abstracte source-methode heeft geen definitie om naar te wijzen: " + ll);
+        assertTrue(ll.contains("call void @nabu_set_object_itable(ptr @_ZNabuLibraryEitable)"),
+                "De library-itable moet aan de runtime worden doorgegeven: " + ll);
     }
 
     /** Of de global met de gegeven naam in zijn initialisator naar {@code symbol} verwijst. */

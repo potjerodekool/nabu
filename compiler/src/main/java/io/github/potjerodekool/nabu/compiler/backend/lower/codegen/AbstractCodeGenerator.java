@@ -128,12 +128,44 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
                 .filter(it ->
                         !it.hasFlag(Flags.FINAL)
                                 || isValueIsNotLiteral(it)
+                                || !isConstantFieldType(it)
+                                // De IR kent geen ConstantValue-attribuut: een
+                                // `static final String X = "="` is daar een
+                                // global die gewoon geladen wordt, dus ook een
+                                // String-constante moet in <clinit> gezet worden.
+                                || !isPrimitiveFieldType(it)
                 )
                 .toList();
         initStaticField(staticFields, clazz, body);
 
         //Init enum constants.
         initEnumConstantField(TreeFilter.enumConstantsIn(clazzDeclaration.getEnclosedElements()), clazz, body);
+    }
+
+    /**
+     * Of een {@code static final}-veld met een literal als compile-time
+     * constante kan bestaan (JLS §15.29): alleen bij een primitief type of
+     * {@code String}. {@code static final Boolean X = true} is geen
+     * constante: de literal moet geboxt worden, en dat gebeurt in
+     * {@code <clinit>}. Zonder initializer daar bleef zo'n veld null.
+     */
+    private boolean isConstantFieldType(final VariableDeclaratorTree field) {
+        final var typeTree = field.getVariableType();
+        final var type = typeTree != null ? typeTree.getType() : null;
+        if (type == null) {
+            return true;
+        }
+        if (type.getKind().isPrimitive()) {
+            return true;
+        }
+        final var className = type.getClassName();
+        return className != null && "java.lang.String".equals(className.replace('/', '.'));
+    }
+
+    private boolean isPrimitiveFieldType(final VariableDeclaratorTree field) {
+        final var typeTree = field.getVariableType();
+        final var type = typeTree != null ? typeTree.getType() : null;
+        return type != null && type.getKind().isPrimitive();
     }
 
     private boolean isValueIsNotLiteral(final VariableDeclaratorTree variableDeclaratorTree) {

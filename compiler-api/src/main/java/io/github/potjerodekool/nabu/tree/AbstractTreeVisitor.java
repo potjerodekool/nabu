@@ -67,6 +67,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case ArrayAccessExpressionTree arrayAccessExpressionTree ->
                     visitArrayAccess(arrayAccessExpressionTree, param);
             case PatternCaseLabel patternCaseLabel -> visitPatternCaseLabel(patternCaseLabel, param);
+            case DefaultCaseLabel defaultCaseLabel -> visitDefaultCaseLabel(defaultCaseLabel, param);
             case MemberReference memberReference -> visitMemberReference(memberReference, param);
             case BreakStatement breakStatement -> visitBreakStatement(breakStatement, param);
             case CatchTree catchTree -> visitCatch(catchTree, param);
@@ -373,6 +374,33 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     public R visitConstantCaseLabel(final ConstantCaseLabel constantCaseLabel, final P param) {
         acceptTree(constantCaseLabel.getExpression(), param);
         return defaultAnswer(constantCaseLabel, param);
+    }
+
+    @Override
+    public R visitLabeledStatement(final LabeledStatement labeledStatement, final P param) {
+        acceptTree(labeledStatement.getStatement(), param);
+        return defaultAnswer(labeledStatement, param);
+    }
+
+    @Override
+    public R visitSynchronizedStatement(final SynchronizedStatement synchronizedStatement, final P param) {
+        acceptTree(synchronizedStatement.getExpression(), param);
+        acceptTree(synchronizedStatement.getBody(), param);
+        return defaultAnswer(synchronizedStatement, param);
+    }
+
+    @Override
+    public R visitAssertStatement(final AssertStatement assertStatement, final P param) {
+        acceptTree(assertStatement.getCondition(), param);
+        if (assertStatement.getDetail() != null) {
+            acceptTree(assertStatement.getDetail(), param);
+        }
+        return defaultAnswer(assertStatement, param);
+    }
+
+    @Override
+    public R visitDefaultCaseLabel(final DefaultCaseLabel defaultCaseLabel, final P param) {
+        return defaultAnswer(defaultCaseLabel, param);
     }
 
     @Override

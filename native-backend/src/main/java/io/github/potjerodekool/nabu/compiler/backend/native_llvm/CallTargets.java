@@ -40,7 +40,10 @@ final class CallTargets {
         if (fn == null || OBJECT_CLONE.equals(fn) || !fn.endsWith("_clone")) {
             return call;
         }
-        if (call.args().isEmpty() || !isArray(call.args().getFirst().type())) {
+        // Bytecode noemt het array-type zelf als eigenaar (`[I.clone()`).
+        final boolean arrayOwner = fn.startsWith("[");
+        if (!arrayOwner
+                && (call.args().isEmpty() || !isArray(call.args().getFirst().type()))) {
             return call;
         }
         return new IRInstruction.Call(

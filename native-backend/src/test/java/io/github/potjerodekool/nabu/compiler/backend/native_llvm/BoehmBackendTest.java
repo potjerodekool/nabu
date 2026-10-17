@@ -254,11 +254,12 @@ class BoehmBackendTest {
         assertFalse(ll.contains("@GC_init"), ll);
         assertFalse(ll.contains("llvm.global_ctors"), ll);
         // Een onbekende klasse mag geen alloca van één byte worden: het
-        // gemapte type is i8, dus een kale `alloca i8` zou de 40-byte header
-        // over de stack heen schrijven. De 40 is sizeof(nabu_object) op een
-        // 64-bittig target (zie de layout in runtime/nabu_runtime.h); groeit
-        // de header, dan moet dit getal mee.
-        assertTrue(ll.contains("alloca i8, i64 40"),
+        // gemapte type is i8, dus een kale `alloca i8` zou de header
+        // over de stack heen schrijven. De 48 = sizeof(nabu_object) (40,
+        // zie de layout in runtime/nabu_runtime.h) plus het runtime-
+        // state-slot van 8 bytes (JCL_STATE_SLOT); groeit de header,
+        // dan moet dit getal mee.
+        assertTrue(ll.contains("alloca i8, i64 48"),
                 "onbekende klasse alloceert te weinig:\n" + ll);
         assertTrue(ll.contains("call ptr @nabu_init_object("), ll);
     }

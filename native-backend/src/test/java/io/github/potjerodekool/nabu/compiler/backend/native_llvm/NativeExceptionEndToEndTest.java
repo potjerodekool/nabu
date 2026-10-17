@@ -136,6 +136,57 @@ class NativeExceptionEndToEndTest {
     }
 
     /**
+     * Blokken die de try-body zelf aanmaakt (hier de ternary) horen ook bij
+     * de beschermde range: een call daarin moet een {@code invoke} naar het
+     * landingspad worden. try.end werd vóór de body aangemaakt en de backend
+     * beschermt [try.body, try.end) in blokvolgorde, dus zulke calls liepen
+     * buiten de catch (picocli's Range.parseInt ving zijn
+     * NumberFormatException niet).
+     */
+    @Test
+    void callInBlockCreatedInsideTryBodyUnwindsToHandler() throws Exception {
+        IRModule module = generateIr(
+                "class Main { static int f(String s) { return 1; } " +
+                "static int g(String s, boolean b) { " +
+                "try { return f(b ? s : s.trim()); } catch (Exception e) { return 2; } } " +
+                "static void main(String[] args) { } }");
+
+        String ll = readLl(module);
+        assertTrue(ll.contains("invoke i32 @Main_f("),
+                "De call in het ternary-blok binnen try moet een invoke zijn:\n" + ll);
+        assertFalse(ll.contains("call i32 @Main_f("),
+                "Geen onbeschermde call naar Main_f binnen de try verwacht:\n" + ll);
+    }
+
+    /** TIJDELIJKE PROBE: for-each met `result |= f(o)` native draaien. */
+    @Test
+    void probeForEachWithOrAssign() throws Exception {
+        NativeToolchain.assumeGcc();
+        IRModule module = generateIr(
+                "class Main { " +
+                "static boolean f(Object o) { return o != null; } " +
+                "static int count(Object[] arr) throws Exception { boolean result = false; int n = 0; " +
+                "  for (Object o : arr) { result |= f(o); n++; if (n > 100) { throw new Exception(); } } " +
+                "  return result ? n : -n; } " +
+                "static void main(String[] args) throws Exception { " +
+                "  if (count(new Object[3]) != -3) { throw new Exception(); } } }");
+        CompileOptions opts = new CompileOptions(CompileOptions.OptLevel.DEFAULT, false,
+                "x86_64-w64-windows-gnu", CompileOptions.GcStrategy.BOEHM,
+                io.github.potjerodekool.nabu.tools.JavaVersion.MINIMAL_VERSION);
+        Path outDir = Path.of("target", "e2e").toAbsolutePath();
+        Files.createDirectories(outDir);
+        Path out = outDir.resolve("probe-loop.o");
+        new NativeLLVMBackend().compile(module, opts, out);
+        Path exe = outDir.resolve("probe-loop.exe");
+        Process proc = NativeToolchain.run(exe).redirectErrorStream(true).start();
+        boolean done = proc.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
+        if (!done) { proc.destroyForcibly(); }
+        String outStr = new String(proc.getInputStream().readAllBytes());
+        assertTrue(done, "probe hing (timeout)");
+        assertEquals(0, proc.exitValue(), "probe-uitvoer:\n" + outStr);
+    }
+
+    /**
      * Volledige nabu-bron → native .exe (→ run), op MinGW-SEH (gnu-triple).
      *
      * Programma:

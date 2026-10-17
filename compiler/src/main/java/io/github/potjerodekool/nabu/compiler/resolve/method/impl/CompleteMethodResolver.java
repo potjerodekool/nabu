@@ -162,7 +162,22 @@ public class CompleteMethodResolver implements MethodResolver {
         }
     }
 
+    /**
+     * Benadering van capture-conversie (JLS §5.1.10) voor een argument: een
+     * wildcard-type (bv. het resultaat van {@code c.convert(v)} met
+     * {@code Conv<?> c}) telt als zijn bovengrens. Zonder dit paste zo'n
+     * argument op geen enkele parameter en verdween de aanroep stil.
+     */
     private TypeMirror resolveType(final ExpressionTree expression) {
+        final var type = resolveTypeUncaptured(expression);
+        if (type instanceof WildcardType wildcardType) {
+            final var extendsBound = wildcardType.isExtendsBound() ? wildcardType.getExtendsBound() : null;
+            return extendsBound != null ? extendsBound : types.getObjectType();
+        }
+        return type;
+    }
+
+    private TypeMirror resolveTypeUncaptured(final ExpressionTree expression) {
         if (expression instanceof FieldAccessExpressionTree fieldAccessExpression) {
             return resolveType(fieldAccessExpression.getField());
         } else if (expression instanceof MethodInvocationTree methodInvocationTree) {
@@ -1397,6 +1412,15 @@ public class CompleteMethodResolver implements MethodResolver {
                     && paramType instanceof DeclaredType declaredParamType) {
                 specificity += getClassDepth(declaredParamType);
             }
+
+            // Een array-argument past specifieker op een array-parameter dan
+            // op Object (JLS §15.12.2.5: `m(Object[])` is specifieker dan
+            // `m(Object)`). Zonder dit onderscheid scoren beide gelijk en
+            // wint de eerst gedeclareerde: `isNonDefault(String[], String[])`
+            // bond aan `isNonDefault(Object, Object)`.
+            if (argType.getKind() == TypeKind.ARRAY && paramType.getKind() == TypeKind.ARRAY) {
+                specificity -= 1.0;
+            }
         }
 
         return specificity;
@@ -1526,6 +1550,17 @@ public class CompleteMethodResolver implements MethodResolver {
                 return filtered.getFirst();
             }
 
+            // JLS §15.12.2.5 vóór de specificiteits-heuristiek: die scoort een
+            // referentieparameter op de diepte van het parametertype, waardoor
+            // `Object` (diepte 0) won van elk interface- of subklassetype.
+            // picocli's `FieldBinding(Object, Field)` delegeerde zo met
+            // `this(asScope(scope), field)` naar zichzelf i.p.v. naar
+            // `FieldBinding(IScope, Field)`: eindeloze recursie.
+            final var strictlyMostSpecific = strictlyMostSpecific(filtered);
+            if (strictlyMostSpecific != null) {
+                return strictlyMostSpecific;
+            }
+
             ApplicableMethod first = samePhase.get(0);
             ApplicableMethod second = samePhase.get(1);
 
@@ -1547,6 +1582,72 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         return samePhase.getFirst();
+    }
+
+    /**
+     * De enige kandidaat die strikt specifieker is dan elke andere (JLS
+     * §15.12.2.5, vaste ariteit), of {@code null} als die er niet is; de
+     * aanroeper valt dan terug op de specificiteits-heuristiek.
+     */
+    private ApplicableMethod strictlyMostSpecific(final List<ApplicableMethod> methods) {
+        ApplicableMethod winner = null;
+        for (final var candidate : methods) {
+            boolean beatsAll = true;
+            for (final var other : methods) {
+                if (candidate == other) continue;
+                if (!isAtLeastAsSpecific(candidate, other) || isAtLeastAsSpecific(other, candidate)) {
+                    beatsAll = false;
+                    break;
+                }
+            }
+            if (beatsAll) {
+                if (winner != null) {
+                    return null;
+                }
+                winner = candidate;
+            }
+        }
+        return winner;
+    }
+
+    /**
+     * Of elk parametertype van {@code m1} een subtype is van het
+     * overeenkomstige parametertype van {@code m2}. Alleen voor vaste ariteit;
+     * variabele ariteit en onvergelijkbare types leveren {@code false}.
+     */
+    private boolean isAtLeastAsSpecific(final ApplicableMethod m1, final ApplicableMethod m2) {
+        if (m1.phase() == 3 || m2.phase() == 3) {
+            return false;
+        }
+        final var params1 = m1.method().getParameterTypes();
+        final var params2 = m2.method().getParameterTypes();
+        if (params1.size() != params2.size()) {
+            return false;
+        }
+        for (int i = 0; i < params1.size(); i++) {
+            if (!isParamSubtype(params1.get(i), params2.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isParamSubtype(final TypeMirror sub, final TypeMirror sup) {
+        if (sub == null || sup == null) {
+            return false;
+        }
+        if (sub.isPrimitiveType() || sup.isPrimitiveType()) {
+            return sub.isPrimitiveType() && sup.isPrimitiveType()
+                    && (types.isSameType(sub, sup) || isWideningPrimitive(sub, sup));
+        }
+        if (containsTypeVariable(sub) || containsTypeVariable(sup)) {
+            return false;
+        }
+        try {
+            return types.isAssignable(types.erasure(sub), types.erasure(sup));
+        } catch (final RuntimeException e) {
+            return false;
+        }
     }
 
     /**
@@ -1705,7 +1806,12 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         if (containsTypeVariable(sourceType) || containsTypeVariable(targetType)) {
-            return true;
+            // Niet-geïnfereerde type-variabelen: vergelijk de erasures. Zonder
+            // die controle paste elk generiek argument op elk referentietype —
+            // `Collections.emptyList()` (List<T>) op `java.lang.reflect.Type`,
+            // waardoor picocli's RuntimeTypeInfo.create de verkeerde overload
+            // koos en auxiliaryTypes {null} werd.
+            return isErasureCompatible(sourceType, targetType);
         }
 
         if (isAssignable(sourceType, targetType)) {
@@ -1717,6 +1823,76 @@ public class CompleteMethodResolver implements MethodResolver {
         }
 
         return isBoxingCompatible(sourceType, targetType);
+    }
+
+    /**
+     * Of de erasure van {@code sourceType} toewijsbaar is aan die van
+     * {@code targetType}. Een (erasure naar een) type-variabele aan
+     * doelzijde of een onbekende erasure telt als passend, zoals voorheen.
+     */
+    private boolean isErasureCompatible(final TypeMirror sourceType, final TypeMirror targetType) {
+        if (targetType instanceof TypeVariable || sourceType instanceof TypeVariable) {
+            return !targetType.isPrimitiveType();
+        }
+        if (sourceType.isPrimitiveType() || targetType.isPrimitiveType()) {
+            return isBoxingCompatible(sourceType, targetType)
+                    || isUnboxingCompatible(sourceType, targetType)
+                    || types.isSameType(sourceType, targetType);
+        }
+        final Boolean subtype = isRawSubtype(sourceType, targetType);
+        return subtype == null || subtype;
+    }
+
+    /**
+     * Subtype-relatie op de ruwe types (type-argumenten genegeerd) via de
+     * klassehiërarchie: super-klassen én alle (super-)interfaces, arrays per
+     * componenttype. {@code null} als het niet vast te stellen is (onbekende
+     * of ongewone types) — de aanroeper is dan toegeeflijk.
+     */
+    private Boolean isRawSubtype(final TypeMirror source, final TypeMirror target) {
+        if (target instanceof DeclaredType targetDeclared && targetDeclared.asTypeElement() != null
+                && "java.lang.Object".equals(targetDeclared.asTypeElement().getQualifiedName())) {
+            return true;
+        }
+        if (source instanceof ArrayType sourceArray) {
+            if (target instanceof ArrayType targetArray) {
+                final var sc = sourceArray.getComponentType();
+                final var tc = targetArray.getComponentType();
+                if (sc == null || tc == null) return null;
+                if (sc.isPrimitiveType() || tc.isPrimitiveType()) return sc.getKind() == tc.getKind();
+                return isRawSubtype(sc, tc);
+            }
+            if (target instanceof DeclaredType targetDeclared && targetDeclared.asTypeElement() != null) {
+                final var name = targetDeclared.asTypeElement().getQualifiedName();
+                return "java.lang.Cloneable".equals(name) || "java.io.Serializable".equals(name);
+            }
+            return null;
+        }
+        if (source instanceof DeclaredType sourceDeclared && target instanceof DeclaredType targetDeclared) {
+            final TypeElement sourceElement = sourceDeclared.asTypeElement();
+            final TypeElement targetElement = targetDeclared.asTypeElement();
+            if (sourceElement == null || targetElement == null) return null;
+            final Deque<TypeElement> pending = new ArrayDeque<>();
+            final Set<String> seen = new HashSet<>();
+            pending.add(sourceElement);
+            while (!pending.isEmpty()) {
+                final TypeElement current = pending.poll();
+                if (!seen.add(String.valueOf(current.getQualifiedName()))) continue;
+                if (io.github.potjerodekool.nabu.compiler.resolve.types.IsSubType.sameClass(current, targetElement)) {
+                    return true;
+                }
+                if (current.getSuperclass() instanceof DeclaredType superType && superType.asTypeElement() != null) {
+                    pending.add(superType.asTypeElement());
+                }
+                for (final var itf : current.getInterfaces()) {
+                    if (itf instanceof DeclaredType itfType && itfType.asTypeElement() != null) {
+                        pending.add(itfType.asTypeElement());
+                    }
+                }
+            }
+            return false;
+        }
+        return null;
     }
 
     private boolean isAssignable(final TypeMirror sourceType, final TypeMirror targetType) {

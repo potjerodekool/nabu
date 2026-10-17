@@ -25,6 +25,8 @@ import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
+import io.github.potjerodekool.nabu.tree.CaseLabel;
+import io.github.potjerodekool.nabu.tree.ConstantCaseLabel;
 import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
 import io.github.potjerodekool.nabu.type.ArrayType;
 import io.github.potjerodekool.nabu.type.TypeKind;
@@ -159,6 +161,13 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
         left = unboxIfNeeded(left, right);
         right = unboxIfNeeded(right, left);
+
+        // Het doel van een toewijzing is een variabele, geen waarde: nooit
+        // converteren. `cached = calc()` (Boolean = boolean) werd anders
+        // `cached.booleanValue() = calc()`, en de store verdween.
+        if (binaryExpression.getTag() == Tag.ASSIGN && left != binaryExpression.getLeft()) {
+            left = binaryExpression.getLeft();
+        }
 
         if (left != binaryExpression.getLeft()
                 || right != binaryExpression.getRight()) {
@@ -429,8 +438,40 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 .value(TreeMaker.literalExpressionTree(0, -1, -1))
                 .build();
 
+        // JLS §14.14.2: de array-expressie wordt één keer geëvalueerd. Zonder
+        // tijdelijke variabele kwam ze zowel in de conditie (`.length`) als in
+        // de element-toegang terecht: `for (Field f : cls.getDeclaredFields())`
+        // riep getDeclaredFields twee keer per iteratie aan.
+        final List<StatementTree> forInits = new ArrayList<>();
+        final ExpressionTree array;
+        if (isLocalIdentifier(expression)) {
+            array = expression;
+        } else {
+            final var arrayName = generateVariableName();
+            final var arrayElement = new VariableSymbolBuilderImpl()
+                    .kind(ElementKind.LOCAL_VARIABLE)
+                    .simpleName(arrayName)
+                    .type(arrayType)
+                    .build();
+            final var arrayTypeTree = IdentifierTree.create(arrayName);
+            arrayTypeTree.setType(arrayType);
+            final var arrayDeclName = createIdentifier(arrayName, arrayElement);
+            arrayDeclName.setType(arrayType);
+            forInits.add(new VariableDeclaratorTreeBuilder()
+                    .kind(Kind.LOCAL_VARIABLE)
+                    .modifiers(new Modifiers())
+                    .variableType(arrayTypeTree)
+                    .name(arrayDeclName)
+                    .value(expression)
+                    .build());
+            final var arrayRef = createIdentifier(arrayName, arrayElement);
+            arrayRef.setType(arrayType);
+            array = arrayRef;
+        }
+        forInits.add(forInit);
+
         final var lengthField = TreeMaker.fieldAccessExpressionTree(
-                expression,
+                array,
                 IdentifierTree.create("length"),
                 -1,
                 -1
@@ -448,7 +489,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
         final var accessCounter = createIdentifier(counterName, counterElement);
         accessCounter.setType(intType);
-        final var arrayAccess = new CArrayAccessExpressionTree(expression, accessCounter);
+        final var arrayAccess = new CArrayAccessExpressionTree(array, accessCounter);
         arrayAccess.setType(arrayComponentType);
 
         final var statements = new ArrayList<StatementTree>();
@@ -466,13 +507,21 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         final var newBody = TreeMaker.blockStatement(statements, -1, -1);
 
         return TreeMaker.forStatement(
-                List.of(forInit),
+                forInits,
                 check,
                 List.of(TreeMaker.expressionStatement(update, -1, -1)),
                 newBody,
                 -1,
                 -1
         );
+    }
+
+    /** Een lokale variabele of parameter: lezen heeft geen bijwerkingen en de waarde ligt vast. */
+    private static boolean isLocalIdentifier(final ExpressionTree expression) {
+        return expression instanceof IdentifierTree identifier
+                && identifier.getSymbol() != null
+                && (identifier.getSymbol().getKind() == ElementKind.LOCAL_VARIABLE
+                    || identifier.getSymbol().getKind() == ElementKind.PARAMETER);
     }
 
     private IdentifierTree createIdentifier(final DeclaredType declaredType) {
@@ -612,7 +661,15 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                                      final LowerScope scope) {
         var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), scope);
 
-        final var selectorType = selector.getSymbol().asType();
+        final var selectorType = selector.getSymbol() != null
+                ? selector.getSymbol().asType()
+                : compilerContext.getTreeUtils().typeOf(selector);
+        if (selectorType == null) {
+            final var plainCases = switchStatement.getCases().stream()
+                    .map(caseStatement -> (CaseStatement) acceptTree(caseStatement, scope))
+                    .toList();
+            return switchStatement.builder().selector(selector).cases(plainCases).build();
+        }
 
         if (types.isBoxType(selectorType)) {
             final var primitiveType = types.unboxedType(selectorType);
@@ -638,62 +695,74 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 .build();
     }
 
+    /**
+     * {@code switch (e) { case A: ... }} wordt {@code switch (e.ordinal()) {
+     * case 0: ... }}. De hele wereld (ook de enum) wordt samen gecompileerd,
+     * dus de ordinals liggen vast en de {@code $SwitchMap}-indirectie van
+     * javac (voor losse compilatie) is niet nodig. Die bestond hier alleen
+     * half: de map werd nooit gevuld en de case-labels bleven enum-namen,
+     * waardoor geen enkele case matchte (picocli's
+     * {@code TextTable.putValue} gooide "IllegalStateException: WRAP").
+     */
     private SwitchStatement visitEnumSwitchStatement(final SwitchStatement switchStatement,
                                                      final LowerScope scope,
                                                      final TypeElement enumElement) {
-        var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), scope);
-
-        final var currentClass = scope.getCurrentClassDeclaration();
-
-        final var enumUsage = enumUserCodeGenerator.addEnumUsage(
-                scope.getCompilationUnit(),
-                currentClass,
-                enumElement
-        );
-
-        final var memberClass = (ClassSymbol) enumUsage.getMemberClass().getClassSymbol();
-        final var fieldName = enumUsage.getFieldName(enumElement);
-
-        final var selectorIdentifier = IdentifierTree.create(memberClass.getFlatName());
-        selectorIdentifier.setType(memberClass.asType());
-
-        final var fieldSymbol = memberClass.getMembers().resolveElement(fieldName);
-
-        final var field = IdentifierTree.create(fieldName);
-        field.setSymbol(fieldSymbol);
-
-        final var fieldAccess = new CFieldAccessExpressionTree(
-                selectorIdentifier,
-                field
-        );
+        final var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), scope);
 
         final var ordinal = IdentifierTree.create("ordinal");
-
         final var methodInvoke = TreeMaker.methodInvocationTree(
-                new CFieldAccessExpressionTree(
-                        selector,
-                        ordinal
-                ),
+                new CFieldAccessExpressionTree(selector, ordinal),
                 List.of(),
                 List.of(),
                 -1,
                 -1
         );
-
         methodInvoke.setMethodType(ordinalMethod(enumElement));
+        methodInvoke.setType(types.getPrimitiveType(TypeKind.INT));
 
-        final var newSelector = new CArrayAccessExpressionTree(fieldAccess, methodInvoke);
+        final var constants = ElementFilter.enumValuesIn(enumElement.getEnclosedElements()).stream()
+                .map(Element::getSimpleName)
+                .toList();
 
         final var cases = switchStatement.getCases().stream()
-                .map(caseStatement ->
-                        acceptTree(caseStatement, scope))
-                .map(it -> (CaseStatement) it)
+                .map(caseStatement -> (CaseStatement) acceptTree(caseStatement, scope))
+                .map(caseStatement -> toOrdinalCase(caseStatement, constants))
                 .toList();
 
         return switchStatement.builder()
-                .selector(newSelector)
+                .selector(methodInvoke)
                 .cases(cases)
                 .build();
+    }
+
+    private CaseStatement toOrdinalCase(final CaseStatement caseStatement, final List<String> constants) {
+        final var labels = caseStatement.getLabels().stream()
+                .map(label -> {
+                    if (label instanceof ConstantCaseLabel constantLabel
+                            && enumConstantName(constantLabel.getExpression()) instanceof String name
+                            && constants.contains(name)) {
+                        final var literal = TreeMaker.literalExpressionTree(
+                                constants.indexOf(name), label.getLineNumber(), label.getColumnNumber());
+                        literal.setType(types.getPrimitiveType(TypeKind.INT));
+                        return (CaseLabel) ConstantCaseLabel.create(literal,
+                                label.getLineNumber(), label.getColumnNumber());
+                    }
+                    return label;
+                })
+                .toList();
+        return CaseStatement.create(caseStatement.getCaseKind(), labels, caseStatement.getBody(),
+                caseStatement.getLineNumber(), caseStatement.getColumnNumber());
+    }
+
+    /** De naam van een enum-constante in een case-label ({@code WRAP} of {@code Overflow.WRAP}). */
+    private static String enumConstantName(final ExpressionTree expression) {
+        if (expression instanceof IdentifierTree identifier) {
+            return identifier.getName();
+        }
+        if (expression instanceof FieldAccessExpressionTree fieldAccess) {
+            return fieldAccess.getField().getName();
+        }
+        return null;
     }
 
     private ExecutableType ordinalMethod(final TypeElement usedEnumClass) {

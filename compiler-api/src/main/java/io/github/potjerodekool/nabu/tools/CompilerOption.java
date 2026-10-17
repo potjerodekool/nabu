@@ -14,7 +14,11 @@ public record CompilerOption(String optionName) {
     public static final CompilerOption ANNOTATION_PROCESSOR_PATH = new CompilerOption("--processor-path");
     public static final CompilerOption ANNOTATION_PROCESSOR_MODULE_PATH = new CompilerOption("--processor-module-path");
     public static final CompilerOption BACKEND = new CompilerOption("--backend");
+    public static final CompilerOption GC = new CompilerOption("--gc");
+    public static final CompilerOption OPT = new CompilerOption("--opt");
     public static final CompilerOption INCREMENTAL = new CompilerOption("--incremental");
+    public static final CompilerOption BYTECODE_CLASSES = new CompilerOption("--bytecode-classes");
+    public static final CompilerOption BYTECODE_JDK_HOME = new CompilerOption("--bytecode-jdk-home");
 
     public static final List<CompilerOption> COMPILER_OPTIONS = List.of(
             SOURCE_PATH,
@@ -27,7 +31,10 @@ public record CompilerOption(String optionName) {
             ANNOTATION_PROCESSOR_PATH,
             ANNOTATION_PROCESSOR_MODULE_PATH,
             BACKEND,
-            INCREMENTAL
+            GC,
+            OPT,
+            INCREMENTAL,
+            BYTECODE_CLASSES
     );
 
     public static final List<CompilerOption> INCREMENTAL_FINGERPRINT_OPTIONS = List.of(
@@ -40,7 +47,10 @@ public record CompilerOption(String optionName) {
             CLASS_OUTPUT,
             ANNOTATION_PROCESSOR_PATH,
             ANNOTATION_PROCESSOR_MODULE_PATH,
-            BACKEND
+            BACKEND,
+            GC,
+            OPT,
+            BYTECODE_CLASSES
     );
 
     @Override

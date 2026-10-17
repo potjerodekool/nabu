@@ -123,6 +123,22 @@ char *nabu_float_to_string(float value);
 /** "true" of "false", zoals Java's Boolean.toString. */
 char *nabu_bool_to_string(int32_t value);
 
+/** String.valueOf(Object): "null" of de virtuele toString() van het object. */
+char *nabu_object_to_string(void *obj);
+
+/** Registreert het vtable-slot van Object.toString voor nabu_object_to_string. */
+void nabu_set_object_tostring_slot(int32_t slot);
+
+/**
+ * Het uit bytecode gecompileerde {@code valueOf(primitief)} van een wrapper,
+ * per soort (0=Integer, 1=Long, 2=Boolean, 3=Double, 4=Float, 5=Short,
+ * 6=Byte, 7=Character; zelfde volgorde als de B_*-soorten in jcl_lite.c).
+ * De runtime boxt daarmee (reflectie: Field.get) tot een echt object met de
+ * vtable van de wrapper; NULL als het programma die functie niet bevat.
+ */
+void nabu_set_box_fn(int32_t kind, void *fn);
+void *nabu_box_fn(int32_t kind);
+
 /**
  * Gooi een exception.
  * @param exception Pointer naar het exception-object

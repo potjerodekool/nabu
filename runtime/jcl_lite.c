@@ -180,6 +180,22 @@ static char *jcl_dtoa(double v) {
 }
 
 static void *jcl_box(int t, int64_t iv, double dv) {
+    /* Bij voorkeur de uit bytecode gecompileerde wrapper: een eigen
+     * box-object had de vtable van Object, zodat bv. de via Field.get gelezen
+     * standaardwaarde van een boolean-optie als "java.lang.Boolean@fe47ef08"
+     * naar picocli's BooleanConverter ging. */
+    void *fn = nabu_box_fn(t);
+    if (fn != NULL) {
+        switch (t) {
+            case B_I32: return ((void *(*)(int32_t))fn)((int32_t)iv);
+            case B_I64: return ((void *(*)(int64_t))fn)(iv);
+            case B_BOOL: return ((void *(*)(_Bool))fn)(iv != 0);
+            case B_F64: return ((void *(*)(double))fn)(dv);
+            case B_F32: return ((void *(*)(float))fn)((float)dv);
+            case B_I16: case B_CHAR: return ((void *(*)(int16_t))fn)((int16_t)iv);
+            case B_I8: return ((void *(*)(int8_t))fn)((int8_t)iv);
+        }
+    }
     s_box *b = (s_box *)jcl_alloc(sizeof(s_box));
     b->kind = K_BOX;
     b->t = t;
@@ -257,6 +273,11 @@ static char *jcl_any(const void *p) {
     if (p == NULL) return (char *)"null";
     if (nabu_jcl_is_object(p)) {
         void *st = nabu_jcl_state((void *)p);
+        if (st == NULL && nabu_compiled_type_name(p) != NULL) {
+            /* Gecompileerd object (bv. een wrapper uit jcl_box): zijn eigen
+             * toString(). */
+            return (char *)nabu_cstr(nabu_object_to_string((void *)p));
+        }
         if (st == NULL) {
             nabu_object *h = (nabu_object *)p;
             nabu_type_info *ti = (nabu_type_info *)h->type;

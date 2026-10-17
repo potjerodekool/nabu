@@ -260,9 +260,28 @@ public class InstructionEmitter {
         return t instanceof IRType.Ptr p && p.pointee().equals(IRType.I8);
     }
 
+    /**
+     * Een concat-operand die al een String is. Elke referentie is een
+     * {@code ptr i8}; alleen een descriptor zegt of het een String is. Een
+     * {@code Integer} uit {@code Integer.valueOf} ging anders ongewijzigd als
+     * "string" naar nabu_concat. Zonder descriptor (string-literal, null):
+     * als String behandelen, zoals voorheen.
+     */
+    private boolean isStringOperand(IRType t) {
+        if (!isStringType(t)) return false;
+        final String descriptor = ((IRType.Ptr) t).jvmDescriptor();
+        return descriptor == null || descriptor.equals("Ljava/lang/String;");
+    }
+
     private void emitStringConcat(IRInstruction.BinaryOp op) {
-        LLVMValueRef left  = toConcatOperand(op.left());
-        LLVMValueRef right = toConcatOperand(op.right());
+        // Java: "" + x is String.valueOf(x); als geen van beide operanden
+        // zeker een String is (bv. twee referenties zonder descriptor) blijft
+        // de oude behandeling gelden.
+        final boolean leftString = isStringOperand(op.left().type());
+        final boolean rightString = isStringOperand(op.right().type());
+        final boolean anyString = leftString || rightString;
+        LLVMValueRef left  = anyString && !leftString ? toConcatOperand(op.left(), true) : toConcatOperand(op.left(), false);
+        LLVMValueRef right = anyString && !rightString ? toConcatOperand(op.right(), true) : toConcatOperand(op.right(), false);
         LLVMValueRef fn = globalValueMap.get("@nabu_concat");
         if (fn == null)
             throw new IllegalStateException("Runtime helper @nabu_concat niet gedefinieerd");
@@ -282,9 +301,9 @@ public class InstructionEmitter {
      * Een concat-operand: een string blijft zoals hij is, een primitieve waarde
      * wordt eerst naar zijn stringvorm omgezet (Java-semantiek van {@code "" + x}).
      */
-    private LLVMValueRef toConcatOperand(IRValue operand) {
+    private LLVMValueRef toConcatOperand(IRValue operand, boolean asObject) {
         IRType type = operand.type();
-        if (isStringType(type)) {
+        if (isStringType(type) && !asObject) {
             return resolveValue(operand);
         }
         LLVMValueRef fn;
@@ -307,11 +326,13 @@ public class InstructionEmitter {
             Reference.reachabilityFence(boolArgs);
             return LLVMBuildCall2(builder, LLVMGlobalGetValueType(boolFn), boolFn, boolArgs, 1,
                     ".tostr");
-        } else if (type instanceof IRType.Ptr) {
-            // Object-referentie in string-concat: degradeer tot lege string om
-            // de grote picocli-compilatie voorlopig door de linker/compiler te
-            // krijgen. Toekomstige verbetering: runtime nabu_object_to_string().
+        } else if (isArrayReceiver(operand)) {
+            // Een array heeft geen header/vtable (Java gaf "[C@1b6d3586").
             return constants.resolveJavaString("");
+        } else if (type instanceof IRType.Ptr) {
+            // Object-referentie: String.valueOf(obj) — "null" of de virtuele
+            // toString(). Was een lege string, waardoor bv. "" + set leeg bleef.
+            fn = globalValueMap.get("@nabu_object_to_string");
         } else {
             throw new IllegalStateException(
                     "String-concat met een niet-string, niet-primitief operand: " + type

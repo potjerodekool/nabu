@@ -745,10 +745,20 @@ public final class BytecodeReachabilityCompiler {
         final int sep = nameAndDesc.indexOf('#');
         final String name = nameAndDesc.substring(0, sep);
         final String desc = nameAndDesc.substring(sep + 1);
-        for (final MethodNode m : classNode.methods) {
-            if (m.name.equals(name) && m.desc.equals(desc)) {
-                methodWorklist.add(new MethodRef(internalName, name, desc, true));
-                return;
+        // Ook een implementatie die de klasse erft van een superklasse die de
+        // interface zelf niet implementeert: LinkedHashMap$LinkedKeyIterator
+        // implementeert Iterator, maar hasNext() staat in de abstracte
+        // LinkedHashIterator. Zonder die te loweren wees de itable naar de
+        // abstracte Iterator.hasNext en leek elke LinkedHashSet leeg.
+        for (ClassNode node = classNode; node != null;
+             node = node.superName != null ? loadClassNode(node.superName) : null) {
+            for (final MethodNode m : node.methods) {
+                if (m.name.equals(name) && m.desc.equals(desc)) {
+                    if (node == classNode || (m.access & org.objectweb.asm.Opcodes.ACC_ABSTRACT) == 0) {
+                        methodWorklist.add(new MethodRef(internalName, name, desc, true));
+                    }
+                    return;
+                }
             }
         }
     }

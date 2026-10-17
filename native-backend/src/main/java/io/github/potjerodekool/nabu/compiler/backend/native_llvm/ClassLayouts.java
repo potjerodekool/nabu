@@ -174,6 +174,17 @@ public class ClassLayouts {
         }
 
         /** Retourneert het vtable-slot voor een methode (full name), of -1. */
+        /** Slot van de parameterloze toString() (receiver-only), of -1. */
+        public int toStringSlot() {
+            for (int i = 0; i < vtableOrder.size(); i++) {
+                final IRFunction f = vtableOrder.get(i);
+                if (f.name.endsWith("_toString") && f.params.size() == 1) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
         public int vtableSlot(String methodFullName) {
             Integer v = virtualSlots.get(methodFullName);
             return v != null ? v : -1;
@@ -610,6 +621,19 @@ for (IRModule m : modules) {
      * module gedeclareerd is. accepteert zowel de gekwalificeerde naam (wat
      * call-sites gebruiken) als de gedeclareerde naam zelf.
      */
+    /** Of er een IR-functie met deze naam, precies deze ene parameter en een body is. */
+    public boolean hasDefinedFunction(final String name, final IRType param) {
+        for (IRModule module : modulesByInternalName.values()) {
+            for (IRFunction fn : module.functions()) {
+                if (name.equals(fn.name) && fn.params.size() == 1
+                        && fn.params.getFirst().type().equals(param) && !fn.blocks().isEmpty()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public IRFunction resolveFunction(String callTarget) {
         if (callTarget == null) return null;
         IRFunction direct = functionsByQualifiedName.get(callTarget);

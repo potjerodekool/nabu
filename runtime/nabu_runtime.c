@@ -1105,8 +1105,9 @@ void *nabu_jstring_new(const char *utf8) {
 }
 
 char *nabu_concat(const char *a, const char *b) {
-    a = nabu_cstr(a);
-    b = nabu_cstr(b);
+    /* Java: een null-operand in een string-concat wordt "null". */
+    a = a == NULL ? "null" : nabu_cstr(a);
+    b = b == NULL ? "null" : nabu_cstr(b);
     if (nabu_string_meta.type != NULL) {
         size_t la = strlen(a);
         size_t lb = strlen(b);
@@ -1206,6 +1207,43 @@ char *nabu_bool_to_string(int32_t value) {
     }
     memcpy(out, text, len + 1);
     return nabu_string_meta.type != NULL ? (char *) nabu_jstring_new(out) : out;
+}
+
+/* Gecompileerde wrapper-valueOf's per soort (zie nabu_set_box_fn). */
+static void *nabu_box_fns[8];
+
+void nabu_set_box_fn(int32_t kind, void *fn) {
+    if (kind >= 0 && kind < 8) nabu_box_fns[kind] = fn;
+}
+
+void *nabu_box_fn(int32_t kind) {
+    return kind >= 0 && kind < 8 ? nabu_box_fns[kind] : NULL;
+}
+
+/* Vtable-slot van Object.toString (zie nabu_set_object_tostring_slot). */
+static int32_t nabu_tostring_slot = -1;
+
+void nabu_set_object_tostring_slot(int32_t slot) {
+    nabu_tostring_slot = slot;
+}
+
+/* Java-semantiek van String.valueOf(Object) voor een object-operand in een
+ * string-concat ("" + set): "null" of de virtuele toString() van het object.
+ * Een String (of een kale C-string uit de runtime) gaat ongewijzigd door. */
+char *nabu_object_to_string(void *obj) {
+    if (obj == NULL) {
+        return nabu_string_meta.type != NULL ? (char *) nabu_jstring_new("null") : (char *) "null";
+    }
+    if (nabu_is_jstring(obj) || nabu_tostring_slot < 0) {
+        return (char *) obj;
+    }
+    void **vtable = (void **) ((nabu_object *) obj)->vtable;
+    if (vtable == NULL || vtable[nabu_tostring_slot] == NULL) {
+        return (char *) obj;
+    }
+    void *(*to_string)(void *) = (void *(*)(void *)) vtable[nabu_tostring_slot];
+    void *result = to_string(obj);
+    return result != NULL ? (char *) result : nabu_object_to_string(NULL);
 }
 
 /* -------------------------------------------------------

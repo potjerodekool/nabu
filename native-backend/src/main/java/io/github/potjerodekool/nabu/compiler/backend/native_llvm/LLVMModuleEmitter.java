@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import org.bytedeco.javacpp.BytePointer;
@@ -714,6 +715,25 @@ public void setReflectionRegistry(
                         new PointerPointer<>(new Pointer[] { LLVMInt32TypeInContext(ctx) }), 1, 0));
         LLVMSetLinkage(boolToString, LLVMExternalLinkage);
         globalValueMap.put("@nabu_bool_to_string", boolToString);
+        // i8* nabu_object_to_string(i8*) — String.valueOf(Object) via het
+        // vtable-slot van toString (zie nabu_set_object_tostring_slot).
+        LLVMValueRef objectToString = LLVMAddFunction(mod,
+                new BytePointer("nabu_object_to_string"),
+                LLVMFunctionType(i8ptr, new PointerPointer<>(new Pointer[] { i8ptr }), 1, 0));
+        LLVMSetLinkage(objectToString, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_object_to_string", objectToString);
+        LLVMValueRef setToStringSlot = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_object_tostring_slot"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                        new PointerPointer<>(new Pointer[] { LLVMInt32TypeInContext(ctx) }), 1, 0));
+        LLVMSetLinkage(setToStringSlot, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_object_tostring_slot", setToStringSlot);
+        LLVMValueRef setBoxFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_box_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                        new PointerPointer<>(new Pointer[] { LLVMInt32TypeInContext(ctx), i8ptr }), 2, 0));
+        LLVMSetLinkage(setBoxFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_box_fn", setBoxFn);
 
         // --- Personality functie voor exception handling ---
         // Nabu-eigen SEH-persoonlijkheid (nabu_seh_personality): een 4-arg
@@ -930,7 +950,9 @@ public void setReflectionRegistry(
                 || (fieldOffsetFn != null && !fieldOffsetFn.isNull())
                 || (forNameFn != null && !forNameFn.isNull());
         final LLVMValueRef[] typeTable = needsTypeTable ? classLayouts.buildTypeInfoTable(mod) : null;
-        if (vtable == null && itable == null && getMessage == null && typeTable == null) {
+        final LLVMValueRef[] boxFns = compiledBoxFunctions();
+        final boolean anyBoxFn = java.util.Arrays.stream(boxFns).anyMatch(java.util.Objects::nonNull);
+        if (vtable == null && itable == null && getMessage == null && typeTable == null && !anyBoxFn) {
             return;
         }
 
@@ -945,12 +967,29 @@ public void setReflectionRegistry(
         LLVMPositionBuilderAtEnd(builder, block);
         if (vtable != null) {
             callSetter(builder, "@nabu_set_object_vtable", vtable);
+            final int toStringSlot = object.toStringSlot();
+            if (toStringSlot >= 0) {
+                final LLVMValueRef setter = globalValueMap.get("@nabu_set_object_tostring_slot");
+                final PointerPointer<Pointer> args = new PointerPointer<>(1);
+                args.put(0, LLVMConstInt(LLVMInt32TypeInContext(ctx), toStringSlot, 0));
+                LLVMBuildCall2(builder, LLVMGlobalGetValueType(setter), setter, args, 1, "");
+                Reference.reachabilityFence(args);
+            }
         }
         if (itable != null) {
             callSetter(builder, "@nabu_set_object_itable", itable);
         }
         if (getMessage != null) {
             callSetter(builder, "@nabu_set_throwable_message_fn", getMessage);
+        }
+        for (int kind = 0; kind < boxFns.length; kind++) {
+            if (boxFns[kind] == null) continue;
+            final LLVMValueRef setter = globalValueMap.get("@nabu_set_box_fn");
+            final PointerPointer<Pointer> args = new PointerPointer<>(2);
+            args.put(0, LLVMConstInt(LLVMInt32TypeInContext(ctx), kind, 0));
+            args.put(1, boxFns[kind]);
+            LLVMBuildCall2(builder, LLVMGlobalGetValueType(setter), setter, args, 2, "");
+            Reference.reachabilityFence(args);
         }
         if (typeTable != null) {
             final LLVMValueRef register = globalValueMap.get("@nabu_register_type_infos");
@@ -964,6 +1003,40 @@ public void setReflectionRegistry(
         LLVMDisposeBuilder(builder);
 
         ctors.addEarly(thunk);
+    }
+
+    /**
+     * De uit bytecode gecompileerde {@code valueOf(primitief)} per wrapper, in
+     * de volgorde van nabu_set_box_fn (Integer, Long, Boolean, Double, Float,
+     * Short, Byte, Character); null waar het programma die niet bevat. Overloads
+     * delen de IR-naam, dus de variant met precies die ene primitieve parameter.
+     */
+    private LLVMValueRef[] compiledBoxFunctions() {
+        final String[] owners = {"Integer", "Long", "Boolean", "Double", "Float", "Short", "Byte", "Character"};
+        final String[] keys = {"I32", "I64", "Z", "F64", "F32", "I16", "I8", "I16"};
+        final LLVMTypeRef[] params = {
+                LLVMInt32TypeInContext(ctx), LLVMInt64TypeInContext(ctx), LLVMInt1TypeInContext(ctx),
+                LLVMDoubleTypeInContext(ctx), LLVMFloatTypeInContext(ctx), LLVMInt16TypeInContext(ctx),
+                LLVMInt8TypeInContext(ctx), LLVMInt16TypeInContext(ctx)};
+        final IRType[] irParams = {
+                new IRType.Int(32), new IRType.Int(64), new IRType.Bool(), new IRType.Float(64),
+                new IRType.Float(32), new IRType.Int(16), new IRType.Int(8), new IRType.Int(16)};
+        final LLVMValueRef[] result = new LLVMValueRef[owners.length];
+        for (int kind = 0; kind < owners.length; kind++) {
+            final String base = "java.lang." + owners[kind] + "_valueOf";
+            // De bodies worden pas later geëmit; de IR zegt of er een is.
+            if (!classLayouts.hasDefinedFunction(base, irParams[kind])) continue;
+            for (final String name : new String[] {base, base + "$" + keys[kind]}) {
+                final LLVMValueRef fn = LLVMGetNamedFunction(mod, name);
+                if (fn != null && !fn.isNull()
+                        && LLVMCountParams(fn) == 1
+                        && LLVMTypeOf(LLVMGetParam(fn, 0)).equals(params[kind])) {
+                    result[kind] = fn;
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     /**

@@ -3072,7 +3072,7 @@ if (argVal != null) args.add(argVal);
         final boolean outerPrepended = targetClassElement != null
                 && needsOuterInstance(targetClassElement);
         final var argMirrors = newClass.getArguments().size() == (outerPrepended ? args.size() - 1 : args.size())
-                ? newClass.getArguments().stream().map(ExpressionTree::getType).toList()
+                ? newClass.getArguments().stream().map(IrGeneratingVisitor::argumentType).toList()
                 : null;
         final var declaredParamTypes = resolveDeclaredCtorParamTypes(
                 classMirror,
@@ -3181,6 +3181,23 @@ if (argVal != null) args.add(argVal);
         return chosen.getParameters().stream()
                 .map(p -> TypeMirrorToIRType.map(p.asType()))
                 .toList();
+    }
+
+    /**
+     * The type of a constructor argument. An instance creation with a
+     * qualified class name ({@code new java.io.StringReader(s)}) can be left
+     * without a type; its name then has it, as in {@code visitNewClass}.
+     * Without this, {@code new StreamTokenizer(new java.io.StringReader(s))}
+     * could not rule out {@code StreamTokenizer(InputStream)} and picked it,
+     * being declared first.
+     */
+    private static TypeMirror argumentType(final ExpressionTree argument) {
+        final TypeMirror type = argument.getType();
+        if ((type == null || type.getKind() == io.github.potjerodekool.nabu.type.TypeKind.VOID)
+                && argument instanceof NewClassExpression newClass && newClass.getName() != null) {
+            return newClass.getName().getType();
+        }
+        return type;
     }
 
     /** Of elk bekend referentie-argument een subtype is van zijn parametertype. */

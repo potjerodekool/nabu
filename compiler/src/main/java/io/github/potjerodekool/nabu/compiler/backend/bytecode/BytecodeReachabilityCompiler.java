@@ -112,8 +112,7 @@ public final class BytecodeReachabilityCompiler {
             "java/lang/reflect/Constructor",
             "java/lang/reflect/Parameter",
             "java/lang/reflect/Proxy",
-            "java/io/File",
-            "java/io/BufferedReader");
+            "java/io/File");
 
     /**
      * Gesynthetiseerde opstartklasse: het deel van {@code System.initPhase1}
@@ -180,6 +179,7 @@ public final class BytecodeReachabilityCompiler {
             return null;
         }
         EmbeddedResources.rewriteResourceCalls(classNode);
+        io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         if ("java/util/ServiceLoader".equals(classNode.name)) {
             for (final MethodNode m : classNode.methods) {
                 if ("newLookupIterator".equals(m.name) && "()Ljava/util/Iterator;".equals(m.desc)) {

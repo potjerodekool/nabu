@@ -167,17 +167,7 @@ static int32_t jcl_hash(const void *p) {
     return (int32_t)h;
 }
 
-static char *jcl_itoa(int64_t v) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", (long long)v);
-    return jcl_dup(buf);
-}
 
-static char *jcl_dtoa(double v) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), v == (double)(int64_t)v ? "%.1f" : "%.17g", v);
-    return jcl_dup(buf);
-}
 
 static void *jcl_box(int t, int64_t iv, double dv) {
     /* Bij voorkeur de uit bytecode gecompileerde wrapper: een eigen
@@ -269,40 +259,6 @@ static double box_as_f64(const void *p) {
     return b->v.i;
 }
 
-static char *jcl_any(const void *p) {
-    if (p == NULL) return (char *)"null";
-    if (nabu_jcl_is_object(p)) {
-        void *st = nabu_jcl_state((void *)p);
-        if (st == NULL && nabu_compiled_type_name(p) != NULL) {
-            /* Gecompileerd object (bv. een wrapper uit jcl_box): zijn eigen
-             * toString(). */
-            return (char *)nabu_cstr(nabu_object_to_string((void *)p));
-        }
-        if (st == NULL) {
-            nabu_object *h = (nabu_object *)p;
-            nabu_type_info *ti = (nabu_type_info *)h->type;
-            return jcl_dup(ti != NULL && ti->name != NULL ? ti->name : "object");
-        }
-        switch (*(int *)st) {
-            case K_STR: return ((s_str *)st)->v != NULL ? ((s_str *)st)->v : (char *)"";
-            case K_SB: { s_sb *sb = (s_sb *)st; char *o = (char *)jcl_alloc((size_t)sb->len + 1); memcpy(o, sb->buf, (size_t)sb->len); o[sb->len] = 0; return o; }
-            case K_BOX: {
-                s_box *b = (s_box *)st;
-                switch (b->t) {
-                    case B_BOOL: return jcl_dup(b->v.i ? "true" : "false");
-                    case B_F64: return jcl_dtoa(b->v.d);
-                    case B_F32: return jcl_dtoa(b->v.f);
-                    case B_I16: case B_CHAR: { char *s = (char *)jcl_alloc(8); s[0] = (char)(b->v.c & 0xff); s[1] = 0; return s; }
-                    case B_I64: return jcl_itoa(b->v.j);
-                    default: return jcl_itoa(b->v.i);
-                }
-            }
-            case K_THROW: { s_throw *t = (s_throw *)st; size_t n = strlen(t->cls) + strlen(t->msg) + 4; char *o = (char *)jcl_alloc(n); snprintf(o, n, "%s: %s", t->cls, t->msg); return o; }
-            default: return jcl_dup("");
-        }
-    }
-    return (char *)p;
-}
 
 static void *jcl_new_str_obj(const char *v) {
     s_str *st = (s_str *)jcl_alloc(sizeof(s_str));
@@ -550,16 +506,6 @@ static char *jcl_concat(const char *a, const char *b) {
     return o;
 }
 
-static char *jcl_sub(const char *s, int32_t from, int32_t to) {
-    size_t n = strlen(s);
-    if (from < 0) from = 0;
-    if ((size_t)to > n) to = (int32_t)n;
-    if (from > to) from = to;
-    char *o = (char *)jcl_alloc((size_t)(to - from) + 1);
-    memcpy(o, s + from, (size_t)(to - from));
-    o[to - from] = 0;
-    return o;
-}
 
 /* Annotatie-elementen. De compiler geeft elk element van een annotatie-
  * interface een body (AnnotationAccessors) die een van deze helpers aanroept
@@ -676,88 +622,6 @@ BIND(int32_t, jcl_java_lang_Object_hashCode, "java.lang.Object_hashCode", (void 
     return (int32_t)((intptr_t)self >> 4);
 }
 
-BIND(int32_t, jcl_java_lang_String_indexOf_i32, "java.lang.String_indexOf$PI32", (void *self, int32_t ch)) {
-    const char *s = jcl_str(self);
-    const char *r = strchr(s, (char)(ch & 0xff));
-    return r != NULL ? (int32_t)(r - s) : -1;
-}
-BIND(int32_t, jcl_java_lang_String_indexOf_from, "java.lang.String_indexOf$PP523beb0aI32", (void *self, void *p, int32_t from)) {
-    const char *s = jcl_str(self);
-    size_t n = strlen(s);
-    if (from < 0) from = 0;
-    if ((size_t)from > n) return -1;
-    const char *r = strstr(s + from, jcl_str(p));
-    return r != NULL ? (int32_t)(r - s) : -1;
-}
-BIND(void *, jcl_java_lang_String_substring_i32, "java.lang.String_substring$PI32", (void *self, int32_t from)) {
-    const char *s = jcl_str(self);
-    return (void *)jcl_sub(s, from, (int32_t)strlen(s));
-}
-static void * jcl_java_lang_String_toLowerCase (void *self, void *loc) {
-    (void)loc;
-    const char *s = jcl_str(self);
-    size_t n = strlen(s);
-    char *o = (char *)jcl_alloc(n + 1);
-    for (size_t i = 0; i < n; i++) o[i] = (char)tolower((unsigned char)s[i]);
-    return (void *)o;
-}
-BIND(void *, jcl_java_lang_String_toLowerCase_1, "java.lang.String_toLowerCase$P", (void *self)) { return jcl_java_lang_String_toLowerCase(self, NULL); }
-static void * jcl_java_lang_String_toUpperCase (void *self, void *loc) {
-    (void)loc;
-    const char *s = jcl_str(self);
-    size_t n = strlen(s);
-    char *o = (char *)jcl_alloc(n + 1);
-    for (size_t i = 0; i < n; i++) o[i] = (char)toupper((unsigned char)s[i]);
-    return (void *)o;
-}
-BIND(void *, jcl_java_lang_String_toUpperCase_1, "java.lang.String_toUpperCase$P", (void *self)) { return jcl_java_lang_String_toUpperCase(self, NULL); }
-static void * jcl_java_lang_String_split (void *self, void *pat, int32_t limit) {
-    const char *s = jcl_str(self), *p = jcl_str(pat);
-    if (*p == 0) return jcl_arr_ref(0);
-    int32_t cap = 8, n = 0;
-    void **items = (void **)jcl_alloc(sizeof(void *) * (size_t)cap);
-    const char *start = s;
-    size_t np = strlen(p);
-    for (const char *q = s; ; q++) {
-        int hit = (*q == 0) || (np == 1 && *q == *p) || (np > 1 && strncmp(q, p, np) == 0);
-        if (hit && *q != 0) {
-            if (n == cap) { cap *= 2; items = (void **)JCL_REALLOC(items, sizeof(void *) * (size_t)cap); }
-            size_t len = (size_t)(q - start);
-            char *piece = (char *)jcl_alloc(len + 1);
-            memcpy(piece, start, len);
-            piece[len] = 0;
-            items[n++] = piece;
-            q += np - 1;
-            start = q + 1;
-            if (limit > 0 && n == limit - 1) { start = q + 1; break; }
-        } else if (*q == 0) {
-            break;
-        }
-    }
-    if (limit == 0) {
-        while (n > 0 && ((char *)items[n - 1])[0] == 0) n--;
-    }
-    if (n == 0 || *start != 0 || limit != 0) {
-        if (n == cap) { cap += 2; items = (void **)JCL_REALLOC(items, sizeof(void *) * (size_t)cap); }
-        items[n++] = jcl_dup(start);
-    }
-    if (limit > 0 && n > limit && limit > 0) {
-        int32_t keep = limit;
-        if (keep > 0 && n > keep) {
-            char *joined = jcl_dup((char *)items[keep - 1]);
-            for (int32_t i = keep; i < n; i++) {
-                joined = jcl_concat(joined, p);
-                joined = jcl_concat(joined, (char *)items[i]);
-            }
-            items[keep - 1] = joined;
-            n = keep;
-        }
-    }
-    void *out = jcl_arr_ref(n);
-    for (int32_t i = 0; i < n; i++) jcl_arr_set(out, i, items[i]);
-    return out;
-}
-BIND(void *, jcl_java_lang_String_split_2, "java.lang.String_split$PP523beb0a", (void *self, void *pat)) { return jcl_java_lang_String_split(self, pat, 0); }
 
 
 
@@ -766,18 +630,9 @@ BIND(void *, jcl_java_lang_String_split_2, "java.lang.String_split$PP523beb0a", 
  * in een losse C-buffer (een gecompileerd object draagt geen jcl-state) en
  * toString() gaf "" (bv. LocaleData's "sun.text.resources" + ".FormatData"). */
 
-BIND(void *, jcl_java_lang_Double_valueOf_f64, "java.lang.Double_valueOf$F64", (double v)) { return box_f64(v); }
 
 
 
-BIND(void, jcl_java_lang_Throwable_printStackTrace_P, "java.lang.Throwable_printStackTrace$P", (void *self)) {
-    fprintf(stderr, "Exception in thread \"main\" %s\n", jcl_any(self));
-    fflush(stderr);
-}
-BIND(void, jcl_java_lang_Throwable_printStackTrace_ps, "java.lang.Throwable_printStackTrace$PP2f442d83", (void *self, void *ps)) {
-    (void)ps;
-    jcl_java_lang_Throwable_printStackTrace_P(self);
-}
 
 
 
@@ -1059,48 +914,10 @@ BIND(void *, jcl_java_io_File_getAbsolutePath_jstr, "java.io.File_getAbsolutePat
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 
-static char *jcl_reader_line(s_reader *r) {
-    if (r == NULL) return NULL;
-    FILE *f = r->f != NULL ? r->f : stdin;
-    if (r->eof) return NULL;
-    size_t cap = 128, n = 0;
-    char *line = (char *)jcl_alloc(cap);
-    int any = 0;
-    for (;;) {
-        int c = fgetc(f);
-        if (c == EOF) { r->eof = 1; break; }
-        any = 1;
-        if (c == '\n') break;
-        if (c == '\r') continue;
-        if (n + 2 >= cap) { cap *= 2; line = (char *)JCL_REALLOC(line, cap); }
-        line[n++] = (char)c;
-    }
-    if (!any && n == 0) return NULL;
-    line[n] = 0;
-    return line;
-}
-static void * jcl_java_io_BufferedReader_readLine (void *self) {
-    s_reader *r = (s_reader *)jcl_state_kind(self, K_READER);
-    if (r == NULL) return NULL;
-    return (void *)jcl_reader_line(r);
-}
-BIND(void *, jcl_java_io_BufferedReader_readLine_jstr, "java.io.BufferedReader_readLine", (void *self)) {
-    void *r = (void *)jcl_java_io_BufferedReader_readLine(self);
-    return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
-}
-BIND(void *, jcl_java_io_LineNumberReader_readLine, "java.io.LineNumberReader_readLine", (void *self)) {
-    return jcl_java_io_BufferedReader_readLine(self);
-}
 BIND(void, jcl_java_io_Closeable_close, "java.io.Closeable_close", (void *self)) {
     s_reader *r = (s_reader *)jcl_state_kind(self, K_READER);
     if (r != NULL && r->f != NULL) { fclose(r->f); r->f = NULL; }
 }
-BIND(void, jcl_java_io_StreamTokenizer_commentChar, "java.io.StreamTokenizer_commentChar", (void *self, int32_t c)) { (void)self; (void)c; }
-BIND(void, jcl_java_io_StreamTokenizer_quoteChar, "java.io.StreamTokenizer_quoteChar", (void *self, int32_t c)) { (void)self; (void)c; }
-BIND(void, jcl_java_io_StreamTokenizer_resetSyntax, "java.io.StreamTokenizer_resetSyntax", (void *self)) { (void)self; }
-BIND(void, jcl_java_io_StreamTokenizer_whitespaceChars, "java.io.StreamTokenizer_whitespaceChars", (void *self, int32_t a, int32_t b)) { (void)self; (void)a; (void)b; }
-BIND(void, jcl_java_io_StreamTokenizer_wordChars, "java.io.StreamTokenizer_wordChars", (void *self, int32_t a, int32_t b)) { (void)self; (void)a; (void)b; }
-BIND(int32_t, jcl_java_io_StreamTokenizer_nextToken, "java.io.StreamTokenizer_nextToken", (void *self)) { (void)self; return -1; }
 
 BIND(int, jcl_java_lang_Thread_isAlive, "java.lang.Thread_isAlive", (void *self)) { (void)self; return 0; }
 BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
@@ -1945,9 +1762,6 @@ BIND(void *, jcl_java_lang_reflect_AnnotatedElement_getAnnotation, "java.lang.re
     if (jcl_field_of(self) != NULL) return jcl_java_lang_reflect_AccessibleObject_getAnnotation(self, ann);
     return jcl_java_lang_Class_getAnnotation(self, ann);
 }
-BIND(int, jcl_java_lang_reflect_AnnotatedElement_isAnnotationPresent, "java.lang.reflect.AnnotatedElement_isAnnotationPresent", (void *self, void *ann)) {
-    return jcl_java_lang_reflect_AnnotatedElement_getAnnotation(self, ann) != NULL;
-}
 BIND(void *, jcl_java_lang_reflect_Array_get, "java.lang.reflect.Array_get", (void *a, int32_t i)) { return jcl_arr_elem(a, i); }
 BIND(int32_t, jcl_java_lang_reflect_Array_getLength, "java.lang.reflect.Array_getLength", (void *a)) { return jcl_arr_len(a); }
 BIND(void *, jcl_java_lang_reflect_Array_newInstance, "java.lang.reflect.Array_newInstance", (void *cls, int32_t n)) { (void)cls; return jcl_arr_ref(n); }
@@ -2069,7 +1883,6 @@ BIND(void *, jcl_java_lang_reflect_Proxy_newProxyInstance, "java.lang.reflect.Pr
 BIND(void *, jcl_java_lang_reflect_WildcardType_getLowerBounds, "java.lang.reflect.WildcardType_getLowerBounds", (void *self)) { (void)self; return jcl_arr_ref(0); }
 BIND(void *, jcl_java_lang_reflect_WildcardType_getUpperBounds, "java.lang.reflect.WildcardType_getUpperBounds", (void *self)) { (void)self; return jcl_arr_ref(0); }
 BIND(void *, jcl_java_lang_reflect_GenericArrayType_getGenericComponentType, "java.lang.reflect.GenericArrayType_getGenericComponentType", (void *self)) { (void)self; return jcl_class(""); }
-BIND(void *, jcl_java_lang_reflect_InvocationTargetException_getTargetException, "java.lang.reflect.InvocationTargetException_getTargetException", (void *self)) { return self; }
 
 BIND(void *, jcl_java_lang_reflect_Method_getAnnotation, "java.lang.reflect.Method_getAnnotation", (void *self, void *ann)) { (void)self; (void)ann; return NULL; }
 BIND(void *, jcl_java_util_List_set, "java.util.List_set", (void *self, int32_t i, void *v)) {
@@ -2082,7 +1895,6 @@ BIND(void *, jcl_java_util_List_set, "java.util.List_set", (void *self, int32_t 
 
 
 BIND(void *, jcl_java_util_concurrent_Callable_call, "java.util.concurrent.Callable_call", (void *self)) { (void)self; jcl_nyi("java.util.concurrent.Callable_call"); return NULL; }
-BIND(void *, jcl_java_util_UUID_fromString, "java.util.UUID_fromString", (void *s)) { return jcl_new_str_obj(jcl_str(s)); }
 
 
 /* ==SECTIE== */

@@ -352,10 +352,8 @@ greet -n Ada -c 3    graal  exit=0   OK
 greet --bogus        llvm   exit=2   OK
 greet --bogus        jvm    exit=2   OK
 greet --bogus        graal  exit=2   OK
-Alle trajecten (llvm, jvm, graal) geven dezelfde output als jvm.
+All builds (llvm, jvm, graal) give the same output as jvm.
 ```
-
-(The last line is the script's summary: "all builds give the same output as jvm".)
 
 ## What this exercises in the compiler
 

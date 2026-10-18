@@ -68,7 +68,7 @@ public class TypeChecker {
                         final var common = TypeInference.commonType(valueType, function.returnType);
                         if (common == null || !common.equals(function.returnType)) {
                             errors.add(String.format(
-                                    "Return-waarde type %s is niet compatibel met functie-returntype %s in blok %s",
+                                    "Return value type %s is not compatible with function return type %s in block %s",
                                     valueType, function.returnType, block.label()));
                         }
                     }
@@ -107,7 +107,7 @@ public class TypeChecker {
 
         if (leftType == null || rightType == null) {
             errors.add(String.format(
-                    "BinaryOp %s heeft onbekende operand-type(s) in blok %s",
+                    "BinaryOp %s has unknown operand type(s) in block %s",
                     op.op(), blockLabel));
             return;
         }
@@ -116,7 +116,7 @@ public class TypeChecker {
         if (isComparison(op.op())) {
             if (resultType != null && !(resultType instanceof IRType.Bool)) {
                 errors.add(String.format(
-                        "BinaryOp %s resultaat-type is %s, verwacht Bool in blok %s",
+                        "BinaryOp %s result type is %s, expected Bool in block %s",
                         op.op(), resultType, blockLabel));
             }
             return;
@@ -125,7 +125,7 @@ public class TypeChecker {
         // Arithmetic: operands moeten compatibel zijn
         if (TypeInference.commonType(leftType, rightType) == null) {
             errors.add(String.format(
-                    "BinaryOp %s operands %s en %s zijn niet compatibel in blok %s",
+                    "BinaryOp %s operands %s and %s are not compatible in block %s",
                     op.op(), leftType, rightType, blockLabel));
         }
     }
@@ -141,14 +141,14 @@ public class TypeChecker {
 
             if (incomingType == null) {
                 errors.add(String.format(
-                        "Phi incoming waarde heeft onbekend type in blok %s",
+                        "Phi incoming value has unknown type in block %s",
                         blockLabel));
                 continue;
             }
 
             if (resultType != null && TypeInference.commonType(resultType, incomingType) == null) {
                 errors.add(String.format(
-                        "Phi incoming type %s is niet compatibel met resultaat type %s in blok %s",
+                        "Phi incoming type %s is not compatible with result type %s in block %s",
                         incomingType, resultType, blockLabel));
             }
         }
@@ -162,13 +162,13 @@ public class TypeChecker {
 
         if (ptrType == null) {
             errors.add(String.format(
-                    "Load pointer heeft onbekend type in blok %s", blockLabel));
+                    "Load pointer has unknown type in block %s", blockLabel));
             return;
         }
 
         if (!(ptrType instanceof IRType.Ptr)) {
             errors.add(String.format(
-                    "Load pointer type is %s, verwacht Ptr in blok %s",
+                    "Load pointer type is %s, expected Ptr in block %s",
                     ptrType, blockLabel));
         }
     }
@@ -182,14 +182,14 @@ public class TypeChecker {
 
         if (ptrType == null || valueType == null) {
             errors.add(String.format(
-                    "Store heeft onbekende type(s) in blok %s", blockLabel));
+                    "Store has unknown type(s) in block %s", blockLabel));
             return;
         }
 
         if (ptrType instanceof IRType.Ptr ptr && ptr.pointee() != null) {
             if (TypeInference.commonType(ptr.pointee(), valueType) == null) {
                 errors.add(String.format(
-                        "Store waarde type %s is niet compatibel met pointee type %s in blok %s",
+                        "Store value type %s is not compatible with pointee type %s in block %s",
                         valueType, ptr.pointee(), blockLabel));
             }
         }
@@ -220,7 +220,7 @@ public class TypeChecker {
 
         if (paramTypes.size() != args.size()) {
             errors.add(String.format(
-                    "Call naar %s heeft %d argumenten maar %d parameters verwacht in blok %s",
+                    "Call to %s has %d arguments but %d parameters expected in block %s",
                     call.function(), args.size(), paramTypes.size(), blockLabel));
             return;
         }
@@ -231,7 +231,7 @@ public class TypeChecker {
 
             if (argType != null && TypeInference.commonType(argType, paramType) == null) {
                 errors.add(String.format(
-                        "Call argument %d type %s is niet compatibel met parameter type %s in blok %s",
+                        "Call argument %d type %s is not compatible with parameter type %s in block %s",
                         i, argType, paramType, blockLabel));
             }
         }
@@ -245,11 +245,11 @@ public class TypeChecker {
         if (resultType instanceof IRType.Ptr ptr) {
             if (ptr.pointee() == null) {
                 errors.add(String.format(
-                        "Alloca pointer heeft geen pointee type in blok %s", blockLabel));
+                        "Alloca pointer has no pointee type in block %s", blockLabel));
             }
         } else {
             errors.add(String.format(
-                    "Alloca resultaat type is %s, verwacht Ptr in blok %s",
+                    "Alloca result type is %s, expected Ptr in block %s",
                     resultType, blockLabel));
         }
     }

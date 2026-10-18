@@ -35,7 +35,7 @@ class ClientHandler implements Runnable {
             // Lees command byte
             byte command = in.readByte();
 
-            LOGGER.info(String.format("Command ontvangen: 0x%02X van %s",
+            LOGGER.info(String.format("Command received: 0x%02X from %s",
                     command, socket.getInetAddress()));
 
             switch (command) {
@@ -44,14 +44,14 @@ class ClientHandler implements Runnable {
                 case Protocol.CMD_SHUTDOWN ->
                     handleShutdown(out);
                 default ->
-                    sendError(out, "Onbekend command: 0x" +
+                    sendError(out, "Unknown command: 0x" +
                             String.format("%02X", command));
             }
 
         } catch (EOFException e) {
             LOGGER.info("Client gesloten: " + socket.getInetAddress());
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE,"Fout bij verwerken request: " + e.getMessage(), e);
+            LOGGER.log(Level.SEVERE,"Error while processing request: " + e.getMessage(), e);
         } finally {
             try {
                 socket.close();

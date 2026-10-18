@@ -264,7 +264,7 @@ public final class BytecodeMethodLowering {
             frames = analyzer.analyze(classNode.name, methodNode);
         } catch (final AnalyzerException e) {
             throw new IllegalStateException(
-                    "Kan stack/locals niet analyseren voor " + ownerQualifiedName
+                    "Cannot analyze stack/locals for " + ownerQualifiedName
                             + "." + methodNode.name + methodNode.desc, e);
         }
     }
@@ -521,9 +521,9 @@ public final class BytecodeMethodLowering {
         if (frameBefore != null && stack.size() != frameBefore.getStackSize()) {
             throw new IllegalStateException(
                     "Stack-desync in " + ownerQualifiedName + "." + methodNode.name + methodNode.desc
-                            + " vlak voor opcode " + opcode + " (" + insn.getClass().getSimpleName()
-                            + "): onze simulatie heeft " + stack.size()
-                            + " waarde(n) op de stack, ASM's frame-analyse verwacht "
+                            + " just before opcode " + opcode + " (" + insn.getClass().getSimpleName()
+                            + "): our simulation has " + stack.size()
+                            + " value(s) on the stack, ASM's frame analysis expects "
                             + frameBefore.getStackSize() + ".");
         }
 
@@ -544,7 +544,7 @@ public final class BytecodeMethodLowering {
             case AbstractInsnNode.MULTIANEWARRAY_INSN ->
                     emitMultiANewArray((MultiANewArrayInsnNode) insn);
             default -> throw new UnsupportedOperationException(
-                    "Onbekend instructietype " + insn.getType() + " in "
+                    "Unknown instruction type " + insn.getType() + " in "
                             + ownerQualifiedName + "." + methodNode.name);
         }
     }
@@ -617,7 +617,7 @@ public final class BytecodeMethodLowering {
             case Opcodes.MONITOREXIT -> builder.emitMonitorExit(stack.pop());
 
             default -> throw new UnsupportedOperationException(
-                    "Opcode " + opcode + " (zero-operand) nog niet geimplementeerd in "
+                    "Opcode " + opcode + " (zero-operand) not implemented yet in "
                             + ownerQualifiedName + "." + methodNode.name);
         }
     }
@@ -895,7 +895,7 @@ public final class BytecodeMethodLowering {
             case Opcodes.ISTORE, Opcodes.LSTORE, Opcodes.FSTORE, Opcodes.DSTORE, Opcodes.ASTORE ->
                     storeToSlot(varIndex, opcode - Opcodes.ISTORE, stack.pop());
             case Opcodes.RET -> throw new UnsupportedOperationException(
-                    "RET (JSR-subroutines) bestaat niet meer sinds classfile v51 (Java7+) - onverwacht");
+                    "RET (JSR subroutines) no longer exists since class file v51 (Java 7+) - unexpected");
             default -> throw new IllegalStateException();
         }
     }
@@ -1010,8 +1010,8 @@ public final class BytecodeMethodLowering {
             case String s -> IRValue.ofString(s);
             case Type t -> new IRValue.ConstClass(new IRType.Ptr(IRType.I8, t.getDescriptor()));
             default -> throw new UnsupportedOperationException(
-                    "LDC van " + (cst == null ? "null" : cst.getClass())
-                            + " nog niet geimplementeerd (Handle/ConstantDynamic -> invokedynamic-gerelateerd)");
+                    "LDC of " + (cst == null ? "null" : cst.getClass())
+                            + " not implemented yet (Handle/ConstantDynamic -> invokedynamic related)");
         };
         stack.push(value);
     }
@@ -1174,7 +1174,7 @@ public final class BytecodeMethodLowering {
             case Opcodes.IF_ICMPLE -> cmpTwo(IRInstruction.BinaryOp.Op.LTE);
             case Opcodes.IFNULL -> cmpZero(IRInstruction.BinaryOp.Op.EQ);
             case Opcodes.IFNONNULL -> cmpZero(IRInstruction.BinaryOp.Op.NEQ);
-            default -> throw new IllegalStateException("Onbekende jump-opcode " + opcode);
+            default -> throw new IllegalStateException("Unknown jump opcode " + opcode);
         };
     }
 
@@ -1371,8 +1371,8 @@ public final class BytecodeMethodLowering {
             return;
         }
         throw new UnsupportedOperationException(
-                "invokedynamic met onbekende/niet-ondersteunde bootstrap nog niet "
-                        + "geimplementeerd (zie plan fase 3, taak #4): "
+                "invokedynamic with an unknown/unsupported bootstrap method is not "
+                        + "implemented yet: "
                         + bsmOwner.replace('/', '.') + "." + bsmName
                         + " (call-site: " + ownerQualifiedName + "." + methodNode.name + ")");
     }
@@ -1406,8 +1406,8 @@ public final class BytecodeMethodLowering {
         if ("makeConcatWithConstants".equals(insn.bsm.getName())) {
             if (insn.bsmArgs.length == 0 || !(insn.bsmArgs[0] instanceof String)) {
                 throw new UnsupportedOperationException(
-                        "StringConcatFactory.makeConcatWithConstants zonder recipe-string "
-                                + "(bsmArgs[0]) nog niet ondersteund: "
+                        "StringConcatFactory.makeConcatWithConstants without a recipe string "
+                                + "(bsmArgs[0]) is not supported yet: "
                                 + ownerQualifiedName + "." + methodNode.name);
             }
             recipe = (String) insn.bsmArgs[0];
@@ -1417,8 +1417,8 @@ public final class BytecodeMethodLowering {
                 // als gewone ldc kunnen) - komt in de praktijk niet voor bij
                 // simpele String-concatenatie van locals/literals.
                 throw new UnsupportedOperationException(
-                        "StringConcatFactory.makeConcatWithConstants met extra constante "
-                                + "bsm-args (\u0002-plekhouders) nog niet ondersteund: "
+                        "StringConcatFactory.makeConcatWithConstants with extra constant "
+                                + "bsm args (\u0002 placeholders) is not supported yet: "
                                 + ownerQualifiedName + "." + methodNode.name);
             }
         } else {
@@ -1444,8 +1444,8 @@ public final class BytecodeMethodLowering {
                 acc = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.ADD, acc, args.get(argIndex++));
             } else if (c == '') {
                 throw new UnsupportedOperationException(
-                        "StringConcatFactory-recipe met \u0002 (niet-ldc-bare constante) "
-                                + "nog niet ondersteund: " + ownerQualifiedName + "." + methodNode.name);
+                        "StringConcatFactory recipe with \u0002 (non-ldc-able constant) "
+                                + "is not supported yet: " + ownerQualifiedName + "." + methodNode.name);
             } else {
                 literal.append(c);
             }
@@ -1521,8 +1521,8 @@ public final class BytecodeMethodLowering {
                 || !(insn.bsmArgs[0] instanceof Type recordClassConst)
                 || !(insn.bsmArgs[1] instanceof String namesArg)) {
             throw new UnsupportedOperationException(
-                    "ObjectMethods.bootstrap zonder recordClass/names-constanten "
-                            + "(bsmArgs[0]/[1]) nog niet ondersteund: "
+                    "ObjectMethods.bootstrap without recordClass/names constants "
+                            + "(bsmArgs[0]/[1]) is not supported yet: "
                             + ownerQualifiedName + "." + methodNode.name);
         }
         final String recordInternalName = recordClassConst.getInternalName();
@@ -1532,16 +1532,16 @@ public final class BytecodeMethodLowering {
         for (int i = 2; i < insn.bsmArgs.length; i++) {
             if (!(insn.bsmArgs[i] instanceof Handle getter)) {
                 throw new UnsupportedOperationException(
-                        "ObjectMethods.bootstrap met niet-Handle getter-argument "
-                                + "nog niet ondersteund: " + ownerQualifiedName + "." + methodNode.name);
+                        "ObjectMethods.bootstrap with a non-Handle getter argument "
+                                + "is not supported yet: " + ownerQualifiedName + "." + methodNode.name);
             }
             getters.add(getter);
             noteReference(getter.getOwner());
         }
         if (getters.size() != fieldNames.length) {
             throw new UnsupportedOperationException(
-                    "ObjectMethods.bootstrap: aantal getters (" + getters.size()
-                            + ") komt niet overeen met aantal names (" + fieldNames.length
+                    "ObjectMethods.bootstrap: number of getters (" + getters.size()
+                            + ") does not match the number of names (" + fieldNames.length
                             + "): " + ownerQualifiedName + "." + methodNode.name);
         }
 
@@ -1560,8 +1560,8 @@ public final class BytecodeMethodLowering {
                 stack.push(emitRecordEquals(recordInternalName, self, other, getters));
             }
             default -> throw new UnsupportedOperationException(
-                    "ObjectMethods.bootstrap met onbekende methode-naam '" + insn.name
-                            + "' nog niet ondersteund: " + ownerQualifiedName + "." + methodNode.name);
+                    "ObjectMethods.bootstrap with unknown method name '" + insn.name
+                            + "' is not supported yet: " + ownerQualifiedName + "." + methodNode.name);
         }
     }
 
@@ -1623,8 +1623,8 @@ public final class BytecodeMethodLowering {
         if (descriptor == null || descriptor.length() < 2
                 || descriptor.charAt(0) != 'L' || !descriptor.endsWith(";")) {
             throw new UnsupportedOperationException(
-                    "ObjectMethods.bootstrap voor array-/onbekend objecttype " + descriptor
-                            + " nog niet ondersteund: " + ownerQualifiedName + "." + methodNode.name);
+                    "ObjectMethods.bootstrap for array/unknown object type " + descriptor
+                            + " is not supported yet: " + ownerQualifiedName + "." + methodNode.name);
         }
         return descriptor.substring(1, descriptor.length() - 1).replace('/', '.');
     }
@@ -1732,8 +1732,8 @@ public final class BytecodeMethodLowering {
             return builder.emitCast(value, IRType.I32);
         }
         throw new UnsupportedOperationException(
-                "ObjectMethods.bootstrap hashCode voor veldtype " + type
-                        + " nog niet ondersteund: " + ownerQualifiedName + "." + methodNode.name);
+                "ObjectMethods.bootstrap hashCode for field type " + type
+                        + " is not supported yet: " + ownerQualifiedName + "." + methodNode.name);
     }
 
     /**
@@ -1919,8 +1919,8 @@ public final class BytecodeMethodLowering {
                     List.of(OBJECT_PARAM), List.of(target, builder.constString(stringConst)));
         }
         throw new UnsupportedOperationException(
-                "SwitchBootstraps.typeSwitch met label van type " + label.getClass().getName()
-                        + " (alleen klasse- en String-labels ondersteund) nog niet ondersteund: "
+                "SwitchBootstraps.typeSwitch with a label of type " + label.getClass().getName()
+                        + " is not supported yet (only class and String labels are supported): "
                         + ownerQualifiedName + "." + methodNode.name);
     }
 
@@ -1945,7 +1945,7 @@ public final class BytecodeMethodLowering {
             case 'Z' -> IRType.BOOL;
             case 'L', '[' -> new IRType.Ptr(IRType.I8, arrayDescriptor.substring(1));
             default -> throw new UnsupportedOperationException(
-                    "ObjectMethods.bootstrap voor array-elementtype '" + c + "' nog niet ondersteund: "
+                    "ObjectMethods.bootstrap for array element type '" + c + "' is not supported yet: "
                             + ownerQualifiedName + "." + methodNode.name);
         };
     }

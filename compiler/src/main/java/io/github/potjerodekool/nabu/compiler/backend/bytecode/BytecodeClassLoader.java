@@ -83,7 +83,7 @@ final class BytecodeClassLoader {
             return readFromClassPath(internalName);
         } catch (final IOException e) {
             throw new RuntimeException(
-                    "Kan bytecode niet lezen voor " + internalName, e);
+                    "Cannot read bytecode for " + internalName, e);
         }
     }
 
@@ -136,8 +136,8 @@ final class BytecodeClassLoader {
                 jrtFileSystem = FileSystems.newFileSystem(URI.create("jrt:/"), env);
             } catch (final IOException e) {
                 throw new RuntimeException(
-                        "Kan geen jrt:/-bestandssysteem openen voor JDK-home '" + javaHome
-                                + "' (--bytecode-jdk-home om een andere JDK te kiezen)", e);
+                        "Cannot open the jrt:/ file system for JDK home '" + javaHome
+                                + "' (use --bytecode-jdk-home to choose another JDK)", e);
             }
         }
         return jrtFileSystem;

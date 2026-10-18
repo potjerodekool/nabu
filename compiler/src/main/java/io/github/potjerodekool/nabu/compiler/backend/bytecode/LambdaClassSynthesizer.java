@@ -80,13 +80,13 @@ final class LambdaClassSynthesizer {
 
         if (bsmArgs.length < 2 || !(bsmArgs[0] instanceof Type samMethodTypeConst)) {
             throw new UnsupportedOperationException(
-                    "LambdaMetafactory.metafactory zonder samMethodType-constante "
-                            + "(bsmArgs[0]) nog niet ondersteund");
+                    "LambdaMetafactory.metafactory without a samMethodType constant "
+                            + "(bsmArgs[0]) is not supported yet");
         }
         if (!(bsmArgs[1] instanceof Handle implHandle)) {
             throw new UnsupportedOperationException(
-                    "LambdaMetafactory.metafactory zonder implMethod-Handle "
-                            + "(bsmArgs[1]) nog niet ondersteund");
+                    "LambdaMetafactory.metafactory without an implMethod Handle "
+                            + "(bsmArgs[1]) is not supported yet");
         }
         noteReference.accept(implHandle.getOwner());
 
@@ -123,11 +123,11 @@ final class LambdaClassSynthesizer {
             if ((flags & flagBridges) != 0 && idx < bsmArgs.length
                     && bsmArgs[idx] instanceof Integer bridgeCountBoxed && bridgeCountBoxed > 0) {
                 throw new UnsupportedOperationException(
-                        "LambdaMetafactory.altMetafactory met bridge-methoden (FLAG_BRIDGES) "
-                                + "nog niet ondersteund voor " + enclosingQualifiedName
-                                + " - vereist een overload van de SAM-methode met een ander "
-                                + "descriptor, wat botst met Nabu's eigen naamschema zonder "
-                                + "descriptor-suffix (zie BYTECODE_COMPILATION_PLAN.md, "
+                        "LambdaMetafactory.altMetafactory with bridge methods (FLAG_BRIDGES) "
+                                + "is not supported yet for " + enclosingQualifiedName
+                                + " - it requires an overload of the SAM method with a different "
+                                + "descriptor, which conflicts with Nabu's own naming scheme without a "
+                                + "descriptor suffix (see BYTECODE_COMPILATION_PLAN.md, "
                                 + "\"Aanvullende bevinding\")");
             }
             if ((flags & flagSerializable) != 0) {
@@ -272,8 +272,8 @@ final class LambdaClassSynthesizer {
                 case Opcodes.H_INVOKEINTERFACE -> CallKind.INTERFACE;
                 case Opcodes.H_INVOKESPECIAL -> CallKind.SPECIAL;
                 default -> throw new UnsupportedOperationException(
-                        "LambdaMetafactory implMethod-Handle met onbekende tag "
-                                + implHandle.getTag() + " nog niet ondersteund");
+                        "LambdaMetafactory implMethod Handle with unknown tag "
+                                + implHandle.getTag() + " is not supported yet");
             };
 
             final String fullImplName = "<init>".equals(implName)

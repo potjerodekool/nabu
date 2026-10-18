@@ -44,7 +44,7 @@ public class ScopeTracker {
      */
     public void popScope() {
         if (scopes.isEmpty())
-            throw new IllegalStateException("Geen open scope om te sluiten");
+            throw new IllegalStateException("No open scope to close");
         scopes.pop();
     }
 
@@ -69,7 +69,7 @@ public class ScopeTracker {
     public void define(String name, IRValue ptr) {
         if (scopes.isEmpty())
             throw new IllegalStateException(
-                    "Geen open scope — roep pushScope() aan vóór define()");
+                    "No open scope — call pushScope() before define()");
         scopes.peek().put(name, ptr);
     }
 
@@ -97,8 +97,8 @@ public class ScopeTracker {
     public IRValue require(String name) {
         return lookup(name)
                 .orElseThrow(() -> new IllegalStateException(
-                        "Onbekende variabele: '" + name + "' — "
-                                + "controleer of de variabele gedeclareerd is in de huidige scope"));
+                        "Unknown variable: '" + name + "' — "
+                                + "check that the variable is declared in the current scope"));
     }
 
     /**
@@ -115,7 +115,7 @@ public class ScopeTracker {
             }
         }
         throw new IllegalStateException(
-                "Kan variabele niet updaten — niet gevonden: '" + name + "'");
+                "Cannot update variable — not found: '" + name + "'");
     }
 
     /**

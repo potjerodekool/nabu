@@ -177,7 +177,7 @@ public class InstructionEmitter {
                 // For now, no-op
             }
             default -> throw new UnsupportedOperationException(
-                "Niet ondersteunde instructie: " + instr.getClass().getSimpleName());
+                "Unsupported instruction: " + instr.getClass().getSimpleName());
         }
     }
 
@@ -293,7 +293,7 @@ public class InstructionEmitter {
         LLVMValueRef right = anyString && !rightString ? toConcatOperand(op.right(), true) : toConcatOperand(op.right(), false);
         LLVMValueRef fn = globalValueMap.get("@nabu_concat");
         if (fn == null)
-            throw new IllegalStateException("Runtime helper @nabu_concat niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_concat not defined");
 
         PointerPointer<Pointer> args = new PointerPointer<>(2);
         args.put(0, left);
@@ -327,7 +327,7 @@ public class InstructionEmitter {
         } else if (type instanceof IRType.Bool) {
             LLVMValueRef boolFn = globalValueMap.get("@nabu_bool_to_string");
             if (boolFn == null) {
-                throw new IllegalStateException("Runtime helper @nabu_bool_to_string niet gedefinieerd");
+                throw new IllegalStateException("Runtime helper @nabu_bool_to_string not defined");
             }
             PointerPointer<Pointer> boolArgs = new PointerPointer<>(1);
             boolArgs.put(0, LLVMBuildZExt(builder, resolveValue(operand),
@@ -344,12 +344,12 @@ public class InstructionEmitter {
             fn = globalValueMap.get("@nabu_object_to_string");
         } else {
             throw new IllegalStateException(
-                    "String-concat met een niet-string, niet-primitief operand: " + type
-                            + " (waarde: " + nameOf(operand) + ")");
+                    "String concat with a non-string, non-primitive operand: " + type
+                            + " (value: " + nameOf(operand) + ")");
         }
         if (fn == null) {
             throw new IllegalStateException(
-                    "Runtime helper voor " + type + " -> string niet gedefinieerd");
+                    "Runtime helper for " + type + " -> string not defined");
         }
         LLVMValueRef value = resolveValue(operand);
         if (type instanceof IRType.Int intType && intType.bits() < 32) {
@@ -551,7 +551,7 @@ public class InstructionEmitter {
             // GC-strategie-onafhankelijk: het runtime-type-info komt van de naam.
             final LLVMValueRef initObjFn = globalValueMap.get("@nabu_init_object");
             if (initObjFn == null) {
-                throw new IllegalStateException("Runtime helper @nabu_init_object niet gedefinieerd");
+                throw new IllegalStateException("Runtime helper @nabu_init_object not defined");
             }
             final LLVMValueRef nameStr = constants.resolveString(internalName, IRGlobal.Linkage.PRIVATE);
             PointerPointer<Pointer> args = new PointerPointer<>(2);
@@ -592,7 +592,7 @@ public class InstructionEmitter {
                         opts.gcStrategy() == CompileOptions.GcStrategy.BOEHM
                                 ? "@GC_malloc" : "@malloc");
                 if (allocFn == null) {
-                    throw new IllegalStateException("Allocatie-helper niet gedefinieerd");
+                    throw new IllegalStateException("Allocation helper not defined");
                 }
                 final LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
                 PointerPointer<Pointer> args = new PointerPointer<>(1);
@@ -731,7 +731,7 @@ public class InstructionEmitter {
         LLVMValueRef obj = resolveValue(me.object());
         LLVMValueRef fn = globalValueMap.get("@nabu_monitorenter");
         if (fn == null)
-            throw new IllegalStateException("Runtime helper @nabu_monitorenter niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_monitorenter not defined");
 
         PointerPointer<Pointer> args = new PointerPointer<>(1);
         args.put(0, obj);
@@ -744,7 +744,7 @@ public class InstructionEmitter {
         LLVMValueRef obj = resolveValue(mx.object());
         LLVMValueRef fn = globalValueMap.get("@nabu_monitorexit");
         if (fn == null)
-            throw new IllegalStateException("Runtime helper @nabu_monitorexit niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_monitorexit not defined");
 
         PointerPointer<Pointer> args = new PointerPointer<>(1);
         args.put(0, obj);
@@ -803,9 +803,9 @@ public class InstructionEmitter {
             LLVMValueRef asGlobalVar = LLVMIsAGlobalVariable(global);
             if (asGlobalVar == null || asGlobalVar.isNull()) {
                 throw new IllegalStateException(
-                        "Statisch veld " + namedStatic.name()
+                        "Static field " + namedStatic.name()
                                 + " (owner=" + namedStatic.ownerType()
-                                + ") resolveert niet naar een global variable maar naar: "
+                                + ") does not resolve to a global variable but to: "
                                 + LLVMGetValueName(global).getString());
             }
             LLVMTypeRef valueType = LLVMGlobalGetValueType(global);
@@ -826,7 +826,7 @@ public class InstructionEmitter {
             LLVMValueRef slotPtr = localValueMap.get(t.name());
             if (slotPtr == null) {
                 throw new IllegalStateException(
-                        "Geen phi-slot alloca voor: " + t.name());
+                        "No phi slot alloca for: " + t.name());
             }
             // Alloca[type=phi-temp-type] -> load met het resultaat-type.
             loadType = types.map(load.result() != null
@@ -840,10 +840,10 @@ public class InstructionEmitter {
         // Defensieve check: ptr moet een pointer-type zijn
         if (!(ptrType instanceof IRType.Ptr ptr)) {
             throw new IllegalStateException(
-                    "emitLoad verwacht een pointer-type, maar kreeg: "
-                            + ptrType + " voor waarde: " + nameOf(target)
-                            + "\nTip: parameters zijn geen pointers — gebruik ze direct "
-                            + "of sla ze op via emitAlloca + emitStore.");
+                    "emitLoad expects a pointer type, but got: "
+                            + ptrType + " for value: " + nameOf(target)
+                            + "\nTip: parameters are not pointers — use them directly "
+                            + "or store them via emitAlloca + emitStore.");
         }
 
         llvmPtr = resolveValue(target);
@@ -1049,10 +1049,10 @@ public class InstructionEmitter {
             // de runtime of een stub levert het symbool.
             fn = declareSignaturePolymorphic(call);
             if (fn != null && !fn.isNull()) {
-                System.err.println("[nabu/LLVM] waarschuwing: " + call.function()
-                        + " is niet gedeclareerd met parameters " + call.paramTypes()
-                        + " (aangeroepen in " + enclosingFunctionName()
-                        + "); als extern symbool gedeclareerd.");
+                System.err.println("[nabu/LLVM] warning: " + call.function()
+                        + " is not declared with parameters " + call.paramTypes()
+                        + " (called in " + enclosingFunctionName()
+                        + "); declared as an external symbol.");
             }
         }
         if (fn == null || fn.isNull()) {
@@ -1064,8 +1064,8 @@ public class InstructionEmitter {
                     .filter(k -> k.contains(simpleNameOf(call.function())))
                     .sorted().toList();
             throw new IllegalStateException(
-                    "Onbekende functie: " + FnKeys.fnKey(call.function(), diagParams)
-                            + "\n  in IR-functie   : " + enclosingFunctionName()
+                    "Unknown function: " + FnKeys.fnKey(call.function(), diagParams)
+                            + "\n  in IR function : " + enclosingFunctionName()
                             + "\n  call.function(): " + call.function()
                             + "\n  callKind       : " + call.callKind()
                             + "\n  paramTypes     : " + call.paramTypes()
@@ -1127,11 +1127,11 @@ public class InstructionEmitter {
 
         if (fnType == null || fnType.isNull()) {
             throw new IllegalStateException(
-                    "fnctype null voor " + call.function()
+                    "fnctype null for " + call.function()
                             + " paramTypes=" + call.paramTypes());
         }
         if (fn == null || fn.isNull()) {
-            throw new IllegalStateException("fn null voor " + call.function());
+            throw new IllegalStateException("fn null for " + call.function());
         }
 
         LLVMValueRef result = emitCallOrInvoke(call.function(), fnType, fn, args,
@@ -1601,10 +1601,10 @@ public class InstructionEmitter {
             fnParams.addAll(call.paramTypes());
             return fnParams;
         }
-        System.err.println("[nabu/LLVM] waarschuwing: indirecte aanroep "
+        System.err.println("[nabu/LLVM] warning: indirect call "
                 + call.function() + " in " + enclosingFunctionName()
-                + " heeft " + call.args().size() + " operanden maar paramTypes="
-                + call.paramTypes() + "; signatuur afgeleid uit de operanden.");
+                + " has " + call.args().size() + " operands but paramTypes="
+                + call.paramTypes() + "; signature derived from the operands.");
         for (int i = 1; i < call.args().size(); i++) {
             fnParams.add(call.args().get(i).type());
         }
@@ -1766,7 +1766,7 @@ public class InstructionEmitter {
             LLVMBasicBlockRef handlerBB = blockMap.get(handlerLabel);
 
             if (handlerBB == null)
-                throw new IllegalStateException("Handler blok niet gevonden: " + handlerLabel);
+                throw new IllegalStateException("Handler block not found: " + handlerLabel);
 
             continuationHandlers.put(contBB, handlerLabel);
             LLVMValueRef result = LLVMBuildInvoke2(builder, fnType, fn, args,
@@ -1837,9 +1837,9 @@ public class InstructionEmitter {
         }
         if (thisVal == null) {
             throw new IllegalStateException(
-                    "Constructor-aanroep '" + functionName
-                            + "' zonder voorafgaande HeapAlloc (this ontbreekt)"
-                            + "; functie=" + currentFunctionName
+                    "Constructor call '" + functionName
+                            + "' without a preceding HeapAlloc (this is missing)"
+                            + "; function=" + currentFunctionName
                             + ", args=" + args);
         }
         List<IRValue> result = new ArrayList<>(args.size() + 1);
@@ -1866,7 +1866,7 @@ public class InstructionEmitter {
             LLVMBasicBlockRef handlerBB = blockMap.get(handlerLabel);
 
             if (handlerBB == null)
-                throw new IllegalStateException("Handler blok niet gevonden: " + handlerLabel);
+                throw new IllegalStateException("Handler block not found: " + handlerLabel);
 
             continuationHandlers.put(contBB, handlerLabel);
 
@@ -1945,7 +1945,7 @@ public class InstructionEmitter {
             falseBlock = trueBlock;
         }
         if (trueBlock == null || falseBlock == null) {
-            throw new IllegalStateException("Onbekend branch-labels: " + cb.trueLabel() + " / " + cb.falseLabel());
+            throw new IllegalStateException("Unknown branch labels: " + cb.trueLabel() + " / " + cb.falseLabel());
         }
         LLVMBuildCondBr(builder, resolveValue(cb.condition()), trueBlock, falseBlock);
     }
@@ -2054,7 +2054,7 @@ public class InstructionEmitter {
 
         LLVMValueRef fn = globalValueMap.get("@nabu_instanceof");
         if (fn == null)
-            throw new IllegalStateException("Runtime helper @nabu_instanceof niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_instanceof not defined");
 
         // De runtime vergelijkt interne namen ("java/lang/Exception"), niet
         // de java-descriptor ("Ljava/lang/Exception;") en al zeker niet
@@ -2093,7 +2093,7 @@ private void emitUnreachable() {
 private void emitThrow(IRInstruction.Throw throwInst) {
         LLVMValueRef fn = globalValueMap.get("@nabu_throw");
         if (fn == null)
-            throw new IllegalStateException("Runtime helper @nabu_throw niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_throw not defined");
 
         // De te gooien waarde; de frontend vult result() na het alloceren van
         // het exception-object. Als deze nog null is, alloceren we een
@@ -2116,7 +2116,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     new BytePointer("throw.cont"));
             LLVMBasicBlockRef handlerBB = blockMap.get(handlerLabel);
             if (handlerBB == null)
-                throw new IllegalStateException("Handler blok niet gevonden: " + handlerLabel);
+                throw new IllegalStateException("Handler block not found: " + handlerLabel);
             continuationHandlers.put(contBB, handlerLabel);
             LLVMBuildInvoke2(builder, fnType, fn, args, 1, contBB, handlerBB, "");
             LLVMPositionBuilderAtEnd(builder, contBB);
@@ -2149,7 +2149,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                 LLVMValueRef obj = allocForStrategy(headerSize + JCL_STATE_SLOT, ".exc");
                 final LLVMValueRef initObjFn = globalValueMap.get("@nabu_init_object");
                 if (initObjFn == null) {
-                    throw new IllegalStateException("Runtime helper @nabu_init_object niet gedefinieerd");
+                    throw new IllegalStateException("Runtime helper @nabu_init_object not defined");
                 }
                 final LLVMValueRef nameStr = constants.resolveString(internalName, IRGlobal.Linkage.PRIVATE);
                 PointerPointer<Pointer> args = new PointerPointer<>(2);
@@ -2171,7 +2171,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                         opts.gcStrategy() == CompileOptions.GcStrategy.BOEHM
                                 ? "@GC_malloc" : "@malloc");
                 if (allocFn == null)
-                    throw new IllegalStateException("Allocatie-helper ontbreekt");
+                    throw new IllegalStateException("Allocation helper missing");
                 LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
                 PointerPointer<Pointer> args = new PointerPointer<>(1);
                 args.put(0, sizeVal);
@@ -2294,13 +2294,13 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     v = declareOutsideStaticField(n);
                 }
                 if (v == null)
-                    throw new IllegalStateException("Onbekende global: " + n.name());
+                    throw new IllegalStateException("Unknown global: " + n.name());
                 yield preferGlobalVariable(n, v);
             }
             case IRValue.FunctionRef r -> {
                 LLVMValueRef v = globalValueMap.get("@" + r.name());
                 if (v == null)
-                    throw new IllegalStateException("Onbekende functiereferentie: " + r.name());
+                    throw new IllegalStateException("Unknown function reference: " + r.name());
                 yield v;
             }
             case IRValue.ConstString c ->
@@ -2409,9 +2409,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         final LLVMValueRef global = LLVMAddGlobal(mod, type, new BytePointer(plain));
         LLVMSetInitializer(global, LLVMConstNull(type));
         globalValueMap.put("@" + plain, global);
-        System.err.println("[nabu/LLVM] waarschuwing: statisch veld " + plain
-                + " hoort bij een klasse buiten de gecompileerde sluiting; het heeft"
-                + " de default-waarde (0/null).");
+        System.err.println("[nabu/LLVM] warning: static field " + plain
+                + " belongs to a class outside the compiled closure; it has"
+                + " the default value (0/null).");
         return global;
     }
 
@@ -2557,7 +2557,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         for (int i = 0; i < arr.length; i++) {
             if (arr[i] == null || arr[i].isNull()) {
                 throw new IllegalStateException(
-                        "arg " + i + " null voor call met args=" + args);
+                        "arg " + i + " null for call with args=" + args);
             }
         }
         PointerPointer<Pointer> pp = new PointerPointer<>(arr.length);
@@ -2667,7 +2667,7 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     // Bibliotheekklasse buiten deze compilatie: we kennen geen
                     // layout en dus geen veld-offset. Dat is een beperking van
                     // de backend, geen fatale compilatiefout.
-                    warnUnsupportedField(named, "geen layout voor de eigenaar");
+                    warnUnsupportedField(named, "no layout for the owner");
                     return null;
                 }
                 layout = fieldOwner.layout();
@@ -2698,8 +2698,8 @@ private void emitThrow(IRInstruction.Throw throwInst) {
             }
         }
         if (structIndex < 0) {
-            warnUnsupportedField(named, "onbekende veld-offset in " + layout.internalName
-                    + " (velden: [" + classLayouts.fieldDiagnostics(layout.internalName) + "])");
+            warnUnsupportedField(named, "unknown field offset in " + layout.internalName
+                    + " (fields: [" + classLayouts.fieldDiagnostics(layout.internalName) + "])");
             return null;
         }
 
@@ -2718,10 +2718,10 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         if (!warnedUnsupportedFields.add(named.name() + "@" + named.fieldIndex())) {
             return;
         }
-        System.err.println("[nabu/LLVM] waarschuwing: veld '" + named.name()
-                + "' (index " + named.fieldIndex() + ") is niet benaderbaar — " + reason
-                + ". Het veld levert een ongedefinieerde waarde; voeg de klasse toe aan de"
-                + " sources (of vermijd het veld) voor echte veldtoegang.");
+        System.err.println("[nabu/LLVM] warning: field '" + named.name()
+                + "' (index " + named.fieldIndex() + ") is not accessible — " + reason
+                + ". The field yields an undefined value; add the class to the"
+                + " sources (or avoid the field) for real field access.");
     }
 }
 

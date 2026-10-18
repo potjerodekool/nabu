@@ -246,8 +246,8 @@ public class FunctionEmitter {
             case IRInstruction.ArrayLoad arrayLoad -> emitArrayLoad(arrayLoad);
             case IRInstruction.ArrayStore arrayStore -> emitArrayStore(arrayStore);
             case IRInstruction.Phi phi -> throw new IllegalStateException(
-                    "Phi-instructie moet ge├½limineerd zijn v├│├│r bytecode-emissie. " +
-                    "Voer PhiElimination.run() uit op de functie.");
+                    "Phi instructions must be eliminated before bytecode emission. " +
+                    "Run PhiElimination.run() on the function.");
             case IRInstruction.Move move -> emitMove(move);
             case IRInstruction.ArrayLength arrayLength -> {
                 emitValue(arrayLength.array());
@@ -385,7 +385,7 @@ private void emitUnreachable() {
             case BITAND -> resolveBitAndOpcode(binaryOp.left());
             case BITOR -> resolveBitOrOpcode(binaryOp.left());
             case BITXOR -> resolveBitXorOpcode(binaryOp.left());
-            default -> throw new UnsupportedOperationException("Geen rekenopcode voor: " + binaryOp.op());
+            default -> throw new UnsupportedOperationException("No arithmetic opcode for: " + binaryOp.op());
         };
     }
 

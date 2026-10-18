@@ -32,8 +32,8 @@ final class DescriptorMapper {
             case Type.DOUBLE -> IRType.F64;
             case Type.ARRAY, Type.OBJECT -> new IRType.Ptr(IRType.I8, type.getDescriptor());
             case Type.METHOD -> throw new IllegalArgumentException(
-                    "mapType() verwacht geen METHOD-type, gebruik Type.getArgumentTypes()/getReturnType()");
-            default -> throw new IllegalArgumentException("Onbekend ASM-type-sort: " + type.getSort());
+                    "mapType() does not accept a METHOD type, use Type.getArgumentTypes()/getReturnType()");
+            default -> throw new IllegalArgumentException("Unknown ASM type sort: " + type.getSort());
         };
     }
 
@@ -52,7 +52,7 @@ final class DescriptorMapper {
             case Opcodes.T_BYTE -> IRType.I8;
             case Opcodes.T_LONG -> IRType.I64;
             case Opcodes.T_INT -> IRType.I32;
-            default -> throw new IllegalArgumentException("Onbekend newarray-atype: " + atype);
+            default -> throw new IllegalArgumentException("Unknown newarray atype: " + atype);
         };
     }
 }

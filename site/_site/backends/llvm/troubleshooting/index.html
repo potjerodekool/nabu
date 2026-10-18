@@ -47,13 +47,13 @@
 
   <main>
     <h1>LLVM Troubleshooting</h1>
-    <p>Common problems with the LLVM backend, and how to investigate a native executable that crashes or hangs. Runtime messages are currently in Dutch; this page gives the translation.</p>
+    <p>Common problems with the LLVM backend, and how to investigate a native executable that crashes or hangs.</p>
 
 <h2 id="build-problems">Build problems</h2>
 
-<h3 id="linken-naar-een-msvc-target-wordt-nog-niet-ondersteund">“Linken naar een MSVC-target wordt nog niet ondersteund”</h3>
+<h3 id="linking-for-an-msvc-target-is-not-supported-yet">“Linking for an MSVC target is not supported yet”</h3>
 
-<p><em>“Linking to an MSVC target is not supported yet.”</em> Nabu did not find a MinGW <code class="language-plaintext highlighter-rouge">gcc</code> on Windows, so it fell back to LLVM’s default MSVC target. Point Nabu at your MinGW <code class="language-plaintext highlighter-rouge">bin</code> directory:</p>
+<p>Nabu did not find a MinGW <code class="language-plaintext highlighter-rouge">gcc</code> on Windows, so it fell back to LLVM’s default MSVC target. Point Nabu at your MinGW <code class="language-plaintext highlighter-rouge">bin</code> directory:</p>
 
 <div class="language-powershell highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">setx</span><span class="w"> </span><span class="nx">NABU_TOOLCHAIN_BIN</span><span class="w"> </span><span class="s2">"C:\programs\mingw64\mingw64\bin"</span><span class="w">
 </span></code></pre></div></div>
@@ -74,21 +74,21 @@
 
 <h2 id="problems-when-running-the-executable">Problems when running the executable</h2>
 
-<h3 id="aanroep-van-een-jdk-functie-zonder-implementatie--exit-code-127">“aanroep van een JDK-functie zonder implementatie: …” (exit code 127)</h3>
+<h3 id="call-to-a-jdk-function-without-an-implementation--exit-code-127">“call to a JDK function without an implementation: …” (exit code 127)</h3>
 
-<p><em>“Call to a JDK function without an implementation.”</em> The program reached a function that the backend could not compile. All such functions are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> next to the executable.</p>
+<p>The program reached a function that the backend could not compile. All such functions are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> next to the executable.</p>
 
 <ul>
   <li>If <strong>many common functions</strong> are missing (for example <code class="language-plaintext highlighter-rouge">java.io.PrintStream_println</code>), the build ran without <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>, so no JDK code was compiled at all. Add <code class="language-plaintext highlighter-rouge">--bytecode-classes=java.lang.Object</code>.</li>
   <li>If a <strong>specific</strong> function is missing, it is usually a <code class="language-plaintext highlighter-rouge">native</code> JDK method or a signature-polymorphic method (<code class="language-plaintext highlighter-rouge">MethodHandle.invoke…</code>) that needs support in the C runtime. See <a href="/limitations/">Known limitations</a>.</li>
 </ul>
 
-<h3 id="onbehandelde-exception">“onbehandelde exception”</h3>
+<h3 id="unhandled-exception">“unhandled exception”</h3>
 
-<p><em>“Unhandled exception.”</em> An exception reached the top of the program. The runtime prints the exception class and, for exceptions compiled from Java, the message:</p>
+<p>An exception reached the top of the program. The runtime prints the exception class and, for exceptions compiled from Java, the message:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>nabu: onbehandelde exception
-nabu: exception-klasse: java/lang/IllegalStateException
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>nabu: unhandled exception
+nabu: exception class: java/lang/IllegalStateException
 nabu: message: …
 </code></pre></div></div>
 

@@ -89,7 +89,7 @@ public class ConstantResolver {
                 resolveLastValue(v.values());
 
             default -> throw new IllegalArgumentException(
-                "Geen constante: " + value.getClass().getSimpleName());
+                "Not a constant: " + value.getClass().getSimpleName());
         };
     }
 

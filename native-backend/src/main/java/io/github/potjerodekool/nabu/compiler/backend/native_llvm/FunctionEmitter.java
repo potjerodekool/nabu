@@ -169,7 +169,7 @@ public class FunctionEmitter {
 
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
-                "LLVMAddFunction mislukt voor: " + symbol);
+                "LLVMAddFunction failed for: " + symbol);
 
         // Externe functies: ExternalLinkage, geen body
         if (fn.isExternal())
@@ -290,7 +290,7 @@ public class FunctionEmitter {
 
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
-                    "LLVMAddFunction mislukt voor: " + symbol);
+                    "LLVMAddFunction failed for: " + symbol);
 
         LLVMSetLinkage(llvmFn, LLVMExternalLinkage);
         adHocExternalNames.add(fnName);
@@ -340,7 +340,7 @@ public class FunctionEmitter {
         }
         if (llvmFn == null || llvmFn.isNull())
             throw new IllegalStateException(
-                "Functie niet gedeclareerd: " + overloadKey);
+                "Function not declared: " + overloadKey);
 
         // Substitutie: levert de C-runtime dit symbool, dan wint die
         // implementatie en blijft de functie hier een externe declaratie.
@@ -379,7 +379,7 @@ public class FunctionEmitter {
         if (declaredParams != fn.params.size()) {
             throw new IllegalStateException(
                     "Overload-naming-collision: " + overloadKey
-                            + " declares " + declaredParams + " params, verwacht "
+                            + " declares " + declaredParams + " params, expected "
                             + fn.params.size());
         }
         for (int i = 0; i < fn.params.size(); i++) {
@@ -387,7 +387,7 @@ public class FunctionEmitter {
             String       paramName = IRValue.nameOf(fn.params.get(i));
             if (param == null || param.isNull()) {
                 throw new IllegalStateException(
-                        "LLVMGetParam(" + i + ") null voor " + fn.name
+                        "LLVMGetParam(" + i + ") null for " + fn.name
                                 + " (declaredParamCount=" + declaredParams + ")");
             }
             LLVMSetValueName2(param,
@@ -840,7 +840,7 @@ public class FunctionEmitter {
                 new BytePointer("%raw_exn." + landingLabel));
         LLVMValueRef catchFn = globalValueMap.get("@nabu_catch");
         if (catchFn == null) {
-            throw new IllegalStateException("Runtime helper @nabu_catch niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_catch not defined");
         }
         String exnName = "%exn." + landingLabel;
         LLVMTypeRef catchFnType = getNabuCatchType();
@@ -874,7 +874,7 @@ public class FunctionEmitter {
 
         LLVMValueRef canCatchFn = globalValueMap.get("@nabu_can_catch");
         if (canCatchFn == null) {
-            throw new IllegalStateException("Runtime helper @nabu_can_catch niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_can_catch not defined");
         }
 
         // De body van de laatste handler is het blok waarin de catch-body-
@@ -938,7 +938,7 @@ public class FunctionEmitter {
         LLVMPositionBuilderAtEnd(builder, resumeBlock);
         LLVMValueRef resumeFn = globalValueMap.get("@nabu_resume");
         if (resumeFn == null) {
-            throw new IllegalStateException("Runtime helper @nabu_resume niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @nabu_resume not defined");
         }
         PointerPointer<Pointer> resumeArgs = new PointerPointer<>(1);
         keepAlive.add(resumeFn);

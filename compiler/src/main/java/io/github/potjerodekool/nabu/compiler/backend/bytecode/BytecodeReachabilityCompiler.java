@@ -366,9 +366,9 @@ public final class BytecodeReachabilityCompiler {
         }
 
         final long totalMs = (System.nanoTime() - start) / 1_000_000L;
-        System.err.println("[BytecodeReachability] sluiting klaar: " + classesShaped
-                + " klassen gevormd, " + methodsLowered + " methodes gelowered, "
-                + notFound.size() + " niet gevonden/overgeslagen, totaal " + totalMs + " ms");
+        System.err.println("[BytecodeReachability] closure done: " + classesShaped
+                + " classes shaped, " + methodsLowered + " methods lowered, "
+                + notFound.size() + " not found/skipped, total " + totalMs + " ms");
 
         return resultModules;
     }
@@ -396,7 +396,7 @@ public final class BytecodeReachabilityCompiler {
             // methodes van deze seed, zoals de oude aanpak altijd deed. Dit
             // mag nooit stilletjes NIETS loweren.
             System.err.println("[BytecodeReachability] seed " + seedInternal
-                    + ": geen aanroepen gevonden in Nabu-source, val terug op volledige klasse");
+                    + ": no calls found in Nabu source, falling back to the whole class");
             for (final MethodNode methodNode : classNode.methods) {
                 methodWorklist.add(new MethodRef(seedInternal, methodNode.name, methodNode.desc, false));
             }
@@ -620,9 +620,9 @@ public final class BytecodeReachabilityCompiler {
         shapedClasses.add(internalName);
         classesShaped++;
         if (classesShaped % 50 == 0) {
-            System.err.println("[BytecodeReachability] " + classesShaped + " klassen gevormd, "
-                    + methodsLowered + " methodes gelowered, worklist: " + shapeWorklist.size()
-                    + " vormen + " + methodWorklist.size() + " methodes resterend, laatste: " + qualifiedName);
+            System.err.println("[BytecodeReachability] " + classesShaped + " classes shaped, "
+                    + methodsLowered + " methods lowered, worklist: " + shapeWorklist.size()
+                    + " shapes + " + methodWorklist.size() + " methods remaining, last: " + qualifiedName);
         }
 
         final long classFlags = AccessFlags.toNabuFlags(classNode.access);
@@ -965,7 +965,7 @@ public final class BytecodeReachabilityCompiler {
             // herleidbaar tot de exacte bytecode-methode, zonder een
             // extra round-trip nodig te hebben.
             throw new RuntimeException(
-                    "Bytecode-lowering mislukt in " + qualifiedName + "." + methodNode.name
+                    "Bytecode lowering failed in " + qualifiedName + "." + methodNode.name
                             + methodNode.desc + ": " + e.getMessage(), e);
         }
         // Synthetische lambda-implementatieklassen (zie

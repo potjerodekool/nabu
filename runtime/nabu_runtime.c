@@ -66,7 +66,7 @@ int nabu_register_reflection(const nabu_reflection_info *info) {
         return 0;
     }
     if (nabu_reflection_count >= NABU_MAX_REFLECTION) {
-        fprintf(stderr, "nabu: te veel reflectie-metadata entries\n");
+        fprintf(stderr, "nabu: too many reflection metadata entries\n");
         abort();
     }
     nabu_reflection_table[nabu_reflection_count++] = info;
@@ -306,7 +306,7 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
             return &nabu_type_cache[i];
     }
     if (nabu_type_count >= NABU_MAX_TYPES) {
-        fprintf(stderr, "nabu: te veel runtime-type-info entries\n");
+        fprintf(stderr, "nabu: too many runtime type info entries\n");
         abort();
     }
     nabu_type_info *ti = &nabu_type_cache[nabu_type_count++];
@@ -484,7 +484,7 @@ void nabu_set_throwable_message_fn(void *fn) {
 void nabu_throw(void *exception) {
     nabu_unwind_exception *exc = malloc(sizeof(nabu_unwind_exception));
     if (exc == NULL) {
-        fprintf(stderr, "nabu: kan geen geheugen alloceren voor exception\n");
+        fprintf(stderr, "nabu: cannot allocate memory for exception\n");
         abort();
     }
 
@@ -497,11 +497,11 @@ void nabu_throw(void *exception) {
 
     /* Als we hier komen is er geen handler gevonden */
     (void)result;
-    fprintf(stderr, "nabu: onbehandelde exception\n");
+    fprintf(stderr, "nabu: unhandled exception\n");
     if (exception != NULL) {
         nabu_type_info *ti = ((nabu_object *)exception)->type;
         if (ti != NULL && ti->name != NULL) {
-            fprintf(stderr, "nabu: exception-klasse: %s\n", ti->name);
+            fprintf(stderr, "nabu: exception class: %s\n", ti->name);
             /* Alleen voor gecompileerde Throwables: een library-exception
              * (jcl-object) heeft de velden van Throwable niet. */
             if (nabu_throwable_message_fn != NULL && !nabu_jcl_is_object(exception)) {
@@ -511,10 +511,10 @@ void nabu_throw(void *exception) {
                 }
             }
         } else {
-            fprintf(stderr, "nabu: exception-klasse: <onbekend, type=%p>\n", (void *)ti);
+            fprintf(stderr, "nabu: exception class: <unknown, type=%p>\n", (void *)ti);
         }
     } else {
-        fprintf(stderr, "nabu: exception-object is NULL\n");
+        fprintf(stderr, "nabu: exception object is NULL\n");
     }
     fflush(stderr);
     abort();
@@ -567,7 +567,7 @@ void nabu_resume(void *unwind_exc) {
     _Unwind_Resume(ue);
     /* _Unwind_Resume keert alleen terug wanneer er nergens in de stack een
        handler is; dan is de exception onbehandeld. */
-    fprintf(stderr, "nabu: onbehandelde exception (resume zonder handler)\n");
+    fprintf(stderr, "nabu: unhandled exception (resume without handler)\n");
     abort();
 #endif
 }
@@ -964,7 +964,7 @@ typedef struct nabu_jstring {
 static void *nabu_str_mem(size_t n) {
     void *p = NABU_STR_MEM(n);
     if (p == NULL) {
-        fprintf(stderr, "nabu: kan geen geheugen alloceren voor een string\n");
+        fprintf(stderr, "nabu: cannot allocate memory for a string\n");
         abort();
     }
     return p;
@@ -980,7 +980,7 @@ void nabu_throw_npe(const char *site) {
     void *obj = nabu_str_mem(sizeof(nabu_object) + 2 * sizeof(void *));
     nabu_init_object_ex(obj, "java/lang/NullPointerException", "java/lang/RuntimeException");
     nabu_throw(obj);
-    fprintf(stderr, "nabu: onbehandelde NullPointerException\n");
+    fprintf(stderr, "nabu: unhandled NullPointerException\n");
     abort();
 }
 
@@ -1122,7 +1122,7 @@ char *nabu_concat(const char *a, const char *b) {
 
     char *out = malloc(la + lb + 1);
     if (out == NULL) {
-        fprintf(stderr, "nabu: kan geen geheugen alloceren voor concat\n");
+        fprintf(stderr, "nabu: cannot allocate memory for concat\n");
         abort();
     }
 
@@ -1140,7 +1140,7 @@ char *nabu_int_to_string(int32_t value) {
     if (n < 0) n = 0;
     char *out = malloc((size_t) n + 1);
     if (out == NULL) {
-        fprintf(stderr, "nabu: kan geen geheugen alloceren voor int->string\n");
+        fprintf(stderr, "nabu: cannot allocate memory for int->string\n");
         abort();
     }
     memcpy(out, buf, (size_t) n + 1);
@@ -1153,7 +1153,7 @@ char *nabu_long_to_string(int64_t value) {
     if (n < 0) n = 0;
     char *out = malloc((size_t) n + 1);
     if (out == NULL) {
-        fprintf(stderr, "nabu: kan geen geheugen alloceren voor long->string\n");
+        fprintf(stderr, "nabu: cannot allocate memory for long->string\n");
         abort();
     }
     memcpy(out, buf, (size_t) n + 1);
@@ -1186,7 +1186,7 @@ char *nabu_double_to_string(double value) {
     size_t len = strlen(buf);
     char *out = malloc(len + 1);
     if (out == NULL) {
-        fprintf(stderr, "nabu: kan geen geheugen alloceren voor double->string\n");
+        fprintf(stderr, "nabu: cannot allocate memory for double->string\n");
         abort();
     }
     memcpy(out, buf, len + 1);
@@ -1202,7 +1202,7 @@ char *nabu_bool_to_string(int32_t value) {
     size_t len = strlen(text);
     char *out = malloc(len + 1);
     if (out == NULL) {
-        fprintf(stderr, "nabu: kan geen geheugen alloceren voor bool->string\n");
+        fprintf(stderr, "nabu: cannot allocate memory for bool->string\n");
         abort();
     }
     memcpy(out, text, len + 1);
@@ -1265,7 +1265,7 @@ static void ensure_monitor_init(void) {
 
 void nabu_monitorenter(void *obj) {
     if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized op null object\n");
+        fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
     }
     ensure_monitor_init();
@@ -1285,7 +1285,7 @@ void nabu_monitorenter(void *obj) {
 
 void nabu_monitorexit(void *obj) {
     if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized op null object\n");
+        fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
     }
     ensure_monitor_init();
@@ -1306,7 +1306,7 @@ static pthread_mutex_t global_monitor_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void nabu_monitorenter(void *obj) {
     if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized op null object\n");
+        fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
     }
 
@@ -1325,7 +1325,7 @@ void nabu_monitorenter(void *obj) {
 
 void nabu_monitorexit(void *obj) {
     if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized op null object\n");
+        fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
     }
 
@@ -1342,7 +1342,7 @@ void nabu_monitorexit(void *obj) {
 #endif
 
 void nabu_unresolved(const char *symbol) {
-    fprintf(stderr, "nabu: aanroep van een JDK-functie zonder implementatie: %s\n",
+    fprintf(stderr, "nabu: call to a JDK function without an implementation: %s\n",
             symbol != NULL ? symbol : "?");
     fflush(stderr);
     abort();

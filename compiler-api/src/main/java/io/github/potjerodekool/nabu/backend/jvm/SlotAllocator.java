@@ -112,7 +112,7 @@ public final class SlotAllocator {
                 return entry.getValue();
             }
         }
-        throw new IllegalStateException("Geen slot toegekend voor '" + name + "'");
+        throw new IllegalStateException("No slot assigned for '" + name + "'");
     }
 
     public int getSlot(final String name, final IRType type) {
@@ -122,7 +122,7 @@ public final class SlotAllocator {
         if (slot != null) {
             return slot;
         }
-        throw new IllegalStateException("Geen slot toegekend voor '" + name + "' met type " + type);
+        throw new IllegalStateException("No slot assigned for '" + name + "' with type " + type);
     }
 
     /**

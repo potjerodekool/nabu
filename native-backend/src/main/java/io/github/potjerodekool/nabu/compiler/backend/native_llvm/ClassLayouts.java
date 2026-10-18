@@ -1560,7 +1560,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
                 }
                 if (fnRef == null || fnRef.isNull())
                     throw new IllegalStateException(
-                            "Vtable-functie niet gedeclareerd: " + fn.name);
+                            "Vtable function not declared: " + fn.name);
                 emitAbstractSlotStub(fn, fnRef);
                 initArr.put(i, fnRef);
             }
@@ -2170,7 +2170,7 @@ public ClassLayout get(String internalName) {
     public String fieldDiagnostics(String internalName) {
         IRModule module = moduleOf(internalName);
         if (module == null) {
-            return "(module onbekend: " + internalName + ")";
+            return "(module unknown: " + internalName + ")";
         }
         StringBuilder sb = new StringBuilder();
         int counter = 0;
@@ -2193,7 +2193,7 @@ public ClassLayout get(String internalName) {
                 && p.jvmDescriptor() != null) {
             return fieldDiagnostics(fromDescriptor(p.jvmDescriptor()));
         }
-        return "(geen descriptor: " + type + ")";
+        return "(no descriptor: " + type + ")";
     }
 
     /**

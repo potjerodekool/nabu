@@ -95,7 +95,7 @@ public class IRFunction {
 
     public IRBasicBlock entryBlock() {
         if (blocks.isEmpty())
-            throw new IllegalStateException("Functie '" + name + "' heeft geen blokken");
+            throw new IllegalStateException("Function '" + name + "' has no blocks");
         return blocks.getFirst();
     }
 

@@ -907,7 +907,7 @@ public void setReflectionRegistry(
         }
         final LLVMValueRef gcInit = globalValueMap.get("@GC_init");
         if (gcInit == null) {
-            throw new IllegalStateException("Runtime helper @GC_init niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper @GC_init not defined");
         }
 
         final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),

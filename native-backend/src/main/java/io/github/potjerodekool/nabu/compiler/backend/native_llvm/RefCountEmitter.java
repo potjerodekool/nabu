@@ -384,12 +384,12 @@ final class RefCountEmitter {
         for (final var slot : slotStoreCount.keySet()) {
             if (slotStoreCount.get(slot) > 1 && !escapingSlots.contains(slot)) {
                 throw new IllegalStateException(
-                        "GcStrategy.REFCOUNT ondersteunt geen lus die een referentie-"
-                                + "variabele meer dan één keer beschrijft (functie '"
-                                + fn.name + "', slot '" + slot + "'). De release-van-"
-                                + "overschrijving zou op de tweede iteratie tweemaal "
-                                + "vrijgeven. Gebruik GcStrategy.NONE of BOEHM, of "
-                                + "haal de toewijzing uit de lus.");
+                        "GcStrategy.REFCOUNT does not support a loop that assigns a reference "
+                                + "variable more than once (function '"
+                                + fn.name + "', slot '" + slot + "'). Releasing the overwritten "
+                                + "value would free it twice on the second "
+                                + "iteration. Use GcStrategy.NONE or BOEHM, or "
+                                + "move the assignment out of the loop.");
             }
         }
     }
@@ -542,7 +542,7 @@ final class RefCountEmitter {
             for (final var value : returnValues) {
                 if (value != null) {
                     throw new IllegalStateException(
-                            "RET-pad zonder waarde in een void-functie: " + fn.name);
+                            "RET path without a value in a void function: " + fn.name);
                 }
             }
         } else {
@@ -616,7 +616,7 @@ final class RefCountEmitter {
             final var value = returnValues.get(i);
             if (value == null || value.isNull()) {
                 throw new IllegalStateException(
-                        "RET zonder waarde in een niet-void-functie: " + fn.name
+                        "RET without a value in a non-void function: " + fn.name
                                 + " (retType=" + returnType + ")");
             }
             values.put(i, value);
@@ -649,7 +649,7 @@ final class RefCountEmitter {
     private void emitHelper(String key, LLVMValueRef arg) {
         final var fn = globalValueMap.get(key);
         if (fn == null || fn.isNull()) {
-            throw new IllegalStateException("Runtime helper " + key + " niet gedefinieerd");
+            throw new IllegalStateException("Runtime helper " + key + " not defined");
         }
         final var args = new PointerPointer<>(1);
         args.put(0, arg);

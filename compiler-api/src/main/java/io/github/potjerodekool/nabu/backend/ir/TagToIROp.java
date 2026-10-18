@@ -56,8 +56,8 @@ public final class TagToIROp {
                  POST_INC, POST_DEC, PRE_INC, PRE_DEC, NOT, BITNOT,
                  LSHIFT, RSHIFT, URSHIFT ->
                     throw new UnsupportedOperationException(
-                            "Tag " + tag + " is geen directe binaire IR-operatie — "
-                                    + "uitvouwen in de visitor of nog niet geïmplementeerd");
+                            "Tag " + tag + " is not a direct binary IR operation — "
+                                    + "expand it in the visitor, or it is not implemented yet");
         };
     }
 
@@ -101,7 +101,7 @@ public final class TagToIROp {
             case XOR_ASSIGN    -> Op.XOR;
             case MOD_ASSIGN    -> Op.MOD;
             default -> throw new UnsupportedOperationException(
-                    "Geen basis-operatie voor: " + tag);
+                    "No base operation for: " + tag);
         };
     }
 }

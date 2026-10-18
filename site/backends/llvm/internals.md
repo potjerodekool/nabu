@@ -86,7 +86,7 @@ Module constructors in `@llvm.global_ctors` run before `main`:
 
 The backend emits LLVM `invoke`/`landingpad` instructions with the personality function **`nabu_seh_personality`**, and declares that function itself in the emitted IR. The runtime implements it: it reads the LSDA (from `.xdata` on Windows, `.gcc_except_table` on ELF) and installs the landing pad. `nabu_itanium_personality` does the same for the ELF/Itanium variant. Matching an exception against a `catch` type happens in the IR (`nabu_can_catch`), not in the personality.
 
-On Windows x64 SEH, a catch clause that does not match must not use `_Unwind_Resume`: that jumps back into the same landing pad, the personality is not consulted again, and the program loops. `nabu_resume` therefore raises a fresh exception from the landing pad instead, so the search continues in an outer frame. An exception nobody catches ends with `abort()` and the message `nabu: onbehandelde exception` ("unhandled exception").
+On Windows x64 SEH, a catch clause that does not match must not use `_Unwind_Resume`: that jumps back into the same landing pad, the personality is not consulted again, and the program loops. `nabu_resume` therefore raises a fresh exception from the landing pad instead, so the search continues in an outer frame. An exception nobody catches ends with `abort()` and the message `nabu: unhandled exception`.
 
 MSVC targets are rejected: they use SEH scope tables with `__C_specific_handler` instead of DWARF/LSDA, which would need a different code generation and unwind strategy.
 

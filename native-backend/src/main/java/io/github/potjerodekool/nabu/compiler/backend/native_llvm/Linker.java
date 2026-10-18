@@ -46,10 +46,10 @@ public class Linker {
             int    exit   = process.waitFor();
             if (exit != 0)
                 throw new CompileException(
-                    "Linker mislukt (exit " + exit + "):\n" + output);
+                    "Linker failed (exit " + exit + "):\n" + output);
         } catch (IOException e) {
             throw new CompileException(
-                "Linker kon niet worden gestart: " + e.getMessage(), e);
+                "Could not start the linker: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new CompileException("Linker onderbroken", e);
@@ -120,12 +120,12 @@ public class Linker {
      * concrete reden af en wijzen we naar het wel ondersteunde pad.
      */
     private static String msvcUnsupported(String triple) {
-        return "Linken naar een MSVC-target wordt nog niet ondersteund (" + triple + ").\n"
-             + "Het exception-mechanisme van deze backend is DWARF/LSDA-gebaseerd\n"
-             + "(nabu_seh_personality + eigen LSDA-personality in runtime/nabu_runtime.c),\n"
-             + "en dat bestaat niet in een MSVC-CRT; MSVC gebruikt x64 scope tables met "
+        return "Linking for an MSVC target is not supported yet (" + triple + ").\n"
+             + "The exception mechanism of this backend is based on DWARF/LSDA\n"
+             + "(nabu_seh_personality + its own LSDA personality in runtime/nabu_runtime.c),\n"
+             + "which does not exist in an MSVC CRT; MSVC uses x64 scope tables with "
              + "__C_specific_handler.\n"
-             + "Gebruik voor Windows het MinGW/SEH-target, bijvoorbeeld "
+             + "On Windows, use the MinGW/SEH target, for example "
              + "CompileOptions.forTarget(\"x86_64-w64-windows-gnu\").";
     }
 

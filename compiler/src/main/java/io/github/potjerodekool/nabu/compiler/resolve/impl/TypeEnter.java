@@ -151,7 +151,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final var depthState = completeDepth.get();
         depthState.depth++;
         if (depthState.depth > 200) {
-            throw new IllegalStateException("complete-recursie te diep: depth=" + depthState.depth
+            throw new IllegalStateException("complete recursion too deep: depth=" + depthState.depth
                     + " source=" + currentClass.getSourceFile());
         }
         final var count = depthState.counts.merge(currentClass, 1, Integer::sum);
@@ -165,7 +165,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             }
             completeImpl(symbol, currentClass);
         } catch (java.lang.StackOverflowError so) {
-            throw new IllegalStateException("SOF bij complete: depth=" + depthState.depth
+            throw new IllegalStateException("StackOverflowError in complete: depth=" + depthState.depth
                     + " history=" + depthState.history
                     + "\n" + so, so);
         } finally {

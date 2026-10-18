@@ -644,13 +644,13 @@ public class IRBuilder {
 
     public void popScope() {
         if (scopes.isEmpty())
-            throw new IllegalStateException("Geen scope om te sluiten");
+            throw new IllegalStateException("No scope to close");
         scopes.pop();
     }
 
     public void define(String name, IRValue ptr) {
         if (scopes.isEmpty())
-            throw new IllegalStateException("Geen actieve scope");
+            throw new IllegalStateException("No active scope");
         scopes.peek().put(name, ptr);
     }
 
@@ -661,7 +661,7 @@ public class IRBuilder {
             return value;
         }
 
-        throw new IllegalStateException("Onbekende variabele: '" + name + "'");
+        throw new IllegalStateException("Unknown variable: '" + name + "'");
     }
 
     public IRValue find(final String name) {
@@ -688,7 +688,7 @@ public class IRBuilder {
 
     private void emit(IRInstruction instr) {
         if (currentBlock == null)
-            throw new IllegalStateException("Geen actief basisblok");
+            throw new IllegalStateException("No active basic block");
         currentBlock.add(instr);
     }
 

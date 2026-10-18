@@ -280,13 +280,13 @@ public class NativeLLVMBackend implements Backend {
                 try {
                     java.nio.file.Files.write(unresolvedPath, unresolved);
                 } catch (final java.io.IOException e) {
-                    System.err.println("[NativeLLVMBackend] kon " + unresolvedPath
-                            + " niet schrijven: " + e.getMessage());
+                    System.err.println("[NativeLLVMBackend] could not write " + unresolvedPath
+                            + ": " + e.getMessage());
                 }
-                System.err.println("[NativeLLVMBackend] waarschuwing: " + unresolved.size()
-                        + " aangeroepen JDK-functies hebben geen implementatie (native,"
-                        + " signature-polymorf of niet gevonden) en breken het programma af"
-                        + " als ze worden uitgevoerd. Lijst: " + unresolvedPath);
+                System.err.println("[NativeLLVMBackend] warning: " + unresolved.size()
+                        + " called JDK functions have no implementation (native,"
+                        + " signature-polymorphic or not found) and abort the program"
+                        + " when they are executed. List: " + unresolvedPath);
             }
             long t1 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] emitAll (" + modules.size() + " IR-modules -> LLVM-IR): "
@@ -297,7 +297,7 @@ public class NativeLLVMBackend implements Backend {
             BytePointer   err       = new BytePointer();
             LLVMTargetRef targetRef = new LLVMTargetRef();
             if (LLVMGetTargetFromTriple(new BytePointer(triple), targetRef, err) != 0)
-                throw new CompileException("Onbekend target: " + err.getString());
+                throw new CompileException("Unknown target: " + err.getString());
 
             LLVMTargetMachineRef machine = LLVMCreateTargetMachine(
                     targetRef, new BytePointer(triple),
@@ -312,7 +312,7 @@ public class NativeLLVMBackend implements Backend {
             long t2 = System.nanoTime();
             emitLLVMIR(llvmMod, llPath);
             long t3 = System.nanoTime();
-            System.err.println("[NativeLLVMBackend] .ll wegschrijven: " + (t3 - t2) / 1_000_000L + " ms");
+            System.err.println("[NativeLLVMBackend] writing .ll: " + (t3 - t2) / 1_000_000L + " ms");
 
             validate(llvmMod);
             long t4 = System.nanoTime();
@@ -394,7 +394,7 @@ public class NativeLLVMBackend implements Backend {
         if (LLVMPrintModuleToFile(mod, new BytePointer(path.toString()), err) != 0) {
             String msg = err.getString();
             LLVMDisposeMessage(err);
-            throw new CompileException("Kon .ll niet schrijven: " + msg);
+            throw new CompileException("Could not write .ll: " + msg);
         }
     }
 
@@ -422,7 +422,7 @@ public class NativeLLVMBackend implements Backend {
             String text = msg.getString();
             LLVMDisposeErrorMessage(msg);
             LLVMDisposePassBuilderOptions(options);
-            throw new CompileException("Optimalisatie mislukt: " + text);
+            throw new CompileException("Optimization failed: " + text);
         }
         LLVMDisposePassBuilderOptions(options);
     }
@@ -437,7 +437,7 @@ public class NativeLLVMBackend implements Backend {
                                 BytePointer err) throws CompileException {
         if (LLVMTargetMachineEmitToFile(machine, mod,
                 new BytePointer(output.toString()), LLVMObjectFile, err) != 0)
-            throw new CompileException("Codegen mislukt: " + err.getString());
+            throw new CompileException("Codegen failed: " + err.getString());
     }
 
     // -------------------------------------------------------

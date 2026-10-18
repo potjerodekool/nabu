@@ -1062,7 +1062,7 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
 
         for (final var region : regions) {
             if (!labelToBlock.containsKey(region.tryStartLabel())) {
-                System.err.println("[TRY-CATCH-SKIP] start-blok ontbreekt: "
+                System.err.println("[TRY-CATCH-SKIP] start block missing: "
                         + "start=" + region.tryStartLabel() + " handler=" + region.handlerLabel());
                 continue;
             }
@@ -1071,7 +1071,7 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
                     s -> computeProtected(
                             blocks, labelToBlock, s, region.tryEndLabel(), handlerLabels, tryStartLabels));
             if (protectedSet.isEmpty()) {
-                System.err.println("[TRY-CATCH-SKIP] geen beschermde blokken: "
+                System.err.println("[TRY-CATCH-SKIP] no protected blocks: "
                         + "start=" + region.tryStartLabel() + " handler=" + region.handlerLabel());
                 continue;
             }

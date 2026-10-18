@@ -3,13 +3,13 @@ layout: page
 title: LLVM Troubleshooting
 ---
 
-Common problems with the LLVM backend, and how to investigate a native executable that crashes or hangs. Runtime messages are currently in Dutch; this page gives the translation.
+Common problems with the LLVM backend, and how to investigate a native executable that crashes or hangs.
 
 ## Build problems
 
-### "Linken naar een MSVC-target wordt nog niet ondersteund"
+### "Linking for an MSVC target is not supported yet"
 
-*"Linking to an MSVC target is not supported yet."* Nabu did not find a MinGW `gcc` on Windows, so it fell back to LLVM's default MSVC target. Point Nabu at your MinGW `bin` directory:
+Nabu did not find a MinGW `gcc` on Windows, so it fell back to LLVM's default MSVC target. Point Nabu at your MinGW `bin` directory:
 
 ```powershell
 setx NABU_TOOLCHAIN_BIN "C:\programs\mingw64\mingw64\bin"
@@ -31,20 +31,20 @@ That is expected for now. The backend compiles every JDK class the program can r
 
 ## Problems when running the executable
 
-### "aanroep van een JDK-functie zonder implementatie: …" (exit code 127)
+### "call to a JDK function without an implementation: …" (exit code 127)
 
-*"Call to a JDK function without an implementation."* The program reached a function that the backend could not compile. All such functions are listed in `<name>.unresolved.txt` next to the executable.
+The program reached a function that the backend could not compile. All such functions are listed in `<name>.unresolved.txt` next to the executable.
 
 - If **many common functions** are missing (for example `java.io.PrintStream_println`), the build ran without `--bytecode-classes`, so no JDK code was compiled at all. Add `--bytecode-classes=java.lang.Object`.
 - If a **specific** function is missing, it is usually a `native` JDK method or a signature-polymorphic method (`MethodHandle.invoke…`) that needs support in the C runtime. See [Known limitations](/limitations/).
 
-### "onbehandelde exception"
+### "unhandled exception"
 
-*"Unhandled exception."* An exception reached the top of the program. The runtime prints the exception class and, for exceptions compiled from Java, the message:
+An exception reached the top of the program. The runtime prints the exception class and, for exceptions compiled from Java, the message:
 
 ```
-nabu: onbehandelde exception
-nabu: exception-klasse: java/lang/IllegalStateException
+nabu: unhandled exception
+nabu: exception class: java/lang/IllegalStateException
 nabu: message: …
 ```
 

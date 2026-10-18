@@ -219,8 +219,8 @@ public class NabuCompiler implements Compiler {
                 // BytecodeReachabilityCompiler.findCalledSeedMethodNames).
                 allModules.addAll(reachabilityCompiler.compileClosure(seeds, java.util.List.copyOf(allModules)));
                 final long reachMillis = (System.nanoTime() - reachStart) / 1_000_000L;
-                System.err.println("[NabuCompiler] Bytecode-reachability-sluiting + lowering: "
-                        + reachMillis + " ms (" + allModules.size() + " modules totaal)");
+                System.err.println("[NabuCompiler] Bytecode reachability closure + lowering: "
+                        + reachMillis + " ms (" + allModules.size() + " modules in total)");
             }
 
             try {
@@ -285,8 +285,8 @@ public class NabuCompiler implements Compiler {
         try {
             return CompileOptions.OptLevel.valueOf(raw.trim().toUpperCase());
         } catch (final IllegalArgumentException e) {
-            System.err.println("nabu: onbekende --opt waarde '" + raw
-                    + "', gebruik NONE, DEFAULT of AGGRESSIVE. Terugval op DEFAULT.");
+            System.err.println("nabu: unknown --opt value '" + raw
+                    + "', use NONE, DEFAULT or AGGRESSIVE. Falling back to DEFAULT.");
             return CompileOptions.OptLevel.DEFAULT;
         }
     }
@@ -301,8 +301,8 @@ public class NabuCompiler implements Compiler {
         try {
             return CompileOptions.GcStrategy.valueOf(raw.trim().toUpperCase());
         } catch (final IllegalArgumentException e) {
-            System.err.println("nabu: onbekende --gc waarde '" + raw
-                    + "', gebruik NONE, BOEHM of REFCOUNT. Terugval op NONE.");
+            System.err.println("nabu: unknown --gc value '" + raw
+                    + "', use NONE, BOEHM or REFCOUNT. Falling back to NONE.");
             return CompileOptions.GcStrategy.NONE;
         }
     }

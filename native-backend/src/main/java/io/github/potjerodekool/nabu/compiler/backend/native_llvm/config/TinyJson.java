@@ -27,7 +27,7 @@ final class TinyJson {
 
         if (!parser.atEnd()) {
             throw new IllegalArgumentException(
-                    "Trailing inhoud na de JSON-waarde bij position " + parser.position);
+                    "Trailing content after the JSON value at position " + parser.position);
         }
 
         return value;
@@ -36,7 +36,7 @@ final class TinyJson {
     private Object parseValue() {
         skipWhitespace();
         if (atEnd()) {
-            throw new IllegalArgumentException("EOF bij JSON-parse");
+            throw new IllegalArgumentException("EOF while parsing JSON");
         }
         final var c = current();
         switch (c) {
@@ -65,7 +65,7 @@ final class TinyJson {
         position++; // '{'
         skipWhitespace();
         if (atEnd()) {
-            throw new IllegalArgumentException("Niet-afgesloten object");
+            throw new IllegalArgumentException("Unterminated object");
         }
         if (current() == '}') {
             position++;
@@ -87,7 +87,7 @@ final class TinyJson {
                 position++;
                 break;
             } else {
-                throw new IllegalArgumentException("Onverwacht teken '" + c + "' in object bij position " + position);
+                throw new IllegalArgumentException("Unexpected character '" + c + "' in object at position " + position);
             }
         }
         return result;
@@ -98,7 +98,7 @@ final class TinyJson {
         position++; // '['
         skipWhitespace();
         if (atEnd()) {
-            throw new IllegalArgumentException("Niet-afgesloten array");
+            throw new IllegalArgumentException("Unterminated array");
         }
         if (current() == ']') {
             position++;
@@ -115,7 +115,7 @@ final class TinyJson {
                 position++;
                 break;
             } else {
-                throw new IllegalArgumentException("Onverwacht teken '" + c + "' in array bij position " + position);
+                throw new IllegalArgumentException("Unexpected character '" + c + "' in array at position " + position);
             }
         }
         return result;
@@ -131,7 +131,7 @@ final class TinyJson {
             }
             if (c == '\\') {
                 if (atEnd()) {
-                    throw new IllegalArgumentException("Niet-afgesloten escape in string");
+                    throw new IllegalArgumentException("Unterminated escape in string");
                 }
                 final var escape = source.charAt(position++);
                 switch (escape) {
@@ -145,13 +145,13 @@ final class TinyJson {
                     case 'f' -> sb.append('\f');
                     case 'u' -> sb.append(parseUnicodeEscape());
                     default -> throw new IllegalArgumentException(
-                            "Onbekende escape '\\" + escape + "' bij position " + position);
+                            "Unknown escape '\\" + escape + "' at position " + position);
                 }
             } else {
                 sb.append(c);
             }
         }
-        throw new IllegalArgumentException("Niet-afgesloten string");
+        throw new IllegalArgumentException("Unterminated string");
     }
 
     /**
@@ -169,7 +169,7 @@ final class TinyJson {
                 || source.charAt(position) != '\\'
                 || source.charAt(position + 1) != 'u') {
             throw new IllegalArgumentException(
-                    "High surrogate zonder low surrogate bij position " + position);
+                    "High surrogate without low surrogate at position " + position);
         }
 
         position += 2;
@@ -177,7 +177,7 @@ final class TinyJson {
 
         if (!Character.isLowSurrogate(low)) {
             throw new IllegalArgumentException(
-                    "High surrogate zonder low surrogate bij position " + position);
+                    "High surrogate without low surrogate at position " + position);
         }
 
         return new String(new char[]{high, low});
@@ -185,7 +185,7 @@ final class TinyJson {
 
     private char readHexQuad() {
         if (position + 4 > source.length()) {
-            throw new IllegalArgumentException("Onvolledige \\u-escape bij position " + position);
+            throw new IllegalArgumentException("Incomplete \\u escape at position " + position);
         }
 
         var value = 0;
@@ -195,7 +195,7 @@ final class TinyJson {
 
             if (digit < 0) {
                 throw new IllegalArgumentException(
-                        "Ongeldige hex in \\u-escape bij position " + position);
+                        "Invalid hex in \\u escape at position " + position);
             }
 
             value = value * 16 + digit;
@@ -248,7 +248,7 @@ final class TinyJson {
                 return Long.valueOf(text);
             }
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Ongeldig getal: " + text, e);
+            throw new IllegalArgumentException("Invalid number: " + text, e);
         }
     }
 
@@ -260,15 +260,15 @@ final class TinyJson {
         }
 
         if (position == start) {
-            throw new IllegalArgumentException("Ongeldig getal: cijfers ontbreken in " + what
-                    + " bij position " + position);
+            throw new IllegalArgumentException("Invalid number: digits missing in " + what
+                    + " at position " + position);
         }
     }
 
     private void expect(final char expected) {
         if (current() != expected) {
-            throw new IllegalArgumentException("Verwacht '" + expected + "' bij position " + position
-                    + ", gevonden '" + current() + "'");
+            throw new IllegalArgumentException("Expected '" + expected + "' at position " + position
+                    + ", found '" + current() + "'");
         }
         position++;
     }
@@ -276,7 +276,7 @@ final class TinyJson {
     private void expectWord(final String word) {
         for (final var c : word.toCharArray()) {
             if (atEnd() || current() != c) {
-                throw new IllegalArgumentException("Verwacht '" + word + "'");
+                throw new IllegalArgumentException("Expected '" + word + "'");
             }
             position++;
         }

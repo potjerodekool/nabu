@@ -81,12 +81,11 @@
 <h3 id="run-time">Run time</h3>
 
 <ul>
-  <li><strong>Native and VM-internal JDK methods</strong> have no implementation unless the C runtime provides one. A program that calls such a method stops with <code class="language-plaintext highlighter-rouge">nabu: aanroep van een JDK-functie zonder implementatie: &lt;name&gt;</code> and exit code 127. All such methods are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> at build time.</li>
+  <li><strong>Native and VM-internal JDK methods</strong> have no implementation unless the C runtime provides one. A program that calls such a method stops with <code class="language-plaintext highlighter-rouge">nabu: call to a JDK function without an implementation: &lt;name&gt;</code> and exit code 127. All such methods are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> at build time.</li>
   <li><strong>Reflection</strong> only covers classes listed in GraalVM <code class="language-plaintext highlighter-rouge">*-config.json</code> metadata in the class output directory, and only their <strong>fields and annotations</strong>. Metadata inside jars on the classpath is not read.</li>
   <li><strong>Static fields of classes outside the compiled closure</strong> keep their default value (<code class="language-plaintext highlighter-rouge">0</code>/<code class="language-plaintext highlighter-rouge">null</code>); the build warns about each one.</li>
   <li><strong>No stack traces.</strong> Exceptions print their class and message when they reach the top of the program; set <code class="language-plaintext highlighter-rouge">NABU_TRACE_NPE=1</code> to locate <code class="language-plaintext highlighter-rouge">NullPointerException</code>s. See <a href="/backends/llvm/troubleshooting/">Troubleshooting</a>.</li>
   <li><strong>Garbage collection:</strong> only <code class="language-plaintext highlighter-rouge">--gc=BOEHM</code> is suitable for real programs. <code class="language-plaintext highlighter-rouge">REFCOUNT</code> leaks every object that escapes its frame and does not collect cycles; <code class="language-plaintext highlighter-rouge">NONE</code> allocates objects on the stack, so they are invalid once the creating function returns.</li>
-  <li><strong>Runtime messages are in Dutch.</strong></li>
   <li>Parts of the class library are still implemented in C (<code class="language-plaintext highlighter-rouge">runtime/jcl_lite.c</code>) instead of compiled from the JDK. Those parts can behave differently from the JDK in edge cases.</li>
 </ul>
 

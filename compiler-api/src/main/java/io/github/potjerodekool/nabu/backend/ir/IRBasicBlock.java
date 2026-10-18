@@ -29,7 +29,7 @@ public class IRBasicBlock {
     public void add(IRInstruction instr) {
         if (isTerminated())
             throw new IllegalStateException(
-                "Kan geen instructie toevoegen aan beëindigd blok '" + label + "'");
+                "Cannot add an instruction to terminated block '" + label + "'");
         instructions.add(instr);
     }
 

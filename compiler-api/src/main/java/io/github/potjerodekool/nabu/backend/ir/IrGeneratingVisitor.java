@@ -148,7 +148,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         final var noTopLevel = compilationUnit.getClasses().stream()
                 .noneMatch(it -> it.getNestingKind() == NestingKind.TOP_LEVEL);
         if (noTopLevel) {
-            System.err.println("[IR-CU] Compilatie-eenheid zonder top-level class (alleen geneste/anonieme): "
+            System.err.println("[IR-CU] Compilation unit without a top-level class (only nested/anonymous): "
                     + fileName + " ; klassen: "
                     + compilationUnit.getClasses().stream()
                             .map(it -> it.getKind() + ":" + it.getSimpleName())
@@ -4152,14 +4152,14 @@ if (argVal != null) args.add(argVal);
 
         if (target == null) {
             if (breakTargets.isEmpty()) {
-                throw new RuntimeException(new CompileException("'break' buiten een lus of switch"));
+                throw new RuntimeException(new CompileException("'break' outside a loop or switch"));
             }
             targetBlock = breakTargets.peek();
         } else {
             String labelName = resolveLabelTarget(target);
             targetBlock = labeledBreakTargets.get(labelName);
             if (targetBlock == null) {
-                throw new RuntimeException(new CompileException("Onbekend label voor break: " + labelName));
+                throw new RuntimeException(new CompileException("Unknown label for break: " + labelName));
             }
         }
 
@@ -4180,14 +4180,14 @@ if (argVal != null) args.add(argVal);
 
         if (target == null) {
             if (continueTargets.isEmpty()) {
-                throw new RuntimeException(new CompileException("'continue' buiten een lus"));
+                throw new RuntimeException(new CompileException("'continue' outside a loop"));
             }
             targetBlock = continueTargets.peek();
         } else {
             String labelName = resolveLabelTarget(target);
             targetBlock = labeledContinueTargets.get(labelName);
             if (targetBlock == null) {
-                throw new RuntimeException(new CompileException("Onbekend label voor continue: " + labelName));
+                throw new RuntimeException(new CompileException("Unknown label for continue: " + labelName));
             }
         }
 

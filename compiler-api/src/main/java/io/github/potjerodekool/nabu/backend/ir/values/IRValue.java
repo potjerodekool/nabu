@@ -49,14 +49,14 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstClass, I
     record ConstInt(long value, IRType type) implements IRValue {
         public ConstInt {
             if (!(type instanceof IRType.Int))
-                throw new IllegalArgumentException("ConstInt vereist Int-type, kreeg: " + type);
+                throw new IllegalArgumentException("ConstInt requires an Int type, got: " + type);
         }
     }
 
     record ConstFloat(double value, IRType type) implements IRValue {
         public ConstFloat {
             if (!(type instanceof IRType.Float))
-                throw new IllegalArgumentException("ConstFloat vereist Float-type, kreeg: " + type);
+                throw new IllegalArgumentException("ConstFloat requires a Float type, got: " + type);
         }
     }
 
@@ -75,7 +75,7 @@ public sealed interface IRValue permits IRValue.ConstBool, IRValue.ConstClass, I
     record ConstNull(IRType type) implements IRValue {
         public ConstNull {
             if (!(type instanceof IRType.Ptr))
-                throw new IllegalArgumentException("ConstNull vereist Ptr-type, kreeg: " + type);
+                throw new IllegalArgumentException("ConstNull requires a Ptr type, got: " + type);
         }
     }
 

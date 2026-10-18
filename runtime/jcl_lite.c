@@ -58,7 +58,7 @@ typedef struct { int kind; int32_t v; } s_atomic;
 
 static void *jcl_alloc(size_t n) {
     void *p = JCL_MEM(n);
-    if (!p) { fprintf(stderr, "jcl: allocatie faalde (%zu)\n", n); abort(); }
+    if (!p) { fprintf(stderr, "jcl: allocation failed (%zu)\n", n); abort(); }
     return p;
 }
 
@@ -581,7 +581,7 @@ static void *ann_class_array(const void *ann, const char *name) {
 }
 
 static void jcl_nyi(const char *sym) {
-    fprintf(stderr, "[nabu-jcl] niet-geimplementeerd: %s\n", sym);
+    fprintf(stderr, "[nabu-jcl] not implemented: %s\n", sym);
     fflush(stderr);
     abort();
 }

@@ -26,6 +26,11 @@
     <li><a href="/backends/asm/" class="active">ASM Backend</a></li>
     <li><a href="/backends/java-backend/" >Java Backend</a></li>
     <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
     <li class="nav-section">Extending the Compiler</li>
     <li><a href="/plugins/" >Plugin System</a></li>
     <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
@@ -36,6 +41,7 @@
     <li><a href="/annotation-processing/" >Annotation Processing</a></li>
     <li><a href="/maven-plugin/" >Maven Plugin</a></li>
     <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
   </ul>
 </nav>
 
@@ -70,9 +76,15 @@
 
 <ul>
   <li>Class files are emitted at <strong>version 61 (Java 17)</strong> by default (<code class="language-plaintext highlighter-rouge">JavaVersion.MINIMAL_VERSION</code>), up to <code class="language-plaintext highlighter-rouge">V23</code> (<code class="language-plaintext highlighter-rouge">MAXIMAL_VERSION</code>).</li>
-  <li>Uses <code class="language-plaintext highlighter-rouge">COMPUTE_MAXS</code>.</li>
+  <li>Uses <code class="language-plaintext highlighter-rouge">COMPUTE_MAXS | COMPUTE_FRAMES</code>. Every basic block starts with a prologue that gives all slots that are not live-in a default value, so ASM can compute consistent stack map frames.</li>
   <li>Output is validated via <code class="language-plaintext highlighter-rouge">CheckClassAdapter</code>.</li>
   <li>String concatenation is lowered to <code class="language-plaintext highlighter-rouge">invokedynamic</code> with <code class="language-plaintext highlighter-rouge">StringConcatFactory.makeConcatWithConstants</code> (modern javac-equivalent).</li>
+  <li>Lambdas become <code class="language-plaintext highlighter-rouge">invokedynamic</code> with <code class="language-plaintext highlighter-rouge">LambdaMetafactory.metafactory</code>, in any context (argument, variable, field, return value).</li>
+  <li><strong>Nestmates</strong> (Java 11+): nested classes from one source file get <code class="language-plaintext highlighter-rouge">NestHost</code>/<code class="language-plaintext highlighter-rouge">NestMembers</code> attributes, so they can access each other’s private members; a private method of another class is called with <code class="language-plaintext highlighter-rouge">invokevirtual</code>.</li>
+  <li>Calls on interfaces (<code class="language-plaintext highlighter-rouge">invokestatic</code>/<code class="language-plaintext highlighter-rouge">invokespecial</code> of static, private and default interface methods) use an <code class="language-plaintext highlighter-rouge">InterfaceMethodref</code>. The backend knows the interfaces of the current compilation and of the JDK.</li>
+  <li>A call to a method declared in a non-public JDK class (for example <code class="language-plaintext highlighter-rouge">StringBuilder.setLength</code>, declared in <code class="language-plaintext highlighter-rouge">AbstractStringBuilder</code>) uses the receiver’s type as owner (JLS 13.1).</li>
+  <li>Annotation types get <code class="language-plaintext highlighter-rouge">ACC_ANNOTATION</code> and the <code class="language-plaintext highlighter-rouge">java.lang.annotation.Annotation</code> superinterface; element defaults are written as <code class="language-plaintext highlighter-rouge">AnnotationDefault</code>. Runtime-visible annotations are therefore readable through reflection.</li>
+  <li>Primitive class literals (<code class="language-plaintext highlighter-rouge">int.class</code>) are loaded from the wrapper’s <code class="language-plaintext highlighter-rouge">TYPE</code> field.</li>
 </ul>
 
 <h2 id="registration">Registration</h2>

@@ -35,14 +35,14 @@ jobs:
         with:
           ruby-version: '3.1'
           bundler-cache: true
-          working-directory: './docs'
+          working-directory: './site'
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
       - name: Build Jekyll site
         run: |
-          cd docs
+          cd site
           bundle exec jekyll build
         env:
           JEKYLL_ENV: production
@@ -55,15 +55,15 @@ jobs:
 
       - name: Create Jekyll docs directory structure
         run: |
-          mkdir -p docs/_site/api/compiler-api
-          cp -r compiler-api/target/site/apidocs/* docs/_site/api/compiler-api/
-          mkdir -p docs/_site/api/compiler
-          cp -r compiler/target/site/apidocs/* docs/_site/api/compiler/
+          mkdir -p site/_site/api/compiler-api
+          cp -r compiler-api/target/site/apidocs/* site/_site/api/compiler-api/
+          mkdir -p site/_site/api/compiler
+          cp -r compiler/target/site/apidocs/* site/_site/api/compiler/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './docs/_site'
+          path: './site/_site'
 
   deploy:
     environment:

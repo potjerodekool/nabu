@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLVM Backend Internals - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" class="active">Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>LLVM Backend Internals</h1>
+    <p>This page explains how the LLVM backend is built, for people who want to work on it. For using the backend, see the <a href="/backends/llvm/">LLVM backend</a> page.</p>
+
+<h2 id="where-the-code-lives">Where the code lives</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Location</th>
+      <th>Content</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">native-backend/…/backend/native_llvm/</code></td>
+      <td>the backend: IR → LLVM IR → object file → executable</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">native-backend/…/native_llvm/config/</code></td>
+      <td>reading GraalVM <code class="language-plaintext highlighter-rouge">*-config.json</code> reflection metadata</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">compiler/…/backend/bytecode/</code></td>
+      <td>compiling JDK bytecode to IR (shared by any backend, used by the LLVM backend)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">compiler-api/…/backend/ir/</code></td>
+      <td>the IR, IR generation from source, SSA and the optimizer</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">runtime/nabu_runtime.c</code>, <code class="language-plaintext highlighter-rouge">nabu_runtime.h</code></td>
+      <td>the C runtime: object model, exceptions, GC hooks, strings, reflection</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">runtime/jcl_lite.c</code></td>
+      <td>C implementations of the VM-bound parts of the class library</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The runtime sources are bundled into the plugin jar under <code class="language-plaintext highlighter-rouge">nabu/runtime/</code> and compiled into every executable at link time.</p>
+
+<h2 id="pipeline">Pipeline</h2>
+
+<p><code class="language-plaintext highlighter-rouge">NativeLLVMBackend.compileAll</code> receives every IR module of the compilation:</p>
+
+<ol>
+  <li><strong>IR modules from source.</strong> The frontend generates one module per class, as for the JVM backends.</li>
+  <li><strong>IR modules from JDK bytecode.</strong> With <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>, <code class="language-plaintext highlighter-rouge">NabuCompiler</code> runs the <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> first (see below) and adds the modules it produces.</li>
+  <li><strong>Reflection metadata.</strong> <code class="language-plaintext highlighter-rouge">NativeImageConfigScanner</code> reads <code class="language-plaintext highlighter-rouge">META-INF/native-image/**/*-config.json</code> from the output directory into a <code class="language-plaintext highlighter-rouge">ReflectionRegistry</code>.</li>
+  <li><strong>LLVM module emission</strong> (<code class="language-plaintext highlighter-rouge">LLVMModuleEmitter.emitAll</code>), in phases:
+    <ol>
+      <li>function signatures for every module, so calls can be emitted in any order;</li>
+      <li>ad-hoc declarations for call targets that no module defines;</li>
+      <li>the object model (<code class="language-plaintext highlighter-rouge">ClassLayouts.registerAll</code>): struct layouts, type information, vtables and itables, parents before children;</li>
+      <li>constant tables: string metadata, enum constants, constructors, reflection info (<code class="language-plaintext highlighter-rouge">ReflectionInfoEmitter</code>);</li>
+      <li>module constructors (<code class="language-plaintext highlighter-rouge">@llvm.global_ctors</code>, see <a href="#start-up">Start-up</a>);</li>
+      <li>function bodies (<code class="language-plaintext highlighter-rouge">FunctionEmitter</code>, <code class="language-plaintext highlighter-rouge">InstructionEmitter</code>).</li>
+    </ol>
+  </li>
+  <li><strong>Unresolved symbols.</strong> Every function that is still only declared gets a stub that prints the name and exits with code 127. The names are written to <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code>.</li>
+  <li><strong>Validation and optimization.</strong> The module is verified, optimized with LLVM’s pass pipeline at the <code class="language-plaintext highlighter-rouge">--opt</code> level and written as <code class="language-plaintext highlighter-rouge">.ll</code> and <code class="language-plaintext highlighter-rouge">.o</code>.</li>
+  <li><strong>Linking</strong> (<code class="language-plaintext highlighter-rouge">Linker</code>) with <code class="language-plaintext highlighter-rouge">gcc</code> or <code class="language-plaintext highlighter-rouge">clang</code>, compiling <code class="language-plaintext highlighter-rouge">nabu_runtime.c</code> and <code class="language-plaintext highlighter-rouge">jcl_lite.c</code> into the executable, plus <code class="language-plaintext highlighter-rouge">-lgc -lpthread</code> for <code class="language-plaintext highlighter-rouge">--gc=BOEHM</code>. This step only runs if there is a <code class="language-plaintext highlighter-rouge">main</code> function.</li>
+</ol>
+
+<h2 id="compiling-the-jdk-from-bytecode">Compiling the JDK from bytecode</h2>
+
+<p>The backend has no hand-written Java class library. Instead, <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> compiles the <strong>real OpenJDK bytecode</strong> of everything the program can reach:</p>
+
+<ul>
+  <li>It reads class files from the JDK the compiler runs on (or <code class="language-plaintext highlighter-rouge">--bytecode-jdk-home</code>) with ASM’s tree API.</li>
+  <li>It keeps a <strong>worklist of methods</strong>. It starts from the seed classes and from every call in the source modules, lowers each method to IR (<code class="language-plaintext highlighter-rouge">BytecodeMethodLowering</code>), and adds the methods that method calls.</li>
+  <li>For every class it touches it builds the <strong>shape</strong>: superclass, interfaces, fields and static fields. Static final constants get their <code class="language-plaintext highlighter-rouge">ConstantValue</code> attribute as initializer (<code class="language-plaintext highlighter-rouge">javac</code> does not initialize those in <code class="language-plaintext highlighter-rouge">&lt;clinit&gt;</code>).</li>
+  <li><strong>Virtual calls</strong> are the hard part: a call through <code class="language-plaintext highlighter-rouge">List.iterator()</code> can end up in any implementation. The compiler records every virtual signature called on a class or interface and lowers the matching override in every subtype it knows about, including when the subtype is loaded later. An implementation inherited from a superclass that does not implement the interface itself (for example <code class="language-plaintext highlighter-rouge">LinkedHashMap$LinkedKeyIterator</code>, whose <code class="language-plaintext highlighter-rouge">hasNext()</code> lives in the abstract <code class="language-plaintext highlighter-rouge">LinkedHashIterator</code>) counts too.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">invokedynamic</code></strong>: lambdas are turned into real classes ahead of time (<code class="language-plaintext highlighter-rouge">LambdaClassSynthesizer</code>, the equivalent of what <code class="language-plaintext highlighter-rouge">LambdaMetafactory</code> does at run time), and string concatenation with <code class="language-plaintext highlighter-rouge">StringConcatFactory</code> is lowered directly.</li>
+  <li>Classes that are also compiled from source are skipped, so source always wins.</li>
+  <li>Methods that cannot be compiled (<code class="language-plaintext highlighter-rouge">native</code> methods, signature-polymorphic methods such as <code class="language-plaintext highlighter-rouge">MethodHandle.invoke</code>, classes that do not exist) stay unresolved and end up in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code>.</li>
+</ul>
+
+<h3 id="the-role-of-jcl_litec">The role of <code class="language-plaintext highlighter-rouge">jcl_lite.c</code></h3>
+
+<p>Some things cannot come from bytecode because the JVM itself implements them: <code class="language-plaintext highlighter-rouge">Class</code> objects, <code class="language-plaintext highlighter-rouge">System.arraycopy</code>, <code class="language-plaintext highlighter-rouge">Unsafe</code>, <code class="language-plaintext highlighter-rouge">Object.hashCode</code>, reflection objects, and so on. <code class="language-plaintext highlighter-rouge">jcl_lite.c</code> implements those in C and binds each implementation to the IR symbol name of the Java method with a <code class="language-plaintext highlighter-rouge">BIND(…, "java.lang.Class_getName", …)</code> macro (an <code class="language-plaintext highlighter-rouge">__asm__</code> label).</p>
+
+<p>The policy is to keep <code class="language-plaintext highlighter-rouge">jcl_lite.c</code> <strong>minimal and VM-bound</strong>. If the JDK has bytecode for a method, compile the bytecode instead of adding a C version. C replacements tend to drift from the real behavior; for example, a C boxing helper created <code class="language-plaintext highlighter-rouge">Boolean</code> objects with the vtable of <code class="language-plaintext highlighter-rouge">Object</code>, so <code class="language-plaintext highlighter-rouge">toString()</code> printed <code class="language-plaintext highlighter-rouge">java.lang.Boolean@…</code>.</p>
+
+<h2 id="object-model">Object model</h2>
+
+<p>Every object starts with a header that <code class="language-plaintext highlighter-rouge">ClassLayouts.objectHeaderType()</code> and <code class="language-plaintext highlighter-rouge">struct nabu_object</code> in <code class="language-plaintext highlighter-rouge">nabu_runtime.h</code> must agree on:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Offset</th>
+      <th>Field</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td><code class="language-plaintext highlighter-rouge">type</code></td>
+      <td>pointer to the class’s <code class="language-plaintext highlighter-rouge">nabu_type_info</code> (name, size, superclass, interfaces, fields)</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><code class="language-plaintext highlighter-rouge">vtable</code></td>
+      <td>virtual method table</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td><code class="language-plaintext highlighter-rouge">itable</code></td>
+      <td>interface method table</td>
+    </tr>
+    <tr>
+      <td>24</td>
+      <td><code class="language-plaintext highlighter-rouge">ref_count</code></td>
+      <td>used by <code class="language-plaintext highlighter-rouge">--gc=REFCOUNT</code></td>
+    </tr>
+    <tr>
+      <td>28</td>
+      <td><code class="language-plaintext highlighter-rouge">monitor_count</code></td>
+      <td><code class="language-plaintext highlighter-rouge">synchronized</code></td>
+    </tr>
+    <tr>
+      <td>32</td>
+      <td><code class="language-plaintext highlighter-rouge">thread_id</code></td>
+      <td><code class="language-plaintext highlighter-rouge">synchronized</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Fields follow the header.</p>
+
+<ul>
+  <li><strong>vtables</strong> have one slot per virtual method <em>and overload</em>. A subclass reuses its parent’s slots for overrides and appends new ones. Private methods get no slot and are called directly.</li>
+  <li><strong>itables</strong> are indexed by a global interface-method slot number, so an interface call is a single load from the receiver’s itable.</li>
+  <li><strong>Function names</strong> are <code class="language-plaintext highlighter-rouge">&lt;owner&gt;_&lt;method&gt;</code>, with an overload suffix (<code class="language-plaintext highlighter-rouge">$I32</code>, <code class="language-plaintext highlighter-rouge">$P5036ee31</code>, …) derived from the parameter types (<code class="language-plaintext highlighter-rouge">FnKeys</code>). Constructors are <code class="language-plaintext highlighter-rouge">&lt;owner&gt;_init</code>, static initializers <code class="language-plaintext highlighter-rouge">&lt;owner&gt;_&lt;clinit&gt;</code>.</li>
+  <li><strong>Types.</strong> References are <code class="language-plaintext highlighter-rouge">ptr</code>. <code class="language-plaintext highlighter-rouge">boolean</code> is <code class="language-plaintext highlighter-rouge">i1</code>; <code class="language-plaintext highlighter-rouge">byte</code>, <code class="language-plaintext highlighter-rouge">short</code> and <code class="language-plaintext highlighter-rouge">char</code> are <code class="language-plaintext highlighter-rouge">i8</code>/<code class="language-plaintext highlighter-rouge">i16</code>. <code class="language-plaintext highlighter-rouge">char</code> is marked <em>unsigned</em> in the IR (<code class="language-plaintext highlighter-rouge">IRType.CHAR</code>), so it widens with zero extension (JLS 5.1.2) while <code class="language-plaintext highlighter-rouge">short</code> sign-extends.</li>
+  <li><strong>Strings</strong> use the JDK’s own <code class="language-plaintext highlighter-rouge">String</code> layout (a byte array plus a <code class="language-plaintext highlighter-rouge">coder</code>, Latin-1 or UTF-16), so compiled JDK code operates on them directly. String literals are emitted as constant <code class="language-plaintext highlighter-rouge">String</code> objects.</li>
+</ul>
+
+<h2 id="start-up">Start-up</h2>
+
+<p>Module constructors in <code class="language-plaintext highlighter-rouge">@llvm.global_ctors</code> run before <code class="language-plaintext highlighter-rouge">main</code>:</p>
+
+<ol>
+  <li><code class="language-plaintext highlighter-rouge">nabu_object_vtable_init</code> runs first (priority 101). It registers the vtable of <code class="language-plaintext highlighter-rouge">java.lang.Object</code> and the library itable (the runtime gives its own objects these tables), the vtable slot of <code class="language-plaintext highlighter-rouge">toString()</code> (for string concatenation with objects), the compiled <code class="language-plaintext highlighter-rouge">valueOf</code> method of each wrapper class (so the runtime creates real <code class="language-plaintext highlighter-rouge">Integer</code>/<code class="language-plaintext highlighter-rouge">Boolean</code> objects when it boxes), and the type table used by <code class="language-plaintext highlighter-rouge">Class.forName</code>.</li>
+  <li>The others (default priority) run in the order they were added: reflection registrations for the classes in the native-image configuration, <code class="language-plaintext highlighter-rouge">GC_init</code> (with <code class="language-plaintext highlighter-rouge">--gc=BOEHM</code>), the bootstrap initializer, and the static initializers. Each static initializer sits behind a <code class="language-plaintext highlighter-rouge">.clinit.once</code> guard so it runs at most once (JLS 12.4); most are also triggered lazily on first use.</li>
+</ol>
+
+<h2 id="exceptions">Exceptions</h2>
+
+<p>The backend emits LLVM <code class="language-plaintext highlighter-rouge">invoke</code>/<code class="language-plaintext highlighter-rouge">landingpad</code> instructions with the personality function <strong><code class="language-plaintext highlighter-rouge">nabu_seh_personality</code></strong>, and declares that function itself in the emitted IR. The runtime implements it: it reads the LSDA (from <code class="language-plaintext highlighter-rouge">.xdata</code> on Windows, <code class="language-plaintext highlighter-rouge">.gcc_except_table</code> on ELF) and installs the landing pad. <code class="language-plaintext highlighter-rouge">nabu_itanium_personality</code> does the same for the ELF/Itanium variant. Matching an exception against a <code class="language-plaintext highlighter-rouge">catch</code> type happens in the IR (<code class="language-plaintext highlighter-rouge">nabu_can_catch</code>), not in the personality.</p>
+
+<p>On Windows x64 SEH, a catch clause that does not match must not use <code class="language-plaintext highlighter-rouge">_Unwind_Resume</code>: that jumps back into the same landing pad, the personality is not consulted again, and the program loops. <code class="language-plaintext highlighter-rouge">nabu_resume</code> therefore raises a fresh exception from the landing pad instead, so the search continues in an outer frame. An exception nobody catches ends with <code class="language-plaintext highlighter-rouge">abort()</code> and the message <code class="language-plaintext highlighter-rouge">nabu: onbehandelde exception</code> (“unhandled exception”).</p>
+
+<p>MSVC targets are rejected: they use SEH scope tables with <code class="language-plaintext highlighter-rouge">__C_specific_handler</code> instead of DWARF/LSDA, which would need a different code generation and unwind strategy.</p>
+
+<h2 id="garbage-collection">Garbage collection</h2>
+
+<p>See <a href="/backends/llvm/#choosing-a-gc-strategy">Choosing a GC strategy</a> for the user view.</p>
+
+<ul>
+  <li><strong>BOEHM</strong>: every object, including unknown library classes, goes through <code class="language-plaintext highlighter-rouge">GC_malloc</code>; the runtime only fills the header (<code class="language-plaintext highlighter-rouge">nabu_init_object</code>). Fields the backend reads are written explicitly, because the test suite verifies against a GC double that poisons memory instead of zeroing it.</li>
+  <li><strong>REFCOUNT</strong>: one <code class="language-plaintext highlighter-rouge">nabu_retain</code> at allocation and one <code class="language-plaintext highlighter-rouge">nabu_release</code> when the owning reference dies (slot overwrite or function exit). Objects that escape the frame (return value, field, call argument, <code class="language-plaintext highlighter-rouge">throw</code>) are deliberately not counted and leak; cycles are not collected. See <code class="language-plaintext highlighter-rouge">RefCountEmitter</code>.</li>
+  <li><strong>NONE</strong>: objects are <code class="language-plaintext highlighter-rouge">alloca</code>‘d in the frame of the function that creates them.</li>
+</ul>
+
+<h2 id="tests">Tests</h2>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">native-backend</code> unit tests check the emitted IR and object model without linking.</li>
+  <li>Tests named <code class="language-plaintext highlighter-rouge">*E2eIT</code> compile a small Java program with the LLVM backend, link it, run it and compare the output. They are skipped when no <code class="language-plaintext highlighter-rouge">gcc</code> is found (<code class="language-plaintext highlighter-rouge">NativeToolchain.assumeGcc</code>). Use them as the template for a new regression test: they take a few minutes each because they compile the JDK closure.</li>
+</ul>
+
+<p>Running one test:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mvn <span class="nb">test</span> <span class="nt">-pl</span> native-backend <span class="nt">-Dtest</span><span class="o">=</span>BoxedToStringE2eIT <span class="nt">-Dsurefire</span>.failIfNoSpecifiedTests<span class="o">=</span><span class="nb">false</span>
+</code></pre></div></div>
+
+<p>Some of them (for example <code class="language-plaintext highlighter-rouge">BoxedToStringE2eIT</code>) accept <code class="language-plaintext highlighter-rouge">-Dnabu.keepExe=&lt;path&gt;.exe</code> to keep the executable and its <code class="language-plaintext highlighter-rouge">.ll</code> for inspection.</p>
+
+  </main>
+</div>
+
+</body>
+</html>

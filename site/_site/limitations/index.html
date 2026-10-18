@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Known Limitations - Nabu Compiler Documentation</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+
+</head>
+<body>
+  <div class="container">
+  <nav class="sidebar">
+  <div class="sidebar-header">
+    <a href="/">Nabu</a>
+  </div>
+  <ul>
+    <li><a href="/" >Introduction</a></li>
+    <li><a href="/compiler-overview/" >Compiler Overview</a></li>
+    <li><a href="/compiler-design/" >Compiler Design</a></li>
+    <li class="nav-section">Languages</li>
+    <li><a href="/languages/nabu/" >Nabu</a></li>
+    <li><a href="/languages/java/" >Java Interop</a></li>
+    <li><a href="/languages/kotlin/" >Kotlin</a></li>
+    <li class="nav-section">Backends</li>
+    <li><a href="/backends/" >Overview</a></li>
+    <li><a href="/backends/asm/" >ASM Backend</a></li>
+    <li><a href="/backends/java-backend/" >Java Backend</a></li>
+    <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
+    <li class="nav-section">Extending the Compiler</li>
+    <li><a href="/plugins/" >Plugin System</a></li>
+    <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
+    <li><a href="/plugins/dsl-support/" >DSL Support</a></li>
+    <li><a href="/plugins/element-resolver/" >Element Resolver</a></li>
+    <li class="nav-section">Advanced</li>
+    <li><a href="/ir/" >Intermediate Representation</a></li>
+    <li><a href="/annotation-processing/" >Annotation Processing</a></li>
+    <li><a href="/maven-plugin/" >Maven Plugin</a></li>
+    <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" class="active">Known Limitations</a></li>
+  </ul>
+</nav>
+
+  <main>
+    <h1>Known Limitations</h1>
+    <p>This page lists what does not work yet, as far as it is known. It is updated as limitations are found and fixed.</p>
+
+<h2 id="compiler-all-backends">Compiler (all backends)</h2>
+
+<ul>
+  <li><strong>Nested lambdas.</strong> A lambda whose body is itself a lambda, such as <code class="language-plaintext highlighter-rouge">Supplier&lt;IntSupplier&gt; s = () -&gt; () -&gt; x + 1;</code>, makes the compiler crash: the inner lambda gets no target type. Use a method or an anonymous class for the inner function.</li>
+  <li><strong>Java language level.</strong> Java sources are parsed with a Java 20 grammar. Newer language features are not recognized.</li>
+  <li><strong>Kotlin</strong> support is experimental: only top-level class declarations are handled.</li>
+  <li>The <strong>Java backend</strong> (ClassFile API) needs Java 24 or later to run.</li>
+</ul>
+
+<h2 id="llvm-backend">LLVM backend</h2>
+
+<h3 id="building">Building</h3>
+
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">--bytecode-classes</code> is required in practice.</strong> Without it, no JDK code is compiled and even <code class="language-plaintext highlighter-rouge">System.out.println</code> has no implementation. <code class="language-plaintext highlighter-rouge">--bytecode-classes=java.lang.Object</code> is enough for most programs.</li>
+  <li><strong>Slow builds, large executables.</strong> The whole reachable part of the JDK is compiled and optimized as one LLVM module: several minutes and about 36 MB for “hello world”, about ten minutes and 46 MB for the <a href="/examples/picocli-demo/">picocli example</a>.</li>
+  <li><strong>Incremental builds</strong> have not been tested with the LLVM backend; the examples build with <code class="language-plaintext highlighter-rouge">-Dnabu.incremental=false</code>.</li>
+  <li>The executable is named after the <strong>first</strong> compiled class, not after the class with <code class="language-plaintext highlighter-rouge">main</code>.</li>
+  <li>The build prints many warnings (for example about static fields of classes outside the compiled closure). They do not stop the build, and most are harmless, but they make real problems harder to spot.</li>
+</ul>
+
+<h3 id="platforms">Platforms</h3>
+
+<ul>
+  <li><strong>Windows x64 with MinGW-w64</strong> is the only verified platform.</li>
+  <li><strong>Linux and macOS</strong> are supported by the code but have not been tested.</li>
+  <li><strong>MSVC</strong> is not supported: the exception handling needs DWARF/LSDA unwind data, which the MSVC runtime does not provide.</li>
+</ul>
+
+<h3 id="run-time">Run time</h3>
+
+<ul>
+  <li><strong>Native and VM-internal JDK methods</strong> have no implementation unless the C runtime provides one. A program that calls such a method stops with <code class="language-plaintext highlighter-rouge">nabu: aanroep van een JDK-functie zonder implementatie: &lt;name&gt;</code> and exit code 127. All such methods are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> at build time.</li>
+  <li><strong>Reflection</strong> only covers classes listed in GraalVM <code class="language-plaintext highlighter-rouge">*-config.json</code> metadata in the class output directory, and only their <strong>fields and annotations</strong>. Metadata inside jars on the classpath is not read.</li>
+  <li><strong>Static fields of classes outside the compiled closure</strong> keep their default value (<code class="language-plaintext highlighter-rouge">0</code>/<code class="language-plaintext highlighter-rouge">null</code>); the build warns about each one.</li>
+  <li><strong>No stack traces.</strong> Exceptions print their class and message when they reach the top of the program; set <code class="language-plaintext highlighter-rouge">NABU_TRACE_NPE=1</code> to locate <code class="language-plaintext highlighter-rouge">NullPointerException</code>s. See <a href="/backends/llvm/troubleshooting/">Troubleshooting</a>.</li>
+  <li><strong>Garbage collection:</strong> only <code class="language-plaintext highlighter-rouge">--gc=BOEHM</code> is suitable for real programs. <code class="language-plaintext highlighter-rouge">REFCOUNT</code> leaks every object that escapes its frame and does not collect cycles; <code class="language-plaintext highlighter-rouge">NONE</code> allocates objects on the stack, so they are invalid once the creating function returns.</li>
+  <li><strong>Runtime messages are in Dutch.</strong></li>
+  <li>Parts of the class library are still implemented in C (<code class="language-plaintext highlighter-rouge">runtime/jcl_lite.c</code>) instead of compiled from the JDK. Those parts can behave differently from the JDK in edge cases.</li>
+</ul>
+
+  </main>
+</div>
+
+</body>
+</html>

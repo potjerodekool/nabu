@@ -26,6 +26,11 @@
     <li><a href="/backends/asm/" >ASM Backend</a></li>
     <li><a href="/backends/java-backend/" >Java Backend</a></li>
     <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
     <li class="nav-section">Extending the Compiler</li>
     <li><a href="/plugins/" >Plugin System</a></li>
     <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
@@ -36,6 +41,7 @@
     <li><a href="/annotation-processing/" >Annotation Processing</a></li>
     <li><a href="/maven-plugin/" >Maven Plugin</a></li>
     <li><a href="/testing/" class="active">Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
   </ul>
 </nav>
 
@@ -46,7 +52,8 @@
 <h2 id="test-modules">Test modules</h2>
 
 <ul>
-  <li><strong><code class="language-plaintext highlighter-rouge">compiler</code></strong> — ~129 unit/integration test classes covering parser, enter/resolve, method resolution, access checks, the ASM emitter (with golden bytecode listings), IR optimization passes, widening/boxing, the annotation-processing environment, Lombok handlers, and Kotlin language-support fixtures.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">compiler</code></strong> — about 1,350 tests in some 100 test classes, covering the parser, enter/resolve, method resolution, access checks, the ASM emitter (with golden bytecode listings), IR optimization passes, widening/boxing, the annotation-processing environment, Lombok handlers, and Kotlin language-support fixtures. The <code class="language-plaintext highlighter-rouge">*RunTest</code> classes compile a small program with the ASM backend, load it and run it (for example <code class="language-plaintext highlighter-rouge">LambdaTargetTypeRunTest</code>, <code class="language-plaintext highlighter-rouge">NestmateAccessRunTest</code>, <code class="language-plaintext highlighter-rouge">GenericCallRunTest</code>). <code class="language-plaintext highlighter-rouge">PicocliCliDemoJvmRunTest</code> compiles the whole <a href="/examples/picocli-demo/">picocli example</a> and checks its five commands; it is skipped when the demo project is not present.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">native-backend</code></strong> — about 130 tests of the LLVM backend: unit tests of the emitted IR and object model, and <code class="language-plaintext highlighter-rouge">*E2eIT</code> tests that compile a Java program natively, link and run it, and compare its output. The <code class="language-plaintext highlighter-rouge">*E2eIT</code> tests need a MinGW <code class="language-plaintext highlighter-rouge">gcc</code> and are skipped without one; they take several minutes each because they compile the JDK closure. See <a href="/backends/llvm/internals/#tests">LLVM internals</a>.</li>
   <li><strong><code class="language-plaintext highlighter-rouge">compiler-test</code></strong> — end-to-end tests that compile <code class="language-plaintext highlighter-rouge">.nabu</code> sources under <code class="language-plaintext highlighter-rouge">src/main/nabu</code> and <strong>execute the produced bytecode</strong> with assertions.</li>
   <li><strong><code class="language-plaintext highlighter-rouge">testing</code></strong> — a scaffold (currently “Not started”) for utilities to test compiler plugins.</li>
 </ul>

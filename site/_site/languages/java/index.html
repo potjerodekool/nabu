@@ -26,6 +26,11 @@
     <li><a href="/backends/asm/" >ASM Backend</a></li>
     <li><a href="/backends/java-backend/" >Java Backend</a></li>
     <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
     <li class="nav-section">Extending the Compiler</li>
     <li><a href="/plugins/" >Plugin System</a></li>
     <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
@@ -36,6 +41,7 @@
     <li><a href="/annotation-processing/" >Annotation Processing</a></li>
     <li><a href="/maven-plugin/" >Maven Plugin</a></li>
     <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
   </ul>
 </nav>
 
@@ -48,15 +54,17 @@
 <ul>
   <li><strong>Nabu can call Java</strong> code and <strong>Java can call Nabu</strong> code.</li>
   <li>Java and Nabu sources can be mixed in one project.</li>
-  <li>The compiler reads Java class files (Java 17–23) including generics and modules via its <code class="language-plaintext highlighter-rouge">resolve/asm</code> package.</li>
-  <li>Java <strong>sources</strong> (up to Java 20) are parsed and modeled using the ANTLR <code class="language-plaintext highlighter-rouge">Java20Parser.g4</code> grammar and the <code class="language-plaintext highlighter-rouge">JavaCompilerVisitor</code>.</li>
+  <li>The compiler reads Java class files, including generics and modules, through its <code class="language-plaintext highlighter-rouge">resolve/asm</code> package (ASM 9.8). It runs against the class library of the JDK it runs on; JDK 25 is verified.</li>
+  <li>Java <strong>sources</strong> (up to Java 20) are parsed with the ANTLR <code class="language-plaintext highlighter-rouge">Java20Parser.g4</code> grammar and the <code class="language-plaintext highlighter-rouge">JavaCompilerVisitor</code>, and compiled by Nabu.</li>
 </ul>
 
 <h2 id="how-java-sources-are-compiled">How Java sources are compiled</h2>
 
-<p>Nabu parses Java sources for interop and symbol modeling, but does <strong>not</strong> generate bytecode for Java itself. In the Maven flow, Java-to-bytecode is delegated to <code class="language-plaintext highlighter-rouge">javac</code>. The <code class="language-plaintext highlighter-rouge">nabu-maven-plugin</code> must be placed <strong>before</strong> the <code class="language-plaintext highlighter-rouge">maven-compiler-plugin</code> so that Nabu sources are compiled first and available to Java.</p>
+<p>Nabu compiles Java sources itself, together with the Nabu sources, with whichever backend is selected. A <code class="language-plaintext highlighter-rouge">.java</code> file in a source directory of the <a href="/maven-plugin/">Maven plugin</a> is parsed, resolved and compiled like a <code class="language-plaintext highlighter-rouge">.nabu</code> file, so Java and Nabu classes can refer to each other freely.</p>
 
-<p>See <a href="/maven-plugin/">Maven Plugin</a> for the full configuration.</p>
+<p>This works for substantial real-world code: the <a href="/examples/picocli-demo/">picocli example</a> compiles picocli’s single 19,000-line source file with Nabu, for the JVM and natively, and the result behaves like the official picocli jar.</p>
+
+<p>If the <code class="language-plaintext highlighter-rouge">maven-compiler-plugin</code> also runs, <code class="language-plaintext highlighter-rouge">javac</code> compiles the Java sources a second time. That can be useful in an existing project that relies on <code class="language-plaintext highlighter-rouge">javac</code>; place the <code class="language-plaintext highlighter-rouge">nabu-maven-plugin</code> <strong>before</strong> the <code class="language-plaintext highlighter-rouge">maven-compiler-plugin</code>, so the Nabu classes exist when <code class="language-plaintext highlighter-rouge">javac</code> runs (see <a href="/maven-plugin/">Maven Plugin</a>). To let Nabu compile everything on its own, disable <code class="language-plaintext highlighter-rouge">javac</code> for the main sources with <code class="language-plaintext highlighter-rouge">&lt;skipMain&gt;true&lt;/skipMain&gt;</code>, as the picocli example does.</p>
 
 <h2 id="reference-language-level">Reference language level</h2>
 

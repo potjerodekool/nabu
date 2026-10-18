@@ -26,6 +26,11 @@
     <li><a href="/backends/asm/" >ASM Backend</a></li>
     <li><a href="/backends/java-backend/" class="active">Java Backend</a></li>
     <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
     <li class="nav-section">Extending the Compiler</li>
     <li><a href="/plugins/" >Plugin System</a></li>
     <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
@@ -36,6 +41,7 @@
     <li><a href="/annotation-processing/" >Annotation Processing</a></li>
     <li><a href="/maven-plugin/" >Maven Plugin</a></li>
     <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
   </ul>
 </nav>
 
@@ -44,7 +50,7 @@
     <p>The <strong>Java backend</strong> is an experimental backend that uses the <strong>JDK 24 ClassFile API</strong> (<code class="language-plaintext highlighter-rouge">java.lang.classfile</code>) instead of ASM to emit JVM bytecode.</p>
 
 <div class="callout callout-warning">
-<b>Experimental.</b> This backend is a prototype/experiment and **requires Java 24+**. It throws `UnsupportedOperationException` on older JVMs.
+  <p><b>Experimental.</b> This backend is a prototype/experiment and <strong>requires Java 24+</strong>. It throws <code class="language-plaintext highlighter-rouge">UnsupportedOperationException</code> on older JVMs.</p>
 </div>
 
 <h2 id="location">Location</h2>

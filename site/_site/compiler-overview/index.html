@@ -26,6 +26,11 @@
     <li><a href="/backends/asm/" >ASM Backend</a></li>
     <li><a href="/backends/java-backend/" >Java Backend</a></li>
     <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
     <li class="nav-section">Extending the Compiler</li>
     <li><a href="/plugins/" >Plugin System</a></li>
     <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
@@ -36,12 +41,13 @@
     <li><a href="/annotation-processing/" >Annotation Processing</a></li>
     <li><a href="/maven-plugin/" >Maven Plugin</a></li>
     <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
   </ul>
 </nav>
 
   <main>
     <h1>Compiler Overview</h1>
-    <p>The Nabu compiler is a <strong>source-to-JVM-bytecode</strong> compiler. This page gives a high-level overview of what the compiler is and how source code flows through it to become executable bytecode.</p>
+    <p>The Nabu compiler compiles source code to <strong>JVM bytecode</strong>, or with the experimental LLVM backend to <strong>native code</strong>. This page gives a high-level overview of the compiler and of how source code flows through it.</p>
 
 <h2 id="high-level-pipeline">High-level pipeline</h2>
 
@@ -59,7 +65,9 @@
   <span class="step">Bytecode</span>
 </div>
 
-<p>The <strong>frontend phases</strong> (Parse through Lower) produce a lowered abstract syntax tree. The <strong>backend phases</strong> then generate an intermediate representation (IR), optimize it, and emit bytecode through a pluggable backend.</p>
+<p>The <strong>frontend phases</strong> (Parse through Lower) produce a lowered abstract syntax tree. The <strong>backend phases</strong> then generate an intermediate representation (IR), optimize it, and emit code through a pluggable backend.</p>
+
+<p>For the LLVM backend, a second source of IR is added: the reachable part of the <strong>JDK is compiled from its bytecode</strong> into the same IR, so the native program contains the class library it uses (see <a href="/backends/llvm/#how-it-works">LLVM backend</a>).</p>
 
 <h2 id="supported-languages">Supported languages</h2>
 
@@ -81,8 +89,8 @@
     </tr>
     <tr>
       <td><strong>Java</strong> (up to 20)</td>
-      <td>Interop, full parse</td>
-      <td>Java sources are parsed and modeled for interop; bytecode generation is delegated to <code class="language-plaintext highlighter-rouge">javac</code> in the Maven flow</td>
+      <td>Supported</td>
+      <td>Java sources are parsed with a Java 20 grammar and compiled by Nabu, mixed with Nabu sources. Large real-world code such as picocli compiles and runs.</td>
     </tr>
     <tr>
       <td><strong>Kotlin</strong></td>
@@ -118,7 +126,7 @@
     <tr>
       <td><strong>LLVM</strong></td>
       <td>Experimental</td>
-      <td>Native code (via LLVM + C runtime)</td>
+      <td>Native executables (via LLVM + a C runtime); verified on Windows x64</td>
     </tr>
   </tbody>
 </table>

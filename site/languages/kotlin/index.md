@@ -5,7 +5,7 @@ title: Kotlin Support
 
 The Nabu compiler has **experimental Kotlin support**.
 
-<div class="callout callout-warning">
+<div class="callout callout-warning" markdown="1">
 <b>Experimental.</b> Kotlin support is largely incomplete. Most constructs currently throw `UnsupportedOperationException`. It should not be relied upon for production use.
 </div>
 

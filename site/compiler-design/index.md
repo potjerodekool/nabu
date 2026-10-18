@@ -59,7 +59,7 @@ The `Lower` phase adds additional code:
 
 ### IR generation
 
-The `IrGeneratingVisitor` builds an intermediate representation from the lowered AST. The `ir` package contains:
+The `IrGeneratingVisitor` builds an intermediate representation from the lowered AST. The IR lives in the `compiler-api` module (`io.github.potjerodekool.nabu.backend.ir`) and contains:
 
 - **`IRModule`** — flags, name, super type, interfaces, sealed classes, fields, functions, globals
 - **`IRFunction`** — name, return type, parameters, basic blocks
@@ -79,6 +79,10 @@ The IR is optimized through several passes in `backend/ir`:
 
 The IR is **backend-agnostic** — all backends consume the same `IRModule`, which is the key to the "write a language once, target multiple backends" design.
 
+### Bytecode compilation (LLVM backend only)
+
+With `--bytecode-classes`, the `BytecodeReachabilityCompiler` (`compiler/…/backend/bytecode`) adds a second source of IR: it reads JDK class files with ASM, follows every method reachable from the program and the seed classes, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See [LLVM backend internals](/backends/llvm/internals/#compiling-the-jdk-from-bytecode).
+
 ### Bytecode emission
 
 The IR module is handed to a registered `Backend` which emits class files. See the [Backends](/backends/) section for the details of each backend.
@@ -90,11 +94,12 @@ The IR module is handed to a registered `Backend` which emits class files. See t
 
 | Module | Responsibility |
 |---|---|
-| `compiler-api` | Public API/SPI layer (AST, type system, tools, language SPI, element model, resolve SPI, transform SPI) |
-| `compiler` | Core compiler: parse, enter, resolve, transform, check, lower, IR, ASM backend |
+| `compiler-api` | Public API/SPI layer (AST, type system, tools, language SPI, element model, resolve SPI, transform SPI) and the IR: IR generation, SSA and optimization |
+| `compiler` | Core compiler: parse (incl. Java), enter, resolve, transform, check, lower, ASM backend, JDK bytecode lowering |
+| `compiler-test` | End-to-end tests that compile and run `.nabu` programs |
 | `nabu-lang` | Nabu language: ANTLR grammar + `NabuCompilerVisitor` |
 | `java-backend` | Experimental backend using the JDK 24 ClassFile API |
-| `native-backend` | Experimental LLVM-based native backend |
+| `native-backend` | Experimental LLVM-based native backend (the C runtime is in `runtime/`) |
 | `maven-plugin` | Maven plugin wiring the compiler into builds |
 | `jpa-plugin` / `jpa-support` | Example DSL plugin for JPA criteria |
 | `nabu-daemon` / `nabu-client` | Compile daemon protocol for incremental builds |

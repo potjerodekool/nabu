@@ -3,7 +3,7 @@ layout: page
 title: Compiler Overview
 ---
 
-The Nabu compiler is a **source-to-JVM-bytecode** compiler. This page gives a high-level overview of what the compiler is and how source code flows through it to become executable bytecode.
+The Nabu compiler compiles source code to **JVM bytecode**, or with the experimental LLVM backend to **native code**. This page gives a high-level overview of the compiler and of how source code flows through it.
 
 ## High-level pipeline
 
@@ -21,7 +21,9 @@ Source files are processed through a well-defined sequence of phases:
   <span class="step">Bytecode</span>
 </div>
 
-The **frontend phases** (Parse through Lower) produce a lowered abstract syntax tree. The **backend phases** then generate an intermediate representation (IR), optimize it, and emit bytecode through a pluggable backend.
+The **frontend phases** (Parse through Lower) produce a lowered abstract syntax tree. The **backend phases** then generate an intermediate representation (IR), optimize it, and emit code through a pluggable backend.
+
+For the LLVM backend, a second source of IR is added: the reachable part of the **JDK is compiled from its bytecode** into the same IR, so the native program contains the class library it uses (see [LLVM backend](/backends/llvm/#how-it-works)).
 
 ## Supported languages
 
@@ -30,7 +32,7 @@ The compiler can parse and mix multiple input languages in a single project:
 | Language | Status | Details |
 |---|---|---|
 | **Nabu** | Native, full support | The compiler's own language, based on Java + Kotlin syntax |
-| **Java** (up to 20) | Interop, full parse | Java sources are parsed and modeled for interop; bytecode generation is delegated to `javac` in the Maven flow |
+| **Java** (up to 20) | Supported | Java sources are parsed with a Java 20 grammar and compiled by Nabu, mixed with Nabu sources. Large real-world code such as picocli compiles and runs. |
 | **Kotlin** | Experimental | Grammar and language support exist; only top-level class declarations are handled |
 
 ## Supported backends
@@ -41,7 +43,7 @@ The same frontend and IR can be targeted to multiple backends:
 |---|---|---|
 | **ASM** | Default, production | JVM bytecode (class file v17+ via ASM) |
 | **Java** | Experimental | JVM bytecode (via JDK 24 ClassFile API) |
-| **LLVM** | Experimental | Native code (via LLVM + C runtime) |
+| **LLVM** | Experimental | Native executables (via LLVM + a C runtime); verified on Windows x64 |
 
 ## Extensibility
 

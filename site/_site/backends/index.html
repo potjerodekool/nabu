@@ -26,6 +26,11 @@
     <li><a href="/backends/asm/" >ASM Backend</a></li>
     <li><a href="/backends/java-backend/" >Java Backend</a></li>
     <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
     <li class="nav-section">Extending the Compiler</li>
     <li><a href="/plugins/" >Plugin System</a></li>
     <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
@@ -36,6 +41,7 @@
     <li><a href="/annotation-processing/" >Annotation Processing</a></li>
     <li><a href="/maven-plugin/" >Maven Plugin</a></li>
     <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
   </ul>
 </nav>
 
@@ -75,26 +81,28 @@
       <td><strong>LLVM</strong></td>
       <td><code class="language-plaintext highlighter-rouge">LLVM</code></td>
       <td>Native executable</td>
-      <td>Experimental</td>
+      <td>Experimental; verified on Windows x64</td>
     </tr>
   </tbody>
 </table>
 
 <h2 id="the-shared-ir">The shared IR</h2>
 
-<p>All three backends consume the same backend-agnostic <code class="language-plaintext highlighter-rouge">IRModule</code> produced by the IR generation phase. This is the key to the “write a language once, target multiple backends” design goal.</p>
+<p>All three backends consume the same backend-agnostic <code class="language-plaintext highlighter-rouge">IRModule</code> produced by the IR generation phase. This is the key to the “write a language once, target multiple backends” design goal. The LLVM backend additionally receives IR modules compiled from JDK bytecode, because a native program has no JVM class library to rely on.</p>
 
-<p>Each backend follows the same structural pipeline:</p>
+<p>The two JVM backends follow the same structural pipeline:</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>IRModule → PhiElimination → Linearizer → FunctionEmitter (+ SlotAllocator)
 </code></pre></div></div>
+
+<p>The LLVM backend maps the IR to LLVM IR instead (<code class="language-plaintext highlighter-rouge">LLVMModuleEmitter</code>), lets LLVM optimize it, and links the result with a C runtime.</p>
 
 <p>Individual backends:</p>
 
 <ul>
   <li><a href="/backends/asm/">ASM Backend</a> — the default, production backend</li>
   <li><a href="/backends/java-backend/">Java Backend</a> — a parallel implementation using the JDK ClassFile API</li>
-  <li><a href="/backends/llvm/">LLVM Backend</a> — a native backend using LLVM and a C runtime</li>
+  <li><a href="/backends/llvm/">LLVM Backend</a> — a native backend using LLVM and a C runtime (<a href="/backends/llvm/installation/">installation</a>, <a href="/backends/llvm/internals/">internals</a>, <a href="/backends/llvm/troubleshooting/">troubleshooting</a>)</li>
 </ul>
 
   </main>

@@ -27,9 +27,15 @@ Support classes in `backend/jvm/`:
 ## Key characteristics
 
 - Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23` (`MAXIMAL_VERSION`).
-- Uses `COMPUTE_MAXS`.
+- Uses `COMPUTE_MAXS | COMPUTE_FRAMES`. Every basic block starts with a prologue that gives all slots that are not live-in a default value, so ASM can compute consistent stack map frames.
 - Output is validated via `CheckClassAdapter`.
 - String concatenation is lowered to `invokedynamic` with `StringConcatFactory.makeConcatWithConstants` (modern javac-equivalent).
+- Lambdas become `invokedynamic` with `LambdaMetafactory.metafactory`, in any context (argument, variable, field, return value).
+- **Nestmates** (Java 11+): nested classes from one source file get `NestHost`/`NestMembers` attributes, so they can access each other's private members; a private method of another class is called with `invokevirtual`.
+- Calls on interfaces (`invokestatic`/`invokespecial` of static, private and default interface methods) use an `InterfaceMethodref`. The backend knows the interfaces of the current compilation and of the JDK.
+- A call to a method declared in a non-public JDK class (for example `StringBuilder.setLength`, declared in `AbstractStringBuilder`) uses the receiver's type as owner (JLS 13.1).
+- Annotation types get `ACC_ANNOTATION` and the `java.lang.annotation.Annotation` superinterface; element defaults are written as `AnnotationDefault`. Runtime-visible annotations are therefore readable through reflection.
+- Primitive class literals (`int.class`) are loaded from the wrapper's `TYPE` field.
 
 ## Registration
 

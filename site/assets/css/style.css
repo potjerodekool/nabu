@@ -73,6 +73,11 @@ a:hover {
   font-weight: 500;
 }
 
+.sidebar li.nav-sub a {
+  padding-left: 40px;
+  font-size: 0.85rem;
+}
+
 .sidebar li.nav-section {
   padding: 16px 24px 6px;
   font-size: 0.75rem;

@@ -5,6 +5,7 @@ baseurl: ""
 
 markdown: kramdown
 highlighter: rouge
+permalink: pretty
 
 kramdown:
   input: GFM

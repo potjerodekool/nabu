@@ -26,6 +26,11 @@
     <li><a href="/backends/asm/" >ASM Backend</a></li>
     <li><a href="/backends/java-backend/" >Java Backend</a></li>
     <li><a href="/backends/llvm/" >LLVM Backend</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/installation/" >Installation</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/internals/" >Internals</a></li>
+    <li class="nav-sub"><a href="/backends/llvm/troubleshooting/" >Troubleshooting</a></li>
+    <li class="nav-section">Examples</li>
+    <li><a href="/examples/picocli-demo/" >picocli CLI app</a></li>
     <li class="nav-section">Extending the Compiler</li>
     <li><a href="/plugins/" >Plugin System</a></li>
     <li><a href="/plugins/adding-language/" >Adding a Language</a></li>
@@ -36,6 +41,7 @@
     <li><a href="/annotation-processing/" >Annotation Processing</a></li>
     <li><a href="/maven-plugin/" >Maven Plugin</a></li>
     <li><a href="/testing/" >Testing</a></li>
+    <li><a href="/limitations/" >Known Limitations</a></li>
   </ul>
 </nav>
 
@@ -99,7 +105,7 @@
 
 <h3 id="ir-generation">IR generation</h3>
 
-<p>The <code class="language-plaintext highlighter-rouge">IrGeneratingVisitor</code> builds an intermediate representation from the lowered AST. The <code class="language-plaintext highlighter-rouge">ir</code> package contains:</p>
+<p>The <code class="language-plaintext highlighter-rouge">IrGeneratingVisitor</code> builds an intermediate representation from the lowered AST. The IR lives in the <code class="language-plaintext highlighter-rouge">compiler-api</code> module (<code class="language-plaintext highlighter-rouge">io.github.potjerodekool.nabu.backend.ir</code>) and contains:</p>
 
 <ul>
   <li><strong><code class="language-plaintext highlighter-rouge">IRModule</code></strong> — flags, name, super type, interfaces, sealed classes, fields, functions, globals</li>
@@ -123,6 +129,10 @@
 
 <p>The IR is <strong>backend-agnostic</strong> — all backends consume the same <code class="language-plaintext highlighter-rouge">IRModule</code>, which is the key to the “write a language once, target multiple backends” design.</p>
 
+<h3 id="bytecode-compilation-llvm-backend-only">Bytecode compilation (LLVM backend only)</h3>
+
+<p>With <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>, the <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> (<code class="language-plaintext highlighter-rouge">compiler/…/backend/bytecode</code>) adds a second source of IR: it reads JDK class files with ASM, follows every method reachable from the program and the seed classes, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See <a href="/backends/llvm/internals/#compiling-the-jdk-from-bytecode">LLVM backend internals</a>.</p>
+
 <h3 id="bytecode-emission">Bytecode emission</h3>
 
 <p>The IR module is handed to a registered <code class="language-plaintext highlighter-rouge">Backend</code> which emits class files. See the <a href="/backends/">Backends</a> section for the details of each backend.</p>
@@ -144,11 +154,15 @@
   <tbody>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">compiler-api</code></td>
-      <td>Public API/SPI layer (AST, type system, tools, language SPI, element model, resolve SPI, transform SPI)</td>
+      <td>Public API/SPI layer (AST, type system, tools, language SPI, element model, resolve SPI, transform SPI) and the IR: IR generation, SSA and optimization</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">compiler</code></td>
-      <td>Core compiler: parse, enter, resolve, transform, check, lower, IR, ASM backend</td>
+      <td>Core compiler: parse (incl. Java), enter, resolve, transform, check, lower, ASM backend, JDK bytecode lowering</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">compiler-test</code></td>
+      <td>End-to-end tests that compile and run <code class="language-plaintext highlighter-rouge">.nabu</code> programs</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">nabu-lang</code></td>
@@ -160,7 +174,7 @@
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">native-backend</code></td>
-      <td>Experimental LLVM-based native backend</td>
+      <td>Experimental LLVM-based native backend (the C runtime is in <code class="language-plaintext highlighter-rouge">runtime/</code>)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">maven-plugin</code></td>

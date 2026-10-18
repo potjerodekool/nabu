@@ -527,7 +527,7 @@ public class InstructionEmitter {
      *
      * <p>De backend kent de instancevelden van niet-gecompileerde klassen
      * niet — veldtoegang loopt volledig via de runtime ({@code
-     * java.util.List_size(self)} enz.), die de bijbehorende C-struct dan
+     * java.lang.reflect.Field_getName(self)} enz.), die de bijbehorende C-struct dan
      * ook zelf moet onderbrengen. Die struct hangt aan het object via dit
      * slot; {@code nabu_init_object} zet het leeg. Grootte niet aanpassen
      * zonder {@code runtime/nabu_runtime.h} en {@code runtime/jcl_lite.c}

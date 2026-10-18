@@ -31,30 +31,18 @@
 #define BIND(ret, cname, sym, params) ret cname params __asm__(sym); ret cname params
 
 enum {
-    K_STR = 1, K_SB, K_BOX, K_LIST, K_SET, K_MAP, K_VIEW, K_ITER,
-    K_ENTRY, K_FIELD, K_ANN, K_THROW, K_READER, K_FILE, K_STREAM, K_SW,
-    K_CLASSOBJ, K_ENUM, K_CTOR, K_OTHER
+    K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_FILE, K_CLASSOBJ, K_CTOR
 };
 
 enum { B_I32, B_I64, B_BOOL, B_F64, B_F32, B_I16, B_I8, B_CHAR };
 
 typedef struct { int kind; char *v; } s_str;
 typedef struct { int kind; int t; union { int32_t i; int64_t j; double d; float f; int16_t c; } v; } s_box;
-typedef struct { int kind; char *buf; int32_t len, cap; } s_sb;
-typedef struct { int kind; void **it; int32_t size, cap; } s_list;
-typedef struct { int kind; void *src; void **items; int32_t size, idx; } s_iter;
-typedef struct { int kind; void *k, *v; } s_ent;
 typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
-typedef struct { int kind; void **it; int32_t size, cap; } s_set;
 typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
-typedef struct { int kind; FILE *f; char *buf; int32_t len, pos; int eof; } s_reader;
 typedef struct { int kind; char *path; } s_file;
-typedef struct { int kind; FILE *f; } s_stream;
-typedef struct { int kind; char *buf; int32_t len, cap; } s_sw;
-typedef struct { int kind; const char *nm; int32_t ord; } s_enum;
-typedef struct { int kind; int32_t v; } s_atomic;
 
 static void *jcl_alloc(size_t n) {
     void *p = JCL_MEM(n);
@@ -480,11 +468,6 @@ static int ann_bool(const void *ann, const char *name, int dflt) {
 
 
 
-static void jcl_nyi(const char *sym) {
-    fprintf(stderr, "[nabu-jcl] not implemented: %s\n", sym);
-    fflush(stderr);
-    abort();
-}
 
 static void *jcl_throw(const char *cls, const char *super, const char *msg) {
     s_throw *st = (s_throw *)jcl_alloc(sizeof(s_throw));
@@ -914,10 +897,6 @@ BIND(void *, jcl_java_io_File_getAbsolutePath_jstr, "java.io.File_getAbsolutePat
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 
-BIND(void, jcl_java_io_Closeable_close, "java.io.Closeable_close", (void *self)) {
-    s_reader *r = (s_reader *)jcl_state_kind(self, K_READER);
-    if (r != NULL && r->f != NULL) { fclose(r->f); r->f = NULL; }
-}
 
 BIND(int, jcl_java_lang_Thread_isAlive, "java.lang.Thread_isAlive", (void *self)) { (void)self; return 0; }
 BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
@@ -940,28 +919,6 @@ static void *jcl_new_obj(const char *type, void *state) {
     return obj;
 }
 
-static s_list *jcl_list_of(void *self) {
-    s_list *l = (s_list *)jcl_state_kind(self, K_LIST);
-    if (l == NULL) {
-        l = (s_list *)jcl_alloc(sizeof(s_list));
-        l->kind = K_LIST;
-        l->cap = 8;
-        l->it = (void **)jcl_alloc(sizeof(void *) * 8);
-        if (self != NULL && nabu_jcl_is_object(self)) nabu_jcl_set_state(self, l);
-    }
-    return l;
-}
-static s_set *jcl_set_of(void *self) {
-    s_set *s = (s_set *)jcl_state_kind(self, K_SET);
-    if (s == NULL) {
-        s = (s_set *)jcl_alloc(sizeof(s_set));
-        s->kind = K_SET;
-        s->cap = 8;
-        s->it = (void **)jcl_alloc(sizeof(void *) * 8);
-        if (self != NULL && nabu_jcl_is_object(self)) nabu_jcl_set_state(self, s);
-    }
-    return s;
-}
 static s_map *jcl_map_of(void *self) {
     s_map *m = (s_map *)jcl_state_kind(self, K_MAP);
     if (m == NULL) {
@@ -973,38 +930,6 @@ static s_map *jcl_map_of(void *self) {
         if (self != NULL && nabu_jcl_is_object(self)) nabu_jcl_set_state(self, m);
     }
     return m;
-}
-static void jcl_list_add(s_list *l, void *v) {
-    if (l->size == l->cap) {
-        l->cap *= 2;
-        l->it = (void **)JCL_REALLOC(l->it, sizeof(void *) * (size_t)l->cap);
-    }
-    l->it[l->size++] = v;
-}
-static void jcl_list_ins(s_list *l, int32_t i, void *v) {
-    if (i < 0) i = 0;
-    if (i > l->size) i = l->size;
-    jcl_list_add(l, NULL);
-    memmove(&l->it[i + 1], &l->it[i], sizeof(void *) * (size_t)(l->size - i - 1));
-    l->it[i] = v;
-}
-static int jcl_list_idx(s_list *l, void *v) {
-    for (int32_t i = 0; i < l->size; i++) if (jcl_eq(l->it[i], v)) return (int)i;
-    return -1;
-}
-static void jcl_list_rem(s_list *l, int32_t i) {
-    if (i < 0 || i >= l->size) return;
-    memmove(&l->it[i], &l->it[i + 1], sizeof(void *) * (size_t)(l->size - i - 1));
-    l->size--;
-}
-static int jcl_set_add(s_set *s, void *v) {
-    for (int32_t i = 0; i < s->size; i++) if (jcl_eq(s->it[i], v)) return 0;
-    if (s->size == s->cap) {
-        s->cap *= 2;
-        s->it = (void **)JCL_REALLOC(s->it, sizeof(void *) * (size_t)s->cap);
-    }
-    s->it[s->size++] = v;
-    return 1;
 }
 static void jcl_map_put(void *map, void *k, void *v) {
     s_map *m = jcl_map_of(map);
@@ -1026,358 +951,14 @@ static void *jcl_map_get(void *map, void *k) {
     for (int32_t i = 0; i < m->size; i++) if (jcl_eq(m->ks[i], k)) return m->vs[i];
     return NULL;
 }
-static void jcl_map_rem(void *map, void *k) {
-    s_map *m = (s_map *)jcl_state_kind(map, K_MAP);
-    if (m == NULL) return;
-    for (int32_t i = 0; i < m->size; i++) {
-        if (jcl_eq(m->ks[i], k)) {
-            memmove(&m->ks[i], &m->ks[i + 1], sizeof(void *) * (size_t)(m->size - i - 1));
-            memmove(&m->vs[i], &m->vs[i + 1], sizeof(void *) * (size_t)(m->size - i - 1));
-            m->size--;
-            return;
-        }
-    }
-}
-static void *jcl_iter_obj(void **items, int32_t n) {
-    s_iter *it = (s_iter *)jcl_alloc(sizeof(s_iter));
-    it->kind = K_ITER;
-    it->items = items;
-    it->size = n;
-    it->idx = 0;
-    return jcl_new_obj("java/util/Iterator", it);
-}
-
-BIND(int, jcl_java_util_List_add, "java.util.List_add", (void *self, void *v)) { jcl_list_add(jcl_list_of(self), v); return 1; }
-BIND(void, jcl_java_util_List_add_PI32P5f790d9c, "java.util.List_add$PI32P5f790d9c", (void *self, int32_t i, void *v)) { jcl_list_ins(jcl_list_of(self), i, v); }
-BIND(int, jcl_java_util_List_addAll, "java.util.List_addAll", (void *self, void *coll)) {
-    s_list *l = jcl_list_of(self);
-    s_list *c = NULL;
-    if (coll != NULL && nabu_jcl_is_object(coll)) {
-        c = (s_list *)jcl_state_kind(coll, K_LIST);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_VIEW);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_SET);
-    }
-    if (c == NULL) return 0;
-    for (int32_t i = 0; i < c->size; i++) jcl_list_add(l, c->it[i]);
-    return 1;
-}
-BIND(void, jcl_java_util_List_clear, "java.util.List_clear", (void *self)) { jcl_list_of(self)->size = 0; }
-BIND(int, jcl_java_util_List_contains, "java.util.List_contains", (void *self, void *v)) { return jcl_list_idx(jcl_list_of(self), v) >= 0; }
-BIND(int, jcl_java_util_List_equals, "java.util.List_equals", (void *self, void *o)) {
-    s_list *a = jcl_list_of(self);
-    s_list *b = (o != NULL && nabu_jcl_is_object(o)) ? (s_list *)jcl_state_kind(o, K_LIST) : NULL;
-    if (b == NULL) return self == o;
-    if (a->size != b->size) return 0;
-    for (int32_t i = 0; i < a->size; i++) if (!jcl_eq(a->it[i], b->it[i])) return 0;
-    return 1;
-}
-BIND(void *, jcl_java_util_List_get, "java.util.List_get", (void *self, int32_t i)) {
-    s_list *l = jcl_list_of(self);
-    if (i < 0 || i >= l->size) { jcl_throw("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException", "get"); return NULL; }
-    return l->it[i];
-}
-BIND(int32_t, jcl_java_util_List_hashCode, "java.util.List_hashCode", (void *self)) {
-    s_list *l = jcl_list_of(self);
-    int32_t h = 1;
-    for (int32_t i = 0; i < l->size; i++) h = 31 * h + jcl_hash(l->it[i]);
-    return h;
-}
-BIND(int32_t, jcl_java_util_List_indexOf, "java.util.List_indexOf", (void *self, void *v)) { return jcl_list_idx(jcl_list_of(self), v); }
-BIND(int, jcl_java_util_List_isEmpty, "java.util.List_isEmpty", (void *self)) { return jcl_list_of(self)->size == 0; }
-BIND(void *, jcl_java_util_List_iterator, "java.util.List_iterator", (void *self)) {
-    s_list *l = jcl_list_of(self);
-    return jcl_iter_obj(l->it, l->size);
-}
-BIND(int, jcl_java_util_List_remove, "java.util.List_remove", (void *self, void *v)) {
-    s_list *l = jcl_list_of(self);
-    int i = jcl_list_idx(l, v);
-    if (i < 0) return 0;
-    jcl_list_rem(l, i);
-    return 1;
-}
-BIND(void *, jcl_java_util_List_remove_PI32, "java.util.List_remove$PI32", (void *self, int32_t i)) {
-    s_list *l = jcl_list_of(self);
-    if (i < 0 || i >= l->size) return NULL;
-    void *v = l->it[i];
-    jcl_list_rem(l, i);
-    return v;
-}
-BIND(int, jcl_java_util_List_removeAll, "java.util.List_removeAll", (void *self, void *coll)) {
-    s_list *l = jcl_list_of(self);
-    s_list *c = NULL;
-    if (coll != NULL && nabu_jcl_is_object(coll)) {
-        c = (s_list *)jcl_state_kind(coll, K_LIST);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_VIEW);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_SET);
-    }
-    if (c == NULL) return 0;
-    int changed = 0;
-    for (int32_t i = 0; i < l->size; ) {
-        int hit = 0;
-        for (int32_t j = 0; j < c->size; j++) if (jcl_eq(l->it[i], c->it[j])) { hit = 1; break; }
-        if (hit) { jcl_list_rem(l, i); changed = 1; } else i++;
-    }
-    return changed;
-}
-BIND(int32_t, jcl_java_util_List_size, "java.util.List_size", (void *self)) { return jcl_list_of(self)->size; }
-BIND(void *, jcl_java_util_List_subList, "java.util.List_subList", (void *self, int32_t from, int32_t to)) {
-    s_list *l = jcl_list_of(self);
-    s_list *v = (s_list *)jcl_alloc(sizeof(s_list));
-    v->kind = K_VIEW;
-    v->cap = 8;
-    v->it = (void **)jcl_alloc(sizeof(void *) * 8);
-    v->size = 0;
-    if (from < 0) from = 0;
-    if (to > l->size) to = l->size;
-    for (int32_t i = from; i < to; i++) jcl_list_add(v, l->it[i]);
-    return jcl_new_obj("java/util/ArrayList", v);
-}
-BIND(void *, jcl_java_util_List_toArray, "java.util.List_toArray", (void *self, void *a)) {
-    s_list *l = jcl_list_of(self);
-    (void)a;
-    void *out = jcl_arr_ref(l->size);
-    for (int32_t i = 0; i < l->size; i++) jcl_arr_set(out, i, l->it[i]);
-    return out;
-}
-BIND(int, jcl_java_util_Collection_add, "java.util.Collection_add", (void *self, void *v)) {
-    void *st = nabu_jcl_is_object(self) ? nabu_jcl_state(self) : NULL;
-    if (st == NULL) return 0;
-    int k = *(int *)st;
-    if (k == K_SET) return jcl_set_add((s_set *)st, v);
-    jcl_list_add((s_list *)st, v);
-    return 1;
-}
-BIND(int, jcl_java_util_Collection_addAll, "java.util.Collection_addAll", (void *self, void *coll)) { return jcl_java_util_List_addAll(self, coll); }
-BIND(int, jcl_java_util_Collection_isEmpty, "java.util.Collection_isEmpty", (void *self)) {
-    void *st = nabu_jcl_is_object(self) ? nabu_jcl_state(self) : NULL;
-    if (st == NULL) return 1;
-    int k = *(int *)st;
-    if (k == K_SET) return ((s_set *)st)->size == 0;
-    if (k == K_MAP) return ((s_map *)st)->size == 0;
-    if (k == K_LIST || k == K_VIEW) return ((s_list *)st)->size == 0;
-    return 1;
-}
-BIND(void *, jcl_java_util_Collection_iterator, "java.util.Collection_iterator", (void *self)) {
-    void *st = nabu_jcl_is_object(self) ? nabu_jcl_state(self) : NULL;
-    if (st == NULL) return jcl_iter_obj(NULL, 0);
-    int k = *(int *)st;
-    if (k == K_SET) { s_set *s = (s_set *)st; return jcl_iter_obj(s->it, s->size); }
-    if (k == K_MAP) { s_map *m = (s_map *)st; return jcl_iter_obj(m->ks, m->size); }
-    s_list *l = (s_list *)st;
-    return jcl_iter_obj(l->it, l->size);
-}
-BIND(int, jcl_java_util_Collection_remove, "java.util.Collection_remove", (void *self, void *v)) {
-    void *st = nabu_jcl_is_object(self) ? nabu_jcl_state(self) : NULL;
-    if (st == NULL) return 0;
-    int k = *(int *)st;
-    if (k == K_SET) {
-        s_set *s = (s_set *)st;
-        for (int32_t i = 0; i < s->size; i++) if (jcl_eq(s->it[i], v)) {
-            memmove(&s->it[i], &s->it[i + 1], sizeof(void *) * (size_t)(s->size - i - 1));
-            s->size--;
-            return 1;
-        }
-        return 0;
-    }
-    return jcl_java_util_List_remove(self, v);
-}
-BIND(int, jcl_java_util_Iterator_hasNext, "java.util.Iterator_hasNext", (void *self)) {
-    s_iter *it = (s_iter *)jcl_state_kind(self, K_ITER);
-    if (it == NULL) {
-        s_list *l = jcl_state_kind(self, K_LIST);
-        if (l == NULL) l = jcl_state_kind(self, K_VIEW);
-        if (l != NULL) return l->size > 0;
-        return 0;
-    }
-    return it->idx < it->size;
-}
-BIND(void *, jcl_java_util_Iterator_next, "java.util.Iterator_next", (void *self)) {
-    s_iter *it = (s_iter *)jcl_state_kind(self, K_ITER);
-    if (it != NULL) {
-        if (it->idx >= it->size) { jcl_throw("java/util/NoSuchElementException", "java/lang/RuntimeException", "next"); return NULL; }
-        return it->items[it->idx++];
-    }
-    s_list *l = (s_list *)jcl_state_kind(self, K_LIST);
-    if (l != NULL && l->size > 0) return l->it[--l->size];
-    return NULL;
-}
-
-static void * jcl_java_util_HashMap_put (void *self, void *k, void *v) {
-    void *old = jcl_map_get(self, k);
-    jcl_map_put(self, k, v);
-    return old;
-}
-static void jcl_java_util_HashMap_putAll (void *self, void *m) {
-    if (m != NULL && nabu_jcl_is_object(m)) {
-        s_map *src = (s_map *)jcl_state_kind(m, K_MAP);
-        if (src != NULL) for (int32_t i = 0; i < src->size; i++) jcl_map_put(self, src->ks[i], src->vs[i]);
-    }
-}
-static void * jcl_java_util_HashMap_remove (void *self, void *k) {
-    void *old = jcl_map_get(self, k);
-    jcl_map_rem(self, k);
-    return old;
-}
-static void *jcl_map_keys(void *self) {
-    s_map *m = jcl_map_of(self);
-    s_list *v = (s_list *)jcl_alloc(sizeof(s_list));
-    v->kind = K_VIEW;
-    v->cap = m->cap;
-    v->it = (void **)jcl_alloc(sizeof(void *) * (size_t)(m->cap > 0 ? m->cap : 8));
-    v->size = 0;
-    for (int32_t i = 0; i < m->size; i++) jcl_list_add(v, m->ks[i]);
-    return jcl_new_obj("java/util/ArrayList", v);
-}
-static void *jcl_map_vals(void *self) {
-    s_map *m = jcl_map_of(self);
-    s_list *v = (s_list *)jcl_alloc(sizeof(s_list));
-    v->kind = K_VIEW;
-    v->cap = m->cap;
-    v->it = (void **)jcl_alloc(sizeof(void *) * (size_t)(m->cap > 0 ? m->cap : 8));
-    v->size = 0;
-    for (int32_t i = 0; i < m->size; i++) jcl_list_add(v, m->vs[i]);
-    return jcl_new_obj("java/util/ArrayList", v);
-}
-static void *jcl_map_entries(void *self) {
-    s_map *m = jcl_map_of(self);
-    void *arr = jcl_arr_ref(m->size);
-    for (int32_t i = 0; i < m->size; i++) {
-        s_ent *e = (s_ent *)jcl_alloc(sizeof(s_ent));
-        e->kind = K_ENTRY;
-        e->k = m->ks[i];
-        e->v = m->vs[i];
-        jcl_arr_set(arr, i, jcl_new_obj("java/util/Map$Entry", e));
-    }
-    s_list *v = (s_list *)jcl_alloc(sizeof(s_list));
-    v->kind = K_VIEW;
-    v->cap = m->size > 0 ? m->size : 8;
-    v->it = (void **)jcl_alloc(sizeof(void *) * (size_t)v->cap);
-    v->size = 0;
-    for (int32_t i = 0; i < m->size; i++) jcl_list_add(v, jcl_arr_elem(arr, i));
-    return jcl_new_obj("java/util/ArrayList", v);
-}
-BIND(void *, jcl_java_util_Map_Entry_getKey, "java.util.Map$Entry_getKey", (void *self)) {
-    s_ent *e = (s_ent *)jcl_state_kind(self, K_ENTRY);
-    return e != NULL ? e->k : NULL;
-}
-BIND(void *, jcl_java_util_Map_Entry_getValue, "java.util.Map$Entry_getValue", (void *self)) {
-    s_ent *e = (s_ent *)jcl_state_kind(self, K_ENTRY);
-    return e != NULL ? e->v : NULL;
-}
-BIND(void, jcl_java_util_Map_clear, "java.util.Map_clear", (void *self)) { jcl_map_of(self)->size = 0; }
-BIND(int, jcl_java_util_Map_containsKey, "java.util.Map_containsKey", (void *self, void *k)) { return jcl_map_get(self, k) != NULL; }
-BIND(void *, jcl_java_util_Map_entrySet, "java.util.Map_entrySet", (void *self)) { return jcl_map_entries(self); }
-BIND(int, jcl_java_util_Map_equals, "java.util.Map_equals", (void *self, void *o)) {
-    s_map *a = (s_map *)jcl_state_kind(self, K_MAP);
-    s_map *b = (o != NULL && nabu_jcl_is_object(o)) ? (s_map *)jcl_state_kind(o, K_MAP) : NULL;
-    if (a == NULL || b == NULL) return self == o;
-    if (a->size != b->size) return 0;
-    for (int32_t i = 0; i < a->size; i++) {
-        void *v = jcl_map_get(o, a->ks[i]);
-        if (v == NULL || !jcl_eq(v, a->vs[i])) return 0;
-    }
-    return 1;
-}
-BIND(void *, jcl_java_util_Map_get, "java.util.Map_get", (void *self, void *k)) { return jcl_map_get(self, k); }
-BIND(int32_t, jcl_java_util_Map_hashCode, "java.util.Map_hashCode", (void *self)) {
-    s_map *m = (s_map *)jcl_state_kind(self, K_MAP);
-    int32_t h = 0;
-    if (m != NULL) for (int32_t i = 0; i < m->size; i++) h += jcl_hash(m->ks[i]) ^ jcl_hash(m->vs[i]);
-    return h;
-}
-BIND(int, jcl_java_util_Map_isEmpty, "java.util.Map_isEmpty", (void *self)) {
-    s_map *m = (s_map *)jcl_state_kind(self, K_MAP);
-    return m == NULL || m->size == 0;
-}
-BIND(void *, jcl_java_util_Map_keySet, "java.util.Map_keySet", (void *self)) { return jcl_map_keys(self); }
-BIND(void *, jcl_java_util_Map_put, "java.util.Map_put", (void *self, void *k, void *v)) { return jcl_java_util_HashMap_put(self, k, v); }
-BIND(void, jcl_java_util_Map_putAll, "java.util.Map_putAll", (void *self, void *m)) { jcl_java_util_HashMap_putAll(self, m); }
-BIND(void *, jcl_java_util_Map_remove, "java.util.Map_remove", (void *self, void *k)) { return jcl_java_util_HashMap_remove(self, k); }
-BIND(int32_t, jcl_java_util_Map_size, "java.util.Map_size", (void *self)) {
-    s_map *m = (s_map *)jcl_state_kind(self, K_MAP);
-    return m != NULL ? m->size : 0;
-}
-BIND(void *, jcl_java_util_Map_values, "java.util.Map_values", (void *self)) { return jcl_map_vals(self); }
-
-BIND(int, jcl_java_util_Set_add, "java.util.Set_add", (void *self, void *v)) { return jcl_set_add(jcl_set_of(self), v); }
-BIND(int, jcl_java_util_Set_addAll, "java.util.Set_addAll", (void *self, void *coll)) {
-    s_set *s = jcl_set_of(self);
-    s_list *c = NULL;
-    if (coll != NULL && nabu_jcl_is_object(coll)) {
-        c = (s_list *)jcl_state_kind(coll, K_LIST);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_VIEW);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_SET);
-    }
-    if (c == NULL) return 0;
-    int changed = 0;
-    for (int32_t i = 0; i < c->size; i++) changed |= jcl_set_add(s, c->it[i]);
-    return changed;
-}
-BIND(int, jcl_java_util_Set_contains, "java.util.Set_contains", (void *self, void *v)) {
-    s_set *s = jcl_set_of(self);
-    for (int32_t i = 0; i < s->size; i++) if (jcl_eq(s->it[i], v)) return 1;
-    return 0;
-}
-BIND(int, jcl_java_util_Set_isEmpty, "java.util.Set_isEmpty", (void *self)) { return jcl_set_of(self)->size == 0; }
-BIND(void *, jcl_java_util_Set_iterator, "java.util.Set_iterator", (void *self)) {
-    s_set *s = jcl_set_of(self);
-    return jcl_iter_obj(s->it, s->size);
-}
-BIND(int, jcl_java_util_Set_removeAll, "java.util.Set_removeAll", (void *self, void *coll)) {
-    s_set *s = jcl_set_of(self);
-    s_list *c = NULL;
-    if (coll != NULL && nabu_jcl_is_object(coll)) {
-        c = (s_list *)jcl_state_kind(coll, K_LIST);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_VIEW);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_SET);
-    }
-    if (c == NULL) return 0;
-    int changed = 0;
-    for (int32_t j = 0; j < c->size; j++) {
-        for (int32_t i = 0; i < s->size; i++) if (jcl_eq(s->it[i], c->it[j])) {
-            memmove(&s->it[i], &s->it[i + 1], sizeof(void *) * (size_t)(s->size - i - 1));
-            s->size--;
-            changed = 1;
-            break;
-        }
-    }
-    return changed;
-}
-BIND(int, jcl_java_util_Set_retainAll, "java.util.Set_retainAll", (void *self, void *coll)) {
-    s_set *s = jcl_set_of(self);
-    s_list *c = NULL;
-    if (coll != NULL && nabu_jcl_is_object(coll)) {
-        c = (s_list *)jcl_state_kind(coll, K_LIST);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_VIEW);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_SET);
-    }
-    if (c == NULL) return 0;
-    int changed = 0;
-    for (int32_t i = 0; i < s->size; ) {
-        int keep = 0;
-        for (int32_t j = 0; j < c->size; j++) if (jcl_eq(s->it[i], c->it[j])) { keep = 1; break; }
-        if (!keep) { memmove(&s->it[i], &s->it[i + 1], sizeof(void *) * (size_t)(s->size - i - 1)); s->size--; changed = 1; } else i++;
-    }
-    return changed;
-}
-BIND(int32_t, jcl_java_util_Set_size, "java.util.Set_size", (void *self)) { return jcl_set_of(self)->size; }
-BIND(void *, jcl_java_util_Set_toArray, "java.util.Set_toArray", (void *self, void *a)) {
-    (void)a;
-    s_set *s = jcl_set_of(self);
-    void *out = jcl_arr_ref(s->size);
-    for (int32_t i = 0; i < s->size; i++) jcl_arr_set(out, i, s->it[i]);
-    return out;
-}
 
 
 
-BIND(int, jcl_java_util_Queue_add, "java.util.Queue_add", (void *self, void *v)) { jcl_list_add(jcl_list_of(self), v); return 1; }
-BIND(int, jcl_java_util_Enumeration_hasMoreElements, "java.util.Enumeration_hasMoreElements", (void *self)) { return jcl_java_util_Iterator_hasNext(self); }
-BIND(void *, jcl_java_util_Enumeration_nextElement, "java.util.Enumeration_nextElement", (void *self)) { return jcl_java_util_Iterator_next(self); }
 
 
-BIND(void *, jcl_java_util_SortedMap_values, "java.util.SortedMap_values", (void *self)) { return jcl_map_vals(self); }
-BIND(void *, jcl_java_lang_Iterable_iterator, "java.lang.Iterable_iterator", (void *self)) { return jcl_java_util_Collection_iterator(self); }
+
+
+
 
 static const char *jcl_desc_name(const char *desc) {
     if (desc == NULL) return "";
@@ -1628,24 +1209,6 @@ BIND(void *, jcl_java_lang_Class_getEnumConstants, "java.lang.Class_getEnumConst
 BIND(void *, jcl_java_lang_Class_getEnumConstantsShared, "java.lang.Class_getEnumConstantsShared", (void *self)) {
     return jcl_java_lang_Class_getEnumConstants(self);
 }
-BIND(void *, jcl_java_lang_Class_enumConstantDirectory, "java.lang.Class_enumConstantDirectory", (void *self)) {
-    const nabu_enum_entry *e = jcl_enum_entry(self);
-    void *map = jcl_new_obj("java/util/HashMap", NULL);
-    jcl_map_of(map);
-    if (e == NULL) {
-        nabu_throw(jcl_throw("java/lang/IllegalArgumentException", "java/lang/RuntimeException",
-                jcl_concat(jcl_str(self), " is not an enum class")));
-        return map;
-    }
-    void *constants = e->values();
-    int32_t n = jcl_arr_len(constants);
-    for (int32_t i = 0; i < n; i++) {
-        void *c = ((void **)((char *)constants + 8))[i];
-        intptr_t off = nabu_instance_field_offset(c, "name");
-        if (c != NULL && off >= 0) jcl_map_put(map, *(void **)((char *)c + off), c);
-    }
-    return map;
-}
 BIND(void *, jcl_java_lang_Class_getField, "java.lang.Class_getField", (void *self, void *nm)) {
     const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(self));
     if (ri == NULL) return NULL;
@@ -1739,7 +1302,6 @@ BIND(void *, jcl_java_lang_Annotation_annotationType, "java.lang.annotation.Anno
     }
     return jcl_class("");
 }
-BIND(void, jcl_java_lang_Runnable_run, "java.lang.Runnable_run", (void *self)) { (void)self; }
 
 BIND(void *, jcl_java_lang_reflect_AccessibleObject_getAnnotation, "java.lang.reflect.AccessibleObject_getAnnotation", (void *self, void *ann)) {
     s_field *f = jcl_field_of(self);
@@ -1885,16 +1447,8 @@ BIND(void *, jcl_java_lang_reflect_WildcardType_getUpperBounds, "java.lang.refle
 BIND(void *, jcl_java_lang_reflect_GenericArrayType_getGenericComponentType, "java.lang.reflect.GenericArrayType_getGenericComponentType", (void *self)) { (void)self; return jcl_class(""); }
 
 BIND(void *, jcl_java_lang_reflect_Method_getAnnotation, "java.lang.reflect.Method_getAnnotation", (void *self, void *ann)) { (void)self; (void)ann; return NULL; }
-BIND(void *, jcl_java_util_List_set, "java.util.List_set", (void *self, int32_t i, void *v)) {
-    s_list *l = jcl_list_of(self);
-    if (i < 0 || i >= l->size) return NULL;
-    void *old = l->it[i];
-    l->it[i] = v;
-    return old;
-}
 
 
-BIND(void *, jcl_java_util_concurrent_Callable_call, "java.util.concurrent.Callable_call", (void *self)) { (void)self; jcl_nyi("java.util.concurrent.Callable_call"); return NULL; }
 
 
 /* ==SECTIE== */

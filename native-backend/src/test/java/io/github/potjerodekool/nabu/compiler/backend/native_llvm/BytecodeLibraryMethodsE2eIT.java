@@ -22,7 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * {@code LineNumberReader} aborted because {@code BufferedReader} was provided
  * by the runtime (whose {@code readLine} always returned null), and
  * {@code getTargetException} returned the exception itself.
- * {@code printStackTrace} now also prints the cause.
+ * {@code printStackTrace} now also prints the cause. {@code Enum.valueOf}
+ * no longer goes through a C map ({@code Class.enumConstantDirectory}).
  */
 class BytecodeLibraryMethodsE2eIT {
 
@@ -56,6 +57,15 @@ class BytecodeLibraryMethodsE2eIT {
                         java.io.StringWriter w = new java.io.StringWriter();
                         new RuntimeException("outer", cause).printStackTrace(new java.io.PrintWriter(w));
                         System.out.println(w.toString().replace(System.lineSeparator(), "/"));
+                        java.util.concurrent.TimeUnit unit = java.util.concurrent.TimeUnit.valueOf("SECONDS");
+                        System.out.println(unit.name());
+                        Thread.State state = Thread.State.valueOf("BLOCKED");
+                        System.out.println(state.name());
+                        try {
+                            java.util.concurrent.TimeUnit.valueOf("WEEKS");
+                        } catch (IllegalArgumentException e) {
+                            System.out.println(e.getMessage());
+                        }
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -100,7 +110,8 @@ class BytecodeLibraryMethodsE2eIT {
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
         assertEquals("123e4567-e89b-12d3-a456-426614174000\nword\n42\nl1 l2 2\nx\ninner\nabcABCllo23\na|b|c\n2.5\n"
-                + "java.lang.RuntimeException: outer/Caused by: java.lang.IllegalStateException: inner/\n",
+                + "java.lang.RuntimeException: outer/Caused by: java.lang.IllegalStateException: inner/\n"
+                + "SECONDS\nBLOCKED\nNo enum constant java.util.concurrent.TimeUnit.WEEKS\n",
                 output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

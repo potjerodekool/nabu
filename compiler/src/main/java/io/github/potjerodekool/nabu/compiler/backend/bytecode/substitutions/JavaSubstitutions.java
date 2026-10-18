@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Substitutions written in Java (compare GraalVM's {@code @Substitute}): a
@@ -23,9 +24,9 @@ import java.util.Map;
  * references to the substitution class redirected to the JDK class, so a
  * substitution may call its own (equally substituted) methods.
  *
- * <p>The JDK class's {@code <clinit>} becomes empty: the substituted methods
- * exist because the original ones depend on what the initializer sets up
- * (typically {@code VarHandle}s, which do not exist in a native
+ * <p>For some classes the {@code <clinit>} becomes empty as well: their
+ * methods are substituted because they depend on what the initializer sets
+ * up (typically {@code VarHandle}s, which do not exist in a native
  * executable).</p>
  */
 public final class JavaSubstitutions {
@@ -33,7 +34,13 @@ public final class JavaSubstitutions {
     /** JDK class (internal name) → substitution class. */
     private static final Map<String, Class<?>> SUBSTITUTIONS = Map.of(
             "jdk/internal/util/ByteArray", ByteArraySubstitution.class,
-            "jdk/internal/util/ByteArrayLittleEndian", ByteArrayLittleEndianSubstitution.class);
+            "jdk/internal/util/ByteArrayLittleEndian", ByteArrayLittleEndianSubstitution.class,
+            "java/lang/Enum", EnumSubstitution.class);
+
+    /** JDK classes whose {@code <clinit>} is emptied. */
+    private static final Set<String> EMPTY_CLINIT = Set.of(
+            "jdk/internal/util/ByteArray",
+            "jdk/internal/util/ByteArrayLittleEndian");
 
     private JavaSubstitutions() {
     }
@@ -45,7 +52,7 @@ public final class JavaSubstitutions {
         }
         final ClassNode source = read(substitution);
         for (final MethodNode method : target.methods) {
-            if ("<clinit>".equals(method.name)) {
+            if ("<clinit>".equals(method.name) && EMPTY_CLINIT.contains(target.name)) {
                 final InsnList insns = new InsnList();
                 insns.add(new InsnNode(Opcodes.RETURN));
                 method.instructions = insns;

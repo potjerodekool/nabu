@@ -430,9 +430,10 @@ public void setReflectionRegistry(
     /**
      * Emitteert {@code nabu_enum_table} ({@code { i8* internalName, ptr values }}
      * per enum-klasse) en {@code nabu_enum_count}: daarmee implementeert de
-     * runtime Class.isEnum/getEnumConstants/enumConstantDirectory (Class is
-     * VM-gebonden) door de echte, gecompileerde {@code values()} aan te roepen.
-     * Enum.valueOf — o.a. picocli's TraceLevel en enum-opties — loopt daarlangs.
+     * runtime Class.isEnum/getEnumConstants (Class is VM-gebonden) door de
+     * echte, gecompileerde {@code values()} aan te roepen. Enum.valueOf — o.a.
+     * picocli's TraceLevel en enum-opties — loopt daarlangs (zie
+     * EnumSubstitution).
      */
     private void emitEnumTable(final List<IRModule> modules) {
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);

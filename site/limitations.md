@@ -35,4 +35,6 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 - **Static fields of classes outside the compiled closure** keep their default value (`0`/`null`); the build warns about each one.
 - **No stack traces.** Exceptions print their class and message when they reach the top of the program; set `NABU_TRACE_NPE=1` to locate `NullPointerException`s. See [Troubleshooting](/backends/llvm/troubleshooting/).
 - **Garbage collection:** only `--gc=BOEHM` (the default) is suitable for executables. `REFCOUNT` leaks every object that escapes its frame and does not collect cycles; `NONE` allocates objects on the stack, so they are invalid once the creating function returns.
-- Parts of the class library are still implemented in C (`runtime/jcl_lite.c`) instead of compiled from the JDK. Those parts can behave differently from the JDK in edge cases.
+- The VM-bound parts of the class library (`Class`, `System`, `Thread`, `Runtime`, reflection, `java.io.File`, `Unsafe`) are implemented in C (`runtime/jcl_lite.c`) instead of compiled from the JDK. They can behave differently from the JDK in edge cases.
+- **Arrays do not know their class.** `getClass().getName()` of an array is empty, and `Arrays.copyOf(T[], int)` and `Array.newInstance` create untyped arrays.
+- **Standard input** is not set up: `System.in` is `null`, so a program cannot read from the console.

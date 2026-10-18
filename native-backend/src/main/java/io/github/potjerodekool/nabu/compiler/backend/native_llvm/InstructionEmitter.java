@@ -951,6 +951,16 @@ public class InstructionEmitter {
                 && tryEmitInterfaceCall(call)) {
             return;
         }
+        // An invokevirtual of a method the class only inherits from an
+        // interface (`AbstractImmutableList.contains` calls `this.indexOf`,
+        // which only List declares): canonicalize maps it to the interface
+        // method, which has no vtable slot. Dispatch through the itable as for
+        // invokeinterface; a direct call went to the abstract declaration (a
+        // stub, or a jcl-lite C version for C collections).
+        if (call.callKind() == CallKind.VIRTUAL && classLayouts.ownedByInterface(call.function())
+                && tryEmitInterfaceCall(call)) {
+            return;
+        }
 
         LLVMValueRef fn = null;
         if (isConstructorCall(call)) {
@@ -1624,7 +1634,15 @@ public class InstructionEmitter {
         LLVMValueRef obj = resolveValue(receiver);
 
         int slot = -1;
-        ClassLayouts.ClassLayout layout = classLayouts.getFor(receiver.type());
+        // The interface that declares the method decides, not the receiver's
+        // IR type: that can be too specific or wrong (a parameter typed
+        // List<IExitCodeGenerator> carried the type argument's descriptor, so
+        // List.iterator looked like a call on IExitCodeGenerator, which has no
+        // implementers, and became a direct call to List_iterator).
+        ClassLayouts.ClassLayout layout = classLayouts.ownerLayout(call.function());
+        if (layout == null || !layout.isInterface) {
+            layout = classLayouts.getFor(receiver.type());
+        }
         if (layout != null) {
             if (layout.isInterface && !classLayouts.hasImplementers(layout.internalName)) {
                 // Geen enkele klasse in deze compilatie implementeert de

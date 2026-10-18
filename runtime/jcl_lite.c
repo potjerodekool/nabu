@@ -403,33 +403,9 @@ void *nabu_class_literal(const char *iname) {
     return jcl_class(iname);
 }
 
-static void *jcl_class_cstr(const char *dotted_or_slash) { return jcl_class(dotted_or_slash); }
 
-#define JCL_ENUM_CACHE_MAX 64
-static void *jcl_enum_cache[JCL_ENUM_CACHE_MAX];
-static int jcl_enum_n = 0;
 
-static void *jcl_enum(const char *type_iname, const char *nm) {
-    for (int i = 0; i < jcl_enum_n; i++) {
-        s_enum *e = (s_enum *)nabu_jcl_state(jcl_enum_cache[i]);
-        if (e != NULL && strcmp(e->nm, nm) == 0) {
-            nabu_object *h = (nabu_object *)jcl_enum_cache[i];
-            nabu_type_info *ti = (nabu_type_info *)h->type;
-            if (ti != NULL && ti->name != NULL && strcmp(ti->name, type_iname) == 0) return jcl_enum_cache[i];
-        }
-    }
-    s_enum *st = (s_enum *)jcl_alloc(sizeof(s_enum));
-    st->kind = K_ENUM;
-    st->nm = jcl_dup(nm);
-    st->ord = 0;
-    void *obj = jcl_alloc(48 + 8);
-    nabu_init_object_ex(obj, type_iname, "java/lang/Enum");
-    nabu_jcl_set_state(obj, st);
-    if (jcl_enum_n < JCL_ENUM_CACHE_MAX) jcl_enum_cache[jcl_enum_n++] = obj;
-    return obj;
-}
 
-static void *jcl_scope_local(void) { return jcl_enum("picocli/CommandLine$ScopeType", "LOCAL"); }
 
 /* Array-layout: i32 lengte op offset 0, i32 elementgrootte (bytes) op
  * offset 4, data op offset 8. De backend schrijft de elementgrootte bij elke
@@ -443,13 +419,6 @@ static void *jcl_arr_ref(int32_t n) {
     return p;
 }
 
-static void *jcl_arr_char(int32_t n) {
-    if (n < 0) n = 0;
-    void *p = jcl_alloc(8 + (size_t)n + 1);
-    ((int32_t *)p)[0] = n;
-    ((int32_t *)p)[1] = 1;
-    return p;
-}
 
 static int32_t jcl_arr_len(void *a) { return a != NULL ? *(int32_t *)a : 0; }
 
@@ -552,33 +521,8 @@ static int ann_bool(const void *ann, const char *name, int dflt) {
     return v->num_value != 0;
 }
 
-/* Een String[]-annotatiewaarde: de elementen zijn Java-strings. */
-static void *ann_strs(const void *ann, const char *name) {
-    const nabu_annotation_value *v = ann_v(ann, name);
-    if (v == NULL || v->text == NULL || v->text[0] == 0) return jcl_empty_strs();
-    void *arr = jcl_strs(v->text, 1);
-    int32_t n = jcl_arr_len(arr);
-    void **items = (void **)((char *)arr + 8);
-    for (int32_t i = 0; i < n; i++) items[i] = nabu_jstring_new(nabu_cstr(items[i]));
-    return arr;
-}
 
-static void *ann_classes(const void *ann, const char *name) {
-    const nabu_annotation_value *v = ann_v(ann, name);
-    if (v == NULL || v->text == NULL || v->text[0] == 0) return jcl_arr_ref(0);
-    return jcl_strs(v->text, 1);
-}
 
-/* Een Class[]-annotatiewaarde: elk element een Class-object. */
-static void *ann_class_array(const void *ann, const char *name) {
-    void *names = ann_classes(ann, name);
-    int32_t n = jcl_arr_len(names);
-    void *arr = jcl_arr_ref(n);
-    void **src = (void **)((char *)names + 8);
-    void **dst = (void **)((char *)arr + 8);
-    for (int32_t i = 0; i < n; i++) dst[i] = jcl_class(nabu_cstr(src[i]));
-    return arr;
-}
 
 static void jcl_nyi(const char *sym) {
     fprintf(stderr, "[nabu-jcl] not implemented: %s\n", sym);
@@ -767,18 +711,6 @@ static void * jcl_java_lang_String_toUpperCase (void *self, void *loc) {
     return (void *)o;
 }
 BIND(void *, jcl_java_lang_String_toUpperCase_1, "java.lang.String_toUpperCase$P", (void *self)) { return jcl_java_lang_String_toUpperCase(self, NULL); }
-static int jcl_glob_match(const char *pat, const char *s) {
-    if (*pat == 0) return *s == 0;
-    if (*pat == '*') {
-        while (*pat == '*') pat++;
-        if (*pat == 0) return 1;
-        for (; *s; s++) if (jcl_glob_match(pat, s)) return 1;
-        return 0;
-    }
-    if (*s == 0) return 0;
-    if (*pat == '.' || *pat == *s) return jcl_glob_match(pat + 1, s + 1);
-    return 0;
-}
 static void * jcl_java_lang_String_split (void *self, void *pat, int32_t limit) {
     const char *s = jcl_str(self), *p = jcl_str(pat);
     if (*p == 0) return jcl_arr_ref(0);
@@ -826,73 +758,15 @@ static void * jcl_java_lang_String_split (void *self, void *pat, int32_t limit) 
     return out;
 }
 BIND(void *, jcl_java_lang_String_split_2, "java.lang.String_split$PP523beb0a", (void *self, void *pat)) { return jcl_java_lang_String_split(self, pat, 0); }
-static int jcl_ieq(const char *a, const char *b) { for (; *a && *b; a++, b++) if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0; return *a == *b; }
 
-static char *jcl_fmt_apply(const char *fmt, void *args) {
-    int32_t argc = jcl_arr_len(args);
-    int ai = 0;
-    size_t cap = strlen(fmt) + 64;
-    char *o = (char *)jcl_alloc(cap);
-    size_t out = 0;
-    for (const char *p = fmt; *p; p++) {
-        if (*p != '%') {
-            while (out + 2 >= cap) { cap *= 2; o = (char *)JCL_REALLOC(o, cap); }
-            o[out++] = *p;
-            continue;
-        }
-        p++;
-        if (*p == 0) break;
-        if (*p == '%') { while (out + 2 >= cap) { cap *= 2; o = (char *)JCL_REALLOC(o, cap); } o[out++] = '%'; continue; }
-        if (*p == 'n') { while (out + 2 >= cap) { cap *= 2; o = (char *)JCL_REALLOC(o, cap); } o[out++] = '\n'; continue; }
-        char spec[32];
-        int si = 0;
-        spec[si++] = '%';
-        while (*p && !strchr("sdfcbxegSD", *p) && si < 30) spec[si++] = *p++;
-        if (*p == 0) { spec[si] = 0; break; }
-        spec[si++] = *p;
-        spec[si] = 0;
-        void *arg = ai < argc ? jcl_arr_elem(args, ai) : NULL;
-        ai++;
-        char tmp[128];
-        const char *conv = strrchr(spec, 's') ? "s" : strrchr(spec, 'd') ? "d" : strrchr(spec, 'f') ? "f"
-                : strrchr(spec, 'c') ? "c" : strrchr(spec, 'b') ? "b" : strrchr(spec, 'x') ? "x" : "g";
-        if (conv[0] == 's') snprintf(tmp, sizeof(tmp), spec, jcl_any(arg));
-        else if (conv[0] == 'd') snprintf(tmp, sizeof(tmp), spec, (int)box_as_i64(arg));
-        else if (conv[0] == 'x') snprintf(tmp, sizeof(tmp), spec, (unsigned)(int)box_as_i64(arg));
-        else if (conv[0] == 'c') snprintf(tmp, sizeof(tmp), spec, (int)(box_as_i64(arg) & 0xff));
-        else if (conv[0] == 'b') snprintf(tmp, sizeof(tmp), "%s", box_as_i64(arg) ? "true" : "false");
-        else snprintf(tmp, sizeof(tmp), spec, box_as_f64(arg));
-        size_t nt = strlen(tmp);
-        while (out + nt + 2 >= cap) { cap = cap * 2 + nt; o = (char *)JCL_REALLOC(o, cap); }
-        memcpy(o + out, tmp, nt);
-        out += nt;
-    }
-    o[out] = 0;
-    return o;
-}
 
 
 /* StringBuilder komt volledig uit JDK-bytecode. De vroegere C-varianten van
  * append/insert/<init> vervingen de gecompileerde bodies: hun tekst belandde
  * in een losse C-buffer (een gecompileerd object draagt geen jcl-state) en
  * toString() gaf "" (bv. LocaleData's "sun.text.resources" + ".FormatData"). */
-BIND(void, jcl_java_lang_String_init, "java_lang_String_init", (void *self, void *src)) {
-    if (self == NULL) return;
-    s_str *st = (s_str *)jcl_alloc(sizeof(s_str));
-    st->kind = K_STR;
-    st->v = jcl_dup(jcl_str(src));
-    nabu_jcl_set_state(self, st);
-}
 
-BIND(void *, jcl_java_lang_Boolean_valueOf_u, "java_lang_Boolean_valueOf", (int v)) { return box_bool(v); }
-BIND(void *, jcl_java_lang_Byte_valueOf_u, "java_lang_Byte_valueOf", (int8_t v)) { return jcl_box(B_I8, v, 0); }
-BIND(void *, jcl_java_lang_Short_valueOf_u, "java_lang_Short_valueOf", (int16_t v)) { return box_i16(v); }
-BIND(void *, jcl_java_lang_Integer_valueOf_u, "java_lang_Integer_valueOf", (int32_t v)) { return box_i32(v); }
-BIND(void *, jcl_java_lang_Long_valueOf_u, "java_lang_Long_valueOf", (int64_t v)) { return box_i64(v); }
 BIND(void *, jcl_java_lang_Double_valueOf_f64, "java.lang.Double_valueOf$F64", (double v)) { return box_f64(v); }
-BIND(void *, jcl_java_lang_Double_valueOf_u, "java_lang_Double_valueOf", (double v)) { return box_f64(v); }
-BIND(void *, jcl_java_lang_Float_valueOf_u, "java_lang_Float_valueOf", (float v)) { return jcl_box(B_F32, 0, v); }
-BIND(void *, jcl_java_lang_Character_valueOf_u, "java_lang_Character_valueOf", (int16_t c)) { return box_i16(c); }
 
 
 
@@ -905,20 +779,6 @@ BIND(void, jcl_java_lang_Throwable_printStackTrace_ps, "java.lang.Throwable_prin
     jcl_java_lang_Throwable_printStackTrace_P(self);
 }
 
-static void jcl_fill_throw(void *self, const char *cls, const char *super, const char *msg) {
-    if (self == NULL) return;
-    s_throw *st = (s_throw *)jcl_alloc(sizeof(s_throw));
-    st->kind = K_THROW;
-    st->msg = jcl_dup(msg);
-    st->cls = jcl_dup(cls);
-    st->cause = NULL;
-    nabu_object *h = (nabu_object *)self;
-    void *vt = h->vtable, *it = h->itable;
-    nabu_init_object_ex(self, cls, super);
-    h->vtable = vt;
-    h->itable = it;
-    nabu_jcl_set_state(self, st);
-}
 
 
 BIND(void, jcl_java_lang_System_arraycopy, "java.lang.System_arraycopy", (void *src, int32_t srcPos, void *dst, int32_t dstPos, int32_t len)) {
@@ -1175,48 +1035,16 @@ BIND(void *, jcl_java_lang_System_getProperty_P523beb0aP523beb0a_jstr, "java.lan
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 
-BIND(void, jcl_java_io_PrintWriter_init, "java_io_PrintWriter_init", (void *self, void *out, int autoFlush)) {
-    (void)autoFlush;
-    if (self == NULL) return;
-    s_stream *s = (s_stream *)jcl_alloc(sizeof(s_stream));
-    s->kind = K_STREAM;
-    s->f = (out == NULL) ? stdout : NULL;
-    nabu_jcl_set_state(self, s);
-}
-BIND(void, jcl_java_io_PrintWriter_init_PP42ca0260, "java_io_PrintWriter_init$PP42ca0260", (void *self, void *out)) {
-    jcl_java_io_PrintWriter_init(self, out, 0);
-}
 
-BIND(void, jcl_java_io_File_init, "java_io_File_init", (void *self, void *path)) {
-    if (self == NULL) return;
-    s_file *s = (s_file *)jcl_alloc(sizeof(s_file));
-    s->kind = K_FILE;
-    s->path = jcl_dup(jcl_str(path));
-    nabu_jcl_set_state(self, s);
-}
-static void jcl_file_init_child(void *self, const char *p, const char *c) {
-    size_t n = strlen(p) + strlen(c) + 2;
-    char *full = (char *)jcl_alloc(n);
-    snprintf(full, n, "%s/%s", p, c);
-    jcl_java_io_File_init(self, (void *)full);
-}
 /* File(String parent, String child). Stond eerder onder het symbool van
  * File(String, File): de frontend koos die overload ten onrechte, omdat de
  * constructorkeuze elk referentiepaar als passend zag. */
-BIND(void, jcl_java_io_File_init_PP523beb0aP523beb0a, "java_io_File_init$PP523beb0aP523beb0a", (void *self, void *parent, void *child)) {
-    if (self == NULL) return;
-    jcl_file_init_child(self, jcl_str(parent), jcl_str(child));
-}
 static const char *jcl_file_path(void *self) {
     s_file *s = (s_file *)jcl_state_kind(self, K_FILE);
     if (s != NULL) return s->path;
     return jcl_str(self);
 }
 /* File(File parent, String child). */
-BIND(void, jcl_java_io_File_init_PP3a58077P523beb0a, "java_io_File_init$PP3a58077P523beb0a", (void *self, void *parent, void *child)) {
-    if (self == NULL) return;
-    jcl_file_init_child(self, jcl_file_path(parent), jcl_str(child));
-}
 BIND(int, jcl_java_io_File_exists, "java.io.File_exists", (void *self)) {
     FILE *f = fopen(jcl_file_path(self), "rb");
     if (f != NULL) { fclose(f); return 1; }
@@ -1231,23 +1059,6 @@ BIND(void *, jcl_java_io_File_getAbsolutePath_jstr, "java.io.File_getAbsolutePat
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 
-static void jcl_reader_from(void *self, void *inner) {
-    s_reader *r = (s_reader *)jcl_alloc(sizeof(s_reader));
-    r->kind = K_READER;
-    r->buf = (char *)jcl_alloc(512);
-    r->len = 0;
-    r->pos = 0;
-    r->eof = 0;
-    if (inner != NULL && nabu_jcl_is_object(inner)) {
-        s_reader *ri = (s_reader *)jcl_state_kind(inner, K_READER);
-        if (ri != NULL) { r->f = ri->f; }
-        else {
-            s_file *sf = (s_file *)jcl_state_kind(inner, K_FILE);
-            if (sf != NULL) r->f = fopen(sf->path, "rb");
-        }
-    }
-    if (self != NULL) nabu_jcl_set_state(self, r);
-}
 static char *jcl_reader_line(s_reader *r) {
     if (r == NULL) return NULL;
     FILE *f = r->f != NULL ? r->f : stdin;
@@ -1280,30 +1091,10 @@ BIND(void *, jcl_java_io_BufferedReader_readLine_jstr, "java.io.BufferedReader_r
 BIND(void *, jcl_java_io_LineNumberReader_readLine, "java.io.LineNumberReader_readLine", (void *self)) {
     return jcl_java_io_BufferedReader_readLine(self);
 }
-BIND(void, jcl_java_io_BufferedReader_init, "java_io_BufferedReader_init", (void *self, void *in)) { jcl_reader_from(self, in); }
-BIND(void, jcl_java_io_BufferedWriter_init, "java_io_BufferedWriter_init", (void *self, void *out)) { (void)out; jcl_java_io_PrintWriter_init(self, out, 0); }
-BIND(void, jcl_java_io_InputStreamReader_init, "java_io_InputStreamReader_init", (void *self, void *in)) { jcl_reader_from(self, in); }
-BIND(void, jcl_java_io_LineNumberReader_init, "java_io_LineNumberReader_init", (void *self, void *in)) { jcl_reader_from(self, in); }
-BIND(void, jcl_java_io_FileReader_init, "java_io_FileReader_init", (void *self, void *path)) { jcl_java_io_File_init(self, path); jcl_reader_from(self, self); }
-BIND(void, jcl_java_io_FileInputStream_init, "java_io_FileInputStream_init", (void *self, void *path)) { jcl_java_io_File_init(self, path); }
-BIND(void, jcl_java_io_OutputStreamWriter_init, "java_io_OutputStreamWriter_init", (void *self, void *out, void *cs)) {
-    (void)cs;
-    jcl_java_io_PrintWriter_init(self, out, 0);
-}
 BIND(void, jcl_java_io_Closeable_close, "java.io.Closeable_close", (void *self)) {
     s_reader *r = (s_reader *)jcl_state_kind(self, K_READER);
     if (r != NULL && r->f != NULL) { fclose(r->f); r->f = NULL; }
 }
-BIND(void, jcl_java_io_StringWriter_init, "java_io_StringWriter_init", (void *self)) {
-    if (self == NULL) return;
-    s_sw *s = (s_sw *)jcl_alloc(sizeof(s_sw));
-    s->kind = K_SW;
-    s->cap = 64;
-    s->buf = (char *)jcl_alloc(64);
-    s->buf[0] = 0;
-    nabu_jcl_set_state(self, s);
-}
-BIND(void, jcl_java_io_StreamTokenizer_init, "java_io_StreamTokenizer_init", (void *self, void *r)) { (void)self; (void)r; }
 BIND(void, jcl_java_io_StreamTokenizer_commentChar, "java.io.StreamTokenizer_commentChar", (void *self, int32_t c)) { (void)self; (void)c; }
 BIND(void, jcl_java_io_StreamTokenizer_quoteChar, "java.io.StreamTokenizer_quoteChar", (void *self, int32_t c)) { (void)self; (void)c; }
 BIND(void, jcl_java_io_StreamTokenizer_resetSyntax, "java.io.StreamTokenizer_resetSyntax", (void *self)) { (void)self; }
@@ -1323,37 +1114,6 @@ BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
     }
 }
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) { (void)self; }
-BIND(void, jcl_java_lang_Thread_init, "java_lang_Thread_init", (void *self, void *name)) { (void)self; (void)name; }
-BIND(void, jcl_java_lang_Runnable_init, "java_lang_Runnable_init", (void *self)) { (void)self; }
-BIND(void, jcl_java_lang_IllegalArgumentException_init, "java_lang_IllegalArgumentException_init", (void *self, void *msg)) {
-    jcl_fill_throw(self, "java/lang/IllegalArgumentException", "java/lang/RuntimeException", jcl_str(msg));
-}
-BIND(void, jcl_java_lang_IllegalStateException_init, "java_lang_IllegalStateException_init", (void *self, void *msg)) {
-    jcl_fill_throw(self, "java/lang/IllegalStateException", "java/lang/RuntimeException", jcl_str(msg));
-}
-BIND(void, jcl_java_lang_NullPointerException_init, "java_lang_NullPointerException_init", (void *self, void *msg)) {
-    jcl_fill_throw(self, "java/lang/NullPointerException", "java/lang/RuntimeException", jcl_str(msg));
-}
-BIND(void, jcl_java_lang_UnsupportedOperationException_init, "java_lang_UnsupportedOperationException_init", (void *self)) {
-    jcl_fill_throw(self, "java/lang/UnsupportedOperationException", "java/lang/RuntimeException", "");
-}
-BIND(void, jcl_java_lang_UnsupportedOperationException_init_PP523beb0a, "java_lang_UnsupportedOperationException_init$PP523beb0a", (void *self, void *msg)) {
-    jcl_fill_throw(self, "java/lang/UnsupportedOperationException", "java/lang/RuntimeException", jcl_str(msg));
-}
-BIND(void, jcl_java_util_NoSuchElementException_init, "java_util_NoSuchElementException_init", (void *self, void *msg)) {
-    jcl_fill_throw(self, "java/util/NoSuchElementException", "java/lang/RuntimeException", jcl_str(msg));
-}
-BIND(void, jcl_java_math_BigDecimal_init, "java_math_BigDecimal_init", (void *self, void *s)) {
-    if (self == NULL) return;
-    s_str *st = (s_str *)jcl_alloc(sizeof(s_str));
-    st->kind = K_STR;
-    st->v = jcl_dup(jcl_str(s));
-    nabu_jcl_set_state(self, st);
-}
-BIND(void, jcl_java_math_BigInteger_init, "java_math_BigInteger_init", (void *self, void *s)) { jcl_java_math_BigDecimal_init(self, s); }
-BIND(void, jcl_java_net_URI_init, "java_net_URI_init", (void *self, void *s)) { jcl_java_math_BigDecimal_init(self, s); }
-BIND(void, jcl_java_net_URL_init, "java_net_URL_init", (void *self, void *s)) { jcl_java_math_BigDecimal_init(self, s); }
-BIND(void, jcl_java_text_SimpleDateFormat_init, "java_text_SimpleDateFormat_init", (void *self, void *pat)) { (void)self; (void)pat; }
 
 
 static void *jcl_new_obj(const char *type, void *state) {
@@ -1469,31 +1229,7 @@ static void *jcl_iter_obj(void **items, int32_t n) {
     it->idx = 0;
     return jcl_new_obj("java/util/Iterator", it);
 }
-static void *jcl_list_view(s_list *l) {
-    s_list *v = (s_list *)jcl_alloc(sizeof(s_list));
-    v->kind = K_VIEW;
-    v->it = l->it;
-    v->size = l->size;
-    v->cap = l->cap;
-    return jcl_new_obj("java/util/ArrayList", v);
-}
-static s_list *jcl_view_list(void *self) {
-    s_list *l = (s_list *)jcl_state_kind(self, K_VIEW);
-    if (l == NULL) l = jcl_list_of(self);
-    return l;
-}
 
-BIND(void, jcl_java_util_ArrayList_init, "java_util_ArrayList_init", (void *self)) { jcl_list_of(self); }
-BIND(void, jcl_java_util_ArrayList_init_PI32, "java_util_ArrayList_init$PI32", (void *self, int32_t cap)) { (void)cap; jcl_list_of(self); }
-BIND(void, jcl_java_util_ArrayList_init_PP5036ee31, "java_util_ArrayList_init$PP5036ee31", (void *self, void *coll)) {
-    s_list *l = jcl_list_of(self);
-    if (coll != NULL && nabu_jcl_is_object(coll)) {
-        s_list *c = (s_list *)jcl_state_kind(coll, K_LIST);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_VIEW);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_SET);
-        if (c != NULL) for (int32_t i = 0; i < c->size; i++) jcl_list_add(l, c->it[i]);
-    }
-}
 BIND(int, jcl_java_util_List_add, "java.util.List_add", (void *self, void *v)) { jcl_list_add(jcl_list_of(self), v); return 1; }
 BIND(void, jcl_java_util_List_add_PI32P5f790d9c, "java.util.List_add$PI32P5f790d9c", (void *self, int32_t i, void *v)) { jcl_list_ins(jcl_list_of(self), i, v); }
 BIND(int, jcl_java_util_List_addAll, "java.util.List_addAll", (void *self, void *coll)) {
@@ -1649,20 +1385,6 @@ BIND(void *, jcl_java_util_Iterator_next, "java.util.Iterator_next", (void *self
     return NULL;
 }
 
-BIND(void, jcl_java_util_HashMap_init, "java_util_HashMap_init", (void *self)) { jcl_map_of(self); }
-BIND(void, jcl_java_util_HashMap_init_PPa567c40b, "java_util_HashMap_init$PPa567c40b", (void *self, void *m)) {
-    jcl_map_of(self);
-    if (m != NULL && nabu_jcl_is_object(m)) {
-        s_map *src = (s_map *)jcl_state_kind(m, K_MAP);
-        if (src != NULL) for (int32_t i = 0; i < src->size; i++) jcl_map_put(self, src->ks[i], src->vs[i]);
-    }
-}
-BIND(void, jcl_java_util_LinkedHashMap_init, "java_util_LinkedHashMap_init", (void *self)) { jcl_map_of(self); }
-BIND(void, jcl_java_util_LinkedHashMap_init_PI32, "java_util_LinkedHashMap_init$PI32", (void *self, int32_t cap)) { (void)cap; jcl_map_of(self); }
-BIND(void, jcl_java_util_LinkedHashMap_init_PPa567c40b, "java_util_LinkedHashMap_init$PPa567c40b", (void *self, void *m)) { jcl_java_util_HashMap_init_PPa567c40b(self, m); }
-BIND(void, jcl_java_util_IdentityHashMap_init, "java_util_IdentityHashMap_init", (void *self)) { jcl_map_of(self); }
-BIND(void, jcl_java_util_TreeMap_init, "java_util_TreeMap_init", (void *self)) { jcl_map_of(self); }
-BIND(void, jcl_java_util_Properties_init, "java_util_Properties_init", (void *self)) { jcl_map_of(self); }
 static void * jcl_java_util_HashMap_put (void *self, void *k, void *v) {
     void *old = jcl_map_get(self, k);
     jcl_map_put(self, k, v);
@@ -1760,18 +1482,6 @@ BIND(int32_t, jcl_java_util_Map_size, "java.util.Map_size", (void *self)) {
 }
 BIND(void *, jcl_java_util_Map_values, "java.util.Map_values", (void *self)) { return jcl_map_vals(self); }
 
-BIND(void, jcl_java_util_HashSet_init, "java_util_HashSet_init", (void *self, void *coll)) {
-    s_set *s = jcl_set_of(self);
-    if (coll != NULL && nabu_jcl_is_object(coll)) {
-        s_list *c = (s_list *)jcl_state_kind(coll, K_LIST);
-        if (c == NULL) c = (s_list *)jcl_state_kind(coll, K_VIEW);
-        if (c != NULL) for (int32_t i = 0; i < c->size; i++) jcl_set_add(s, c->it[i]);
-    }
-}
-BIND(void, jcl_java_util_HashSet_init_P, "java_util_HashSet_init$P", (void *self, void *coll)) { jcl_java_util_HashSet_init(self, coll); }
-BIND(void, jcl_java_util_LinkedHashSet_init, "java_util_LinkedHashSet_init", (void *self, void *coll)) { jcl_java_util_HashSet_init(self, coll); }
-BIND(void, jcl_java_util_LinkedHashSet_init_PP5036ee31, "java_util_LinkedHashSet_init$PP5036ee31", (void *self, void *coll)) { jcl_java_util_HashSet_init(self, coll); }
-BIND(void, jcl_java_util_TreeSet_init, "java_util_TreeSet_init", (void *self)) { jcl_set_of(self); }
 BIND(int, jcl_java_util_Set_add, "java.util.Set_add", (void *self, void *v)) { return jcl_set_add(jcl_set_of(self), v); }
 BIND(int, jcl_java_util_Set_addAll, "java.util.Set_addAll", (void *self, void *coll)) {
     s_set *s = jcl_set_of(self);
@@ -1842,24 +1552,12 @@ BIND(void *, jcl_java_util_Set_toArray, "java.util.Set_toArray", (void *self, vo
     return out;
 }
 
-BIND(void, jcl_java_util_LinkedList_init, "java_util_LinkedList_init", (void *self)) { jcl_list_of(self); }
-BIND(void, jcl_java_util_Stack_init, "java_util_Stack_init", (void *self)) { jcl_list_of(self); }
 
 
 BIND(int, jcl_java_util_Queue_add, "java.util.Queue_add", (void *self, void *v)) { jcl_list_add(jcl_list_of(self), v); return 1; }
 BIND(int, jcl_java_util_Enumeration_hasMoreElements, "java.util.Enumeration_hasMoreElements", (void *self)) { return jcl_java_util_Iterator_hasNext(self); }
 BIND(void *, jcl_java_util_Enumeration_nextElement, "java.util.Enumeration_nextElement", (void *self)) { return jcl_java_util_Iterator_next(self); }
 
-static void jcl_sort_strs(void **a, int32_t n) {
-    for (int32_t i = 1; i < n; i++) {
-        void *key = a[i];
-        int32_t j = i - 1;
-        const char *ks = jcl_str(key);
-        while (j >= 0 && strcmp(jcl_str(a[j]), ks) > 0) { a[j + 1] = a[j]; j--; }
-        a[j + 1] = key;
-    }
-}
-BIND(void, jcl_java_util_Comparator_init, "java_util_Comparator_init", (void *self)) { (void)self; }
 
 BIND(void *, jcl_java_util_SortedMap_values, "java.util.SortedMap_values", (void *self)) { return jcl_map_vals(self); }
 BIND(void *, jcl_java_lang_Iterable_iterator, "java.lang.Iterable_iterator", (void *self)) { return jcl_java_util_Collection_iterator(self); }
@@ -2373,14 +2071,6 @@ BIND(void *, jcl_java_lang_reflect_WildcardType_getUpperBounds, "java.lang.refle
 BIND(void *, jcl_java_lang_reflect_GenericArrayType_getGenericComponentType, "java.lang.reflect.GenericArrayType_getGenericComponentType", (void *self)) { (void)self; return jcl_class(""); }
 BIND(void *, jcl_java_lang_reflect_InvocationTargetException_getTargetException, "java.lang.reflect.InvocationTargetException_getTargetException", (void *self)) { return self; }
 
-BIND(int32_t, jcl_IExitCodeExceptionMapper_getExitCode, "IExitCodeExceptionMapper_getExitCode", (void *self, void *ex)) { (void)self; (void)ex; return 1; }
-BIND(int32_t, jcl_IExitCodeGenerator_getExitCode, "IExitCodeGenerator_getExitCode", (void *self)) { (void)self; return 0; }
-BIND(void *, jcl_IGetter_get, "IGetter_get", (void *self)) { (void)self; return NULL; }
-BIND(void *, jcl_ISetter_set, "ISetter_set", (void *self, void *v)) { (void)self; return v; }
-BIND(void *, jcl_IHelpSectionRenderer_render, "IHelpSectionRenderer_render", (void *self, void *help)) { (void)self; (void)help; return nabu_jstring_new(""); }
-BIND(void *, jcl_ILookup_get, "ILookup_get", (void *self, void *key)) { (void)self; (void)key; return NULL; }
-BIND(int32_t, jcl_IParameterExceptionHandler_handleParseException, "IParameterExceptionHandler_handleParseException", (void *self, void *ex, void *cmd)) { (void)self; (void)ex; (void)cmd; return 2; }
-BIND(int32_t, jcl_IExecutionExceptionHandler_handleExecutionException, "IExecutionExceptionHandler_handleExecutionException", (void *self, void *ex, void *cmd, void *parseResult)) { (void)self; (void)ex; (void)cmd; (void)parseResult; return 1; }
 BIND(void *, jcl_java_lang_reflect_Method_getAnnotation, "java.lang.reflect.Method_getAnnotation", (void *self, void *ann)) { (void)self; (void)ann; return NULL; }
 BIND(void *, jcl_java_util_List_set, "java.util.List_set", (void *self, int32_t i, void *v)) {
     s_list *l = jcl_list_of(self);
@@ -2389,27 +2079,10 @@ BIND(void *, jcl_java_util_List_set, "java.util.List_set", (void *self, int32_t 
     l->it[i] = v;
     return old;
 }
-BIND(int, jcl_Predicate_test, "Predicate_test", (void *self, void *arg)) { (void)self; (void)arg; return 1; }
 
-BIND(void, jcl_picocli_IStyle_init, "picocli_CommandLine$Help$Ansi$IStyle_init", (void *self)) { (void)self; }
-BIND(void, jcl_picocli_IParamLabelRenderer_init, "picocli_CommandLine$Help$IParamLabelRenderer_init", (void *self)) { (void)self; }
-BIND(void, jcl_picocli_IExecutionExceptionHandler_init, "picocli_CommandLine$IExecutionExceptionHandler_init", (void *self)) { (void)self; }
-BIND(void, jcl_picocli_IHelpSectionRenderer_init, "picocli_CommandLine$IHelpSectionRenderer_init", (void *self)) { (void)self; }
-BIND(void, jcl_picocli_IParameterExceptionHandler_init, "picocli_CommandLine$IParameterExceptionHandler_init", (void *self)) { (void)self; }
-BIND(void, jcl_picocli_ITypeConverter_init, "picocli_CommandLine$ITypeConverter_init", (void *self)) { (void)self; }
-BIND(void, jcl_picocli_ILookup_init, "picocli_CommandLine$Model$Interpolator$ILookup_init", (void *self)) { (void)self; }
-BIND(void, jcl_picocli_Predicate_init, "picocli_CommandLine$Model$Predicate_init", (void *self)) { (void)self; }
 
-BIND(void *, jcl_java_util_concurrent_atomic_AtomicInteger_init, "java_util_concurrent_atomic_AtomicInteger_init", (void *self, int32_t v)) {
-    s_atomic *s = (s_atomic *)jcl_alloc(sizeof(s_atomic));
-    s->kind = K_OTHER;
-    s->v = v;
-    if (self != NULL) nabu_jcl_set_state(self, s);
-    return self;
-}
 BIND(void *, jcl_java_util_concurrent_Callable_call, "java.util.concurrent.Callable_call", (void *self)) { (void)self; jcl_nyi("java.util.concurrent.Callable_call"); return NULL; }
 BIND(void *, jcl_java_util_UUID_fromString, "java.util.UUID_fromString", (void *s)) { return jcl_new_str_obj(jcl_str(s)); }
-BIND(void, jcl_java_util_ResourceBundle_init, "java_util_ResourceBundle_init", (void *self)) { (void)self; }
 
 
 /* ==SECTIE== */

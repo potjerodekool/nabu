@@ -2214,6 +2214,26 @@ public ClassLayout get(String internalName) {
         return byInternalName.get(normalizeInternalName(internalName));
     }
 
+    /**
+     * Whether the owner of a call target ({@code pkg.Owner_member}) is an
+     * interface of this compilation, as after {@link #canonicalize} for a
+     * method a class only inherits from an interface.
+     */
+    public boolean ownedByInterface(String callTarget) {
+        if (callTarget == null) return false;
+        final int idx = ownerSplit(callTarget);
+        if (idx < 0) return false;
+        final IRModule module = moduleOf(callTarget.substring(0, idx));
+        return module != null && Flags.hasFlag(module.flags, Flags.INTERFACE);
+    }
+
+    /** The layout of the owner of a call target ({@code pkg.Owner_member}), or null. */
+    public ClassLayout ownerLayout(String callTarget) {
+        if (callTarget == null) return null;
+        final int idx = ownerSplit(callTarget);
+        return idx < 0 ? null : get(callTarget.substring(0, idx));
+    }
+
     /** De IRModule bij een interne naam, of null. */
     public IRModule moduleOf(String internalName) {
         return modulesByInternalName.get(normalizeInternalName(internalName));

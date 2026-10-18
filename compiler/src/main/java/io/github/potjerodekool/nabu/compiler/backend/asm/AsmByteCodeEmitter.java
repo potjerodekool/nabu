@@ -212,10 +212,17 @@ public class AsmByteCodeEmitter {
         final var access = AccessUtils.flagsToAccess(function.getFlags());
         final var isStatic = Flags.hasFlag(function.getFlags(), Flags.STATIC);
 
+        // De IR-naam is "<SimpleName>_<methode>"; de klassenaam kan zelf een
+        // '_' bevatten (JPA-metamodel `Company_`), dus op de eigenaar splitsen.
         var name = function.name;
-        final var separatorIndex = name.indexOf('_');
-        if (separatorIndex > -1) {
-            name = name.substring(separatorIndex + 1);
+        final var ownerPrefix = ownerInternalName.substring(ownerInternalName.lastIndexOf('/') + 1) + "_";
+        if (name.startsWith(ownerPrefix)) {
+            name = name.substring(ownerPrefix.length());
+        } else {
+            final var separatorIndex = name.indexOf('_');
+            if (separatorIndex > -1) {
+                name = name.substring(separatorIndex + 1);
+            }
         }
 
         if (function.isConstructor()) {

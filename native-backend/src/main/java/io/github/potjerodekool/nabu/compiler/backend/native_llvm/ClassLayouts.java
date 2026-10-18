@@ -295,6 +295,16 @@ public class ClassLayouts {
      */
     private final Map<String, IRFunction> functionsByQualifiedName = new LinkedHashMap<>();
     /**
+     * Elke functie onder haar eigen IR-naam, de eerste in modulevolgorde: de
+     * terugval van {@link #resolveFunction(String)}. Functies uit bytecode
+     * ({@code picocli.CommandLine$Model$CommandSpec_resemblesOption}) staan
+     * niet in {@link #functionsByQualifiedName}; zonder deze index doorzocht
+     * elke lookup alle functies van alle modules, en buildItable deed dat per
+     * slot per klasse (de picocli-build bleef daar een half uur in hangen).
+     * Lui opgebouwd, na {@link #indexModules} leeggemaakt.
+     */
+    private Map<String, IRFunction> functionsByName;
+    /**
      * Zelfde sleutels als {@link #functionsByQualifiedName}, maar dan alle
      * overloads per naam. Overloads delen de IR-functienaam (bv. drie
      * {@code CommandLine_init}-constructors), dus voor call-resolutie is de
@@ -405,6 +415,7 @@ public class ClassLayouts {
         declaringTargets.clear();
         memberNames.clear();
         functionsByQualifiedName.clear();
+        functionsByName = null;
         overloadsByName.clear();
         qualifiedNames.clear();
         constructorSymbols.clear();
@@ -638,12 +649,19 @@ for (IRModule m : modules) {
         if (callTarget == null) return null;
         IRFunction direct = functionsByQualifiedName.get(callTarget);
         if (direct != null) return direct;
-        for (IRModule module : modulesByInternalName.values()) {
-            for (IRFunction fn : module.functions()) {
-                if (callTarget.equals(fn.name)) return fn;
+        return functionsByName().get(callTarget);
+    }
+
+    private Map<String, IRFunction> functionsByName() {
+        if (functionsByName == null) {
+            functionsByName = new HashMap<>();
+            for (IRModule module : modulesByInternalName.values()) {
+                for (IRFunction fn : module.functions()) {
+                    if (fn.name != null) functionsByName.putIfAbsent(fn.name, fn);
+                }
             }
         }
-        return null;
+        return functionsByName;
     }
 
     /**

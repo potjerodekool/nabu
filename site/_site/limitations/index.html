@@ -63,8 +63,8 @@
 <h3 id="building">Building</h3>
 
 <ul>
-  <li><strong><code class="language-plaintext highlighter-rouge">--bytecode-classes</code> is required in practice.</strong> Without it, no JDK code is compiled and even <code class="language-plaintext highlighter-rouge">System.out.println</code> has no implementation. <code class="language-plaintext highlighter-rouge">--bytecode-classes=java.lang.Object</code> is enough for most programs.</li>
-  <li><strong>Slow builds, large executables.</strong> The whole reachable part of the JDK is compiled and optimized as one LLVM module: several minutes and about 36 MB for “hello world”, about ten minutes and 46 MB for the <a href="/examples/picocli-demo/">picocli example</a>.</li>
+  <li><strong>Reflection needs configuration.</strong> Classes that are only used through reflection must be listed in a GraalVM configuration file (<code class="language-plaintext highlighter-rouge">META-INF/native-image/**/reflect-config.json</code>), as with GraalVM <code class="language-plaintext highlighter-rouge">native-image</code>; otherwise they are not compiled.</li>
+  <li><strong>Slow builds, large executables.</strong> The whole reachable part of the JDK is compiled and optimized as one LLVM module: several minutes and about 36 MB for “hello world”, about six minutes and 45 MB for the <a href="/examples/picocli-demo/">picocli example</a>.</li>
   <li><strong>Incremental builds</strong> have not been tested with the LLVM backend; the examples build with <code class="language-plaintext highlighter-rouge">-Dnabu.incremental=false</code>.</li>
   <li>The executable is named after the <strong>first</strong> compiled class, not after the class with <code class="language-plaintext highlighter-rouge">main</code>.</li>
   <li>The build prints many warnings (for example about static fields of classes outside the compiled closure). They do not stop the build, and most are harmless, but they make real problems harder to spot.</li>

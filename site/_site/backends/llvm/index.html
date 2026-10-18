@@ -71,7 +71,7 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
 
 <ul>
   <li><strong>Your sources</strong> go through the normal Nabu frontend and IR generation, the same as for the JVM backends.</li>
-  <li><strong>The JDK is compiled too.</strong> The backend does not ship its own Java class library. Starting from your code (and from the seed classes in <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>), it follows every method that can be reached and compiles the <strong>real OpenJDK bytecode</strong> of those methods to the same IR. A one-line “hello world” pulls in about 3,200 JDK classes.</li>
+  <li><strong>The JDK and your libraries are compiled too.</strong> The backend does not ship its own Java class library. Starting from your code and from the classes in the reflection configuration (see <a href="#reflection">Reflection</a>), it follows every method that can be reached and compiles the <strong>real bytecode</strong> of those methods to the same IR: OpenJDK classes from the JDK, library classes from the jars on the classpath. You do not need the sources of a library. A one-line “hello world” pulls in about 3,200 JDK classes.</li>
   <li><strong>A small C runtime</strong> provides what Java code cannot do itself: the object header and type information, exceptions, garbage collection hooks, monitors, string and number helpers, reflection metadata and the VM-level parts of <code class="language-plaintext highlighter-rouge">java.lang</code> (for example <code class="language-plaintext highlighter-rouge">Class</code>, <code class="language-plaintext highlighter-rouge">System.arraycopy</code> and <code class="language-plaintext highlighter-rouge">Unsafe</code>). It is compiled and linked into every executable.</li>
   <li><strong>LLVM</strong> (through the Bytedeco Java bindings, inside the compiler process) turns the IR into an optimized object file, and the platform C compiler links it with the runtime.</li>
 </ul>
@@ -101,12 +101,6 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
       <td><code class="language-plaintext highlighter-rouge">NONE</code>, <code class="language-plaintext highlighter-rouge">BOEHM</code>, <code class="language-plaintext highlighter-rouge">REFCOUNT</code></td>
       <td><code class="language-plaintext highlighter-rouge">NONE</code></td>
       <td>Memory management, see below. Use <code class="language-plaintext highlighter-rouge">BOEHM</code> for real programs.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">--bytecode-classes</code></td>
-      <td>comma-separated class names</td>
-      <td>(none)</td>
-      <td>Switches on compiling the JDK from bytecode and gives the seed classes. <code class="language-plaintext highlighter-rouge">java.lang.Object</code> is enough for most programs. Without it, JDK methods have no implementation.</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">--bytecode-jdk-home</code></td>
@@ -160,7 +154,7 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
 
 <h2 id="reflection">Reflection</h2>
 
-<p>Native executables have no class files to inspect at run time, so reflection works from <strong>metadata generated at build time</strong>. The backend reads GraalVM-style configuration files (<code class="language-plaintext highlighter-rouge">META-INF/native-image/**/*-config.json</code>) from the class output directory (and its parent directory), and emits <strong>field and annotation</strong> tables for the classes listed there. That is enough for frameworks that find annotated fields, such as picocli; reflective method invocation is limited.</p>
+<p>Native executables have no class files to inspect at run time, so reflection works from <strong>metadata generated at build time</strong>. As with GraalVM <code class="language-plaintext highlighter-rouge">native-image</code>, classes that are used through reflection must be listed in a GraalVM configuration file under <code class="language-plaintext highlighter-rouge">META-INF/native-image/</code>: <code class="language-plaintext highlighter-rouge">reflect-config.json</code> or the newer <code class="language-plaintext highlighter-rouge">reachability-metadata.json</code>. The backend reads these files from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. The listed classes are compiled even when no code calls them directly (with the constructors and methods the configuration names), and the backend emits <strong>field and annotation</strong> tables for them. That is enough for frameworks that find annotated fields, such as picocli; reflective method invocation is limited.</p>
 
 <p>This is the same format GraalVM <code class="language-plaintext highlighter-rouge">native-image</code> uses, so tools that generate it work for Nabu too. picocli’s annotation processor (<code class="language-plaintext highlighter-rouge">picocli-codegen</code>) writes these files into the class output, which is how the <a href="/examples/picocli-demo/">picocli example</a> gets its metadata. Configuration files inside jars on the classpath are <strong>not</strong> read.</p>
 

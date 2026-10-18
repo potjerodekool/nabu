@@ -36,7 +36,7 @@ class JavaCompilerVisitorTest {
     private static String readPicocliSource() throws IOException {
         final var path = Path.of(System.getProperty(
                 "nabu.test.picocli.sources",
-                "C:/projects/incurbation/cli-demo/vendor/picocli-src/picocli/CommandLine.java"));
+                "src/test/picocli-src/picocli/CommandLine.java"));
         Assumptions.assumeTrue(Files.isRegularFile(path),
                 "picocli-bron niet gevonden op " + path
                         + " (zet -Dnabu.test.picocli.sources=<pad>)");

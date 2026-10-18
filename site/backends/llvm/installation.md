@@ -41,7 +41,7 @@ For the recommended garbage collector (`--gc=BOEHM`, see [Choosing a GC strategy
 
 Install a JDK (25 is verified) and Maven, and make sure `java` and `mvn` work from a terminal.
 
-The JDK matters a little more for the LLVM backend than usual. When the backend compiles JDK classes from bytecode (see [`--bytecode-classes`](/backends/llvm/#compiler-options)), it reads them from the **JDK the compiler runs on**. Use `--bytecode-jdk-home` to read them from a different JDK.
+The JDK matters a little more for the LLVM backend than usual. The backend compiles the JDK classes your program uses from bytecode, and it reads them from the **JDK the compiler runs on**. Use `--bytecode-jdk-home` to read them from a different JDK.
 
 ### 2. MinGW-w64 GCC
 
@@ -177,7 +177,6 @@ and the `nabu-maven-plugin` configured with the LLVM backend:
         <compilerArgs>
             <arg>--backend=LLVM</arg>
             <arg>--gc=BOEHM</arg>
-            <arg>--bytecode-classes=java.lang.Object</arg>
         </compilerArgs>
     </configuration>
     <executions>
@@ -199,7 +198,7 @@ run `mvn package`. The build writes `Hello.ll` (LLVM IR), `Hello.o` and `Hello.e
 
 Some things to expect:
 
-- **`--bytecode-classes` is required in practice.** It switches on compiling the JDK from bytecode. The value lists *seed* classes; the backend also follows every call from your own code, so `java.lang.Object` is enough for most programs. Without the option, even `System.out.println` has no implementation: the program prints `nabu: call to a JDK function without an implementation: java.io.PrintStream_println` and exits with code 127.
+- **The JDK is compiled from bytecode.** The backend follows every call from your code and compiles the JDK methods it reaches, and the same goes for libraries on the classpath. You do not configure anything for this.
 - **The first build is slow.** For this one-line program the backend compiles about 3,200 JDK classes (21,600 methods), and LLVM then optimizes all of it. On the verification machine that took about 7 minutes and produced a 36 MB executable.
 - **The build prints many warnings**, for example about static fields of classes outside the compiled closure. They are informational. Functions that could not be compiled at all are listed in `<name>.unresolved.txt` next to the executable; the program only fails if it actually calls one of them.
 - The executable is named after the **first** compiled class, which is not necessarily the class with `main`.

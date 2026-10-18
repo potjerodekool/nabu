@@ -70,7 +70,7 @@
 
 <h3 id="the-build-takes-very-long">The build takes very long</h3>
 
-<p>That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program as one module. A one-line program takes several minutes, the <a href="/examples/picocli-demo/">picocli example</a> about ten. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. <code class="language-plaintext highlighter-rouge">--opt=NONE</code> turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.</p>
+<p>That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program as one module. A one-line program takes several minutes, the <a href="/examples/picocli-demo/">picocli example</a> about six. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. <code class="language-plaintext highlighter-rouge">--opt=NONE</code> turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.</p>
 
 <h2 id="problems-when-running-the-executable">Problems when running the executable</h2>
 
@@ -79,7 +79,7 @@
 <p>The program reached a function that the backend could not compile. All such functions are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> next to the executable.</p>
 
 <ul>
-  <li>If <strong>many common functions</strong> are missing (for example <code class="language-plaintext highlighter-rouge">java.io.PrintStream_println</code>), the build ran without <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>, so no JDK code was compiled at all. Add <code class="language-plaintext highlighter-rouge">--bytecode-classes=java.lang.Object</code>.</li>
+  <li>If a class is only <strong>created or called through reflection</strong> (<code class="language-plaintext highlighter-rouge">Class.forName</code>, <code class="language-plaintext highlighter-rouge">getDeclaredConstructor().newInstance()</code>), no code calls it directly, so the backend does not compile it. List it in a <code class="language-plaintext highlighter-rouge">reflect-config.json</code> under <code class="language-plaintext highlighter-rouge">META-INF/native-image/</code>, as you would for GraalVM <code class="language-plaintext highlighter-rouge">native-image</code>.</li>
   <li>If a <strong>specific</strong> function is missing, it is usually a <code class="language-plaintext highlighter-rouge">native</code> JDK method or a signature-polymorphic method (<code class="language-plaintext highlighter-rouge">MethodHandle.invoke…</code>) that needs support in the C runtime. See <a href="/limitations/">Known limitations</a>.</li>
 </ul>
 

@@ -351,7 +351,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
 
     @Override
     public <A extends Annotation> A getAnnotation(final Class<A> annotationType) {
-        final var mirrorOptional = findAnnotationMirror(annotationType.getName());
+        final var mirrorOptional = findAnnotationMirror(annotationType);
         return mirrorOptional
                 .map(mirror -> annotationType.cast(AnnotationUtils.proxy(mirror, annotationType.getClassLoader())))
                 .orElse(null);
@@ -361,7 +361,7 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
     public <A extends Annotation> A[] getAnnotationsByType(final Class<A> annotationType) {
         final var classloader = getClass().getClassLoader();
 
-        return (A[]) findAnnotationMirrors(annotationType.getName()).stream()
+        return (A[]) findAnnotationMirrors(annotationType).stream()
                 .map(annotationMirror -> annotationType.cast(AnnotationUtils.proxy(
                         annotationMirror,
                         classloader
@@ -369,22 +369,27 @@ public class ClassSymbol extends TypeSymbol implements TypeElement {
                 .toArray(Annotation[]::new);
     }
 
-    private Predicate<AnnotationMirror> annotationMirrorFilter(final String className) {
+    /**
+     * Een genest type heet uit een class-bestand {@code picocli.CommandLine$Command}
+     * en uit broncode {@code picocli.CommandLine.Command}; beide vormen tellen.
+     */
+    private Predicate<AnnotationMirror> annotationMirrorFilter(final Class<?> type) {
         return annotationMirror -> {
             final var annotationType = annotationMirror.getAnnotationType();
-            final var element = (TypeElement) annotationType.asElement();
-            return className.equals(element.getQualifiedName());
+            final var qualifiedName = ((TypeElement) annotationType.asElement()).getQualifiedName();
+            return type.getName().equals(qualifiedName)
+                    || (type.getCanonicalName() != null && type.getCanonicalName().equals(qualifiedName));
         };
     }
 
-    private Optional<? extends AnnotationMirror> findAnnotationMirror(final String className) {
+    private Optional<? extends AnnotationMirror> findAnnotationMirror(final Class<?> type) {
         return getAnnotationMirrors().stream()
-                .filter(annotationMirrorFilter(className)).findFirst();
+                .filter(annotationMirrorFilter(type)).findFirst();
     }
 
-    private List<? extends AnnotationMirror> findAnnotationMirrors(final String className) {
+    private List<? extends AnnotationMirror> findAnnotationMirrors(final Class<?> type) {
         return getAnnotationMirrors().stream()
-                .filter(annotationMirrorFilter(className))
+                .filter(annotationMirrorFilter(type))
                 .toList();
     }
 

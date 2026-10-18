@@ -45,7 +45,7 @@ public class LLVMModuleEmitter {
     private final CompileOptions opts;
 
     // Fase 2: reflectie-metadata-emissie (kan leeg/null zijn voor single-module tests)
-    private io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry reflectionRegistry;
+    private io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry reflectionRegistry;
 
     public LLVMModuleEmitter(LLVMContextRef ctx,
                              LLVMModuleRef mod,
@@ -66,7 +66,7 @@ public class LLVMModuleEmitter {
     }
 
 public void setReflectionRegistry(
-            final io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry reflectionRegistry) {
+            final io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry reflectionRegistry) {
         this.reflectionRegistry = reflectionRegistry;
     }
 

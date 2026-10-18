@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend.native_llvm.config;
+package io.github.potjerodekool.nabu.backend.nativeimage;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -153,6 +153,61 @@ class NativeImageConfigTest {
 
         final var configs = NativeImageConfigScanner.scan(List.of(firstDir, secondDir));
         assertEquals(2, configs.size());
+    }
+
+    @Test
+    void parseReflectMethods() {
+        final var config = GraalVMNativeImageConfigParser.parseReflect("""
+                [
+                  {
+                    "name" : "a.One",
+                    "methods" : [
+                      { "name": "<init>", "parameterTypes": [] },
+                      { "name": "run", "parameterTypes": [ "java.lang.String" ] }
+                    ]
+                  }
+                ]
+                """);
+
+        final var methods = config.reflectEntries().getFirst().methods();
+        assertEquals(2, methods.size());
+        assertEquals("<init>", methods.get(0).name());
+        assertEquals(List.of("java.lang.String"), methods.get(1).parameterTypes());
+    }
+
+    @Test
+    void parseReachabilityMetadataReflection() {
+        final var config = GraalVMNativeImageConfigParser.parseReachabilityMetadata("""
+                {
+                  "reflection" : [
+                    { "type" : "a.One", "allDeclaredFields" : true, "allPublicMethods" : true },
+                    { "type" : { "proxy" : [ "java.lang.Runnable" ] } }
+                  ],
+                  "resources" : [ ]
+                }
+                """);
+
+        assertEquals(1, config.reflectEntries().size());
+        assertEquals("a.One", config.reflectEntries().getFirst().name());
+        assertTrue(config.reflectEntries().getFirst().allPublicMethods());
+    }
+
+    @Test
+    void scanFindsConfigsInJar(@TempDir final Path tempDir) throws IOException {
+        final var jar = tempDir.resolve("lib.jar");
+        try (var out = new java.util.zip.ZipOutputStream(Files.newOutputStream(jar))) {
+            out.putNextEntry(new java.util.zip.ZipEntry(
+                    "META-INF/native-image/org.example/lib/reflect-config.json"));
+            out.write("[ { \"name\": \"org.example.Lib\" } ]".getBytes());
+            out.closeEntry();
+            out.putNextEntry(new java.util.zip.ZipEntry("org/example/Lib.class"));
+            out.closeEntry();
+        }
+
+        final var configs = NativeImageConfigScanner.scan(List.of(jar));
+
+        assertEquals(1, configs.size());
+        assertEquals("org.example.Lib", configs.getFirst().reflectEntries().getFirst().name());
     }
 
     @Test

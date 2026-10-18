@@ -27,7 +27,7 @@ A Maven daemon (`mvnd`) or an IDE still has the previous plugin jar in `~/.nabu/
 
 ### The build takes very long
 
-That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program as one module. A one-line program takes several minutes, the [picocli example](/examples/picocli-demo/) about ten. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. `--opt=NONE` turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.
+That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program as one module. A one-line program takes several minutes, the [picocli example](/examples/picocli-demo/) about six. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. `--opt=NONE` turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.
 
 ## Problems when running the executable
 
@@ -35,7 +35,7 @@ That is expected for now. The backend compiles every JDK class the program can r
 
 The program reached a function that the backend could not compile. All such functions are listed in `<name>.unresolved.txt` next to the executable.
 
-- If **many common functions** are missing (for example `java.io.PrintStream_println`), the build ran without `--bytecode-classes`, so no JDK code was compiled at all. Add `--bytecode-classes=java.lang.Object`.
+- If a class is only **created or called through reflection** (`Class.forName`, `getDeclaredConstructor().newInstance()`), no code calls it directly, so the backend does not compile it. List it in a `reflect-config.json` under `META-INF/native-image/`, as you would for GraalVM `native-image`.
 - If a **specific** function is missing, it is usually a `native` JDK method or a signature-polymorphic method (`MethodHandle.invoke…`) that needs support in the C runtime. See [Known limitations](/limitations/).
 
 ### "unhandled exception"

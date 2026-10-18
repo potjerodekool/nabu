@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend.native_llvm.config;
+package io.github.potjerodekool.nabu.backend.nativeimage;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,7 +40,8 @@ public final class GraalVMNativeImageConfig {
                                boolean allPublicConstructors,
                                boolean allDeclaredMethods,
                                boolean allPublicMethods,
-                               List<FieldEntry> fields) {
+                               List<FieldEntry> fields,
+                               List<MethodEntry> methods) {
 
         public List<String> fieldNames() {
             final var names = new ArrayList<String>();
@@ -52,6 +53,10 @@ public final class GraalVMNativeImageConfig {
     }
 
     public record FieldEntry(String name) {
+    }
+
+    /** Een expliciet genoemde methode; {@code <init>} voor een constructor. */
+    public record MethodEntry(String name, List<String> parameterTypes) {
     }
 
     public record ProxyEntry(List<String> interfaceNames) {

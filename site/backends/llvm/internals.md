@@ -10,7 +10,7 @@ This page explains how the LLVM backend is built, for people who want to work on
 | Location | Content |
 |---|---|
 | `native-backend/…/backend/native_llvm/` | the backend: IR → LLVM IR → object file → executable |
-| `native-backend/…/native_llvm/config/` | reading GraalVM `*-config.json` reflection metadata |
+| `compiler-api/…/backend/nativeimage/` | reading GraalVM reflection metadata (`reflect-config.json`, `reachability-metadata.json`, …) |
 | `compiler/…/backend/bytecode/` | compiling JDK bytecode to IR (shared by any backend, used by the LLVM backend) |
 | `compiler-api/…/backend/ir/` | the IR, IR generation from source, SSA and the optimizer |
 | `runtime/nabu_runtime.c`, `nabu_runtime.h` | the C runtime: object model, exceptions, GC hooks, strings, reflection |
@@ -23,8 +23,8 @@ The runtime sources are bundled into the plugin jar under `nabu/runtime/` and co
 `NativeLLVMBackend.compileAll` receives every IR module of the compilation:
 
 1. **IR modules from source.** The frontend generates one module per class, as for the JVM backends.
-2. **IR modules from JDK bytecode.** With `--bytecode-classes`, `NabuCompiler` runs the `BytecodeReachabilityCompiler` first (see below) and adds the modules it produces.
-3. **Reflection metadata.** `NativeImageConfigScanner` reads `META-INF/native-image/**/*-config.json` from the output directory into a `ReflectionRegistry`.
+2. **IR modules from library bytecode.** The backend reports `compilesLibraryBytecode()`, so `NabuCompiler` runs the `BytecodeReachabilityCompiler` first (see below) and adds the modules it produces. The JVM backends return `false` and skip this step.
+3. **Reflection metadata.** `NativeImageConfigScanner` reads the GraalVM configuration under `META-INF/native-image/` from the output directory and from every directory and jar on the classpath into a `ReflectionRegistry`.
 4. **LLVM module emission** (`LLVMModuleEmitter.emitAll`), in phases:
    1. function signatures for every module, so calls can be emitted in any order;
    2. ad-hoc declarations for call targets that no module defines;
@@ -38,10 +38,10 @@ The runtime sources are bundled into the plugin jar under `nabu/runtime/` and co
 
 ## Compiling the JDK from bytecode
 
-The backend has no hand-written Java class library. Instead, `BytecodeReachabilityCompiler` compiles the **real OpenJDK bytecode** of everything the program can reach:
+The backend has no hand-written Java class library. Instead, `BytecodeReachabilityCompiler` compiles the **real bytecode** of everything the program can reach, from the JDK and from the libraries on the classpath:
 
-- It reads class files from the JDK the compiler runs on (or `--bytecode-jdk-home`) with ASM's tree API.
-- It keeps a **worklist of methods**. It starts from the seed classes and from every call in the source modules, lowers each method to IR (`BytecodeMethodLowering`), and adds the methods that method calls.
+- It reads class files from the JDK the compiler runs on (or `--bytecode-jdk-home`), and otherwise from the classpath, with ASM's tree API.
+- It keeps a **worklist of methods**. It starts from every call in the source modules and from the classes in the GraalVM reflection configuration (their constructors and methods as the configuration lists them), lowers each method to IR (`BytecodeMethodLowering`), and adds the methods that method calls.
 - For every class it touches it builds the **shape**: superclass, interfaces, fields and static fields. Static final constants get their `ConstantValue` attribute as initializer (`javac` does not initialize those in `<clinit>`).
 - **Virtual calls** are the hard part: a call through `List.iterator()` can end up in any implementation. The compiler records every virtual signature called on a class or interface and lowers the matching override in every subtype it knows about, including when the subtype is loaded later. An implementation inherited from a superclass that does not implement the interface itself (for example `LinkedHashMap$LinkedKeyIterator`, whose `hasNext()` lives in the abstract `LinkedHashIterator`) counts too.
 - **`invokedynamic`**: lambdas are turned into real classes ahead of time (`LambdaClassSynthesizer`, the equivalent of what `LambdaMetafactory` does at run time), and string concatenation with `StringConcatFactory` is lowered directly.

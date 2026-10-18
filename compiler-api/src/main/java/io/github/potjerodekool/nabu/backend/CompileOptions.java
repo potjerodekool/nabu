@@ -2,13 +2,29 @@ package io.github.potjerodekool.nabu.backend;
 
 import io.github.potjerodekool.nabu.tools.JavaVersion;
 
+import java.nio.file.Path;
+import java.util.List;
+
 public record CompileOptions(
         OptLevel optLevel,
         boolean  debugInfo,
         String   targetTriple,
         GcStrategy gcStrategy,
-        JavaVersion javaVersion
+        JavaVersion javaVersion,
+        List<Path> classPath
 ) {
+    public CompileOptions {
+        classPath = classPath != null ? List.copyOf(classPath) : List.of();
+    }
+
+    public CompileOptions(OptLevel optLevel,
+                          boolean debugInfo,
+                          String targetTriple,
+                          GcStrategy gcStrategy,
+                          JavaVersion javaVersion) {
+        this(optLevel, debugInfo, targetTriple, gcStrategy, javaVersion, List.of());
+    }
+
     public enum OptLevel { NONE, DEFAULT, AGGRESSIVE }
 
     public enum GcStrategy {
@@ -34,6 +50,11 @@ public record CompileOptions(
     }
 
     public CompileOptions withJavaVersion(JavaVersion javaVersion) {
-        return new CompileOptions(optLevel, debugInfo, targetTriple, gcStrategy, javaVersion);
+        return new CompileOptions(optLevel, debugInfo, targetTriple, gcStrategy, javaVersion, classPath);
+    }
+
+    /** Het classpath (mappen en jars), o.a. voor de GraalVM-configuratie van libraries. */
+    public CompileOptions withClassPath(List<Path> classPath) {
+        return new CompileOptions(optLevel, debugInfo, targetTriple, gcStrategy, javaVersion, classPath);
     }
 }

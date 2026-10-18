@@ -1,15 +1,18 @@
 package io.github.potjerodekool.nabu.compiler.backend.bytecode;
 
 import io.github.potjerodekool.nabu.backend.ir.CallKind;
+import io.github.potjerodekool.nabu.backend.ir.IRAnnotation;
 import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
 import io.github.potjerodekool.nabu.backend.ir.IRField;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig.ReflectEntry;
 import io.github.potjerodekool.nabu.tools.FileManager;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -24,8 +27,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Berekent de transitieve sluiting van bytecode-only klassen (geen Nabu-
- * source) die bereikbaar zijn vanaf een gegeven set seed-klassen, en lowert
+ * Berekent de transitieve sluiting van bytecode-only klassen (JDK en
+ * libraries op het classpath, zonder Nabu-source) die bereikbaar zijn vanaf
+ * de broncode en de reflectie-configuratie, en lowert
  * elke bereikte, daadwerkelijk AANGEROEPEN methode naar IR via
  * {@link BytecodeMethodLowering}.
  *
@@ -44,11 +48,11 @@ import java.util.Set;
  *
  * <p>Deze versie lowert daarom alleen:
  * <ul>
- *   <li>voor SEED-klassen: de methodes waarvan de NAAM daadwerkelijk
- *       voorkomt in een aanroep vanuit de al-gecompileerde Nabu-source
- *       (zie {@link #findCalledSeedMethodNames}) - bij ontbrekende/
- *       onherkende matches valt een seed terug op "lower alle methodes",
- *       zodat deze heuristiek nooit iets stilletjes laat vallen;</li>
+ *   <li>voor klassen die de broncode aanroept: de methodes waarvan de
+ *       NAAM in een aanroep vanuit de Nabu-source voorkomt (alle overloads,
+ *       zie {@link #queueSourceCalls});</li>
+ *   <li>voor klassen uit de reflectie-configuratie: de constructors en
+ *       methodes die de configuratie noemt (zie {@link #queueReflectionRoot});</li>
  *   <li>voor elke andere, transitief bereikte klasse: alleen de exacte
  *       (naam+descriptor) methodes die ECHT vanuit een reeds-gelowerde
  *       bytecode-methode aangeroepen worden (zie {@link MethodRef}), plus
@@ -322,22 +326,22 @@ public final class BytecodeReachabilityCompiler {
     }
 
     /**
-     * @param seedInternalNames JVM-interne klassenamen (slashes) die het
-     *                          startpunt van de sluiting vormen, bv.
-     *                          {@code "java/util/regex/Pattern"}.
+     * @param reflectionRoots klassen die het programma via reflectie gebruikt,
+     *                          uit de GraalVM-configuratie
+     *                          ({@code META-INF/native-image/**}). De rest van
+     *                          de sluiting volgt uit de aanroepen in de
+     *                          broncode en in de gelowerde bytecode.
      * @param alreadyCompiledModules de Nabu-source IRModules die al gebouwd
-     *                          zijn - gescand op aanroepen naar de seed-
-     *                          klassen, om te bepalen WELKE methodes van die
-     *                          seeds daadwerkelijk nodig zijn (zie
-     *                          {@link #findCalledSeedMethodNames}).
+     *                          zijn - gescand op aanroepen naar JDK- en
+     *                          library-klassen.
      * @return een IRModule per bereikte, nog niet gecompileerde klasse.
      */
-    public List<IRModule> compileClosure(final Iterable<String> seedInternalNames,
+    public List<IRModule> compileClosure(final List<ReflectEntry> reflectionRoots,
                                          final List<IRModule> alreadyCompiledModules) {
         final long start = System.nanoTime();
 
-        for (final String seedInternal : seedInternalNames) {
-            seedShape(seedInternal, alreadyCompiledModules);
+        for (final ReflectEntry root : reflectionRoots) {
+            queueReflectionRoot(root);
         }
         for (final MethodRef root : RUNTIME_ROOTS) {
             ensureShape(root.ownerInternalName());
@@ -346,8 +350,8 @@ public final class BytecodeReachabilityCompiler {
 
         drainWorklists();
 
-        // De seed-scan hierboven dekt alleen de seed-klassen. Nabu-source roept
-        // ook methodes aan van klassen die pas via de sluiting gevormd zijn
+        // Nabu-source roept methodes aan van JDK- en library-klassen, ook van
+        // klassen die pas via de sluiting gevormd zijn
         // (bv. `new LinkedHashSet(collection)`); zonder die methodes te
         // loweren bindt zo'n call in de backend aan een toevallig wél
         // gelowerde overload met een ander parameterprofiel. Herhalen tot er
@@ -373,82 +377,56 @@ public final class BytecodeReachabilityCompiler {
         return resultModules;
     }
 
-    /** Backwards-compatibele overload zonder Nabu-source-scan (lowert dan alle methodes van de seeds zelf). */
-    public List<IRModule> compileClosure(final Iterable<String> seedInternalNames) {
-        return compileClosure(seedInternalNames, List.of());
-    }
-
-    private void seedShape(final String seedInternal, final List<IRModule> alreadyCompiledModules) {
-        shapeWorklist.add(seedInternal);
-        // Vorm meteen aanmaken zodat classNode beschikbaar is om de
-        // aangeroepen-methodenamen tegen te matchen.
-        ensureShape(seedInternal);
-        final ClassNode classNode = loadedClassNodes.get(seedInternal);
-        if (classNode == null) {
-            return;
+    /**
+     * Sluiting met hele klassen als wortel (alle constructors en methodes),
+     * zonder broncode. Voor tests.
+     */
+    public List<IRModule> compileClosure(final Iterable<String> rootInternalNames) {
+        final List<ReflectEntry> roots = new ArrayList<>();
+        for (final String root : rootInternalNames) {
+            roots.add(new ReflectEntry(root, true, true, true, true, List.of(), List.of()));
         }
-
-        final Set<String> calledNames = findCalledSeedMethodNames(seedInternal, alreadyCompiledModules);
-        if (calledNames.isEmpty()) {
-            // Scan vond niets (bv. omdat deze seed uitsluitend door een
-            // andere bytecode-klasse wordt aangeroepen, niet rechtstreeks
-            // door Nabu-source) - veiligheidsnet: lower dan gewoon alle
-            // methodes van deze seed, zoals de oude aanpak altijd deed. Dit
-            // mag nooit stilletjes NIETS loweren.
-            System.err.println("[BytecodeReachability] seed " + seedInternal
-                    + ": no calls found in Nabu source, falling back to the whole class");
-            for (final MethodNode methodNode : classNode.methods) {
-                methodWorklist.add(new MethodRef(seedInternal, methodNode.name, methodNode.desc, false));
-            }
-            return;
-        }
-        for (final MethodNode methodNode : classNode.methods) {
-            if (calledNames.contains(methodNode.name)) {
-                methodWorklist.add(new MethodRef(seedInternal, methodNode.name, methodNode.desc, false));
-            }
-        }
+        return compileClosure(roots, List.of());
     }
 
     /**
-     * Scant alle {@code IRInstruction.Call}-instructies in de al-
-     * gecompileerde Nabu-source-modules op aanroepen naar {@code seedInternal}
-     * (herkend aan de {@code "<qualifiedSeedName>_"}-naamprefix - Nabu's
-     * eigen, descriptor-loze aanroepnaamconventie, zie
-     * BYTECODE_COMPILATION_PLAN.md's noot over het overload-naamsbotsings-
-     * risico). Omdat de descriptor niet in de naam zit, kan dit alleen de
-     * METHODENAAM opleveren, niet de exacte overload - de aanroeper lowert
-     * daarom ALLE overloads met die naam in de seed-klasse.
+     * Vormt een klasse uit de reflectie-configuratie en zet de leden die de
+     * configuratie noemt op de worklist: constructors en methodes volgens de
+     * {@code all*}-vlaggen, plus de expliciet genoemde methodes (alle
+     * overloads met die naam). Velden horen bij de vorm.
      */
-    private Set<String> findCalledSeedMethodNames(final String seedInternal,
-                                                   final List<IRModule> alreadyCompiledModules) {
-        final String prefix = seedInternal.replace('/', '.') + "_";
-        // Constructor-aanroepen schrijft de frontend met underscores
-        // (`java_lang_ProcessBuilder_init`); die vorm ook herkennen, anders
-        // werd de constructor van een alleen-uit-source gebruikte klasse
-        // nooit gelowered (link-fout).
-        final String flatPrefix = seedInternal.replace('/', '_') + "_";
-        final Set<String> names = new HashSet<>();
-        for (final IRModule module : alreadyCompiledModules) {
-            for (final var fn : module.functions()) {
-                for (final var block : fn.blocks()) {
-                    for (final IRInstruction insn : block.instructions()) {
-                        if (insn instanceof IRInstruction.Call call
-                                && call.function() != null
-                                && (call.function().startsWith(prefix)
-                                    || call.function().startsWith(flatPrefix))) {
-                            String name = call.function().substring(prefix.length());
-                            if ("init".equals(name)) {
-                                name = "<init>";
-                            } else if ("clinit".equals(name)) {
-                                name = "<clinit>";
-                            }
-                            names.add(name);
-                        }
-                    }
-                }
+    private void queueReflectionRoot(final ReflectEntry root) {
+        final String internal = root.name().replace('.', '/');
+        if (alreadyCompiledQualifiedNames.contains(internal.replace('/', '.'))) {
+            return;
+        }
+        final ClassNode classNode = loadClassNode(internal);
+        if (classNode == null) {
+            System.err.println("[BytecodeReachability] warning: class " + root.name()
+                    + " from the native-image configuration was not found");
+            return;
+        }
+        ensureShape(internal);
+        if (!shapedClasses.contains(internal)) {
+            return;
+        }
+        for (final MethodNode methodNode : classNode.methods) {
+            final boolean isPublic = (methodNode.access & Opcodes.ACC_PUBLIC) != 0;
+            final boolean wanted;
+            if ("<init>".equals(methodNode.name)) {
+                wanted = root.allDeclaredConstructors() || (root.allPublicConstructors() && isPublic);
+            } else if ("<clinit>".equals(methodNode.name)) {
+                wanted = false;
+            } else {
+                wanted = root.allDeclaredMethods() || (root.allPublicMethods() && isPublic);
+            }
+            if (wanted) {
+                methodWorklist.add(new MethodRef(internal, methodNode.name, methodNode.desc, false));
             }
         }
-        return names;
+        for (final var method : root.methods()) {
+            methodWorklist.add(new MethodRef(internal, method.name(), null, false));
+        }
     }
 
     /** Alle aanroepdoelen uit de Nabu-source-modules, met of de aanroep virtueel dispatcht. */
@@ -546,7 +524,7 @@ public final class BytecodeReachabilityCompiler {
 
     /**
      * Een klasse die alleen vanuit Nabu-source aangeroepen wordt (picocli's
-     * {@code new ProcessBuilder(cmd)}) zit niet in de sluiting van de seeds;
+     * {@code new ProcessBuilder(cmd)}) zit nog niet in de sluiting;
      * vorm haar alsnog als de aanroepnaam een laadbare klasse noemt. Anders
      * bleven constructor én methodes ongedefinieerd (link-fout).
      *
@@ -628,6 +606,8 @@ public final class BytecodeReachabilityCompiler {
         final long classFlags = AccessFlags.toNabuFlags(classNode.access);
         final var builder = new IRBuilder(classFlags, qualifiedName);
         shapeBuilders.put(internalName, builder);
+        // build() geeft steeds hetzelfde (muterende) IRModule-object terug.
+        builder.build().setBytecodeAnnotations(irAnnotations(classNode.visibleAnnotations));
 
         if (classNode.superName != null) {
             builder.superType(new IRType.Ptr(IRType.I8, "L" + classNode.superName + ";"));
@@ -652,7 +632,9 @@ public final class BytecodeReachabilityCompiler {
             final boolean isStatic = (fieldNode.access & Opcodes.ACC_STATIC) != 0;
             final IRType fieldType = DescriptorMapper.mapType(Type.getType(fieldNode.desc));
 
-            builder.field(IRField.field(fieldFlags, fieldNode.name, fieldType, null));
+            final IRField field = IRField.field(fieldFlags, fieldNode.name, fieldType, null);
+            field.setBytecodeAnnotations(irAnnotations(fieldNode.visibleAnnotations));
+            builder.field(field);
 
             if (isStatic) {
                 final IRType ownerType = new IRType.Ptr(IRType.I8, "L" + classNode.name + ";");
@@ -944,7 +926,51 @@ public final class BytecodeReachabilityCompiler {
         return loadedClassNodes.computeIfAbsent(internalName,
                 name -> BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
                         : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build()
-                        : substitute(classLoader.load(name)));
+                        : AnnotationAccessors.CLASS.equals(name) ? AnnotationAccessors.build()
+                        : withAnnotationAccessors(substitute(classLoader.load(name))));
+    }
+
+    /** Runtime-zichtbare annotaties, voor de reflectie-metadata (zie {@link IRAnnotation}). */
+    private static List<IRAnnotation> irAnnotations(final List<AnnotationNode> annotations) {
+        if (annotations == null) {
+            return List.of();
+        }
+        final List<IRAnnotation> result = new ArrayList<>();
+        for (final AnnotationNode annotation : annotations) {
+            result.add(irAnnotation(annotation));
+        }
+        return result;
+    }
+
+    private static IRAnnotation irAnnotation(final AnnotationNode annotation) {
+        final Map<String, Object> values = new java.util.LinkedHashMap<>();
+        if (annotation.values != null) {
+            for (int i = 0; i + 1 < annotation.values.size(); i += 2) {
+                values.put((String) annotation.values.get(i), irAnnotationValue(annotation.values.get(i + 1)));
+            }
+        }
+        return new IRAnnotation(Type.getType(annotation.desc).getInternalName(), values);
+    }
+
+    private static Object irAnnotationValue(final Object value) {
+        if (value instanceof AnnotationNode nested) {
+            return irAnnotation(nested);
+        }
+        if (value instanceof List<?> list) {
+            final List<Object> items = new ArrayList<>();
+            for (final Object item : list) {
+                items.add(irAnnotationValue(item));
+            }
+            return items;
+        }
+        return value;
+    }
+
+    private ClassNode withAnnotationAccessors(final ClassNode classNode) {
+        if (classNode != null) {
+            AnnotationAccessors.implementElements(classNode, classLoader::load);
+        }
+        return classNode;
     }
 
     private void lowerOne(final IRBuilder builder,

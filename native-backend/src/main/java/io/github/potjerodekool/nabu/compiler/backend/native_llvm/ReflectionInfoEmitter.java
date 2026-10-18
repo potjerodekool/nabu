@@ -1,11 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
+import io.github.potjerodekool.nabu.backend.ir.IRAnnotation;
 import io.github.potjerodekool.nabu.backend.ir.IRField;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
-import io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.GraalVMNativeImageConfig.ReflectEntry;
-import io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry;
+import io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig.ReflectEntry;
+import io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.lang.model.element.AnnotationValue;
 import io.github.potjerodekool.nabu.lang.model.element.ArrayAttribute;
@@ -246,6 +247,9 @@ public class ReflectionInfoEmitter {
                 result.add(data);
             }
         }
+        for (final IRAnnotation ann : module.bytecodeAnnotations()) {
+            result.add(renderBytecodeAnnotation(ann, null));
+        }
         for (final IRField field : module.fields()) {
             for (final CompoundAttribute ann : field.annotations()) {
                 final AnnotationData data = renderAnnotation(ann, field.name());
@@ -253,8 +257,66 @@ public class ReflectionInfoEmitter {
                     result.add(data);
                 }
             }
+            for (final IRAnnotation ann : field.bytecodeAnnotations()) {
+                result.add(renderBytecodeAnnotation(ann, field.name()));
+            }
         }
         return result;
+    }
+
+    /**
+     * Een annotatie van een klasse uit bytecode (een library), in hetzelfde
+     * formaat als een annotatie uit broncode: tekst voor strings, klassen
+     * (interne naam), enum-constanten (naam) en arrays (komma-gescheiden),
+     * een getal voor primitieven. Geneste annotaties worden overgeslagen.
+     */
+    private AnnotationData renderBytecodeAnnotation(final IRAnnotation ann, final String owner) {
+        final List<ValueData> values = new ArrayList<>();
+        for (final Map.Entry<String, Object> e : ann.values().entrySet()) {
+            final Object raw = e.getValue();
+            if (raw instanceof Boolean b) {
+                values.add(new ValueData(e.getKey(), null, false, b ? 1.0 : 0.0));
+            } else if (raw instanceof Number n) {
+                values.add(new ValueData(e.getKey(), null, false, n.doubleValue()));
+            } else if (raw instanceof Character c) {
+                values.add(new ValueData(e.getKey(), null, false, c));
+            } else {
+                final String text = bytecodeValueText(raw);
+                if (text != null) {
+                    values.add(new ValueData(e.getKey(), text, true, 0.0));
+                }
+            }
+        }
+        return new AnnotationData(ann.typeInternalName(), owner, values);
+    }
+
+    private static String bytecodeValueText(final Object raw) {
+        if (raw instanceof String s) {
+            return s;
+        }
+        if (raw instanceof org.objectweb.asm.Type type) {
+            return type.getSort() == org.objectweb.asm.Type.OBJECT ? type.getInternalName() : type.getDescriptor();
+        }
+        if (raw instanceof String[] enumConstant && enumConstant.length == 2) {
+            return enumConstant[1];
+        }
+        if (raw instanceof List<?> list) {
+            final StringBuilder sb = new StringBuilder();
+            for (final Object item : list) {
+                final String text = item instanceof Boolean || item instanceof Number || item instanceof Character
+                        ? String.valueOf(item)
+                        : bytecodeValueText(item);
+                if (text == null) {
+                    return null;
+                }
+                if (!sb.isEmpty()) {
+                    sb.append(',');
+                }
+                sb.append(text);
+            }
+            return sb.toString();
+        }
+        return null;
     }
 
     private AnnotationData renderAnnotation(final CompoundAttribute ann,

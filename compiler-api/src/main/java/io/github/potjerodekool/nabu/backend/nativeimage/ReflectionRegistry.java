@@ -1,4 +1,4 @@
-package io.github.potjerodekool.nabu.compiler.backend.native_llvm.config;
+package io.github.potjerodekool.nabu.backend.nativeimage;
 
 import java.util.LinkedHashMap;
 import java.util.Map;/**

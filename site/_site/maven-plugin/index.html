@@ -116,13 +116,12 @@
 
 <p>The plugin compiles every source root of the project (<code class="language-plaintext highlighter-rouge">src/main/java</code> and any root added with <code class="language-plaintext highlighter-rouge">build-helper-maven-plugin</code>), both <code class="language-plaintext highlighter-rouge">.java</code> and <code class="language-plaintext highlighter-rouge">.nabu</code> files.</p>
 
-<p>The compiler options for the LLVM backend (<code class="language-plaintext highlighter-rouge">--gc</code>, <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>, <code class="language-plaintext highlighter-rouge">--opt</code>, …) are described on the <a href="/backends/llvm/#compiler-options">LLVM backend</a> page. For example:</p>
+<p>The compiler options for the LLVM backend (<code class="language-plaintext highlighter-rouge">--gc</code>, <code class="language-plaintext highlighter-rouge">--opt</code>, …) are described on the <a href="/backends/llvm/#compiler-options">LLVM backend</a> page. For example:</p>
 
 <div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;configuration&gt;</span>
     <span class="nt">&lt;compilerArgs&gt;</span>
         <span class="nt">&lt;arg&gt;</span>--backend=LLVM<span class="nt">&lt;/arg&gt;</span>
         <span class="nt">&lt;arg&gt;</span>--gc=BOEHM<span class="nt">&lt;/arg&gt;</span>
-        <span class="nt">&lt;arg&gt;</span>--bytecode-classes=java.lang.Object<span class="nt">&lt;/arg&gt;</span>
     <span class="nt">&lt;/compilerArgs&gt;</span>
 <span class="nt">&lt;/configuration&gt;</span>
 </code></pre></div></div>

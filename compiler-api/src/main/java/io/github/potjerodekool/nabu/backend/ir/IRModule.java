@@ -18,6 +18,7 @@ public class IRModule {
     private final List<IRFunction>       functions = new ArrayList<>();
     private final Map<String, IRGlobal>  globals   = new LinkedHashMap<>();
     private final List<CompoundAttribute> annotations = new ArrayList<>();
+    private final List<IRAnnotation> bytecodeAnnotations = new ArrayList<>();
     private String sourceFile = "<onbekend>";
     private String sourceDir  = ".";
     private String genericSignature;
@@ -107,6 +108,15 @@ public class IRModule {
         return Collections.unmodifiableList(annotations);
     }
 
+    /** Runtime-zichtbare annotaties van een klasse uit bytecode. */
+    public void setBytecodeAnnotations(final List<IRAnnotation> annotations) {
+        this.bytecodeAnnotations.addAll(annotations);
+    }
+
+    public List<IRAnnotation> bytecodeAnnotations() {
+        return Collections.unmodifiableList(bytecodeAnnotations);
+    }
+
     public void setGenericSignature(String genericSignature) {
         this.genericSignature = genericSignature;
     }
@@ -130,6 +140,7 @@ public class IRModule {
         newModule.functions.addAll(List.copyOf(functions));
         newModule.globals.putAll(this.globals);
         newModule.annotations.addAll(this.annotations);
+        newModule.bytecodeAnnotations.addAll(this.bytecodeAnnotations);
         newModule.superType = this.superType;
         newModule.interfaces = this.interfaces != null ? List.copyOf(this.interfaces) : null;
         newModule.genericSignature = this.genericSignature;

@@ -18,6 +18,17 @@ public interface Backend {
      * informatie over klassen heen deelt (bv. super-velden, override-slots)
      * kan dit overschrijven met een echte batch-compilatie.
      */
+    /**
+     * Of deze backend een gesloten wereld bouwt: dan compileert de compiler
+     * naast de broncode ook de bytecode van de JDK en van de libraries op het
+     * classpath die het programma kan bereiken (zie
+     * {@code BytecodeReachabilityCompiler}). Een JVM-backend gebruikt die
+     * klassen gewoon tijdens het draaien.
+     */
+    default boolean compilesLibraryBytecode() {
+        return false;
+    }
+
     default void compileAll(List<IRModule> modules, CompileOptions opts, Path output)
             throws CompileException {
         for (IRModule module : modules) {

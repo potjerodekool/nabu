@@ -117,6 +117,15 @@ class PicocliGreetCommandIntegrationTest {
                 .resolve("META-INF/native-image/picocli-generated");
         assertTrue(Files.isDirectory(generatedConfigDir),
                 "picocli-codegen moet native-image config hebben gegenereerd in " + generatedConfigDir);
+
+        // Zoals met javac: mixinStandardHelpOptions voegt picocli's eigen
+        // AutoHelpMixin toe, die picocli via reflectie leest. Een native build
+        // van picocli uit de jar heeft deze entry nodig.
+        final var reflectConfig = Files.readString(generatedConfigDir.resolve("reflect-config.json"));
+        assertTrue(reflectConfig.contains("\"picocli.CommandLine$AutoHelpMixin\""),
+                "reflect-config.json mist picocli.CommandLine$AutoHelpMixin:\n" + reflectConfig);
+        assertTrue(reflectConfig.contains("\"helpRequested\"") && reflectConfig.contains("\"versionRequested\""),
+                "reflect-config.json mist de velden van AutoHelpMixin:\n" + reflectConfig);
     }
 
     private File resolveCompilerDirectory() {

@@ -112,13 +112,22 @@ public abstract class JElement<S extends io.github.potjerodekool.nabu.lang.model
     @Override
     public <A extends Annotation> A getAnnotation(final Class<A> annotationType) {
         final var mirror = original.getAnnotationMirrors().stream()
-                .filter(it -> annotationType.getName().equals(it.getAnnotationType().asTypeElement().getQualifiedName()))
+                .filter(it -> isNamed(annotationType, it.getAnnotationType().asTypeElement().getQualifiedName()))
                 .findFirst()
                 .orElse(null);
 
         return mirror != null
                 ? AnnotationUtils.proxy(mirror, AnnotationUtils.getAnnotationProcessorClassLoader())
                 : null;
+    }
+
+    /**
+     * Een genest type heet uit een class-bestand {@code picocli.CommandLine$Command}
+     * en uit broncode {@code picocli.CommandLine.Command}; beide vormen tellen.
+     */
+    static boolean isNamed(final Class<?> type, final String qualifiedName) {
+        return type.getName().equals(qualifiedName)
+                || (type.getCanonicalName() != null && type.getCanonicalName().equals(qualifiedName));
     }
 
     @Override

@@ -25,14 +25,13 @@ The plugin is not published to Maven Central yet; build Nabu from source (`mvn i
 
 The plugin compiles every source root of the project (`src/main/java` and any root added with `build-helper-maven-plugin`), both `.java` and `.nabu` files.
 
-The compiler options for the LLVM backend (`--gc`, `--bytecode-classes`, `--opt`, …) are described on the [LLVM backend](/backends/llvm/#compiler-options) page. For example:
+The compiler options for the LLVM backend (`--gc`, `--opt`, …) are described on the [LLVM backend](/backends/llvm/#compiler-options) page. For example:
 
 ```xml
 <configuration>
     <compilerArgs>
         <arg>--backend=LLVM</arg>
         <arg>--gc=BOEHM</arg>
-        <arg>--bytecode-classes=java.lang.Object</arg>
     </compilerArgs>
 </configuration>
 ```

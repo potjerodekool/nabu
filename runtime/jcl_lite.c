@@ -617,124 +617,61 @@ static char *jcl_sub(const char *s, int32_t from, int32_t to) {
     return o;
 }
 
-#define ANN_STR(cname, sym, key, dflt) BIND(void *, cname, sym, (void *a)) { const char *t = ann_text(a, key, dflt); return t == NULL ? NULL : nabu_jstring_new(t); }
-#define ANN_ARR(cname, sym, key) BIND(void *, cname, sym, (void *a)) { return ann_strs(a, key); }
-#define ANN_BOOL(cname, sym, key, dflt) BIND(int, cname, sym, (void *a)) { return ann_bool(a, key, dflt); }
-#define ANN_INT(cname, sym, key, dflt) BIND(int32_t, cname, sym, (void *a)) { return (int32_t)ann_num(a, key, dflt); }
-#define ANN_CH(cname, sym, key, dflt) BIND(int16_t, cname, sym, (void *a)) { return (int16_t)ann_num(a, key, dflt); }
-/* Class-waardige attributen: een (geïnterneerd) Class-object, geen String.
- * picocli vergelijkt de waarde met een class-literal (isNonDefault) en maakt
- * anders een instantie via reflectie; met een String-waarde was elke default
- * "niet-default" en werd bv. de preprocessor null. */
-#define ANN_CLS(cname, sym, key, dflt) BIND(void *, cname, sym, (void *a)) { const char *t = ann_text(a, key, dflt); return jcl_class((t == NULL || *t == 0) ? dflt : t); }
-#define ANN_CLSARR(cname, sym, key) BIND(void *, cname, sym, (void *a)) { return ann_class_array(a, key); }
-#define ANN_ENUM(cname, sym, key, type, dflt_nm) BIND(void *, cname, sym, (void *a)) { const char *t = ann_text(a, key, NULL); return jcl_enum(type, (t != NULL && *t != 0) ? t : dflt_nm); }
+/* Annotatie-elementen. De compiler geeft elk element van een annotatie-
+ * interface een body (AnnotationAccessors) die een van deze helpers aanroept
+ * met de elementnaam en de default uit het AnnotationDefault-attribuut. De
+ * waarde komt uit de reflectie-metadata van de annotatie-instantie; ontbreekt
+ * die, dan geldt de default. */
+static void *jcl_strs_of(const char *text) {
+    if (text == NULL || text[0] == 0) return jcl_empty_strs();
+    void *arr = jcl_strs(text, 1);
+    int32_t n = jcl_arr_len(arr);
+    void **items = (void **)((char *)arr + 8);
+    for (int32_t i = 0; i < n; i++) items[i] = nabu_jstring_new(nabu_cstr(items[i]));
+    return arr;
+}
 
-ANN_BOOL(jcl_Command_abbreviateSynopsis, "Command_abbreviateSynopsis", "abbreviateSynopsis", 0)
-ANN_BOOL(jcl_Command_addMethodSubcommands, "Command_addMethodSubcommands", "addMethodSubcommands", 1)
-ANN_BOOL(jcl_Command_mixinStandardHelpOptions, "Command_mixinStandardHelpOptions", "mixinStandardHelpOptions", 0)
-ANN_ARR(jcl_Command_aliases, "Command_aliases", "aliases")
-ANN_STR(jcl_Command_commandListHeading, "Command_commandListHeading", "commandListHeading", "Commands:%n")
-ANN_ARR(jcl_Command_customSynopsis, "Command_customSynopsis", "customSynopsis")
-ANN_CLS(jcl_Command_defaultValueProvider, "Command_defaultValueProvider", "defaultValueProvider", "picocli/CommandLine$NoDefaultProvider")
-ANN_ARR(jcl_Command_description, "Command_description", "description")
-ANN_STR(jcl_Command_descriptionHeading, "Command_descriptionHeading", "descriptionHeading", "")
-ANN_ARR(jcl_Command_exitCodeList, "Command_exitCodeList", "exitCodeList")
-ANN_STR(jcl_Command_exitCodeListHeading, "Command_exitCodeListHeading", "exitCodeListHeading", "")
-ANN_INT(jcl_Command_exitCodeOnExecutionException, "Command_exitCodeOnExecutionException", "exitCodeOnExecutionException", 1)
-ANN_INT(jcl_Command_exitCodeOnInvalidInput, "Command_exitCodeOnInvalidInput", "exitCodeOnInvalidInput", 2)
-ANN_INT(jcl_Command_exitCodeOnSuccess, "Command_exitCodeOnSuccess", "exitCodeOnSuccess", 0)
-ANN_INT(jcl_Command_exitCodeOnUsageHelp, "Command_exitCodeOnUsageHelp", "exitCodeOnUsageHelp", 0)
-ANN_INT(jcl_Command_exitCodeOnVersionHelp, "Command_exitCodeOnVersionHelp", "exitCodeOnVersionHelp", 0)
-ANN_ARR(jcl_Command_footer, "Command_footer", "footer")
-ANN_STR(jcl_Command_footerHeading, "Command_footerHeading", "footerHeading", "")
-ANN_ARR(jcl_Command_header, "Command_header", "header")
-ANN_STR(jcl_Command_headerHeading, "Command_headerHeading", "headerHeading", "")
-ANN_BOOL(jcl_Command_helpCommand, "Command_helpCommand", "helpCommand", 0)
-ANN_BOOL(jcl_Command_hidden, "Command_hidden", "hidden", 0)
-ANN_CLS(jcl_Command_modelTransformer, "Command_modelTransformer", "modelTransformer", "picocli/CommandLine$NoOpModelTransformer")
-ANN_STR(jcl_Command_name, "Command_name", "name", "<main class>")
-ANN_STR(jcl_Command_optionListHeading, "Command_optionListHeading", "optionListHeading", "")
-ANN_STR(jcl_Command_parameterListHeading, "Command_parameterListHeading", "parameterListHeading", "")
-ANN_CLS(jcl_Command_preprocessor, "Command_preprocessor", "preprocessor", "picocli/CommandLine$NoOpParameterPreprocessor")
-ANN_CH(jcl_Command_requiredOptionMarker, "Command_requiredOptionMarker", "requiredOptionMarker", 32)
-ANN_STR(jcl_Command_resourceBundle, "Command_resourceBundle", "resourceBundle", "")
-BIND(void *, jcl_Command_scope, "Command_scope", (void *a)) { const char *t = ann_text(a, "scope", NULL); return jcl_enum("picocli/CommandLine$ScopeType", (t != NULL && *t != 0) ? t : "LOCAL"); }
-ANN_STR(jcl_Command_separator, "Command_separator", "separator", "=")
-ANN_BOOL(jcl_Command_showAtFileInUsageHelp, "Command_showAtFileInUsageHelp", "showAtFileInUsageHelp", 0)
-ANN_BOOL(jcl_Command_showDefaultValues, "Command_showDefaultValues", "showDefaultValues", 0)
-ANN_BOOL(jcl_Command_showEndOfOptionsDelimiterInUsageHelp, "Command_showEndOfOptionsDelimiterInUsageHelp", "showEndOfOptionsDelimiterInUsageHelp", 0)
-ANN_BOOL(jcl_Command_sortOptions, "Command_sortOptions", "sortOptions", 1)
-ANN_BOOL(jcl_Command_sortSynopsis, "Command_sortSynopsis", "sortSynopsis", 1)
-ANN_CLSARR(jcl_Command_subcommands, "Command_subcommands", "subcommands")
-ANN_BOOL(jcl_Command_subcommandsRepeatable, "Command_subcommandsRepeatable", "subcommandsRepeatable", 0)
-ANN_STR(jcl_Command_synopsisHeading, "Command_synopsisHeading", "synopsisHeading", "Usage: ")
-ANN_STR(jcl_Command_synopsisSubcommandLabel, "Command_synopsisSubcommandLabel", "synopsisSubcommandLabel", "[COMMAND]")
-ANN_BOOL(jcl_Command_usageHelpAutoWidth, "Command_usageHelpAutoWidth", "usageHelpAutoWidth", 0)
-ANN_INT(jcl_Command_usageHelpWidth, "Command_usageHelpWidth", "usageHelpWidth", 80)
-ANN_ARR(jcl_Command_version, "Command_version", "version")
-ANN_CLS(jcl_Command_versionProvider, "Command_versionProvider", "versionProvider", "picocli/CommandLine$NoVersionProvider")
+static void *jcl_classes_of(const char *text) {
+    void *names = (text == NULL || text[0] == 0) ? jcl_arr_ref(0) : jcl_strs(text, 1);
+    int32_t n = jcl_arr_len(names);
+    void *arr = jcl_arr_ref(n);
+    void **src = (void **)((char *)names + 8);
+    void **dst = (void **)((char *)arr + 8);
+    for (int32_t i = 0; i < n; i++) dst[i] = jcl_class(nabu_cstr(src[i]));
+    return arr;
+}
 
-BIND(int, jcl_ArgGroup_exclusive, "ArgGroup_exclusive", (void *a)) { return ann_bool(a, "exclusive", 1); }
-ANN_STR(jcl_ArgGroup_heading, "ArgGroup_heading", "heading", "__no_heading__")
-ANN_STR(jcl_ArgGroup_headingKey, "ArgGroup_headingKey", "headingKey", "__no_heading_key__")
-ANN_STR(jcl_ArgGroup_multiplicity, "ArgGroup_multiplicity", "multiplicity", "0..1")
-ANN_INT(jcl_ArgGroup_order, "ArgGroup_order", "order", -1)
-BIND(int, jcl_ArgGroup_validate, "ArgGroup_validate", (void *a)) { return ann_bool(a, "validate", 1); }
+BIND(void *, jcl_ann_text, "nabu.runtime.Annotations_text", (void *a, void *name, void *dflt)) {
+    const nabu_annotation_value *v = ann_v(a, nabu_cstr(name));
+    if (v == NULL || v->text == NULL) return dflt;
+    return nabu_jstring_new(v->text);
+}
 
-BIND(void *, jcl_Mixin_name, "Mixin_name", (void *a)) { return nabu_jstring_new(ann_text(a, "name", "")); }
-ANN_ENUM(jcl_Spec_value, "Spec_value", "value", "picocli/CommandLine$Spec$Target", "SELF")
+BIND(void *, jcl_ann_texts, "nabu.runtime.Annotations_texts", (void *a, void *name, void *dflt)) {
+    const nabu_annotation_value *v = ann_v(a, nabu_cstr(name));
+    return jcl_strs_of(v != NULL ? v->text : (dflt != NULL ? nabu_cstr(dflt) : NULL));
+}
 
-ANN_STR(jcl_Option_arity, "Option_arity", "arity", "")
-ANN_CLS(jcl_Option_completionCandidates, "Option_completionCandidates", "completionCandidates", "picocli/CommandLine$NoCompletionCandidates")
-ANN_CLSARR(jcl_Option_converter, "Option_converter", "converter")
-ANN_STR(jcl_Option_defaultValue, "Option_defaultValue", "defaultValue", "__no_default_value__")
-ANN_ARR(jcl_Option_description, "Option_description", "description")
-ANN_STR(jcl_Option_descriptionKey, "Option_descriptionKey", "descriptionKey", "")
-ANN_BOOL(jcl_Option_echo, "Option_echo", "echo", 0)
-ANN_STR(jcl_Option_fallbackValue, "Option_fallbackValue", "fallbackValue", "")
-ANN_BOOL(jcl_Option_help, "Option_help", "help", 0)
-ANN_BOOL(jcl_Option_hidden, "Option_hidden", "hidden", 0)
-ANN_BOOL(jcl_Option_hideParamSyntax, "Option_hideParamSyntax", "hideParamSyntax", 0)
-ANN_BOOL(jcl_Option_interactive, "Option_interactive", "interactive", 0)
-ANN_STR(jcl_Option_mapFallbackValue, "Option_mapFallbackValue", "mapFallbackValue", "__unspecified__")
-ANN_ARR(jcl_Option_names, "Option_names", "names")
-ANN_BOOL(jcl_Option_negatable, "Option_negatable", "negatable", 0)
-ANN_INT(jcl_Option_order, "Option_order", "order", -1)
-ANN_CLS(jcl_Option_parameterConsumer, "Option_parameterConsumer", "parameterConsumer", "picocli/CommandLine$NullParameterConsumer")
-ANN_STR(jcl_Option_paramLabel, "Option_paramLabel", "paramLabel", "")
-ANN_CLS(jcl_Option_preprocessor, "Option_preprocessor", "preprocessor", "picocli/CommandLine$NoOpParameterPreprocessor")
-ANN_STR(jcl_Option_prompt, "Option_prompt", "prompt", "")
-ANN_BOOL(jcl_Option_required, "Option_required", "required", 0)
-BIND(void *, jcl_Option_scope, "Option_scope", (void *a)) { const char *t = ann_text(a, "scope", NULL); return jcl_enum("picocli/CommandLine$ScopeType", (t != NULL && *t != 0) ? t : "LOCAL"); }
-ANN_ENUM(jcl_Option_showDefaultValue, "Option_showDefaultValue", "showDefaultValue", "picocli/CommandLine$Help$Visibility", "ON_DEMAND")
-ANN_STR(jcl_Option_split, "Option_split", "split", "")
-ANN_STR(jcl_Option_splitSynopsisLabel, "Option_splitSynopsisLabel", "splitSynopsisLabel", "")
-ANN_CLSARR(jcl_Option_type, "Option_type", "type")
-ANN_BOOL(jcl_Option_usageHelp, "Option_usageHelp", "usageHelp", 0)
-ANN_BOOL(jcl_Option_versionHelp, "Option_versionHelp", "versionHelp", 0)
+BIND(int, jcl_ann_bool, "nabu.runtime.Annotations_bool", (void *a, void *name, int dflt)) {
+    return ann_bool(a, nabu_cstr(name), dflt & 1);
+}
 
-ANN_STR(jcl_Parameters_arity, "Parameters_arity", "arity", "")
-ANN_CLS(jcl_Parameters_completionCandidates, "Parameters_completionCandidates", "completionCandidates", "picocli/CommandLine$NoCompletionCandidates")
-ANN_CLSARR(jcl_Parameters_converter, "Parameters_converter", "converter")
-ANN_STR(jcl_Parameters_defaultValue, "Parameters_defaultValue", "defaultValue", "__no_default_value__")
-ANN_ARR(jcl_Parameters_description, "Parameters_description", "description")
-ANN_STR(jcl_Parameters_descriptionKey, "Parameters_descriptionKey", "descriptionKey", "")
-ANN_BOOL(jcl_Parameters_echo, "Parameters_echo", "echo", 0)
-ANN_BOOL(jcl_Parameters_hidden, "Parameters_hidden", "hidden", 0)
-ANN_BOOL(jcl_Parameters_hideParamSyntax, "Parameters_hideParamSyntax", "hideParamSyntax", 0)
-ANN_STR(jcl_Parameters_index, "Parameters_index", "index", "")
-ANN_BOOL(jcl_Parameters_interactive, "Parameters_interactive", "interactive", 0)
-ANN_STR(jcl_Parameters_mapFallbackValue, "Parameters_mapFallbackValue", "mapFallbackValue", "__unspecified__")
-ANN_CLS(jcl_Parameters_parameterConsumer, "Parameters_parameterConsumer", "parameterConsumer", "picocli/CommandLine$NullParameterConsumer")
-ANN_STR(jcl_Parameters_paramLabel, "Parameters_paramLabel", "paramLabel", "")
-ANN_CLS(jcl_Parameters_preprocessor, "Parameters_preprocessor", "preprocessor", "picocli/CommandLine$NoOpParameterPreprocessor")
-ANN_STR(jcl_Parameters_prompt, "Parameters_prompt", "prompt", "")
-BIND(void *, jcl_Parameters_scope, "Parameters_scope", (void *a)) { const char *t = ann_text(a, "scope", NULL); return jcl_enum("picocli/CommandLine$ScopeType", (t != NULL && *t != 0) ? t : "LOCAL"); }
-ANN_ENUM(jcl_Parameters_showDefaultValue, "Parameters_showDefaultValue", "showDefaultValue", "picocli/CommandLine$Help$Visibility", "ON_DEMAND")
-ANN_STR(jcl_Parameters_split, "Parameters_split", "split", "")
-ANN_STR(jcl_Parameters_splitSynopsisLabel, "Parameters_splitSynopsisLabel", "splitSynopsisLabel", "")
-ANN_CLSARR(jcl_Parameters_type, "Parameters_type", "type")
+BIND(double, jcl_ann_number, "nabu.runtime.Annotations_number", (void *a, void *name, double dflt)) {
+    return ann_num(a, nabu_cstr(name), dflt);
+}
+
+/* Class-waardige elementen: een (geïnterneerd) Class-object, geen String.
+ * picocli vergelijkt de waarde met een class-literal (isNonDefault). */
+BIND(void *, jcl_ann_type, "nabu.runtime.Annotations_type", (void *a, void *name, void *dflt)) {
+    const char *t = ann_text(a, nabu_cstr(name), NULL);
+    if (t == NULL || *t == 0) t = dflt != NULL ? nabu_cstr(dflt) : NULL;
+    return t != NULL ? jcl_class(t) : NULL;
+}
+
+BIND(void *, jcl_ann_types, "nabu.runtime.Annotations_types", (void *a, void *name, void *dflt)) {
+    const nabu_annotation_value *v = ann_v(a, nabu_cstr(name));
+    return jcl_classes_of(v != NULL ? v->text : (dflt != NULL ? nabu_cstr(dflt) : NULL));
+}
 
 BIND(void *, jcl_java_lang_Object_clone, "java.lang.Object_clone", (void *self)) {
     if (self == NULL) return NULL;

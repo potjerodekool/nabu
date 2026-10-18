@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.bytecode;
 
 import io.github.potjerodekool.nabu.tools.FileManager;
+import io.github.potjerodekool.nabu.tools.FileObject;
 import io.github.potjerodekool.nabu.tools.StandardLocation;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.tree.ClassNode;
@@ -16,6 +17,7 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Laadt een JVM-{@code .class}-bestand op basis van zijn interne (slash-)
@@ -34,13 +36,15 @@ import java.util.Map;
  * locatie zou dat bestaande, werkende pad kunnen breken. Zie
  * BYTECODE_COMPILATION_PLAN.md fase 2.
  *
- * <p>Niet-JDK-bibliotheekklassen (indien ooit nodig) vallen terug op de
- * normale {@link FileManager} {@code CLASS_PATH}-locatie.
+ * <p>Niet-JDK-klassen (libraries) komen uit de mappen en jars van de
+ * {@link FileManager} {@code CLASS_PATH}-locatie.
  */
 final class BytecodeClassLoader {
 
     private final FileManager fileManager;
     private final Map<String, ClassNode> cache = new HashMap<>();
+    /** pakket (slashes) -> bestandsnaam -> class-bestand op het classpath. */
+    private final Map<String, Map<String, FileObject>> classPathPackages = new HashMap<>();
     private FileSystem jrtFileSystem;
     private boolean jrtInitAttempted;
 
@@ -115,14 +119,38 @@ final class BytecodeClassLoader {
         return null;
     }
 
+    /**
+     * Zoekt de klasse in de mappen en jars van het classpath. Via
+     * {@link FileManager#list}, want dat opent ook jars; per pakket wordt de
+     * lijst één keer opgehaald.
+     */
     private byte[] readFromClassPath(final String internalName) throws IOException {
-        final var fileObject = fileManager.getFileObject(StandardLocation.CLASS_PATH, internalName);
+        if (fileManager == null) {
+            return null;
+        }
+        final int slash = internalName.lastIndexOf('/');
+        final String packageName = slash < 0 ? "" : internalName.substring(0, slash);
+        final String fileName = internalName.substring(slash + 1) + ".class";
+        final var fileObject = classPathPackages
+                .computeIfAbsent(packageName, this::listClassPathPackage)
+                .get(fileName);
         if (fileObject == null) {
             return null;
         }
         try (final InputStream in = fileObject.openInputStream()) {
             return in.readAllBytes();
         }
+    }
+
+    private Map<String, FileObject> listClassPathPackage(final String packageName) {
+        final Map<String, FileObject> files = new HashMap<>();
+        for (final FileObject file : fileManager.list(StandardLocation.CLASS_PATH,
+                packageName.replace('/', '.'), Set.of(FileObject.CLASS_KIND))) {
+            final String path = file.getFileName().replace('\\', '/');
+            // Eerste classpath-entry wint, net als bij de JVM.
+            files.putIfAbsent(path.substring(path.lastIndexOf('/') + 1), file);
+        }
+        return files;
     }
 
     private FileSystem resolveJrtFileSystem() {

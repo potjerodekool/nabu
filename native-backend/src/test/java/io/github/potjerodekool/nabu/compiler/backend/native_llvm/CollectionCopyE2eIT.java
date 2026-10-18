@@ -66,7 +66,6 @@ class CollectionCopyE2eIT {
                 .option(CompilerOption.CLASS_OUTPUT, out.toString())
                 .option(CompilerOption.BACKEND, "LLVM")
                 .option(CompilerOption.GC, "BOEHM")
-                .option(CompilerOption.BYTECODE_CLASSES, "java.util.regex.Pattern,java.util.regex.Matcher")
                 .option(CompilerOption.SYSTEM, new File(root, "compiler/src/test/resources").getAbsolutePath())
                 .build();
         var diagnostics = new java.util.ArrayList<String>();

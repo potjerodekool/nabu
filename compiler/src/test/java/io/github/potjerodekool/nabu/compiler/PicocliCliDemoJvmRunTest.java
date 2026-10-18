@@ -17,25 +17,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * De cli-demo (vendored picocli + greet) via de ASM-backend op de JVM: dezelfde
+ * De cli-demo (picocli-bron + greet) via de ASM-backend op de JVM: dezelfde
  * vijf acceptatiecommando's als de native build moeten dezelfde output en
  * exitcode geven. Overgeslagen als de demo-repository niet aanwezig is.
  */
 class PicocliCliDemoJvmRunTest {
 
     private static final Path DEMO = Path.of("C:\\projects\\incurbation\\cli-demo");
+    /** Test-fixture in deze module (zie src/test/picocli-src/README.md). */
+    private static final Path PICOCLI_SRC = Path.of("src/test/picocli-src").toAbsolutePath();
 
     @TempDir
     Path tempDir;
 
     @Test
     void acceptanceCommandsOnTheJvm() throws Exception {
-        Assumptions.assumeTrue(Files.isDirectory(DEMO.resolve("vendor/picocli-src")),
+        Assumptions.assumeTrue(Files.isDirectory(DEMO.resolve("src/main/nabu")),
                 "cli-demo niet aanwezig");
         final var out = tempDir.resolve("out");
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SYSTEM, "C:\\projects\\nabu\\compiler\\src\\test\\resources")
-                .option(CompilerOption.SOURCE_PATH, DEMO.resolve("vendor/picocli-src") + ";" + DEMO.resolve("src/main/nabu"))
+                .option(CompilerOption.SOURCE_PATH, PICOCLI_SRC + ";" + DEMO.resolve("src/main/nabu"))
                 .option(CompilerOption.CLASS_OUTPUT, out.toString())
                 .option(CompilerOption.SOURCE_OUTPUT, tempDir.resolve("gen").toString())
                 .option(CompilerOption.BACKEND, "ASM")

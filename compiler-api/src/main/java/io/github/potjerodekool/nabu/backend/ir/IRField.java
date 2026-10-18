@@ -16,6 +16,7 @@ public class IRField {
     private final IRType type;
     private final IRValue value;
     private final List<CompoundAttribute> annotations = new ArrayList<>();
+    private final List<IRAnnotation> bytecodeAnnotations = new ArrayList<>();
     private String genericSignature;
 
     private IRField(Kind kind, long flags, String name, IRType type, IRValue value) {
@@ -38,6 +39,15 @@ public class IRField {
 
     public List<CompoundAttribute> annotations() {
         return Collections.unmodifiableList(annotations);
+    }
+
+    /** Runtime-zichtbare annotaties van een veld uit bytecode. */
+    public void setBytecodeAnnotations(List<IRAnnotation> annotations) {
+        this.bytecodeAnnotations.addAll(annotations);
+    }
+
+    public List<IRAnnotation> bytecodeAnnotations() {
+        return Collections.unmodifiableList(bytecodeAnnotations);
     }
 
     public void setGenericSignature(String genericSignature) {

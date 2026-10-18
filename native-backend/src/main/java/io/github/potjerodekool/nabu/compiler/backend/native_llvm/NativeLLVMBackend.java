@@ -37,9 +37,9 @@ import static org.bytedeco.llvm.global.LLVM.*;
  */
 public class NativeLLVMBackend implements Backend {
 
-    private final io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry
+    private final io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry
             reflectionRegistry =
-            new io.github.potjerodekool.nabu.compiler.backend.native_llvm.config.ReflectionRegistry();
+            new io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry();
 
     static {
         LLVMInitializeAllTargetInfos();
@@ -54,6 +54,11 @@ public class NativeLLVMBackend implements Backend {
                         CompileOptions opts,
                         Path outputObj) throws CompileException {
         compile(List.of(module), opts, outputObj);
+    }
+
+    @Override
+    public boolean compilesLibraryBytecode() {
+        return true;
     }
 
     @Override
@@ -75,7 +80,7 @@ public class NativeLLVMBackend implements Backend {
                         CompileOptions opts,
                         Path outputObj) throws CompileException {
         ensureMainEntry(modules);
-        loadNativeImageConfigs(outputObj);
+        loadNativeImageConfigs(outputObj, opts.classPath());
 
         // Triple zoveel mogelijk één keer bepalen: expliciet (opties) of
         // afgeleid van de gevonden toolchain (MinGW → gnu-triple), omdat
@@ -98,11 +103,13 @@ public class NativeLLVMBackend implements Backend {
         Linker.link(outFile, exe, triple, opts.gcStrategy());
     }
 
-    private void loadNativeImageConfigs(final Path outputObj) {
+    private void loadNativeImageConfigs(final Path outputObj, final List<Path> classPath) {
         // De config kan aan twee kanten staan: in de class-output-root zelf
         // (javac/Filer schrijft META-INF/native-image in de output-map, bv.
         // target/classes) óf naast de .o in diens parent (zoals de e2e-tests).
         // Scan beide; outputObj is een map bij compileAll(targetDirectory).
+        // Daarnaast de mappen en jars op het classpath: een library kan zijn
+        // eigen configuratie meeleveren.
         final var abs = outputObj.toAbsolutePath();
         final var roots = new java.util.ArrayList<java.nio.file.Path>();
         if (java.nio.file.Files.isDirectory(abs)) {
@@ -111,10 +118,11 @@ public class NativeLLVMBackend implements Backend {
         if (abs.getParent() != null) {
             roots.add(abs.getParent());
         }
+        roots.addAll(classPath);
         if (roots.isEmpty()) {
             return;
         }
-        final var configs = io.github.potjerodekool.nabu.compiler.backend.native_llvm.config
+        final var configs = io.github.potjerodekool.nabu.backend.nativeimage
                 .NativeImageConfigScanner.scan(roots);
         for (final var config : configs) {
             reflectionRegistry.register(config);

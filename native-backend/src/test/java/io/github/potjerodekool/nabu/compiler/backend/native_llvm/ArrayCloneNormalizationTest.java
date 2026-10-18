@@ -68,6 +68,30 @@ class ArrayCloneNormalizationTest {
     }
 
     /**
+     * Bytecode noemt het array-type als eigenaar ({@code [Ljava/lang/Class;.clone()}),
+     * terwijl de receiver statisch {@code Object} kan zijn (de return van een
+     * generieke methode, picocli's {@code Assert.notNull(types).clone()}). De
+     * call moet dan direct naar Object_clone, niet via de vtable van Object:
+     * een array heeft geen vtable.
+     */
+    @Test
+    void arrayOwnerCloneIsDirectEvenForObjectReceiver() throws Exception {
+        IRBuilder b = new IRBuilder("test/Copy");
+        b.superType(OBJ_TYPE);
+        var types = new IRValue.Temp("types", OBJ_TYPE);
+        b.beginFunction("Copy_copy", OBJ_TYPE, List.of(types), 0L);
+        var cloned = b.emitCall(CallKind.VIRTUAL, "[Ljava.lang.Class;_clone", OBJ_TYPE,
+                List.of(), List.of(types));
+        b.emitReturn(cloned);
+        b.endFunction();
+
+        String ll = compile(b.build());
+
+        assertTrue(ll.contains("call ptr @java.lang.Object_clone("),
+                "De array-clone moet een directe call naar Object_clone zijn:\n" + calls(ll));
+    }
+
+    /**
      * Een clone met eigenaar maar <i>niet</i>-array receiver blijft onder de
      * eigen naam: {@code Vector.clone()} is een gewone methode die de
      * library-implementatie hoort te leveren.

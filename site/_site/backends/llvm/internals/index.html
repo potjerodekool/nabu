@@ -64,8 +64,8 @@
       <td>the backend: IR → LLVM IR → object file → executable</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">native-backend/…/native_llvm/config/</code></td>
-      <td>reading GraalVM <code class="language-plaintext highlighter-rouge">*-config.json</code> reflection metadata</td>
+      <td><code class="language-plaintext highlighter-rouge">compiler-api/…/backend/nativeimage/</code></td>
+      <td>reading GraalVM reflection metadata (<code class="language-plaintext highlighter-rouge">reflect-config.json</code>, <code class="language-plaintext highlighter-rouge">reachability-metadata.json</code>, …)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">compiler/…/backend/bytecode/</code></td>
@@ -94,8 +94,8 @@
 
 <ol>
   <li><strong>IR modules from source.</strong> The frontend generates one module per class, as for the JVM backends.</li>
-  <li><strong>IR modules from JDK bytecode.</strong> With <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>, <code class="language-plaintext highlighter-rouge">NabuCompiler</code> runs the <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> first (see below) and adds the modules it produces.</li>
-  <li><strong>Reflection metadata.</strong> <code class="language-plaintext highlighter-rouge">NativeImageConfigScanner</code> reads <code class="language-plaintext highlighter-rouge">META-INF/native-image/**/*-config.json</code> from the output directory into a <code class="language-plaintext highlighter-rouge">ReflectionRegistry</code>.</li>
+  <li><strong>IR modules from library bytecode.</strong> The backend reports <code class="language-plaintext highlighter-rouge">compilesLibraryBytecode()</code>, so <code class="language-plaintext highlighter-rouge">NabuCompiler</code> runs the <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> first (see below) and adds the modules it produces. The JVM backends return <code class="language-plaintext highlighter-rouge">false</code> and skip this step.</li>
+  <li><strong>Reflection metadata.</strong> <code class="language-plaintext highlighter-rouge">NativeImageConfigScanner</code> reads the GraalVM configuration under <code class="language-plaintext highlighter-rouge">META-INF/native-image/</code> from the output directory and from every directory and jar on the classpath into a <code class="language-plaintext highlighter-rouge">ReflectionRegistry</code>.</li>
   <li><strong>LLVM module emission</strong> (<code class="language-plaintext highlighter-rouge">LLVMModuleEmitter.emitAll</code>), in phases:
     <ol>
       <li>function signatures for every module, so calls can be emitted in any order;</li>
@@ -113,11 +113,11 @@
 
 <h2 id="compiling-the-jdk-from-bytecode">Compiling the JDK from bytecode</h2>
 
-<p>The backend has no hand-written Java class library. Instead, <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> compiles the <strong>real OpenJDK bytecode</strong> of everything the program can reach:</p>
+<p>The backend has no hand-written Java class library. Instead, <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> compiles the <strong>real bytecode</strong> of everything the program can reach, from the JDK and from the libraries on the classpath:</p>
 
 <ul>
-  <li>It reads class files from the JDK the compiler runs on (or <code class="language-plaintext highlighter-rouge">--bytecode-jdk-home</code>) with ASM’s tree API.</li>
-  <li>It keeps a <strong>worklist of methods</strong>. It starts from the seed classes and from every call in the source modules, lowers each method to IR (<code class="language-plaintext highlighter-rouge">BytecodeMethodLowering</code>), and adds the methods that method calls.</li>
+  <li>It reads class files from the JDK the compiler runs on (or <code class="language-plaintext highlighter-rouge">--bytecode-jdk-home</code>), and otherwise from the classpath, with ASM’s tree API.</li>
+  <li>It keeps a <strong>worklist of methods</strong>. It starts from every call in the source modules and from the classes in the GraalVM reflection configuration (their constructors and methods as the configuration lists them), lowers each method to IR (<code class="language-plaintext highlighter-rouge">BytecodeMethodLowering</code>), and adds the methods that method calls.</li>
   <li>For every class it touches it builds the <strong>shape</strong>: superclass, interfaces, fields and static fields. Static final constants get their <code class="language-plaintext highlighter-rouge">ConstantValue</code> attribute as initializer (<code class="language-plaintext highlighter-rouge">javac</code> does not initialize those in <code class="language-plaintext highlighter-rouge">&lt;clinit&gt;</code>).</li>
   <li><strong>Virtual calls</strong> are the hard part: a call through <code class="language-plaintext highlighter-rouge">List.iterator()</code> can end up in any implementation. The compiler records every virtual signature called on a class or interface and lowers the matching override in every subtype it knows about, including when the subtype is loaded later. An implementation inherited from a superclass that does not implement the interface itself (for example <code class="language-plaintext highlighter-rouge">LinkedHashMap$LinkedKeyIterator</code>, whose <code class="language-plaintext highlighter-rouge">hasNext()</code> lives in the abstract <code class="language-plaintext highlighter-rouge">LinkedHashIterator</code>) counts too.</li>
   <li><strong><code class="language-plaintext highlighter-rouge">invokedynamic</code></strong>: lambdas are turned into real classes ahead of time (<code class="language-plaintext highlighter-rouge">LambdaClassSynthesizer</code>, the equivalent of what <code class="language-plaintext highlighter-rouge">LambdaMetafactory</code> does at run time), and string concatenation with <code class="language-plaintext highlighter-rouge">StringConcatFactory</code> is lowered directly.</li>

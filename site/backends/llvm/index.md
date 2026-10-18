@@ -25,7 +25,7 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
 ```
 
 - **Your sources** go through the normal Nabu frontend and IR generation, the same as for the JVM backends.
-- **The JDK is compiled too.** The backend does not ship its own Java class library. Starting from your code (and from the seed classes in `--bytecode-classes`), it follows every method that can be reached and compiles the **real OpenJDK bytecode** of those methods to the same IR. A one-line "hello world" pulls in about 3,200 JDK classes.
+- **The JDK and your libraries are compiled too.** The backend does not ship its own Java class library. Starting from your code and from the classes in the reflection configuration (see [Reflection](#reflection)), it follows every method that can be reached and compiles the **real bytecode** of those methods to the same IR: OpenJDK classes from the JDK, library classes from the jars on the classpath. You do not need the sources of a library. A one-line "hello world" pulls in about 3,200 JDK classes.
 - **A small C runtime** provides what Java code cannot do itself: the object header and type information, exceptions, garbage collection hooks, monitors, string and number helpers, reflection metadata and the VM-level parts of `java.lang` (for example `Class`, `System.arraycopy` and `Unsafe`). It is compiled and linked into every executable.
 - **LLVM** (through the Bytedeco Java bindings, inside the compiler process) turns the IR into an optimized object file, and the platform C compiler links it with the runtime.
 
@@ -37,7 +37,6 @@ The options are passed like any other Nabu compiler option. With Maven, use `<co
 |---|---|---|---|
 | `--backend` | `ASM`, `JAVA`, `LLVM` | `ASM` | Selects the backend. |
 | `--gc` | `NONE`, `BOEHM`, `REFCOUNT` | `NONE` | Memory management, see below. Use `BOEHM` for real programs. |
-| `--bytecode-classes` | comma-separated class names | (none) | Switches on compiling the JDK from bytecode and gives the seed classes. `java.lang.Object` is enough for most programs. Without it, JDK methods have no implementation. |
 | `--bytecode-jdk-home` | path to a JDK | the running JDK | Reads JDK bytecode from another JDK installation. |
 | `--opt` | `NONE`, `DEFAULT`, `AGGRESSIVE` | `DEFAULT` | LLVM optimization level. |
 
@@ -53,7 +52,7 @@ With `BOEHM`, `GC_init` runs from `@llvm.global_ctors` before `main` and before 
 
 ## Reflection
 
-Native executables have no class files to inspect at run time, so reflection works from **metadata generated at build time**. The backend reads GraalVM-style configuration files (`META-INF/native-image/**/*-config.json`) from the class output directory (and its parent directory), and emits **field and annotation** tables for the classes listed there. That is enough for frameworks that find annotated fields, such as picocli; reflective method invocation is limited.
+Native executables have no class files to inspect at run time, so reflection works from **metadata generated at build time**. As with GraalVM `native-image`, classes that are used through reflection must be listed in a GraalVM configuration file under `META-INF/native-image/`: `reflect-config.json` or the newer `reachability-metadata.json`. The backend reads these files from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. The listed classes are compiled even when no code calls them directly (with the constructors and methods the configuration names), and the backend emits **field and annotation** tables for them. That is enough for frameworks that find annotated fields, such as picocli; reflective method invocation is limited.
 
 This is the same format GraalVM `native-image` uses, so tools that generate it work for Nabu too. picocli's annotation processor (`picocli-codegen`) writes these files into the class output, which is how the [picocli example](/examples/picocli-demo/) gets its metadata. Configuration files inside jars on the classpath are **not** read.
 

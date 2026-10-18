@@ -18,13 +18,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class PicocliVendorBatchTest {
 
     private File vendorRoot() {
-        // cli-demo vendor-bron
-        var current = new File(".").getAbsoluteFile();
-        while (current != null && (!current.isDirectory() || !"nabu".equals(current.getName()))) {
-            current = current.getParentFile();
-        }
-        final File demoVendor = new File("C:\\projects\\incurbation\\cli-demo\\vendor\\picocli-src");
-        return demoVendor;
+        // Test-fixture in deze module (zie src/test/picocli-src/README.md).
+        return new File("src/test/picocli-src").getAbsoluteFile();
     }
 
     @Test

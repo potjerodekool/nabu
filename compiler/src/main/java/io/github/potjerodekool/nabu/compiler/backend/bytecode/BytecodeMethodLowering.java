@@ -948,12 +948,25 @@ public final class BytecodeMethodLowering {
     }
 
     private void storeToSlot(final int varIndex, final int kind, final IRValue value) {
+        // Een int-slot is altijd 32 bits, zoals in de JVM (boolean, byte,
+        // char en short zijn daar ints). javac hergebruikt slots: in picocli's
+        // resemblesOption staat eerst `boolean result` en later `int count` in
+        // hetzelfde slot. Met het type van de eerste store werd het slot een
+        // i1 en telde count alleen 0 of 1.
+        final IRValue stored = kind == KIND_INT && isNarrowInt(value.type())
+                ? builder.emitCast(value, IRType.I32)
+                : value;
         var ptr = localSlots.get(slotKey(varIndex, kind));
         if (ptr == null) {
-            ptr = builder.emitAlloca("l" + varIndex + KIND_SUFFIX[kind], value.type());
+            ptr = builder.emitAlloca("l" + varIndex + KIND_SUFFIX[kind], stored.type());
             localSlots.put(slotKey(varIndex, kind), ptr);
         }
-        builder.emitStore(ptr, value);
+        builder.emitStore(ptr, stored);
+    }
+
+    private static boolean isNarrowInt(final IRType type) {
+        return type instanceof IRType.Bool
+                || (type instanceof IRType.Int intType && intType.bits() < 32);
     }
 
     private void emitIinc(final IincInsnNode insn) {

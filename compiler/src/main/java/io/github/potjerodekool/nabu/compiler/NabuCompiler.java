@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.compiler.annotation.processing.*;
 import io.github.potjerodekool.nabu.compiler.annotation.processing.java.element.ElementWrapperFactory;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.module.impl.Modules;
 import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.backend.nativeimage.NativeImageConfigScanner;
 import io.github.potjerodekool.nabu.backend.ir.IrGeneratingVisitor;
 import io.github.potjerodekool.nabu.backend.ir.Optimizer;
 import io.github.potjerodekool.nabu.backend.ir.SsaBuilder;
@@ -143,12 +144,14 @@ public class NabuCompiler implements Compiler {
             // bronbestanden heen in één backend-run worden opgelost.
             final var gcStrategy = getGcStrategy(compilerOptions);
             final var optLevel = getOptLevel(compilerOptions);
+            final var classPath = getClassPath(compilerOptions);
             final var compileOptions = new CompileOptions(
                     optLevel,
                     false,
                     null,
                     gcStrategy,
-                    targetVersion
+                    targetVersion,
+                    classPath
             );
             final var allModules = new ArrayList<io.github.potjerodekool.nabu.backend.ir.IRModule>();
 
@@ -182,26 +185,25 @@ public class NabuCompiler implements Compiler {
                 }
             }
 
-            // Fase 2 (BYTECODE_COMPILATION_PLAN.md): sluit de verzameling IRModules
-            // aan met bytecode-gelowerde klassen die geen Nabu-source hebben
-            // (bv. java.util.regex.Pattern/Matcher), gestart vanaf expliciete
-            // seed-klassen (--bytecode-classes=com.foo.Bar,com.foo.Baz).
             final long irGenMillis = (System.nanoTime() - irGenStart) / 1_000_000L;
             System.err.println("[NabuCompiler] Nabu-source IR-generatie (" + allModules.size()
                     + " modules): " + irGenMillis + " ms");
 
-            final var bytecodeClassesOption = compilerOptions.getOption(CompilerOption.BYTECODE_CLASSES);
-
-            if (bytecodeClassesOption.isPresent() && !bytecodeClassesOption.get().isBlank()) {
+            // Een gesloten-wereld-backend (LLVM) krijgt ook de bytecode van de
+            // JDK en van de libraries op het classpath die het programma kan
+            // bereiken: vanaf de aanroepen in de broncode en de klassen uit de
+            // GraalVM-reflectie-configuratie (META-INF/native-image/**).
+            if (codeBackend.compilesLibraryBytecode()) {
                 final var alreadyCompiled = new java.util.HashSet<String>();
                 for (final var module : allModules) {
                     alreadyCompiled.add(module.name);
                 }
 
-                final var seeds = java.util.Arrays.stream(bytecodeClassesOption.get().split(","))
-                        .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .map(s -> s.replace('.', '/'))
+                final var configRoots = new ArrayList<Path>();
+                configRoots.add(targetDirectory);
+                configRoots.addAll(classPath);
+                final var reflectionRoots = NativeImageConfigScanner.scan(configRoots).stream()
+                        .flatMap(config -> config.reflectEntries().stream())
                         .toList();
 
                 final var jdkHomeOverride = compilerOptions.getOption(CompilerOption.BYTECODE_JDK_HOME)
@@ -212,12 +214,9 @@ public class NabuCompiler implements Compiler {
                         jdkHomeOverride
                 );
                 final long reachStart = System.nanoTime();
-                // allModules bevat op dit punt alleen de Nabu-source-
-                // modules (de bytecode-sluiting is nog niet toegevoegd) -
-                // nodig om te bepalen welke methodes van de SEED-klassen
-                // daadwerkelijk vanuit Nabu-source aangeroepen worden (zie
-                // BytecodeReachabilityCompiler.findCalledSeedMethodNames).
-                allModules.addAll(reachabilityCompiler.compileClosure(seeds, java.util.List.copyOf(allModules)));
+                // allModules bevat op dit punt alleen de Nabu-source-modules:
+                // de sluiting volgt hun aanroepen.
+                allModules.addAll(reachabilityCompiler.compileClosure(reflectionRoots, java.util.List.copyOf(allModules)));
                 final long reachMillis = (System.nanoTime() - reachStart) / 1_000_000L;
                 System.err.println("[NabuCompiler] Bytecode reachability closure + lowering: "
                         + reachMillis + " ms (" + allModules.size() + " modules in total)");
@@ -275,6 +274,15 @@ public class NabuCompiler implements Compiler {
      * (met name de inliner) een probleem veroorzaakt bij de niet-standaard
      * Itanium-landingpad-over-Windows-SEH exception-opzet van deze backend.
      */
+    private static List<Path> getClassPath(final CompilerOptions compilerOptions) {
+        return compilerOptions.getOption(CompilerOption.CLASS_PATH)
+                .map(value -> java.util.Arrays.stream(value.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator)))
+                        .filter(s -> !s.isBlank())
+                        .map(Paths::get)
+                        .toList())
+                .orElse(List.of());
+    }
+
     private CompileOptions.OptLevel getOptLevel(final CompilerOptions compilerOptions) {
         final var raw = compilerOptions.getOption(CompilerOption.OPT).orElse(null);
 

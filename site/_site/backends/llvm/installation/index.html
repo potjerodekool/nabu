@@ -135,7 +135,7 @@
 
 <p>Install a JDK (25 is verified) and Maven, and make sure <code class="language-plaintext highlighter-rouge">java</code> and <code class="language-plaintext highlighter-rouge">mvn</code> work from a terminal.</p>
 
-<p>The JDK matters a little more for the LLVM backend than usual. When the backend compiles JDK classes from bytecode (see <a href="/backends/llvm/#compiler-options"><code class="language-plaintext highlighter-rouge">--bytecode-classes</code></a>), it reads them from the <strong>JDK the compiler runs on</strong>. Use <code class="language-plaintext highlighter-rouge">--bytecode-jdk-home</code> to read them from a different JDK.</p>
+<p>The JDK matters a little more for the LLVM backend than usual. The backend compiles the JDK classes your program uses from bytecode, and it reads them from the <strong>JDK the compiler runs on</strong>. Use <code class="language-plaintext highlighter-rouge">--bytecode-jdk-home</code> to read them from a different JDK.</p>
 
 <h3 id="2-mingw-w64-gcc">2. MinGW-w64 GCC</h3>
 
@@ -278,7 +278,6 @@ mvn <span class="nb">install</span> <span class="nt">-DskipTests</span> <span cl
         <span class="nt">&lt;compilerArgs&gt;</span>
             <span class="nt">&lt;arg&gt;</span>--backend=LLVM<span class="nt">&lt;/arg&gt;</span>
             <span class="nt">&lt;arg&gt;</span>--gc=BOEHM<span class="nt">&lt;/arg&gt;</span>
-            <span class="nt">&lt;arg&gt;</span>--bytecode-classes=java.lang.Object<span class="nt">&lt;/arg&gt;</span>
         <span class="nt">&lt;/compilerArgs&gt;</span>
     <span class="nt">&lt;/configuration&gt;</span>
     <span class="nt">&lt;executions&gt;</span>
@@ -300,7 +299,7 @@ mvn <span class="nb">install</span> <span class="nt">-DskipTests</span> <span cl
 <p>Some things to expect:</p>
 
 <ul>
-  <li><strong><code class="language-plaintext highlighter-rouge">--bytecode-classes</code> is required in practice.</strong> It switches on compiling the JDK from bytecode. The value lists <em>seed</em> classes; the backend also follows every call from your own code, so <code class="language-plaintext highlighter-rouge">java.lang.Object</code> is enough for most programs. Without the option, even <code class="language-plaintext highlighter-rouge">System.out.println</code> has no implementation: the program prints <code class="language-plaintext highlighter-rouge">nabu: call to a JDK function without an implementation: java.io.PrintStream_println</code> and exits with code 127.</li>
+  <li><strong>The JDK is compiled from bytecode.</strong> The backend follows every call from your code and compiles the JDK methods it reaches, and the same goes for libraries on the classpath. You do not configure anything for this.</li>
   <li><strong>The first build is slow.</strong> For this one-line program the backend compiles about 3,200 JDK classes (21,600 methods), and LLVM then optimizes all of it. On the verification machine that took about 7 minutes and produced a 36 MB executable.</li>
   <li><strong>The build prints many warnings</strong>, for example about static fields of classes outside the compiled closure. They are informational. Functions that could not be compiled at all are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> next to the executable; the program only fails if it actually calls one of them.</li>
   <li>The executable is named after the <strong>first</strong> compiled class, which is not necessarily the class with <code class="language-plaintext highlighter-rouge">main</code>.</li>

@@ -1,5 +1,6 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
+import io.github.potjerodekool.nabu.backend.ir.CallKind;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 
@@ -46,8 +47,12 @@ final class CallTargets {
                 && (call.args().isEmpty() || !isArray(call.args().getFirst().type()))) {
             return call;
         }
+        // Direct, niet virtueel: de receiver is een array en heeft geen
+        // vtable. Bij een receiver die statisch als Object getypeerd is
+        // (`Assert.notNull(types).clone()` in picocli) koos de backend anders
+        // het clone-slot uit de vtable van Object en sprong hij in data.
         return new IRInstruction.Call(
-                call.callKind(), call.returnType(), call.paramTypes(),
+                CallKind.SPECIAL, call.returnType(), call.paramTypes(),
                 call.result(), OBJECT_CLONE, call.args(), call.location());
     }
 

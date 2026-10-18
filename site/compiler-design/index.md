@@ -81,7 +81,7 @@ The IR is **backend-agnostic** — all backends consume the same `IRModule`, whi
 
 ### Bytecode compilation (LLVM backend only)
 
-With `--bytecode-classes`, the `BytecodeReachabilityCompiler` (`compiler/…/backend/bytecode`) adds a second source of IR: it reads JDK class files with ASM, follows every method reachable from the program and the seed classes, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See [LLVM backend internals](/backends/llvm/internals/#compiling-the-jdk-from-bytecode).
+For the LLVM backend, the `BytecodeReachabilityCompiler` (`compiler/…/backend/bytecode`) adds a second source of IR: it reads class files of the JDK and of the libraries on the classpath with ASM, follows every method reachable from the program and from the classes in the GraalVM reflection configuration, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See [LLVM backend internals](/backends/llvm/internals/#compiling-the-jdk-from-bytecode).
 
 ### Bytecode emission
 

@@ -7,11 +7,11 @@ This example builds one small command-line program, `greet`, in three ways from 
 
 | Build | How | Result |
 |---|---|---|
-| **llvm** | Nabu's [LLVM backend](/backends/llvm/), with picocli compiled from source | a native `greet.GreetCommand.exe` (46 MB) |
+| **llvm** | Nabu's [LLVM backend](/backends/llvm/), with picocli compiled from the bytecode in its jar | a native `greet.GreetCommand.exe` (45 MB) |
 | **jvm** | Nabu's [ASM backend](/backends/asm/), with the normal picocli jar | class files for the JVM |
 | **graal** | the same class files, turned into a native image by GraalVM `native-image` | a native `greet.exe` (13 MB) |
 
-The program uses [picocli](https://picocli.info/) 4.7.6, a real-world library of about 19,000 lines in a single source file that leans heavily on annotations, reflection, generics, inner classes and collections. That makes it a good test for the compiler: in the llvm build Nabu compiles all of picocli and the JDK classes it uses.
+The program uses [picocli](https://picocli.info/) 4.7.6, a real-world library that leans heavily on annotations, reflection, generics, inner classes and collections. That makes it a good test for the compiler: in the llvm build Nabu compiles the parts of the picocli jar and of the JDK that the program can reach, straight from their bytecode.
 
 ## The program
 
@@ -95,8 +95,6 @@ cli-demo/
 ├── src/main/nabu/greet/
 │   ├── GreetCommand.nabu
 │   └── Main.java
-└── vendor/picocli-src/           picocli 4.7.6 sources (for the llvm build)
-    └── picocli/CommandLine.java
 ```
 
 ## The build
@@ -235,30 +233,13 @@ mvn -Pgraal clean package
 
 ### `-Pllvm`: Nabu's LLVM backend
 
-The llvm build compiles **picocli from source** together with the app: the `vendor/picocli-src` directory is added as an extra source root. The LLVM backend then compiles the JDK classes that picocli and the app use from bytecode. Regular expressions (used by picocli) are given as extra seeds.
+The llvm build uses the same picocli jar as the other two builds. The LLVM backend compiles the bytecode of every picocli and JDK method the program can reach, so no picocli sources are needed. The classes picocli uses through reflection come from the configuration that `picocli-codegen` generates (`META-INF/native-image/picocli-generated/reflect-config.json`), the same file GraalVM uses: `greet.GreetCommand` and picocli's own `CommandLine$AutoHelpMixin` for `mixinStandardHelpOptions`.
 
 ```xml
 <profile>
     <id>llvm</id>
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.4.0</version>
-                <executions>
-                    <execution>
-                        <id>add-picocli-vendor</id>
-                        <phase>generate-sources</phase>
-                        <goals><goal>add-source</goal></goals>
-                        <configuration>
-                            <sources>
-                                <source>${project.basedir}/vendor/picocli-src</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>io.github.potjerodekool</groupId>
                 <artifactId>nabu-maven-plugin</artifactId>
@@ -267,7 +248,6 @@ The llvm build compiles **picocli from source** together with the app: the `vend
                     <compilerArgs>
                         <arg>--backend=LLVM</arg>
                         <arg>--gc=BOEHM</arg>
-                        <arg>--bytecode-classes=java.util.regex.Pattern,java.util.regex.Matcher</arg>
                     </compilerArgs>
                 </configuration>
             </plugin>
@@ -283,7 +263,7 @@ mvn -Pllvm clean package -Dnabu.incremental=false
 .\target\classes\greet.GreetCommand.exe --help
 ```
 
-The build takes about ten minutes. Nabu compiles picocli and about 3,300 JDK classes, and writes a 150 MB `.ll` file next to the executable.
+The build takes about six minutes on the verification machine. Nabu compiles about 3,500 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 190 MB `.ll` file next to the executable.
 
 ## Checking that all three agree
 
@@ -362,4 +342,4 @@ Getting picocli to run identically on all three targets required, among other th
 - Java 11+ **nestmates**: private members of nested classes accessed across classes (`NestHost`/`NestMembers`, `invokevirtual` for private methods of another class);
 - **lambdas** in fields and local variables, generic self-typed builders (`Builder<T extends Builder<T>>`) and checkcasts for generic return types;
 - **runtime-visible annotations** with enum and constant values and element defaults, read through reflection;
-- in the native build: compiling the JDK's collections, `String.format` and regular expressions from bytecode, a reflection model from the generated metadata, and exceptions across the whole program.
+- in the native build: compiling picocli and the JDK's collections, `String.format` and regular expressions from bytecode, annotation elements that read the generated reflection metadata, and exceptions across the whole program.

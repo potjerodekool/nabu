@@ -4,7 +4,6 @@ import io.github.potjerodekool.nabu.compiler.annotation.processing.java.type.Typ
 
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeMirror;
-import java.lang.annotation.Annotation;
 import java.util.List;
 
 public class JTypeElement extends JElement<io.github.potjerodekool.nabu.lang.model.element.TypeElement> implements javax.lang.model.element.TypeElement {
@@ -16,17 +15,6 @@ public class JTypeElement extends JElement<io.github.potjerodekool.nabu.lang.mod
     protected JTypeElement(final io.github.potjerodekool.nabu.lang.model.element.TypeElement original) {
         super(original);
         this.nestingKind = NestingKind.valueOf(original.getNestingKind().name());
-    }
-
-    @Override
-    public <A extends Annotation> A getAnnotation(final Class<A> annotationType) {
-        return null;
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public <A extends Annotation> A[] getAnnotationsByType(final Class<A> annotationType) {
-        return (A[]) new Annotation[0];
     }
 
     @Override

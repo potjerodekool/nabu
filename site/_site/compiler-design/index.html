@@ -131,7 +131,7 @@
 
 <h3 id="bytecode-compilation-llvm-backend-only">Bytecode compilation (LLVM backend only)</h3>
 
-<p>With <code class="language-plaintext highlighter-rouge">--bytecode-classes</code>, the <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> (<code class="language-plaintext highlighter-rouge">compiler/…/backend/bytecode</code>) adds a second source of IR: it reads JDK class files with ASM, follows every method reachable from the program and the seed classes, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See <a href="/backends/llvm/internals/#compiling-the-jdk-from-bytecode">LLVM backend internals</a>.</p>
+<p>For the LLVM backend, the <code class="language-plaintext highlighter-rouge">BytecodeReachabilityCompiler</code> (<code class="language-plaintext highlighter-rouge">compiler/…/backend/bytecode</code>) adds a second source of IR: it reads class files of the JDK and of the libraries on the classpath with ASM, follows every method reachable from the program and from the classes in the GraalVM reflection configuration, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See <a href="/backends/llvm/internals/#compiling-the-jdk-from-bytecode">LLVM backend internals</a>.</p>
 
 <h3 id="bytecode-emission">Bytecode emission</h3>
 

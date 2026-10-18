@@ -28,6 +28,7 @@ import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Pair;
 import io.github.potjerodekool.nabu.util.Types;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -250,6 +251,14 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             if (variableDeclaratorStatement.getValue() != null) {
                 final var variableType = variableDeclaratorStatement.getVariableType().getType();
 
+                if (variableDeclaratorStatement.getValue() instanceof MemberReference memberReference) {
+                    acceptTree(memberReference, scope);
+                    final var lambda = memberReferenceToLambda(memberReference, variableType);
+                    if (lambda != null) {
+                        variableDeclaratorStatement.setValue(lambda);
+                    }
+                }
+
                 lambdaCheck(variableDeclaratorStatement.getValue(), variableType);
                 acceptTree(variableDeclaratorStatement.getValue(), scope);
                 // Net als bij een methode-argument: met het doeltype bekend
@@ -329,6 +338,102 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         }
     }
 
+    /**
+     * The SAM method as a member of the functional interface type. The method
+     * can be declared in a generic superinterface: {@code BinaryOperator<Integer>}
+     * inherits {@code apply(T, U)} from {@code BiFunction<T, U, R>}, and
+     * asMemberOf on {@code BinaryOperator<Integer>} left {@code U} unsubstituted.
+     * The supertype that declares the method carries the substituted
+     * arguments ({@code BiFunction<Integer, Integer, Integer>}).
+     */
+    private ExecutableType samMemberType(final DeclaredType functionalType, final ExecutableElement sam) {
+        DeclaredType container = functionalType;
+        if (sam.getEnclosingElement() instanceof TypeElement owner
+                && functionalType.asTypeElement() != null
+                && !owner.getQualifiedName().equals(functionalType.asTypeElement().getQualifiedName())) {
+            final var bindings = typeArgumentBindings(functionalType);
+            final var ownerBindings = bindingsFor(functionalType.asTypeElement(), bindings, owner,
+                    new java.util.HashSet<>());
+            if (ownerBindings != null) {
+                final var ownerArguments = new ArrayList<TypeMirror>();
+                for (final var parameter : owner.getTypeParameters()) {
+                    final var argument = ownerBindings.get(parameter.getSimpleName());
+                    if (argument == null) {
+                        ownerArguments.clear();
+                        break;
+                    }
+                    ownerArguments.add(argument);
+                }
+                if (ownerArguments.size() == owner.getTypeParameters().size() && !ownerArguments.isEmpty()) {
+                    container = types.getDeclaredType(owner, ownerArguments.toArray(TypeMirror[]::new));
+                }
+            }
+        }
+        return (ExecutableType) types.asMemberOf(container, sam);
+    }
+
+    /** Type parameter name of the type's element to its type argument. */
+    private static java.util.Map<String, TypeMirror> typeArgumentBindings(final DeclaredType type) {
+        final var bindings = new java.util.HashMap<String, TypeMirror>();
+        final var parameters = type.asTypeElement().getTypeParameters();
+        final var arguments = type.getTypeArguments();
+        for (int i = 0; i < Math.min(parameters.size(), arguments.size()); i++) {
+            bindings.put(parameters.get(i).getSimpleName(), arguments.get(i));
+        }
+        return bindings;
+    }
+
+    /**
+     * The bindings of {@code owner}'s type parameters, following the
+     * superinterfaces from {@code element} (whose parameters are bound as in
+     * {@code bindings}); null if {@code owner} is not a supertype.
+     */
+    private java.util.Map<String, TypeMirror> bindingsFor(final TypeElement element,
+                                                          final java.util.Map<String, TypeMirror> bindings,
+                                                          final TypeElement owner,
+                                                          final java.util.Set<String> seen) {
+        if (element.getQualifiedName().equals(owner.getQualifiedName())) {
+            return bindings;
+        }
+        if (!seen.add(element.getQualifiedName())) {
+            return null;
+        }
+        for (final var supertype : element.getInterfaces()) {
+            if (!(supertype instanceof DeclaredType declaredSupertype)
+                    || declaredSupertype.asTypeElement() == null) {
+                continue;
+            }
+            final var superElement = declaredSupertype.asTypeElement();
+            final var superParameters = superElement.getTypeParameters();
+            final var superArguments = declaredSupertype.getTypeArguments();
+            final var superBindings = new java.util.HashMap<String, TypeMirror>();
+            for (int i = 0; i < Math.min(superParameters.size(), superArguments.size()); i++) {
+                superBindings.put(superParameters.get(i).getSimpleName(),
+                        substituteTypeVariables(superArguments.get(i), bindings));
+            }
+            final var found = bindingsFor(superElement, superBindings, owner, seen);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private TypeMirror substituteTypeVariables(final TypeMirror type, final java.util.Map<String, TypeMirror> bindings) {
+        if (type instanceof TypeVariable typeVariable && typeVariable.asElement() != null) {
+            final var bound = bindings.get(typeVariable.asElement().getSimpleName());
+            return bound != null ? bound : type;
+        }
+        if (type instanceof DeclaredType declaredType && declaredType.asTypeElement() != null
+                && !declaredType.getTypeArguments().isEmpty()) {
+            final var arguments = declaredType.getTypeArguments().stream()
+                    .map(argument -> substituteTypeVariables(argument, bindings))
+                    .toArray(TypeMirror[]::new);
+            return types.getDeclaredType(declaredType.asTypeElement(), arguments);
+        }
+        return type;
+    }
+
     private void lambdaCheck(final Tree value, final TypeMirror variableType) {
         if (value instanceof LambdaExpressionTree lambdaExpressionTree) {
             final var typeElement = variableType != null ? variableType.asTypeElement() : null;
@@ -343,7 +448,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 return;
             }
 
-            final var executableType = (ExecutableType) types.asMemberOf((DeclaredType) variableType, functionalMethod);
+            final var executableType = samMemberType((DeclaredType) variableType, functionalMethod);
             lambdaExpressionTree.setLambdaMethodType(executableType);
             lambdaExpressionTree.setType(variableType);
         }
@@ -880,10 +985,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                              final TypeMirror parameterType,
                              final Scope scope) {
         final var method = parameterType.asTypeElement().findFunctionalMethod();
-        final var member = (ExecutableType) types.asMemberOf(
-                (DeclaredType) parameterType,
-                method
-        );
+        final var member = samMemberType((DeclaredType) parameterType, method);
 
         final var lambdaScope = new LocalScope(scope);
         final var variables = lambdaExpression.getVariables();
@@ -1452,7 +1554,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         if (symbol != null) {
             identifier.setSymbol(symbol);
-            if (identifier.getType() == null
+            // Also replace an error/unknown type from an earlier pass: an
+            // implicit lambda parameter in the body (`(a, b) -> Math.max(a, b)`)
+            // kept the unknown type of the first pass, and the call did
+            // not resolve once the parameters were typed.
+            if ((identifier.getType() == null || isErrorType(identifier.getType()))
                     && symbol.asType() != null) {
                 identifier.setType(symbol.asType());
             }
@@ -1480,10 +1586,19 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             lambdaCheck(lambdaExpression, type);
         }
 
-        if (expression instanceof MemberReference memberReference) {
+        if (expression instanceof MemberReference memberReference
+                && returnStatement instanceof io.github.potjerodekool.nabu.tree.statement.impl.CReturnStatementTree returnTree) {
             final var method = scope.getCurrentMethod();
             final var type = method.getReturnType();
-            memberReference.setType(type);
+            acceptTree(memberReference, scope);
+            final var lambda = memberReferenceToLambda(memberReference, type);
+            if (lambda != null) {
+                returnTree.expression(lambda);
+                lambda.setType(type);
+                lambdaCheck(lambda, type);
+            } else {
+                memberReference.setType(type);
+            }
         }
 
         return super.visitReturnStatement(returnStatement, scope);
@@ -1563,11 +1678,128 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
                 if (argument instanceof LambdaExpressionTree lambdaExpression) {
                     postResolve(lambdaExpression, parameterType, scope);
+                } else if (argument instanceof MemberReference memberReference) {
+                    final var lambda = memberReferenceToLambda(memberReference, parameterType);
+                    if (lambda != null) {
+                        arguments.set(i, lambda);
+                        postResolve(lambda, parameterType, scope);
+                    }
                 }
             }
         }
 
         return null;
+    }
+
+    /**
+     * A method reference (JLS 15.13) as the equivalent lambda for its target
+     * type, which the lambda pipeline then compiles:
+     * {@code Type::staticM} becomes {@code (a..) -> Type.staticM(a..)},
+     * {@code Type::instM} becomes {@code (r, a..) -> r.instM(a..)} (unbound
+     * receiver), {@code expr::m} becomes {@code (a..) -> expr.m(a..)} and
+     * {@code Type::new} becomes {@code (a..) -> new Type(a..)}. Unlike the JLS,
+     * the receiver expression of a bound reference is evaluated at each call.
+     * Null if the target is not a functional interface.
+     */
+    private static final String REF_PARAMETER = "ref__";
+
+    private LambdaExpressionTree memberReferenceToLambda(final MemberReference memberReference,
+                                                         final TypeMirror targetType) {
+        if (!(targetType instanceof DeclaredType) || targetType.asTypeElement() == null
+                || !targetType.asTypeElement().isFunctionalInterface()) {
+            return null;
+        }
+        final var sam = targetType.asTypeElement().findFunctionalMethod();
+        if (sam == null) {
+            return null;
+        }
+        final int arity = sam.getParameters().size();
+        final int line = memberReference.getLineNumber();
+        final int column = memberReference.getColumnNumber();
+        final List<Tree> parameters = new ArrayList<>();
+        final List<ExpressionTree> arguments = new ArrayList<>();
+        // Implicit parameters in the parser's form (a declarator without a
+        // type); the names cannot clash with Java identifiers in the body
+        // because the body only refers to the parameters and the qualifier.
+        for (int i = 0; i < arity; i++) {
+            parameters.add(io.github.potjerodekool.nabu.compiler.lang.support.shared.CompilerVisitorHelper
+                    .toLambdaVariable(TreeMaker.identifier(REF_PARAMETER + i, line, column)));
+            arguments.add(TreeMaker.identifier(REF_PARAMETER + i, line, column));
+        }
+        final var qualifier = memberReference.getExpression();
+        final ExpressionTree body;
+        if (memberReference.getMode() == MemberReference.ReferenceKind.NEW) {
+            body = TreeMaker.newClassExpression(qualifier, List.of(), arguments, null, line, column);
+        } else {
+            final String name = memberReference.getName();
+            final TypeElement qualifierType = qualifierTypeElement(qualifier);
+            final boolean unboundReceiver = qualifierType != null && arity > 0
+                    && !hasMethod(qualifierType, name, arity, true)
+                    && hasMethod(qualifierType, name, arity - 1, false);
+            final ExpressionTree selector;
+            final List<ExpressionTree> callArguments;
+            if (unboundReceiver) {
+                selector = TreeMaker.fieldAccessExpressionTree(TreeMaker.identifier(REF_PARAMETER + 0, line, column),
+                        TreeMaker.identifier(name, line, column), line, column);
+                callArguments = new ArrayList<>(arguments.subList(1, arguments.size()));
+            } else {
+                selector = TreeMaker.fieldAccessExpressionTree(qualifier,
+                        TreeMaker.identifier(name, line, column), line, column);
+                callArguments = arguments;
+            }
+            body = TreeMaker.methodInvocationTree(selector, memberReference.getTypeArguments(),
+                    callArguments, line, column);
+        }
+        return TreeMaker.lambdaExpressionTree(parameters, body, line, column);
+    }
+
+    /** The type a method-reference qualifier names, or null if it is an expression. */
+    private static TypeElement qualifierTypeElement(final ExpressionTree qualifier) {
+        if (qualifier instanceof IdentifierTree || qualifier instanceof FieldAccessExpressionTree) {
+            final var symbol = TreeUtils.getSymbol(qualifier);
+            if (symbol instanceof TypeElement typeElement) {
+                return typeElement;
+            }
+            if (symbol instanceof VariableElement || Constants.THIS.equals(qualifier.toString())
+                    || Constants.SUPER.equals(qualifier.toString())) {
+                return null;
+            }
+            // A type name whose identifier only carries the type (String::length).
+            final var type = qualifier.getType();
+            return type instanceof DeclaredType ? type.asTypeElement() : null;
+        }
+        // A parameterized or array type (List<String>::size).
+        final var type = qualifier != null ? qualifier.getType() : null;
+        return type != null ? type.asTypeElement() : null;
+    }
+
+    /** Whether the type or a supertype declares a method with this name and arity. */
+    private static boolean hasMethod(final TypeElement type, final String name, final int arity,
+                                     final boolean isStatic) {
+        final var pending = new java.util.ArrayDeque<TypeElement>();
+        final var seen = new java.util.HashSet<TypeElement>();
+        pending.add(type);
+        while (!pending.isEmpty()) {
+            final var current = pending.poll();
+            if (!seen.add(current)) {
+                continue;
+            }
+            for (final var method : ElementFilter.methodsIn(current.getEnclosedElements())) {
+                if (method.getSimpleName().equals(name) && method.getParameters().size() == arity
+                        && method.isStatic() == isStatic) {
+                    return true;
+                }
+            }
+            if (current.getSuperclass() != null && current.getSuperclass().asTypeElement() != null) {
+                pending.add(current.getSuperclass().asTypeElement());
+            }
+            for (final var itf : current.getInterfaces()) {
+                if (itf.asTypeElement() != null) {
+                    pending.add(itf.asTypeElement());
+                }
+            }
+        }
+        return false;
     }
 
     @Override

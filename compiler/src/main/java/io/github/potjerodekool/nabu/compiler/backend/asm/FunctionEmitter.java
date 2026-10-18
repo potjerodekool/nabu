@@ -1576,7 +1576,8 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
             case IRValue.Values(List<IRValue> values) -> values.forEach(this::emitValue);
             case IRValue.FunctionRef(String name, IRType.Function fnType, IRType targetInterface,
                                      String samMethodName, String samDesc, String instDesc,
-                                     java.util.List<String> capturedNames) -> emitFunctionRef(name, fnType, targetInterface, capturedNames);
+                                     java.util.List<String> capturedNames) -> emitFunctionRef(name, fnType, targetInterface,
+                    samMethodName, samDesc, capturedNames);
             case null, default -> throw new IllegalStateException(
                     "Unexpected IRValue: " + (value != null ? value.getClass().getSimpleName() : "null"));
         }
@@ -1663,6 +1664,8 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
     private void emitFunctionRef(final String name,
                                  final IRType.Function fnType,
                                  final IRType targetInterface,
+                                 final String samMethodName,
+                                 final String samDescriptor,
                                  final java.util.List<String> capturedNames) {
         final var owner = name.contains(".")
                 ? name.substring(0, name.lastIndexOf('.')).replace('.', '/')
@@ -1680,7 +1683,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
         );
 
         if (targetInterface instanceof IRType.Ptr ptr && ptr.jvmDescriptor() != null) {
-            emitSamConversion(handle, fnType, ptr.jvmDescriptor(), capturedNames);
+            emitSamConversion(handle, fnType, ptr.jvmDescriptor(), samMethodName, samDescriptor, capturedNames);
         } else {
             mv.visitLdcInsn(handle);
         }
@@ -1705,16 +1708,28 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
     private void emitSamConversion(final Handle implHandle,
                                    final IRType.Function fnType,
                                    final String interfaceDescriptor,
+                                   final String knownSamMethodName,
+                                   final String knownSamDescriptor,
                                    final java.util.List<String> capturedNames) {
         final var functionalInterface = Type.getType(interfaceDescriptor);
-        final var samMethod = findSamMethod(functionalInterface);
-        if (samMethod == null) {
-            mv.visitLdcInsn(implHandle);
-            return;
+        // The IR names the SAM method (from the frontend's symbols). Reflection
+        // is only the fallback: it cannot load an interface of this very
+        // compilation, and the lambda then became a bare MethodHandle
+        // constant ("DirectMethodHandle does not implement ...").
+        final String samMethodName;
+        final String erasedSamDescriptor;
+        if (knownSamMethodName != null && knownSamDescriptor != null) {
+            samMethodName = knownSamMethodName;
+            erasedSamDescriptor = knownSamDescriptor;
+        } else {
+            final var samMethod = findSamMethod(functionalInterface);
+            if (samMethod == null) {
+                mv.visitLdcInsn(implHandle);
+                return;
+            }
+            samMethodName = samMethod.getName();
+            erasedSamDescriptor = Type.getMethodDescriptor(samMethod);
         }
-
-        final var samMethodName = samMethod.getName();
-        final var erasedSamDescriptor = Type.getMethodDescriptor(samMethod);
 
         final var samParamCount = Type.getArgumentTypes(erasedSamDescriptor).length;
         final var capturedVarCount = fnType.paramTypes().size() - samParamCount;

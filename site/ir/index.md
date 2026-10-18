@@ -32,7 +32,7 @@ Every instruction has a `result()` and a `location()`.
 
 `IRType.Int` has a bit width and an `unsigned` flag. `char` is `IRType.CHAR`, an unsigned 16-bit integer, so backends widen it with zero extension (JLS 5.1.2) while `short` (`IRType.I16`) is sign-extended. Reference types are `Ptr` values that carry a JVM descriptor (for example `Ljava/lang/String;`).
 
-`FunctionRef` represents a method reference or lambda. For a lambda converted to a functional interface it also carries the interface, the single abstract method and the captured variables; the JVM backends turn that into `invokedynamic` with `LambdaMetafactory`.
+`FunctionRef` represents a method reference or lambda. For a lambda converted to a functional interface it also carries the interface, the single abstract method and the captured variables; the JVM backends turn that into `invokedynamic` with `LambdaMetafactory`, and for the LLVM backend `SourceLambdaLowering` replaces it with an instance of a generated class.
 
 ## Building IR
 

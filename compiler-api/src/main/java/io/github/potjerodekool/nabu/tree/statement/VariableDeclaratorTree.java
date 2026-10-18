@@ -27,6 +27,9 @@ public interface VariableDeclaratorTree extends StatementTree {
 
     Tree getValue();
 
+    /** Replaces the initializer (a method reference becomes a lambda). */
+    void setValue(Tree value);
+
     VariableDeclaratorTreeBuilder builder();
 
 }

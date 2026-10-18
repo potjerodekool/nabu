@@ -50,7 +50,8 @@ class NestmateAccessRunTest {
             }
         });
         final var rc = compiler.compile(options);
-        assertEquals(0, rc + errors.get(), String.join("\n", messages));
+        assertEquals(0, errors.get(), String.join("\n", messages));
+        assertEquals(0, rc, String.join("\n", messages));
 
         final var loader = new URLClassLoader(new java.net.URL[]{outDir.toUri().toURL()},
                 getClass().getClassLoader());

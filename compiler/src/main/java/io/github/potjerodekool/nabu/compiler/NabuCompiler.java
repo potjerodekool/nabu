@@ -194,6 +194,11 @@ public class NabuCompiler implements Compiler {
             // bereiken: vanaf de aanroepen in de broncode en de klassen uit de
             // GraalVM-reflectie-configuratie (META-INF/native-image/**).
             if (codeBackend.compilesLibraryBytecode()) {
+                // Lambdas and method references from source become real
+                // classes, as LambdaMetafactory would make them at run time.
+                allModules.addAll(io.github.potjerodekool.nabu.compiler.backend.bytecode.SourceLambdaLowering
+                        .lower(java.util.List.copyOf(allModules)));
+
                 final var alreadyCompiled = new java.util.HashSet<String>();
                 for (final var module : allModules) {
                     alreadyCompiled.add(module.name);

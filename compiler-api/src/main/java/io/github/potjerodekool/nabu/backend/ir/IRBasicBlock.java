@@ -37,6 +37,11 @@ public class IRBasicBlock {
         instructions.add(index, instr);
     }
 
+    /** Replaces the instruction at {@code index}. */
+    public void set(int index, IRInstruction instr) {
+        instructions.set(index, instr);
+    }
+
     public boolean isTerminated() {
         if (instructions.isEmpty()) return false;
         IRInstruction last = instructions.getLast();

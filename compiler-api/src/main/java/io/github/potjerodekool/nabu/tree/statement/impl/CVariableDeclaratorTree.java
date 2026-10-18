@@ -103,6 +103,7 @@ public class CVariableDeclaratorTree extends CStatementTree implements VariableD
         return value;
     }
 
+    @Override
     public void setValue(final Tree value) {
         this.value = value;
     }

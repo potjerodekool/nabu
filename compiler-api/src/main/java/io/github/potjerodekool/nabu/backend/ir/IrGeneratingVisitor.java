@@ -1436,6 +1436,14 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 builder.setCurrentBlock(downstream);
             }
             value = boxIfNeeded(value, builder.currentFunction().returnType);
+            // A primitive returned from a method with another reference
+            // return type (Object, Number, a type variable, a lambda's
+            // erased SAM method) gets the wrapper of its own type.
+            if (value != null && builder.currentFunction() != null
+                    && builder.currentFunction().returnType instanceof IRType.Ptr
+                    && isPrimitiveIRType(value.type())) {
+                value = boxPrimitive(value, expr.getType());
+            }
             // Auto-unboxing bij return aan een primitieve functie
             // (bv. `int execute(...)` met `return helpExitCode;`)
             if (builder.currentFunction() != null) {
@@ -1554,9 +1562,20 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         // Alleen boksen wanneer het argument momenteel een primitieve
         // waarde is en de parameter een referentie verwacht.
+        return boxPrimitive(value, argTypeMirror);
+    }
+
+    /**
+     * Boxes a primitive value for a reference target (JLS 5.1.7), with the
+     * wrapper of the value's own type: {@code Object o = 1} and
+     * {@code return 1} from an {@code Object} method give an {@code Integer}.
+     * A reference value is returned unchanged. {@code sourceType}, when known,
+     * tells a {@code char} from a {@code short}.
+     */
+    private IRValue boxPrimitive(final IRValue value, final TypeMirror sourceType) {
         if (value.type() instanceof IRType.Int(int bits, boolean unsignedInt)) {
-            final String boxClass = argTypeMirror != null
-                    && argTypeMirror.getKind() == TypeKind.CHAR
+            final String boxClass = (sourceType != null && sourceType.getKind() == TypeKind.CHAR)
+                    || (unsignedInt && bits == 16)
                     ? "java.lang.Character"
                     : boxClassForBits(bits);
             final var boxDesc = "L" + boxClass.replace('.', '/') + ";";

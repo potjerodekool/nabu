@@ -778,6 +778,14 @@ public class CompleteMethodResolver implements MethodResolver {
                         }
                     }
                 }
+                // The other members of an array are those of Object (JLS
+                // 10.7): `Arrays.copyOf(a, n).getClass()` stayed unresolved
+                // and its whole enclosing expression was dropped.
+                final var arrayObjectMethod = resolveArrayObjectMethod(fieldAccessExpressionTree,
+                        methodInvocationTree, scope);
+                if (arrayObjectMethod != null) {
+                    return Optional.of(arrayObjectMethod);
+                }
                 logger.log(LogLevel.WARN,  String.format("Searchtype is NULL in FieldAccessExpressionTree branch, methodName %s, %s", methodName, fieldAccessExpressionTree));
                 return Optional.empty();
             }
@@ -823,6 +831,30 @@ public class CompleteMethodResolver implements MethodResolver {
         return fallback(methodInvocationTree, scope);
     }
 
+    /** A method of Object called on an array-typed expression, or null. */
+    private ExecutableType resolveArrayObjectMethod(final FieldAccessExpressionTree fieldAccess,
+                                                    final MethodInvocationTree methodInvocationTree,
+                                                    final Scope scope) {
+        final var selected = fieldAccess.getSelected();
+        final TypeMirror selectedType;
+        if (selected instanceof MethodInvocationTree selectedInvocation
+                && selectedInvocation.getMethodType() != null) {
+            selectedType = selectedInvocation.getMethodType().getReturnType();
+        } else {
+            selectedType = selected != null && selected.getType() != null
+                    ? selected.getType()
+                    : (selected != null ? treeUtils.typeOf(selected) : null);
+        }
+        if (!(selectedType instanceof ArrayType)) {
+            return null;
+        }
+        final var objectTypeElement = elements.getTypeElement(scope.findModuleElement(), Constants.OBJECT);
+        if (objectTypeElement == null || !(objectTypeElement.asType() instanceof DeclaredType objectType)) {
+            return null;
+        }
+        return resolveMethod(methodInvocationTree, objectType, scope, false);
+    }
+
     private DeclaredType getTypeOf(final ExpressionTree expressionTree) {
         TypeMirror type = null;
 
@@ -840,9 +872,17 @@ public class CompleteMethodResolver implements MethodResolver {
                 }
             }
         } else if (expressionTree instanceof FieldAccessExpressionTree fieldAccessExpressionTree) {
+            // The type of the whole access first: for a nested type used as
+            // a qualifier (`Thread.State.valueOf(..)`) the identifier `State`
+            // can carry a type that does not resolve, while the access has
+            // java.lang.Thread$State; valueOf was then looked up elsewhere.
+            if (fieldAccessExpressionTree.getType() instanceof DeclaredType accessType
+                    && !accessType.isError()) {
+                return accessType;
+            }
             final var fieldType = fieldAccessExpressionTree.getField().getType();
-            if (fieldType instanceof DeclaredType) {
-                return (DeclaredType) fieldType;
+            if (fieldType instanceof DeclaredType declaredFieldType && !declaredFieldType.isError()) {
+                return declaredFieldType;
             }
             final var selectedType = getTypeOf(fieldAccessExpressionTree.getSelected());
             if (selectedType != null) {
@@ -1207,6 +1247,12 @@ public class CompleteMethodResolver implements MethodResolver {
     }
 
     private boolean isImplicitlyTypedLambda(final ExpressionTree expressionTree) {
+        // A method reference is, like an implicitly typed lambda, not
+        // pertinent to applicability (JLS 15.12.2.2); ResolverPhase turns it
+        // into a lambda for the parameter type of the chosen method.
+        if (expressionTree instanceof MemberReference) {
+            return true;
+        }
         if (!(expressionTree instanceof LambdaExpressionTree lambdaExpressionTree)) {
             return false;
         }

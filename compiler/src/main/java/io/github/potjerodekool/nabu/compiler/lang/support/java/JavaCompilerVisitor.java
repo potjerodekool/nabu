@@ -2569,19 +2569,33 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         final var arguments = new ArrayList<ExpressionTree>();
         boolean isMethodCall = false;
         ExpressionTree arrayBase = null;
+        // `Q::m` / `Q::new` (JLS 15.13): the qualifier before `::`.
+        ExpressionTree memberReferenceQualifier = null;
 
         for (int c = startIndex; c < ctx.getChildCount(); c++) {
             final var child = ctx.getChild(c);
 
             switch (child) {
                 case TerminalNode terminalNode -> {
-                    if ("(".equals(terminalNode.getText())
+                    if ("::".equals(terminalNode.getText())) {
+                        memberReferenceQualifier = lastExpression;
+                        lastExpression = null;
+                        typeArguments.clear();
+                    } else if (memberReferenceQualifier != null && "new".equals(terminalNode.getText())) {
+                        lastExpression = memberReference(MemberReference.ReferenceKind.NEW, Constants.INIT,
+                                typeArguments, memberReferenceQualifier, ctx);
+                        memberReferenceQualifier = null;
+                    } else if ("(".equals(terminalNode.getText())
                             && c > 0) {
                         isMethodCall = true;
                     } else if (")".equals(terminalNode.getText())) {
                         final ExpressionTree methodSelector = lastExpression;
 
+                        // With a position: the Checker skips calls without
+                        // one, so an unresolvable call was silently dropped.
                         lastExpression = new MethodInvocationTreeBuilder()
+                                .lineNumber(terminalNode.getSymbol().getLine())
+                                .columnNumber(terminalNode.getSymbol().getCharPositionInLine())
                                 .typeArguments(typeArguments)
                                 .methodSelector(methodSelector)
                                 .arguments(arguments)
@@ -2611,12 +2625,27 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                     }
 
                     final var accepted = child.accept(this);
+                    if (memberReferenceQualifier != null && accepted instanceof IdentifierTree name) {
+                        lastExpression = memberReference(MemberReference.ReferenceKind.INVOKE, name.getName(),
+                                typeArguments, memberReferenceQualifier, ctx);
+                        memberReferenceQualifier = null;
+                        continue;
+                    }
                     lastExpression = combineExpressions(lastExpression, accepted);
                 }
             }
         }
 
         return lastExpression;
+    }
+
+    private static MemberReference memberReference(final MemberReference.ReferenceKind mode,
+                                                   final String name,
+                                                   final List<IdentifierTree> typeArguments,
+                                                   final ExpressionTree qualifier,
+                                                   final ParserRuleContext ctx) {
+        return MemberReference.create(mode, name, new ArrayList<>(typeArguments), qualifier,
+                ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
     @Override
@@ -2946,6 +2975,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         final var typeArguments = new ArrayList<IdentifierTree>();
         final var arguments = new ArrayList<ExpressionTree>();
         var isMemberReference = false;
+        ExpressionTree memberReferenceQualifier = null;
         ExpressionTree arrayBase = null;
 
         for (int c = 0; c < ctx.getChildCount(); c++) {
@@ -2957,12 +2987,16 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
                     if (c == 0 && "::".equals(text)) {
                         isMemberReference = true;
+                        memberReferenceQualifier = lastExpression;
+                        lastExpression = null;
                     }
 
                     if ("(".equals(text)) {
                         isMemberReference = false;
                     } else if (")".equals(text)) {
                         lastExpression = new MethodInvocationTreeBuilder()
+                                .lineNumber(terminalNode.getSymbol().getLine())
+                                .columnNumber(terminalNode.getSymbol().getCharPositionInLine())
                                 .typeArguments(typeArguments)
                                 .methodSelector(lastExpression)
                                 .arguments(arguments)
@@ -2986,31 +3020,20 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                         continue;
                     }
 
-                    if (child instanceof Java20Parser.PNNAContext
-                            && isMemberReference) {
-                        lastExpression = createMemberReference(
-                                typeArguments,
-                                (IdentifierTree) lastExpression,
-                                ctx
-                        );
-                        isMemberReference = false;
-                    }
-
                     final var result = child.accept(this);
+
+                    if (isMemberReference && result instanceof IdentifierTree name) {
+                        lastExpression = memberReference(MemberReference.ReferenceKind.INVOKE, name.getName(),
+                                typeArguments, memberReferenceQualifier, ctx);
+                        isMemberReference = false;
+                        continue;
+                    }
 
                     if (result instanceof ExpressionTree currentExpression) {
                         lastExpression = combineExpressions(lastExpression, currentExpression);
                     }
                 }
             }
-        }
-
-        if (isMemberReference) {
-            return createMemberReference(
-                    typeArguments,
-                    (IdentifierTree) lastExpression,
-                    ctx
-            );
         }
 
         return lastExpression;

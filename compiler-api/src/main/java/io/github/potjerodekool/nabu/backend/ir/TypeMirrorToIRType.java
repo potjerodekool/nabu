@@ -187,6 +187,22 @@ public final class TypeMirrorToIRType {
                 }
                 yield "Ljava/lang/Object;";
             }
+            // A method type (e.g. a lambda's SAM method): its erased
+            // descriptor. Without this case the SAM descriptor of a lambda
+            // was null and the JVM backend fell back to reflection, which
+            // cannot see interfaces of the current compilation.
+            case EXECUTABLE -> {
+                if (!(type instanceof io.github.potjerodekool.nabu.type.ExecutableType executable)) {
+                    yield null;
+                }
+                final var sb = new StringBuilder("(");
+                for (final TypeMirror parameter : executable.getParameterTypes()) {
+                    final var desc = toJvmDescriptor(parameter);
+                    sb.append(desc == null ? "Ljava/lang/Object;" : desc);
+                }
+                final var returnDesc = toJvmDescriptor(executable.getReturnType());
+                yield sb.append(')').append(returnDesc == null ? "V" : returnDesc).toString();
+            }
             default -> null;
         };
     }

@@ -90,7 +90,7 @@ public class NativeLLVMBackend implements Backend {
                 : Linker.guessTargetTriple(LLVMGetDefaultTargetTriple().getString());
 
         Path outFile = resolveOutputFile(modules.getFirst(), outputObj);
-        compileToObject(modules, opts, outFile, triple);
+        List<Path> objectFiles = compileToObject(modules, opts, outFile, triple, true);
 
         // Alleen linken als er een main-functie aanwezig is
         boolean hasMain = modules.stream()
@@ -100,7 +100,7 @@ public class NativeLLVMBackend implements Backend {
 
         Path exe = replaceExtension(outFile,
                 triple.contains("windows") ? ".exe" : "");
-        Linker.link(outFile, exe, triple, opts.gcStrategy());
+        Linker.link(objectFiles, exe, triple, opts.gcStrategy());
     }
 
     private void loadNativeImageConfigs(final Path outputObj, final List<Path> classPath) {
@@ -238,7 +238,7 @@ public class NativeLLVMBackend implements Backend {
         String triple = opts.targetTriple() != null
                 ? opts.targetTriple()
                 : LLVMGetDefaultTargetTriple().getString();
-        compileToObject(modules, opts, outputObj, triple);
+        compileToObject(modules, opts, outputObj, triple, false);
     }
 
     /**
@@ -269,10 +269,40 @@ public class NativeLLVMBackend implements Backend {
                 && other.params.stream().map(IRValue::type).toList().equals(paramTypes));
     }
 
-    private void compileToObject(List<IRModule> modules,
-                                 CompileOptions opts,
-                                 Path outputObj,
-                                 String triple) throws CompileException {
+    /**
+     * The object files of a build in {@code partitions} parts: {@code X.o}
+     * for partition 0, {@code X.1.o}, {@code X.2.o}, … for the others. Parts
+     * left over from an earlier build with more partitions are removed.
+     */
+    private static List<Path> objectFiles(Path outputObj, int partitions) {
+        final List<Path> files = new java.util.ArrayList<>();
+        files.add(outputObj);
+        for (int p = 1; p < partitions; p++) {
+            files.add(replaceExtension(outputObj, "." + p + ".o"));
+        }
+        for (int p = Math.max(1, partitions); ; p++) {
+            final Path stale = replaceExtension(outputObj, "." + p + ".o");
+            try {
+                if (!Files.deleteIfExists(stale)) {
+                    break;
+                }
+            } catch (final java.io.IOException e) {
+                break;
+            }
+        }
+        return files;
+    }
+
+    /**
+     * @param partitioned whether a large module may be optimized and
+     *                    compiled in parallel partitions (several object files)
+     * @return the object files written
+     */
+    private List<Path> compileToObject(List<IRModule> modules,
+                                       CompileOptions opts,
+                                       Path outputObj,
+                                       String triple,
+                                       boolean partitioned) throws CompileException {
         LLVMContextRef ctx     = LLVMContextCreate();
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
@@ -326,6 +356,21 @@ public class NativeLLVMBackend implements Backend {
             long t4 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] validate: " + (t4 - t3) / 1_000_000L + " ms");
 
+            final int partitions = partitioned
+                    ? PartitionedCodegen.partitionCount(PartitionedCodegen.countDefinedFunctions(llvmMod))
+                    : 1;
+            final List<Path> objectFiles = objectFiles(outputObj, partitions);
+            if (partitions > 1) {
+                LLVMDisposeTargetMachine(machine);
+                PartitionedCodegen.compile(llvmMod, partitions, triple,
+                        opts.optLevel() != CompileOptions.OptLevel.NONE ? pipeline(opts.optLevel()) : null,
+                        objectFiles);
+                long t5 = System.nanoTime();
+                System.err.println("[NativeLLVMBackend] optimize (" + opts.optLevel() + ") + emitObjectFile, "
+                        + partitions + " partitions in parallel: " + (t5 - t4) / 1_000_000L + " ms");
+                return objectFiles;
+            }
+
             if (opts.optLevel() != CompileOptions.OptLevel.NONE) {
                 optimize(llvmMod, machine, opts.optLevel());
             }
@@ -337,6 +382,7 @@ public class NativeLLVMBackend implements Backend {
             long t6 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] emitObjectFile: " + (t6 - t5) / 1_000_000L + " ms");
             LLVMDisposeTargetMachine(machine);
+            return objectFiles;
 
         } finally {
             LLVMDisposeBuilder(builder);
@@ -413,12 +459,20 @@ public class NativeLLVMBackend implements Backend {
     private void optimize(LLVMModuleRef mod,
                           LLVMTargetMachineRef machine,
                           CompileOptions.OptLevel level) throws CompileException {
-        String pipeline = switch (level) {
+        runPasses(mod, machine, pipeline(level));
+    }
+
+    private static String pipeline(CompileOptions.OptLevel level) {
+        return switch (level) {
             case NONE       -> "mem2reg";
             case DEFAULT    -> "default<O2>";
             case AGGRESSIVE -> "default<O3>";
         };
+    }
 
+    static void runPasses(LLVMModuleRef mod,
+                          LLVMTargetMachineRef machine,
+                          String pipeline) throws CompileException {
         LLVMPassBuilderOptionsRef options = LLVMCreatePassBuilderOptions();
         LLVMPassBuilderOptionsSetLoopUnrolling(options, 1);
 

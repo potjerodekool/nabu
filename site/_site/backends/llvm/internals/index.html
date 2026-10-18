@@ -107,7 +107,7 @@
     </ol>
   </li>
   <li><strong>Unresolved symbols.</strong> Every function that is still only declared gets a stub that prints the name and exits with code 127. The names are written to <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code>.</li>
-  <li><strong>Validation and optimization.</strong> The module is verified, optimized with LLVM’s pass pipeline at the <code class="language-plaintext highlighter-rouge">--opt</code> level and written as <code class="language-plaintext highlighter-rouge">.ll</code> and <code class="language-plaintext highlighter-rouge">.o</code>.</li>
+  <li><strong>Validation and optimization.</strong> The module is verified and written as <code class="language-plaintext highlighter-rouge">.ll</code>. It is then optimized with LLVM’s pass pipeline at the <code class="language-plaintext highlighter-rouge">--opt</code> level and compiled to object code, in parallel partitions (see <a href="#parallel-code-generation">Parallel code generation</a>).</li>
   <li><strong>Linking</strong> (<code class="language-plaintext highlighter-rouge">Linker</code>) with <code class="language-plaintext highlighter-rouge">gcc</code> or <code class="language-plaintext highlighter-rouge">clang</code>, compiling <code class="language-plaintext highlighter-rouge">nabu_runtime.c</code> and <code class="language-plaintext highlighter-rouge">jcl_lite.c</code> into the executable, plus <code class="language-plaintext highlighter-rouge">-lgc -lpthread</code> for <code class="language-plaintext highlighter-rouge">--gc=BOEHM</code>. This step only runs if there is a <code class="language-plaintext highlighter-rouge">main</code> function.</li>
 </ol>
 
@@ -133,6 +133,21 @@
 <p>Some things cannot come from bytecode because the JVM itself implements them: <code class="language-plaintext highlighter-rouge">Class</code> objects, <code class="language-plaintext highlighter-rouge">System.arraycopy</code>, <code class="language-plaintext highlighter-rouge">Unsafe</code>, <code class="language-plaintext highlighter-rouge">Object.hashCode</code>, reflection objects, and so on. <code class="language-plaintext highlighter-rouge">jcl_lite.c</code> implements those in C and binds each implementation to the IR symbol name of the Java method with a <code class="language-plaintext highlighter-rouge">BIND(…, "java.lang.Class_getName", …)</code> macro (an <code class="language-plaintext highlighter-rouge">__asm__</code> label).</p>
 
 <p>The policy is to keep <code class="language-plaintext highlighter-rouge">jcl_lite.c</code> <strong>minimal and VM-bound</strong>. If the JDK has bytecode for a method, compile the bytecode instead of adding a C version. C replacements tend to drift from the real behavior; for example, a C boxing helper created <code class="language-plaintext highlighter-rouge">Boolean</code> objects with the vtable of <code class="language-plaintext highlighter-rouge">Object</code>, so <code class="language-plaintext highlighter-rouge">toString()</code> printed <code class="language-plaintext highlighter-rouge">java.lang.Boolean@…</code>.</p>
+
+<h2 id="parallel-code-generation">Parallel code generation</h2>
+
+<p>LLVM optimizes and compiles one module on one thread, and the whole program is one module. <code class="language-plaintext highlighter-rouge">PartitionedCodegen</code> therefore splits a large module (2,000 functions or more) into partitions that are optimized and compiled at the same time, each in its own LLVM context and thread, into its own object file: <code class="language-plaintext highlighter-rouge">&lt;name&gt;.o</code>, <code class="language-plaintext highlighter-rouge">&lt;name&gt;.1.o</code>, <code class="language-plaintext highlighter-rouge">&lt;name&gt;.2.o</code>, ….</p>
+
+<ul>
+  <li>Every function body belongs to one partition. Functions are assigned in module order, so the methods of a class stay together, in parts with about the same number of instructions. A global variable belongs to the partition of its first user. In every other partition those functions and globals are only declared.</li>
+  <li>A private or internal symbol that is used from another partition becomes external (hidden), with a <code class="language-plaintext highlighter-rouge">.xp</code> suffix so it cannot clash with a symbol of the C runtime. String data (<code class="language-plaintext highlighter-rouge">unnamed_addr</code> constants) is copied instead.</li>
+  <li>Small functions (up to 40 instructions) are also copied into the partitions that call them, as <code class="language-plaintext highlighter-rouge">available_externally</code>, so calls to them can still be inlined across partitions. Those copies are not compiled.</li>
+  <li>The module is written once as bitcode in memory; every partition reads its own copy and drops what it does not own.</li>
+</ul>
+
+<p>The number of partitions is half the number of logical processors (on an 8-core CPU with hyper-threading, 8 partitions were clearly faster than 16), and can be set with <code class="language-plaintext highlighter-rouge">-Dnabu.llvm.partitions=&lt;n&gt;</code>; <code class="language-plaintext highlighter-rouge">1</code> compiles the module as a whole. <code class="language-plaintext highlighter-rouge">-Dnabu.llvm.partitionTiming=true</code> prints the time of each partition.</p>
+
+<p>Optimizing in partitions loses inlining of larger functions across partition boundaries and the whole-program analyses, such as inferring that a function cannot throw.</p>
 
 <h2 id="object-model">Object model</h2>
 
@@ -221,7 +236,7 @@
 
 <ul>
   <li><code class="language-plaintext highlighter-rouge">native-backend</code> unit tests check the emitted IR and object model without linking.</li>
-  <li>Tests named <code class="language-plaintext highlighter-rouge">*E2eIT</code> compile a small Java program with the LLVM backend, link it, run it and compare the output. They are skipped when no <code class="language-plaintext highlighter-rouge">gcc</code> is found (<code class="language-plaintext highlighter-rouge">NativeToolchain.assumeGcc</code>). Use them as the template for a new regression test: they take about a minute each because they compile the JDK closure.</li>
+  <li>Tests named <code class="language-plaintext highlighter-rouge">*E2eIT</code> compile a small Java program with the LLVM backend, link it, run it and compare the output. They are skipped when no <code class="language-plaintext highlighter-rouge">gcc</code> is found (<code class="language-plaintext highlighter-rouge">NativeToolchain.assumeGcc</code>). Use them as the template for a new regression test: they take about 30 seconds each because they compile the JDK closure.</li>
 </ul>
 
 <p>Running one test:</p>

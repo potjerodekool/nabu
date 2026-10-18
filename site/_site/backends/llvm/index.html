@@ -175,8 +175,8 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
       <td>LLVM IR in text form; useful for debugging</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">&lt;name&gt;.o</code></td>
-      <td>the object file</td>
+      <td><code class="language-plaintext highlighter-rouge">&lt;name&gt;.o</code>, <code class="language-plaintext highlighter-rouge">&lt;name&gt;.1.o</code>, …</td>
+      <td>the object files; a large program is compiled in parallel parts, one object file per part</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">&lt;name&gt;.exe</code> (Windows) or <code class="language-plaintext highlighter-rouge">&lt;name&gt;</code></td>
@@ -189,7 +189,7 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
   </tbody>
 </table>
 
-<p>Without a <code class="language-plaintext highlighter-rouge">main</code> method only the <code class="language-plaintext highlighter-rouge">.ll</code> and <code class="language-plaintext highlighter-rouge">.o</code> files are written.</p>
+<p>Without a <code class="language-plaintext highlighter-rouge">main</code> method only the <code class="language-plaintext highlighter-rouge">.ll</code> and object files are written.</p>
 
 <h2 id="platforms">Platforms</h2>
 

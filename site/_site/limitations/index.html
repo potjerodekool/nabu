@@ -64,7 +64,7 @@
 
 <ul>
   <li><strong>Reflection needs configuration.</strong> Classes that are only used through reflection must be listed in a GraalVM configuration file (<code class="language-plaintext highlighter-rouge">META-INF/native-image/**/reflect-config.json</code>), as with GraalVM <code class="language-plaintext highlighter-rouge">native-image</code>; otherwise they are not compiled.</li>
-  <li><strong>Slow builds, large executables.</strong> The whole reachable part of the JDK is compiled and optimized as one LLVM module: about a minute and 13 MB for a small program, about one and a half minutes and 15 MB for the <a href="/examples/picocli-demo/">picocli example</a>.</li>
+  <li><strong>Slow builds, large executables.</strong> The whole reachable part of the JDK is compiled and optimized: about 30 seconds and 13 MB for a small program, about 45 seconds and 15 MB for the <a href="/examples/picocli-demo/">picocli example</a>, on an 8-core machine. LLVM’s optimization and code generation run in parallel parts, so fewer cores means a slower build.</li>
   <li><strong>Incremental builds</strong> have not been tested with the LLVM backend; the examples build with <code class="language-plaintext highlighter-rouge">-Dnabu.incremental=false</code>.</li>
   <li>The executable is named after the <strong>first</strong> compiled class, not after the class with <code class="language-plaintext highlighter-rouge">main</code>.</li>
   <li>The build prints many warnings (for example about static fields of classes outside the compiled closure). They do not stop the build, and most are harmless, but they make real problems harder to spot.</li>

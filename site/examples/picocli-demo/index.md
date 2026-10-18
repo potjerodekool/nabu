@@ -263,7 +263,7 @@ mvn -Pllvm clean package -Dnabu.incremental=false
 .\target\classes\greet.GreetCommand.exe --help
 ```
 
-The build takes about one and a half minutes on the verification machine. Nabu compiles about 2,600 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 110 MB `.ll` file next to the executable.
+The build takes about 45 seconds on the verification machine (8 cores). Nabu compiles about 2,600 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 110 MB `.ll` file next to the executable.
 
 ## Checking that all three agree
 

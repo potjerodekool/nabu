@@ -63,11 +63,11 @@ For a program with a `main` method the backend writes three files to the class o
 | File | Content |
 |---|---|
 | `<name>.ll` | LLVM IR in text form; useful for debugging |
-| `<name>.o` | the object file |
+| `<name>.o`, `<name>.1.o`, … | the object files; a large program is compiled in parallel parts, one object file per part |
 | `<name>.exe` (Windows) or `<name>` | the linked executable |
 | `<name>.unresolved.txt` | JDK functions that are called but could not be compiled (native methods, signature-polymorphic methods, missing classes). The program aborts with exit code 127 if it reaches one of them. |
 
-Without a `main` method only the `.ll` and `.o` files are written.
+Without a `main` method only the `.ll` and object files are written.
 
 ## Platforms
 

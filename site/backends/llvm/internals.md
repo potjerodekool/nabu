@@ -33,7 +33,7 @@ The runtime sources are bundled into the plugin jar under `nabu/runtime/` and co
    5. module constructors (`@llvm.global_ctors`, see [Start-up](#start-up));
    6. function bodies (`FunctionEmitter`, `InstructionEmitter`).
 5. **Unresolved symbols.** Every function that is still only declared gets a stub that prints the name and exits with code 127. The names are written to `<name>.unresolved.txt`.
-6. **Validation and optimization.** The module is verified, optimized with LLVM's pass pipeline at the `--opt` level and written as `.ll` and `.o`.
+6. **Validation and optimization.** The module is verified and written as `.ll`. It is then optimized with LLVM's pass pipeline at the `--opt` level and compiled to object code, in parallel partitions (see [Parallel code generation](#parallel-code-generation)).
 7. **Linking** (`Linker`) with `gcc` or `clang`, compiling `nabu_runtime.c` and `jcl_lite.c` into the executable, plus `-lgc -lpthread` for `--gc=BOEHM`. This step only runs if there is a `main` function.
 
 ## Compiling the JDK from bytecode
@@ -56,6 +56,19 @@ The backend has no hand-written Java class library. Instead, `BytecodeReachabili
 Some things cannot come from bytecode because the JVM itself implements them: `Class` objects, `System.arraycopy`, `Unsafe`, `Object.hashCode`, reflection objects, and so on. `jcl_lite.c` implements those in C and binds each implementation to the IR symbol name of the Java method with a `BIND(…, "java.lang.Class_getName", …)` macro (an `__asm__` label).
 
 The policy is to keep `jcl_lite.c` **minimal and VM-bound**. If the JDK has bytecode for a method, compile the bytecode instead of adding a C version. C replacements tend to drift from the real behavior; for example, a C boxing helper created `Boolean` objects with the vtable of `Object`, so `toString()` printed `java.lang.Boolean@…`.
+
+## Parallel code generation
+
+LLVM optimizes and compiles one module on one thread, and the whole program is one module. `PartitionedCodegen` therefore splits a large module (2,000 functions or more) into partitions that are optimized and compiled at the same time, each in its own LLVM context and thread, into its own object file: `<name>.o`, `<name>.1.o`, `<name>.2.o`, ….
+
+- Every function body belongs to one partition. Functions are assigned in module order, so the methods of a class stay together, in parts with about the same number of instructions. A global variable belongs to the partition of its first user. In every other partition those functions and globals are only declared.
+- A private or internal symbol that is used from another partition becomes external (hidden), with a `.xp` suffix so it cannot clash with a symbol of the C runtime. String data (`unnamed_addr` constants) is copied instead.
+- Small functions (up to 40 instructions) are also copied into the partitions that call them, as `available_externally`, so calls to them can still be inlined across partitions. Those copies are not compiled.
+- The module is written once as bitcode in memory; every partition reads its own copy and drops what it does not own.
+
+The number of partitions is half the number of logical processors (on an 8-core CPU with hyper-threading, 8 partitions were clearly faster than 16), and can be set with `-Dnabu.llvm.partitions=<n>`; `1` compiles the module as a whole. `-Dnabu.llvm.partitionTiming=true` prints the time of each partition.
+
+Optimizing in partitions loses inlining of larger functions across partition boundaries and the whole-program analyses, such as inferring that a function cannot throw.
 
 ## Object model
 
@@ -104,7 +117,7 @@ See [Choosing a GC strategy](/backends/llvm/#choosing-a-gc-strategy) for the use
 ## Tests
 
 - `native-backend` unit tests check the emitted IR and object model without linking.
-- Tests named `*E2eIT` compile a small Java program with the LLVM backend, link it, run it and compare the output. They are skipped when no `gcc` is found (`NativeToolchain.assumeGcc`). Use them as the template for a new regression test: they take about a minute each because they compile the JDK closure.
+- Tests named `*E2eIT` compile a small Java program with the LLVM backend, link it, run it and compare the output. They are skipped when no `gcc` is found (`NativeToolchain.assumeGcc`). Use them as the template for a new regression test: they take about 30 seconds each because they compile the JDK closure.
 
 Running one test:
 

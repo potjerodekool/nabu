@@ -70,7 +70,7 @@
 
 <h3 id="the-build-takes-very-long">The build takes very long</h3>
 
-<p>That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program as one module. A small program takes about a minute, the <a href="/examples/picocli-demo/">picocli example</a> about one and a half. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. <code class="language-plaintext highlighter-rouge">--opt=NONE</code> turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.</p>
+<p>That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program, in as many parallel parts as the machine has cores (see <a href="/backends/llvm/internals/#parallel-code-generation">Parallel code generation</a>). On an 8-core machine a small program takes about 30 seconds, the <a href="/examples/picocli-demo/">picocli example</a> about 45. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. <code class="language-plaintext highlighter-rouge">--opt=NONE</code> turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.</p>
 
 <h2 id="problems-when-running-the-executable">Problems when running the executable</h2>
 

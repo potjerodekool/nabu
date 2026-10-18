@@ -23,7 +23,7 @@ To turn that object file into an executable, Nabu calls a **C compiler**. It com
 
 Windows with the **MSVC** toolchain is not supported: Nabu's exception handling relies on DWARF/LSDA unwind data, which the MSVC runtime does not provide. Nabu stops with an explicit error instead of producing a broken executable.
 
-For the recommended garbage collector (`--gc=BOEHM`, see [Choosing a GC strategy](/backends/llvm/#choosing-a-gc-strategy)) you also need the **Boehm-Demers-Weiser garbage collector** (`libgc` and the `gc.h` header) for that C compiler.
+For the default garbage collector (`--gc=BOEHM`, see [Choosing a GC strategy](/backends/llvm/#choosing-a-gc-strategy)) you also need the **Boehm-Demers-Weiser garbage collector** (`libgc` and the `gc.h` header) for that C compiler.
 
 ## Overview
 

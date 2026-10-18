@@ -31,8 +31,8 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 ### Run time
 
 - **Native and VM-internal JDK methods** have no implementation unless the C runtime provides one. A program that calls such a method stops with `nabu: call to a JDK function without an implementation: <name>` and exit code 127. All such methods are listed in `<name>.unresolved.txt` at build time.
-- **Reflection** only covers classes listed in GraalVM `*-config.json` metadata in the class output directory, and only their **fields and annotations**. Metadata inside jars on the classpath is not read.
+- **Reflection** only covers classes listed in GraalVM `*-config.json` metadata (in the class output directory or in jars on the classpath), and only their **fields and annotations**.
 - **Static fields of classes outside the compiled closure** keep their default value (`0`/`null`); the build warns about each one.
 - **No stack traces.** Exceptions print their class and message when they reach the top of the program; set `NABU_TRACE_NPE=1` to locate `NullPointerException`s. See [Troubleshooting](/backends/llvm/troubleshooting/).
-- **Garbage collection:** only `--gc=BOEHM` is suitable for real programs. `REFCOUNT` leaks every object that escapes its frame and does not collect cycles; `NONE` allocates objects on the stack, so they are invalid once the creating function returns.
+- **Garbage collection:** only `--gc=BOEHM` (the default) is suitable for executables. `REFCOUNT` leaks every object that escapes its frame and does not collect cycles; `NONE` allocates objects on the stack, so they are invalid once the creating function returns.
 - Parts of the class library are still implemented in C (`runtime/jcl_lite.c`) instead of compiled from the JDK. Those parts can behave differently from the JDK in edge cases.

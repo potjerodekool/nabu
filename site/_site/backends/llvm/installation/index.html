@@ -88,7 +88,7 @@
 
 <p>Windows with the <strong>MSVC</strong> toolchain is not supported: Nabu’s exception handling relies on DWARF/LSDA unwind data, which the MSVC runtime does not provide. Nabu stops with an explicit error instead of producing a broken executable.</p>
 
-<p>For the recommended garbage collector (<code class="language-plaintext highlighter-rouge">--gc=BOEHM</code>, see <a href="/backends/llvm/#choosing-a-gc-strategy">Choosing a GC strategy</a>) you also need the <strong>Boehm-Demers-Weiser garbage collector</strong> (<code class="language-plaintext highlighter-rouge">libgc</code> and the <code class="language-plaintext highlighter-rouge">gc.h</code> header) for that C compiler.</p>
+<p>For the default garbage collector (<code class="language-plaintext highlighter-rouge">--gc=BOEHM</code>, see <a href="/backends/llvm/#choosing-a-gc-strategy">Choosing a GC strategy</a>) you also need the <strong>Boehm-Demers-Weiser garbage collector</strong> (<code class="language-plaintext highlighter-rouge">libgc</code> and the <code class="language-plaintext highlighter-rouge">gc.h</code> header) for that C compiler.</p>
 
 <h2 id="overview">Overview</h2>
 

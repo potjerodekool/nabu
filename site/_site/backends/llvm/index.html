@@ -99,8 +99,8 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
     <tr>
       <td><code class="language-plaintext highlighter-rouge">--gc</code></td>
       <td><code class="language-plaintext highlighter-rouge">NONE</code>, <code class="language-plaintext highlighter-rouge">BOEHM</code>, <code class="language-plaintext highlighter-rouge">REFCOUNT</code></td>
-      <td><code class="language-plaintext highlighter-rouge">NONE</code></td>
-      <td>Memory management, see below. Use <code class="language-plaintext highlighter-rouge">BOEHM</code> for real programs.</td>
+      <td><code class="language-plaintext highlighter-rouge">BOEHM</code></td>
+      <td>Memory management, see below.</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">--bytecode-jdk-home</code></td>
@@ -130,10 +130,10 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
   </thead>
   <tbody>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">BOEHM</code></td>
+      <td><code class="language-plaintext highlighter-rouge">BOEHM</code> (default)</td>
       <td><code class="language-plaintext highlighter-rouge">GC_malloc</code> (Boehm GC, linked with <code class="language-plaintext highlighter-rouge">-lgc</code>)</td>
       <td>by the collector</td>
-      <td>real programs (recommended)</td>
+      <td>real programs</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">REFCOUNT</code></td>
@@ -145,7 +145,7 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
       <td><code class="language-plaintext highlighter-rouge">NONE</code></td>
       <td>stack <code class="language-plaintext highlighter-rouge">alloca</code> in the allocating function</td>
       <td>when that function returns</td>
-      <td>tiny tests only: objects become invalid when the function that created them returns</td>
+      <td>not for executables: the JDK startup code keeps objects past the function that created them, so the program crashes before <code class="language-plaintext highlighter-rouge">main</code></td>
     </tr>
   </tbody>
 </table>

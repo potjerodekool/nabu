@@ -302,16 +302,19 @@ public class NabuCompiler implements Compiler {
     private CompileOptions.GcStrategy getGcStrategy(final CompilerOptions compilerOptions) {
         final var raw = compilerOptions.getOption(CompilerOption.GC).orElse(null);
 
+        // BOEHM by default: the LLVM backend always compiles JDK bytecode, and
+        // its startup (System/FileDescriptor init) keeps objects past the frame
+        // that allocated them, which NONE's stack allocation cannot survive.
         if (raw == null || raw.isBlank()) {
-            return CompileOptions.GcStrategy.NONE;
+            return CompileOptions.GcStrategy.BOEHM;
         }
 
         try {
             return CompileOptions.GcStrategy.valueOf(raw.trim().toUpperCase());
         } catch (final IllegalArgumentException e) {
             System.err.println("nabu: unknown --gc value '" + raw
-                    + "', use NONE, BOEHM or REFCOUNT. Falling back to NONE.");
-            return CompileOptions.GcStrategy.NONE;
+                    + "', use NONE, BOEHM or REFCOUNT. Falling back to BOEHM.");
+            return CompileOptions.GcStrategy.BOEHM;
         }
     }
 

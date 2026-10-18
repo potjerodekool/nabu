@@ -7,7 +7,7 @@ This example builds one small command-line program, `greet`, in three ways from 
 
 | Build | How | Result |
 |---|---|---|
-| **llvm** | Nabu's [LLVM backend](/backends/llvm/), with picocli compiled from the bytecode in its jar | a native `greet.GreetCommand.exe` (45 MB) |
+| **llvm** | Nabu's [LLVM backend](/backends/llvm/), with picocli compiled from the bytecode in its jar | a native `greet.GreetCommand.exe` (15 MB) |
 | **jvm** | Nabu's [ASM backend](/backends/asm/), with the normal picocli jar | class files for the JVM |
 | **graal** | the same class files, turned into a native image by GraalVM `native-image` | a native `greet.exe` (13 MB) |
 
@@ -263,7 +263,7 @@ mvn -Pllvm clean package -Dnabu.incremental=false
 .\target\classes\greet.GreetCommand.exe --help
 ```
 
-The build takes about six minutes on the verification machine. Nabu compiles about 3,500 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 190 MB `.ll` file next to the executable.
+The build takes about one and a half minutes on the verification machine. Nabu compiles about 2,600 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 110 MB `.ll` file next to the executable.
 
 ## Checking that all three agree
 

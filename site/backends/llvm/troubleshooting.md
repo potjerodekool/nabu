@@ -27,7 +27,7 @@ A Maven daemon (`mvnd`) or an IDE still has the previous plugin jar in `~/.nabu/
 
 ### The build takes very long
 
-That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program as one module. A one-line program takes several minutes, the [picocli example](/examples/picocli-demo/) about six. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. `--opt=NONE` turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.
+That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program as one module. A small program takes about a minute, the [picocli example](/examples/picocli-demo/) about one and a half. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. `--opt=NONE` turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.
 
 ## Problems when running the executable
 

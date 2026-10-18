@@ -214,12 +214,29 @@ public class ClassLayouts {
                 // is dan dat van een ANDERE overload: `String.split(String,
                 // int, boolean)` riep zo via het slot van `split(String, int)`
                 // zichzelf eindeloos aan. Geen slot = directe call.
-                final String overloadPrefix = methodFullName + "#";
-                for (final String key : virtualSlots.keySet()) {
-                    if (key.startsWith(overloadPrefix)) return -1;
-                }
+                if (overloadedNames().contains(methodFullName)) return -1;
             }
             return vtableSlot(methodFullName);
+        }
+
+        /** Names with a profile key ({@code name#...}) in {@link #virtualSlots}. */
+        private Set<String> overloadedNames = Set.of();
+        private int overloadedNamesSize = -1;
+
+        private Set<String> overloadedNames() {
+            // virtualSlots only grows; rebuild when it did.
+            if (overloadedNamesSize != virtualSlots.size()) {
+                final Set<String> names = new HashSet<>();
+                for (final String key : virtualSlots.keySet()) {
+                    final int hash = key.indexOf('#');
+                    if (hash >= 0) {
+                        names.add(key.substring(0, hash));
+                    }
+                }
+                overloadedNames = names;
+                overloadedNamesSize = virtualSlots.size();
+            }
+            return overloadedNames;
         }
 
         /** Sleutel die een overload onderscheidt: naam + parameterprofiel. */
@@ -1615,6 +1632,10 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
     private void emitAbstractSlotStub(IRFunction fn, LLVMValueRef fnRef) {
         if (!fn.blocks().isEmpty() || fn.isExternal()) return;
         if (LLVMIsDeclaration(fnRef) == 0) return;
+        // A method the C runtime implements stays extern: the slot points to
+        // that implementation (a JDK method lowered only as a declaration,
+        // see BytecodeReachabilityCompiler.dispatchOnly).
+        if (runtimeSymbols.contains(LLVMGetValueName(fnRef).getString())) return;
 
         LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx, fnRef,
                 new BytePointer("entry"));
@@ -1697,20 +1718,31 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         boolean isInterface = Flags.hasFlag(module.flags, Flags.INTERFACE);
 
+        // Only an object whose class implements the slot's interface is ever
+        // dispatched through that slot, so a class fills just those slots and
+        // its itable ends at the last one. An interface has no instances
+        // (a lambda object has its own synthetic class): it only needs the
+        // slot indices, not entries.
+        final Set<String> implemented = isInterface ? Set.of() : implementedInterfacesWithSupers(layout.internalName);
         LLVMValueRef[] entries = new LLVMValueRef[interfaceSlots.size()];
+        int length = 0;
         for (Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
             String interfaceMethod = slot.getKey();
-            if (isInterface && declaresInterfaceMethod(layout.internalName, slotFunction(interfaceMethod))) {
-                // Slot-index vastleggen; de vulling hoort bij de implementerende klasse.
-                layout.itableSlots.put(interfaceMethod, slot.getValue());
+            layout.itableSlots.put(interfaceMethod, slot.getValue());
+            if (isInterface) {
                 continue;
             }
-            layout.itableSlots.put(interfaceMethod, slot.getValue());
+            final String owner = interfaceSlotOwner(interfaceMethod);
+            if (owner != null && !implemented.contains(owner)) {
+                continue;
+            }
             LLVMValueRef implementation = findInterfaceImplementation(layout.internalName, interfaceMethod);
             entries[slot.getValue()] = implementation != null && !implementation.isNull()
                     ? implementation
                     : LLVMConstNull(ptrType);
+            length = slot.getValue() + 1;
         }
+        entries = java.util.Arrays.copyOf(entries, length);
 
         String itableName = "_ZNabu" + typeSymbol(layout.internalName) + "Eitable";
         LLVMTypeRef itableType = LLVMArrayType(ptrType, entries.length);
@@ -1736,21 +1768,27 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         globalValueMap.put("@" + itableName, itableGlobal);
     }
 
-/** Of deze interface de gegeven interface-methode zelf declareert (of erft). */
-    private boolean declaresInterfaceMethod(String internalName, String interfaceMethod) {
-        final String method = methodTail(interfaceMethod);
-        String current = internalName;
-        while (current != null) {
-            IRModule module = modulesByInternalName.get(current);
-            if (module == null) return false;
-            for (IRFunction fn : module.functions()) {
-                if (fn.name != null && !fn.isConstructor() && methodTail(fn.name).equals(method)) {
-                    return true;
-                }
+    private final Set<String> runtimeSymbols = RuntimeSymbols.load();
+
+    /** Slot key -> internal name of the interface its call names, or null if unknown. */
+    private final Map<String, java.util.Optional<String>> interfaceSlotOwners = new HashMap<>();
+
+    private String interfaceSlotOwner(final String interfaceMethod) {
+        return interfaceSlotOwners.computeIfAbsent(interfaceMethod, key -> {
+            final InterfaceSlotSig sig = interfaceSlotSigs.get(key);
+            return java.util.Optional.ofNullable(sig != null ? ownerInternalName(sig.function()) : null);
+        }).orElse(null);
+    }
+
+    /** The interfaces a class implements, also through its superclasses and superinterfaces. */
+    private Set<String> implementedInterfacesWithSupers(final String internalName) {
+        final Set<String> out = new HashSet<>();
+        for (String c = internalName; c != null; c = superInternalName(c)) {
+            for (final String itf : implementedInterfaceNames(modulesByInternalName.get(c))) {
+                out.add(normalizeInternalName(itf));
             }
-            current = superInternalName(current);
         }
-        return false;
+        return out;
     }
 
 /**

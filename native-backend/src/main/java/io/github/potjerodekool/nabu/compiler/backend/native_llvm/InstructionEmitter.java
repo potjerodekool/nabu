@@ -42,6 +42,8 @@ public class InstructionEmitter {
     private final TypeMapper types;
     private final ConstantResolver constants;
     private final Map<String, LLVMValueRef>   globalValueMap;
+    /** Name -> global found by the suffix scan in {@link #resolveValue}. */
+    private final Map<String, LLVMValueRef>   suffixMatches = new HashMap<>();
     private final Map<String, LLVMBasicBlockRef> blockMap;
     private final CompileOptions opts;
     private final ClassLayouts classLayouts;
@@ -2276,16 +2278,25 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     }
                 }
                 if (v == null) {
+                    // A fully qualified name (`java.lang.System_out`), also
+                    // the key declareOutsideStaticField registers.
+                    v = globalValueMap.get("@" + n.name());
+                }
+                if (v == null) {
+                    v = suffixMatches.get(n.name());
+                }
+                if (v == null) {
                     // Legacy owner-in-name-codeing (wat het ASM-backend via
                     // resolveOwnerForNamed oplost): een `Named` zonder
                     // owner-fundamental. Zoek de global waarvan de key op
-                    // `<owner>_<name>` (of `<name>` zelf) eindigt.
+                    // `<owner>_<name>` (of `<name>` zelf) eindigt. A linear
+                    // scan of every global, so the hit is remembered.
                     for (var entry : globalValueMap.entrySet()) {
                         if (entry.getKey().endsWith("$" + n.name())
                                 || entry.getKey().endsWith("." + n.name())
-                                || entry.getKey().endsWith("_" + n.name())
-                                || entry.getKey().equals("@" + n.name())) {
+                                || entry.getKey().endsWith("_" + n.name())) {
                             v = entry.getValue();
+                            suffixMatches.put(n.name(), v);
                             break;
                         }
                     }

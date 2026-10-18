@@ -66,6 +66,8 @@ public class IRModule {
 
     public void addFunction(IRFunction fn) { functions.add(fn); }
 
+    public void removeFunction(IRFunction fn) { functions.remove(fn); }
+
     public List<IRFunction> functions() {
         return Collections.unmodifiableList(functions);
     }

@@ -4,6 +4,7 @@ import io.github.potjerodekool.nabu.backend.ir.CallKind;
 import io.github.potjerodekool.nabu.backend.ir.IRAnnotation;
 import io.github.potjerodekool.nabu.backend.ir.IRBuilder;
 import io.github.potjerodekool.nabu.backend.ir.IRField;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
@@ -194,7 +195,84 @@ public final class BytecodeReachabilityCompiler {
             substituteVarHandleCas(classNode, "casPair", "pair",
                     "Ljava/util/concurrent/atomic/AtomicMarkableReference$Pair;");
         }
+        if ("java/util/concurrent/ThreadLocalRandom".equals(classNode.name)) {
+            // With -Djava.util.secureRandomSeed=true the seed comes from
+            // SecureRandom.getSeed, which drags in the whole security-provider
+            // framework (providers, PKCS7/X.509, URLs, jar verification). Not
+            // set by default; the seed then comes from the clock, as here.
+            for (final MethodNode m : classNode.methods) {
+                for (final var insn : m.instructions.toArray()) {
+                    if (insn instanceof org.objectweb.asm.tree.MethodInsnNode call
+                            && "java/security/SecureRandom".equals(call.owner)
+                            && "getSeed".equals(call.name) && "(I)[B".equals(call.desc)) {
+                        m.instructions.set(insn,
+                                new org.objectweb.asm.tree.IntInsnNode(Opcodes.NEWARRAY, Opcodes.T_BYTE));
+                    }
+                }
+            }
+        }
+        final Set<String> noOp = NO_OP.get(classNode.name);
+        if (noOp != null) {
+            for (final MethodNode m : classNode.methods) {
+                if (noOp.contains(m.name) && m.desc.endsWith(")V")
+                        && (m.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0) {
+                    replaceBody(m, insns -> insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN)));
+                }
+            }
+        }
+        final Set<String> unsupported = UNSUPPORTED.get(classNode.name);
+        if (unsupported != null) {
+            for (final MethodNode m : classNode.methods) {
+                final boolean hasBody = (m.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0;
+                final boolean all = unsupported.contains("*") && !m.name.startsWith("<");
+                if (hasBody && (all || unsupported.contains(m.name))) {
+                    replaceBody(m, insns -> throwUnsupported(insns, classNode.name + "." + m.name));
+                }
+            }
+        }
         return classNode;
+    }
+
+    /**
+     * Methods that cannot work in a native program, per class ({@code *}: all
+     * methods except constructors and initializers). Method handles and
+     * var handles are invoked signature-polymorphically and compiled to
+     * bytecode at run time; there is no class loader to load that bytecode.
+     * Their body throws {@link UnsupportedOperationException}, which keeps the
+     * code they would reach (the method-handle compiler, the class-file API)
+     * out of the closure. Like on the JVM, the exception only surfaces where
+     * the program actually uses them; classes compiled from bytecode
+     * initialize lazily.
+     */
+    private static final Map<String, Set<String>> UNSUPPORTED = Map.ofEntries(
+            Map.entry("java/lang/invoke/MethodHandles", Set.of("*")),
+            Map.entry("java/lang/invoke/MethodHandles$Lookup", Set.of("*")),
+            Map.entry("java/lang/invoke/VarHandles", Set.of("*")),
+            Map.entry("java/lang/invoke/LambdaForm", Set.of("compileToBytecode")),
+            Map.entry("java/lang/invoke/ClassSpecializer$Factory", Set.of("*")),
+            Map.entry("java/lang/invoke/InvokerBytecodeGenerator", Set.of("*")),
+            Map.entry("java/lang/classfile/ClassFile", Set.of("*")),
+            // Serialization reads and writes the fields of arbitrary classes
+            // reflectively; the reflection metadata only covers configured
+            // classes, and there is no Unsafe allocation.
+            Map.entry("java/io/ObjectInputStream", Set.of("*")),
+            Map.entry("java/io/ObjectOutputStream", Set.of("*")),
+            Map.entry("java/io/ObjectStreamClass", Set.of("*")));
+
+    /**
+     * Void methods whose body becomes empty. {@code Tripwire.trip} only
+     * reports (through the platform logger) when a debug property is set.
+     */
+    private static final Map<String, Set<String>> NO_OP = Map.of(
+            "java/util/stream/Tripwire", Set.of("trip"));
+
+    private static void throwUnsupported(final org.objectweb.asm.tree.InsnList insns, final String what) {
+        insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, "java/lang/UnsupportedOperationException"));
+        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.DUP));
+        insns.add(new org.objectweb.asm.tree.LdcInsnNode(what + " is not supported in a native executable"));
+        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESPECIAL,
+                "java/lang/UnsupportedOperationException", "<init>", "(Ljava/lang/String;)V", false));
+        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ATHROW));
     }
 
     /**
@@ -305,8 +383,94 @@ public final class BytecodeReachabilityCompiler {
      */
     private final Map<String, Set<String>> transitiveSubtypes = new HashMap<>();
 
+    /**
+     * Classes whose instances exist at run time: {@code NEW} in lowered
+     * bytecode, a constructor called from source, or a constructor reachable
+     * through reflection. Overrides are only lowered for these (rapid type
+     * analysis); a class that only appears as a type (a field, a cast, a
+     * superclass) keeps its inherited vtable entries.
+     */
+    private final Set<String> instantiated = new HashSet<>();
+
+    /**
+     * Classes that are initialized at run time (JLS 12.4.1): instantiated,
+     * a static field accessed, a static method called, or a subclass
+     * initialized. Only these get their {@code <clinit>} lowered.
+     */
+    private final Set<String> initialized = new HashSet<>();
+
     private final Deque<String> shapeWorklist = new ArrayDeque<>();
     private final Deque<MethodRef> methodWorklist = new ArrayDeque<>();
+    private final Deque<String> initWorklist = new ArrayDeque<>();
+    private final Deque<String> instantiateWorklist = new ArrayDeque<>();
+
+    /**
+     * {@code -Dnabu.reachability.why=<text>}: print, for every lowered method
+     * whose name contains the text, the chain of reasons back to a root.
+     * For finding out why the closure contains a class.
+     */
+    private static final String WHY = System.getProperty("nabu.reachability.why");
+
+    /** Node -> the node that put it on a worklist (only with {@link #WHY}). */
+    private final Map<String, String> why = new HashMap<>();
+
+    /** The node being processed, recorded as the reason for what it queues. */
+    private String context = "root";
+
+    private void queueMethod(final MethodRef ref) {
+        if (WHY != null) {
+            why.putIfAbsent(methodNode(ref.ownerInternalName(), ref.name(), ref.desc()), context);
+        }
+        methodWorklist.add(ref);
+    }
+
+    private void queueInit(final String internalName) {
+        if (WHY != null) {
+            why.putIfAbsent("init " + internalName, context);
+        }
+        initWorklist.add(internalName);
+    }
+
+    private void queueInstantiate(final String internalName) {
+        if (WHY != null) {
+            why.putIfAbsent("new " + internalName, context);
+        }
+        instantiateWorklist.add(internalName);
+    }
+
+    private static String methodNode(final String owner, final String name, final String desc) {
+        return owner + "." + name + (desc != null ? desc : "");
+    }
+
+    private void printWhy() {
+        if (WHY == null) {
+            return;
+        }
+        if (WHY.startsWith("@")) {
+            // "@prefix": the edges that enter the classes under prefix.
+            final String prefix = WHY.substring(1);
+            final Set<String> edges = new java.util.TreeSet<>();
+            for (final var entry : why.entrySet()) {
+                if (entry.getKey().replaceFirst("^(init|new) ", "").startsWith(prefix)
+                        && !entry.getValue().replaceFirst("^(init|new) ", "").startsWith(prefix)) {
+                    edges.add(entry.getValue() + "\n    -> " + entry.getKey());
+                }
+            }
+            edges.forEach(edge -> System.err.println("[BytecodeReachability] enters " + edge));
+            return;
+        }
+        for (final String node : why.keySet()) {
+            if (!node.contains(WHY)) {
+                continue;
+            }
+            final StringBuilder chain = new StringBuilder("[BytecodeReachability] why " + node);
+            final Set<String> seen = new HashSet<>();
+            for (String next = why.get(node); next != null && seen.add(next); next = why.get(next)) {
+                chain.append("\n    <- ").append(next);
+            }
+            System.err.println(chain);
+        }
+    }
 
     private final List<IRModule> resultModules = new ArrayList<>();
 
@@ -345,7 +509,8 @@ public final class BytecodeReachabilityCompiler {
         }
         for (final MethodRef root : RUNTIME_ROOTS) {
             ensureShape(root.ownerInternalName());
-            methodWorklist.add(root);
+            queueInit(root.ownerInternalName());
+            queueMethod(root);
         }
 
         drainWorklists();
@@ -373,6 +538,7 @@ public final class BytecodeReachabilityCompiler {
         System.err.println("[BytecodeReachability] closure done: " + classesShaped
                 + " classes shaped, " + methodsLowered + " methods lowered, "
                 + notFound.size() + " not found/skipped, total " + totalMs + " ms");
+        printWhy();
 
         return resultModules;
     }
@@ -397,6 +563,7 @@ public final class BytecodeReachabilityCompiler {
      */
     private void queueReflectionRoot(final ReflectEntry root) {
         final String internal = root.name().replace('.', '/');
+        context = "reflection config";
         if (alreadyCompiledQualifiedNames.contains(internal.replace('/', '.'))) {
             return;
         }
@@ -410,6 +577,11 @@ public final class BytecodeReachabilityCompiler {
         if (!shapedClasses.contains(internal)) {
             return;
         }
+        queueInit(internal);
+        if (root.allDeclaredConstructors() || root.allPublicConstructors()
+                || root.methods().stream().anyMatch(m -> "<init>".equals(m.name()))) {
+            queueInstantiate(internal);
+        }
         for (final MethodNode methodNode : classNode.methods) {
             final boolean isPublic = (methodNode.access & Opcodes.ACC_PUBLIC) != 0;
             final boolean wanted;
@@ -421,11 +593,11 @@ public final class BytecodeReachabilityCompiler {
                 wanted = root.allDeclaredMethods() || (root.allPublicMethods() && isPublic);
             }
             if (wanted) {
-                methodWorklist.add(new MethodRef(internal, methodNode.name, methodNode.desc, false));
+                queueMethod(new MethodRef(internal, methodNode.name, methodNode.desc, false));
             }
         }
         for (final var method : root.methods()) {
-            methodWorklist.add(new MethodRef(internal, method.name(), null, false));
+            queueMethod(new MethodRef(internal, method.name(), null, false));
         }
     }
 
@@ -458,6 +630,7 @@ public final class BytecodeReachabilityCompiler {
      */
     private boolean queueSourceCalls(final Map<String, Boolean> sourceCalls) {
         boolean queued = false;
+        context = "source";
         // De source-frontend schrijft de eigenaar van een constructor-aanroep
         // met underscores (`java_util_LinkedHashSet_init`) en die van een
         // methode-aanroep met punten; daarom op de underscore-vorm matchen.
@@ -483,7 +656,13 @@ public final class BytecodeReachabilityCompiler {
                     name = "<clinit>";
                 }
                 if (sourceQueued.add(owner + "#" + name)) {
-                    methodWorklist.add(new MethodRef(owner, name, null, entry.getValue()));
+                    queueMethod(new MethodRef(owner, name, null, entry.getValue()));
+                    // Source can also read the class's static fields, which
+                    // this scan does not see; initialize it on any call.
+                    queueInit(owner);
+                    if ("<init>".equals(name)) {
+                        queueInstantiate(owner);
+                    }
                     queued = true;
                 }
             }
@@ -501,6 +680,7 @@ public final class BytecodeReachabilityCompiler {
      */
     private boolean queueReflectiveInstantiations() {
         boolean queued = false;
+        context = "reflective instantiation";
         for (final var entry : REFLECTIVE_INSTANTIATIONS.entrySet()) {
             if (!shapedClasses.contains(entry.getKey())) {
                 continue;
@@ -511,7 +691,8 @@ public final class BytecodeReachabilityCompiler {
                 }
                 ensureShape(target);
                 if (shapedClasses.contains(target)) {
-                    methodWorklist.add(new MethodRef(target, "<init>", "()V", false));
+                    queueMethod(new MethodRef(target, "<init>", "()V", false));
+                    queueInstantiate(target);
                     queued = true;
                 }
             }
@@ -552,18 +733,79 @@ public final class BytecodeReachabilityCompiler {
             return null;
         }
         ensureShape(internal);
-        return shapedClasses.contains(internal) ? internal : null;
+        if (!shapedClasses.contains(internal)) {
+            return null;
+        }
+        queueInit(internal);
+        return internal;
     }
 
     private void drainWorklists() {
-        while (!methodWorklist.isEmpty() || !shapeWorklist.isEmpty()) {
+        while (!methodWorklist.isEmpty() || !shapeWorklist.isEmpty()
+                || !initWorklist.isEmpty() || !instantiateWorklist.isEmpty()) {
             while (!methodWorklist.isEmpty()) {
                 processMethodRef(methodWorklist.poll());
             }
             while (!shapeWorklist.isEmpty()) {
                 ensureShape(shapeWorklist.poll());
             }
+            while (!instantiateWorklist.isEmpty()) {
+                markInstantiated(instantiateWorklist.poll());
+            }
+            while (!initWorklist.isEmpty()) {
+                markInitialized(initWorklist.poll());
+            }
         }
+    }
+
+    /** An instance of the class exists: lower its overrides of the signatures already called on its ancestors. */
+    private void markInstantiated(final String internalName) {
+        ensureShape(internalName);
+        if (!shapedClasses.contains(internalName) || !instantiated.add(internalName)) {
+            return;
+        }
+        context = "new " + internalName;
+        queueInit(internalName);
+        final ClassNode classNode = loadedClassNodes.get(internalName);
+        if (classNode == null) {
+            // A Nabu-source class: its own overrides are compiled from source.
+            return;
+        }
+        // Direction (a): the class can declare overrides of signatures that
+        // were already registered against an ancestor, also over several
+        // hops (an interface call on java.util.List while this class is
+        // ArrayList, with AbstractList/AbstractCollection in between). The
+        // class itself counts too: calls on it so far only lowered
+        // declarations (see dispatchOnly).
+        final Set<String> selfAndAncestors = transitiveAncestors(classNode);
+        selfAndAncestors.add(internalName);
+        for (final String ancestor : selfAndAncestors) {
+            final Set<String> sigs = virtualSignatures.get(ancestor);
+            if (sigs == null) {
+                continue;
+            }
+            for (final String sig : sigs) {
+                queueOverrideIfDeclared(internalName, classNode, sig);
+            }
+        }
+    }
+
+    /** The class is initialized: lower its {@code <clinit>}, after its superclass's (JLS 12.4.2). */
+    private void markInitialized(final String internalName) {
+        ensureShape(internalName);
+        if (!shapedClasses.contains(internalName) || !initialized.add(internalName)) {
+            return;
+        }
+        context = "init " + internalName;
+        final ClassNode classNode = loadedClassNodes.get(internalName);
+        final IRBuilder builder = shapeBuilders.get(internalName);
+        if (classNode == null || builder == null) {
+            return;
+        }
+        if (classNode.superName != null) {
+            queueInit(classNode.superName);
+        }
+        lowerClinitIfPresent(builder, internalName.replace('/', '.'), classNode);
     }
 
     /**
@@ -643,27 +885,13 @@ public final class BytecodeReachabilityCompiler {
             }
         }
 
-        // Richting (a): deze klasse kan overrides declareren van signatures
-        // die al tegen een voorouder geregistreerd zijn, ook via meerdere
-        // hops (bv. een interface-aanroep tegen java.util.List terwijl deze
-        // klasse ArrayList is, met AbstractList/AbstractCollection ertussen).
         for (final String ancestor : transitiveAncestors(classNode)) {
             transitiveSubtypes.computeIfAbsent(ancestor, k -> new HashSet<>()).add(internalName);
-            final Set<String> sigs = virtualSignatures.get(ancestor);
-            if (sigs == null) {
-                continue;
-            }
-            for (final String sig : sigs) {
-                queueOverrideIfDeclared(internalName, classNode, sig);
-            }
         }
 
-        lowerClinitIfPresent(builder, qualifiedName, classNode);
-
-        // Richting (b): als deze klasse op haar beurt weer ancestor is van
-        // al eerder bereikte subtypes (via directSubtypes), hoeft hier niets
-        // extra te gebeuren - dat gebeurt bij het REGISTREREN van een
-        // virtuele signature (zie processMethodRef), niet bij shape-aanmaak.
+        // Overrides (direction (a)) follow in markInstantiated, the
+        // <clinit> in markInitialized: a class that is only shaped (a
+        // field type, a cast, a superclass) needs neither.
     }
 
     /**
@@ -737,7 +965,7 @@ public final class BytecodeReachabilityCompiler {
             for (final MethodNode m : node.methods) {
                 if (m.name.equals(name) && m.desc.equals(desc)) {
                     if (node == classNode || (m.access & org.objectweb.asm.Opcodes.ACC_ABSTRACT) == 0) {
-                        methodWorklist.add(new MethodRef(internalName, name, desc, true));
+                        queueMethod(new MethodRef(internalName, name, desc, true));
                     }
                     return;
                 }
@@ -755,7 +983,7 @@ public final class BytecodeReachabilityCompiler {
             for (final MethodNode m : classNode.methods) {
                 if ("values".equals(m.name) && valuesDesc.equals(m.desc)
                         && (m.access & org.objectweb.asm.Opcodes.ACC_STATIC) != 0) {
-                    methodWorklist.add(new MethodRef(classNode.name, m.name, m.desc, false));
+                    queueMethod(new MethodRef(classNode.name, m.name, m.desc, false));
                 }
             }
         }
@@ -873,9 +1101,29 @@ public final class BytecodeReachabilityCompiler {
             final MethodNode bridgeTarget = returnOnlyBridgeTarget(declaringNode, match);
             final MethodNode m = bridgeTarget != null ? bridgeTarget : match;
             final String key = declaringInternal + "#" + m.name + "#" + m.desc;
-            if (loweredMethods.add(key)) {
-                lowerOne(declaringBuilder, declaringInternal.replace('/', '.'), declaringNode, m);
-                methodsLowered++;
+            if (WHY != null) {
+                final String node = methodNode(declaringInternal, m.name, m.desc);
+                final String refNode = methodNode(ref.ownerInternalName(), ref.name(), ref.desc());
+                if (!node.equals(refNode)) {
+                    why.putIfAbsent(node, refNode);
+                }
+                context = node;
+            }
+            if (!loweredMethods.contains(key)) {
+                if (dispatchOnly(ref, declaringNode, m)) {
+                    if (!declarationStubs.containsKey(key)) {
+                        declarationStubs.put(key, lowerDeclaration(declaringBuilder,
+                                declaringInternal.replace('/', '.'), declaringNode, m));
+                    }
+                } else {
+                    final IRFunction stub = declarationStubs.remove(key);
+                    if (stub != null) {
+                        declaringBuilder.build().removeFunction(stub);
+                    }
+                    loweredMethods.add(key);
+                    lowerOne(declaringBuilder, declaringInternal.replace('/', '.'), declaringNode, m);
+                    methodsLowered++;
+                }
             }
 
             if (ref.virtual()) {
@@ -888,6 +1136,37 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+    }
+
+    /** key ("owner#name#desc") -> the body-less declaration lowered by {@link #lowerDeclaration}. */
+    private final Map<String, IRFunction> declarationStubs = new HashMap<>();
+
+    /**
+     * Whether a virtual call only needs the method's vtable slot, not its
+     * body: the receiver's static type is a class without instances, so the
+     * call always dispatches to a subclass. An instantiated subclass that
+     * inherits this implementation lowers it later (see
+     * {@link #markInstantiated}, {@link #propagateToKnownSubtypes}).
+     * Interface methods (default methods of lambda objects, which are not
+     * tracked as instantiated), private and final methods are always lowered.
+     */
+    private boolean dispatchOnly(final MethodRef ref, final ClassNode declaringNode, final MethodNode method) {
+        return ref.virtual()
+                && !instantiated.contains(ref.ownerInternalName())
+                && (declaringNode.access & Opcodes.ACC_INTERFACE) == 0
+                && (method.access & (Opcodes.ACC_PRIVATE | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC
+                        | Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0
+                && !method.name.startsWith("<");
+    }
+
+    /** Lowers {@code method} as an abstract declaration: it gets its vtable slot, its body is not reached. */
+    private IRFunction lowerDeclaration(final IRBuilder builder, final String qualifiedName,
+                                        final ClassNode classNode, final MethodNode method) {
+        final MethodNode declaration = new MethodNode(method.access | Opcodes.ACC_ABSTRACT,
+                method.name, method.desc, method.signature, null);
+        lowerOne(builder, qualifiedName, classNode, declaration);
+        final List<IRFunction> functions = builder.build().functions();
+        return functions.get(functions.size() - 1);
     }
 
     /**
@@ -915,6 +1194,9 @@ public final class BytecodeReachabilityCompiler {
     /** Richting (b) uit de klassejavadoc: al bereikte subtypes van {@code ancestor} herchecken voor een nieuwe signature. */
     private void propagateToKnownSubtypes(final String ancestor, final String nameAndDesc) {
         for (final String subtype : transitiveSubtypes.getOrDefault(ancestor, Set.of())) {
+            if (!instantiated.contains(subtype)) {
+                continue;
+            }
             final ClassNode subtypeNode = loadedClassNodes.get(subtype);
             if (subtypeNode != null) {
                 queueOverrideIfDeclared(subtype, subtypeNode, nameAndDesc);
@@ -1006,7 +1288,27 @@ public final class BytecodeReachabilityCompiler {
             shapeWorklist.add(typeRef);
         }
         for (final MethodRef methodRef : methodRefs) {
-            methodWorklist.add(methodRef);
+            queueMethod(methodRef);
+        }
+        queueActiveUses(methodNode);
+    }
+
+    /** Instantiations and initializations (JLS 12.4.1) in a lowered method. */
+    private void queueActiveUses(final MethodNode methodNode) {
+        for (final var insn : methodNode.instructions) {
+            switch (insn.getOpcode()) {
+                case Opcodes.NEW -> queueInstantiate(((org.objectweb.asm.tree.TypeInsnNode) insn).desc);
+                case Opcodes.GETSTATIC, Opcodes.PUTSTATIC ->
+                        queueInit(((org.objectweb.asm.tree.FieldInsnNode) insn).owner);
+                case Opcodes.INVOKESTATIC -> {
+                    final String owner = ((org.objectweb.asm.tree.MethodInsnNode) insn).owner;
+                    if (!owner.startsWith("[")) {
+                        queueInit(owner);
+                    }
+                }
+                default -> {
+                }
+            }
         }
     }
 }

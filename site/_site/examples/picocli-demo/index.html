@@ -61,7 +61,7 @@
     <tr>
       <td><strong>llvm</strong></td>
       <td>Nabu’s <a href="/backends/llvm/">LLVM backend</a>, with picocli compiled from the bytecode in its jar</td>
-      <td>a native <code class="language-plaintext highlighter-rouge">greet.GreetCommand.exe</code> (45 MB)</td>
+      <td>a native <code class="language-plaintext highlighter-rouge">greet.GreetCommand.exe</code> (15 MB)</td>
     </tr>
     <tr>
       <td><strong>jvm</strong></td>
@@ -317,7 +317,7 @@ Usage: greet [-hV] [-c=&lt;count&gt;] [-n=&lt;name&gt;]
 </span><span class="o">.</span><span class="nx">\target\classes\greet.GreetCommand.exe</span><span class="w"> </span><span class="nt">--help</span><span class="w">
 </span></code></pre></div></div>
 
-<p>The build takes about six minutes on the verification machine. Nabu compiles about 3,500 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 190 MB <code class="language-plaintext highlighter-rouge">.ll</code> file next to the executable.</p>
+<p>The build takes about one and a half minutes on the verification machine. Nabu compiles about 2,600 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 110 MB <code class="language-plaintext highlighter-rouge">.ll</code> file next to the executable.</p>
 
 <h2 id="checking-that-all-three-agree">Checking that all three agree</h2>
 

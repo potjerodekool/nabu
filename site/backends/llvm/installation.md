@@ -199,7 +199,7 @@ run `mvn package`. The build writes `Hello.ll` (LLVM IR), `Hello.o` and `Hello.e
 Some things to expect:
 
 - **The JDK is compiled from bytecode.** The backend follows every call from your code and compiles the JDK methods it reaches, and the same goes for libraries on the classpath. You do not configure anything for this.
-- **The first build is slow.** For this one-line program the backend compiles about 3,200 JDK classes (21,600 methods), and LLVM then optimizes all of it. On the verification machine that took about 7 minutes and produced a 36 MB executable.
+- **The build takes a while.** Even for a small program the backend compiles about 2,300 JDK classes (15,700 methods), and LLVM then optimizes all of it. On the verification machine a small program (the integration-test programs) takes about a minute and produces a 13 MB executable.
 - **The build prints many warnings**, for example about static fields of classes outside the compiled closure. They are informational. Functions that could not be compiled at all are listed in `<name>.unresolved.txt` next to the executable; the program only fails if it actually calls one of them.
 - The executable is named after the **first** compiled class, which is not necessarily the class with `main`.
 

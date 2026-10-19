@@ -17,6 +17,16 @@ public final class ReflectionRegistry {
         }
     }
 
+    /** Registers {@code entry} unless its class already has one. */
+    public void registerIfAbsent(final GraalVMNativeImageConfig.ReflectEntry entry) {
+        entriesByInternalName.putIfAbsent(internalName(entry.name()), entry);
+    }
+
+    /** Registers {@code entry} in place of the class's current one. */
+    public void replace(final GraalVMNativeImageConfig.ReflectEntry entry) {
+        entriesByInternalName.put(internalName(entry.name()), entry);
+    }
+
     public GraalVMNativeImageConfig.ReflectEntry entryFor(final String internalName) {
         return entriesByInternalName.get(internalName(internalName));
     }

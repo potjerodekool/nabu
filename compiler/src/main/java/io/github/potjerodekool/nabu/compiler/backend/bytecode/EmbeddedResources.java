@@ -54,7 +54,7 @@ final class EmbeddedResources {
     /** Keeps each constant well below the class-file limit of 65535 UTF-8 bytes; a Latin-1 char takes up to 2. */
     private static final int CHUNK = 16_000;
 
-    private static final String DATA_DESC = "(Ljava/lang/String;)[B";
+    private static final String DATA_DESC = "(Ljava/lang/String;I)[B";
 
     private EmbeddedResources() {
     }
@@ -81,54 +81,72 @@ final class EmbeddedResources {
     }
 
     /**
-     * {@code public static byte[] data(String name)}.
+     * {@code public static byte[] data(String name, int index)}: the
+     * contents of the index-th occurrence of a resource (a path can occur in
+     * several class-path roots), or null.
      *
-     * @param applicationResources resource path → contents, from the
-     *                             resource configuration.
+     * @param applicationResources resource path → contents per occurrence,
+     *                             from the resource configuration.
      */
-    static ClassNode build(final Map<String, byte[]> applicationResources) {
+    static ClassNode build(final Map<String, List<byte[]>> applicationResources) {
         final ClassNode node = new ClassNode();
         node.version = Opcodes.V17;
         node.access = Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_SUPER;
         node.name = CLASS;
         node.superName = "java/lang/Object";
 
-        final Map<String, byte[]> resources = new LinkedHashMap<>(jdkResources());
+        final Map<String, List<byte[]>> resources = new LinkedHashMap<>();
+        jdkResources().forEach((name, bytes) -> resources.put(name, List.of(bytes)));
         applicationResources.forEach(resources::putIfAbsent);
 
         final MethodNode data = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "data", DATA_DESC, null, null);
         final InsnList code = data.instructions;
         for (final var resource : resources.entrySet()) {
-            final LabelNode next = new LabelNode();
+            final LabelNode nextName = new LabelNode();
             code.add(new VarInsnNode(Opcodes.ALOAD, 0));
             code.add(new LdcInsnNode(resource.getKey()));
             code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "equals",
                     "(Ljava/lang/Object;)Z", false));
-            code.add(new JumpInsnNode(Opcodes.IFEQ, next));
-            code.add(new TypeInsnNode(Opcodes.NEW, "java/lang/StringBuilder"));
-            code.add(new InsnNode(Opcodes.DUP));
-            code.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false));
-            final String latin1 = new String(resource.getValue(), java.nio.charset.StandardCharsets.ISO_8859_1);
-            for (int i = 0; i < latin1.length(); i += CHUNK) {
-                code.add(new LdcInsnNode(latin1.substring(i, Math.min(latin1.length(), i + CHUNK))));
-                code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
-                        "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false));
+            code.add(new JumpInsnNode(Opcodes.IFEQ, nextName));
+            final List<byte[]> occurrences = resource.getValue();
+            for (int index = 0; index < occurrences.size(); index++) {
+                final LabelNode nextIndex = new LabelNode();
+                code.add(new VarInsnNode(Opcodes.ILOAD, 1));
+                code.add(new LdcInsnNode(index));
+                code.add(new JumpInsnNode(Opcodes.IF_ICMPNE, nextIndex));
+                pushBytes(code, occurrences.get(index));
+                code.add(new InsnNode(Opcodes.ARETURN));
+                code.add(nextIndex);
             }
-            code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
-                    "()Ljava/lang/String;", false));
-            code.add(new FieldInsnNode(Opcodes.GETSTATIC, "java/nio/charset/StandardCharsets", "ISO_8859_1",
-                    "Ljava/nio/charset/Charset;"));
-            code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "getBytes",
-                    "(Ljava/nio/charset/Charset;)[B", false));
+            code.add(new InsnNode(Opcodes.ACONST_NULL));
             code.add(new InsnNode(Opcodes.ARETURN));
-            code.add(next);
+            code.add(nextName);
         }
         code.add(new InsnNode(Opcodes.ACONST_NULL));
         code.add(new InsnNode(Opcodes.ARETURN));
         data.maxStack = 4;
-        data.maxLocals = 1;
+        data.maxLocals = 2;
         node.methods.add(data);
         return node;
+    }
+
+    /** {@code new StringBuilder().append(chunk)...toString().getBytes(ISO_8859_1)}. */
+    private static void pushBytes(final InsnList code, final byte[] bytes) {
+        code.add(new TypeInsnNode(Opcodes.NEW, "java/lang/StringBuilder"));
+        code.add(new InsnNode(Opcodes.DUP));
+        code.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false));
+        final String latin1 = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+        for (int i = 0; i < latin1.length(); i += CHUNK) {
+            code.add(new LdcInsnNode(latin1.substring(i, Math.min(latin1.length(), i + CHUNK))));
+            code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+                    "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false));
+        }
+        code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
+                "()Ljava/lang/String;", false));
+        code.add(new FieldInsnNode(Opcodes.GETSTATIC, "java/nio/charset/StandardCharsets", "ISO_8859_1",
+                "Ljava/nio/charset/Charset;"));
+        code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "getBytes",
+                "(Ljava/nio/charset/Charset;)[B", false));
     }
 
     private static Map<String, byte[]> jdkResources() {

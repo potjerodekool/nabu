@@ -21,13 +21,4 @@ public final class ProxyClasses {
     public static boolean isProxyClass(final String className) {
         return false;
     }
-
-    /**
-     * Calls the interface (or Object) method {@code key} ("owner#name#descriptor")
-     * on {@code target}, unboxing {@code args} and boxing the result; what
-     * the method throws is wrapped in an InvocationTargetException.
-     */
-    public static Object invoke(final String key, final Object target, final Object[] args) throws Exception {
-        throw new IllegalArgumentException(key);
-    }
 }

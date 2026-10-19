@@ -234,13 +234,16 @@ public class NabuCompiler implements Compiler {
                         jdkHomeOverride
                 );
                 reachabilityCompiler.setApplicationResources(resources.resources());
-                reachabilityCompiler.setProxies(io.github.potjerodekool.nabu.compiler.backend.bytecode.ProxySpecs.resolve(
-                        nativeImageConfigs.stream()
-                                .flatMap(config -> config.proxyEntries().stream())
-                                .map(io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig
-                                        .ProxyEntry::interfaceNames)
-                                .toList(),
-                        compilerContext));
+                reachabilityCompiler.setDynamicAccess(
+                        io.github.potjerodekool.nabu.compiler.backend.bytecode.ProxySpecs.resolve(
+                                nativeImageConfigs.stream()
+                                        .flatMap(config -> config.proxyEntries().stream())
+                                        .map(io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig
+                                                .ProxyEntry::interfaceNames)
+                                        .toList(),
+                                compilerContext),
+                        io.github.potjerodekool.nabu.compiler.backend.bytecode.ReflectionMethods.resolve(
+                                reflectionRoots, compilerContext));
                 final long reachStart = System.nanoTime();
                 // allModules bevat op dit punt alleen de Nabu-source-modules:
                 // de sluiting volgt hun aanroepen.

@@ -21,6 +21,7 @@ public final class RuntimeExceptions {
             "java/lang/ClassNotFoundException",
             "java/lang/InstantiationException",
             "java/lang/NoSuchMethodException",
+            "java/lang/NoSuchFieldException",
             "java/lang/NegativeArraySizeException",
             "java/io/IOException",
             "java/io/FileNotFoundException");

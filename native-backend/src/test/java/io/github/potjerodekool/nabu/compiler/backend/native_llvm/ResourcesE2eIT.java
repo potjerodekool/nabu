@@ -70,6 +70,13 @@ class ResourcesE2eIT {
                         java.net.URL url = Main.class.getResource("messages.txt");
                         System.out.println(url.getProtocol() + " " + url.getPath() + " " + read(url.openStream()));
                         System.out.println(read(ClassLoader.getSystemResourceAsStream("greet/Labels_nl.properties")));
+                        StringBuilder all = new StringBuilder();
+                        java.util.Enumeration<java.net.URL> urls = ClassLoader.getSystemResources("greet/messages.txt");
+                        while (urls.hasMoreElements()) {
+                            java.net.URL u = urls.nextElement();
+                            all.append(u).append('=').append(read(u.openStream())).append(';');
+                        }
+                        System.out.println(all);
                         java.util.Locale.setDefault(java.util.Locale.ROOT);
                         java.util.ResourceBundle nl = java.util.ResourceBundle.getBundle("greet.Labels", java.util.Locale.forLanguageTag("nl"));
                         java.util.ResourceBundle de = java.util.ResourceBundle.getBundle("greet.Labels", java.util.Locale.GERMAN);
@@ -108,11 +115,20 @@ class ResourcesE2eIT {
                 }
                 """);
 
+        // A second occurrence of greet/messages.txt, in a jar on the class path.
+        final Path jar = tempDir.resolve("lib.jar");
+        try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(jar))) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("greet/messages.txt"));
+            zip.write("from the jar\n".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+
         System.setProperty("nabu.runtime",
                 new File(root, "runtime/nabu_runtime.c").toPath().toAbsolutePath().toString());
         final var options = new CompilerOptions.CompilerOptionsBuilder()
                 .option(CompilerOption.SOURCE_PATH, srcDir.toString())
                 .option(CompilerOption.CLASS_OUTPUT, out.toString())
+                .option(CompilerOption.CLASS_PATH, jar.toString())
                 .option(CompilerOption.BACKEND, "LLVM")
                 .option(CompilerOption.GC, "BOEHM")
                 .option(CompilerOption.SYSTEM, new File(root, "compiler/src/test/resources").getAbsolutePath())
@@ -141,6 +157,7 @@ class ResourcesE2eIT {
                 null null
                 resource /greet/messages.txt hello from a resource
                 label=Hoi
+                resource:/greet/messages.txt=hello from a resource;resource://1/greet/messages.txt=from the jar;
                 Hoi Bye nl | Hallo Bye | Hello []
                 missing greet.Missing_
                 """, output, "exit=" + exit);

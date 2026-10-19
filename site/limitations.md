@@ -16,7 +16,7 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 ### Building
 
 - **Reflection, resources and proxies need configuration.** Classes that are only used through reflection, resources and dynamic proxies must be listed in GraalVM configuration files under `META-INF/native-image/` (see [the LLVM backend](/backends/llvm/#reflection-resources-and-proxies)), as with GraalVM `native-image`. Otherwise classes are not compiled, resources are not found, and `Proxy.newProxyInstance` throws.
-- **Method reflection is limited.** Only the methods of proxied interfaces have `Method` objects; `Class.getMethod(s)` finds nothing, and `Method.invoke` works only for those proxy methods. With `allPublicFields`, inherited public fields are not included.
+- **Reflection metadata is partial.** Methods have no annotations, declared exceptions or generic types; constructors other than the no-argument one cannot be called reflectively; static fields are not in the field tables.
 - **Slow builds, large executables.** The whole reachable part of the JDK is compiled and optimized: about 30 seconds and 13 MB for a small program, about 45 seconds and 15 MB for the [picocli example](/examples/picocli-demo/), on an 8-core machine. LLVM's optimization and code generation run in parallel parts, so fewer cores means a slower build.
 - **Incremental builds** have not been tested with the LLVM backend; the examples build with `-Dnabu.incremental=false`.
 - The build prints many warnings (for example about static fields of classes outside the compiled closure). They do not stop the build, and most are harmless, but they make real problems harder to spot.

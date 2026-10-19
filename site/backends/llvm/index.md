@@ -56,7 +56,7 @@ A native executable has no class files or class path at run time. As with GraalV
 
 | File | What it does |
 |---|---|
-| `reflect-config.json` | The listed classes are compiled even when no code calls them, with the constructors and methods the entry names (`allDeclaredConstructors`, `allPublicMethods`, `methods`, …). The backend emits **field and annotation** tables for them: the fields named in `fields`, or all of them with `allDeclaredFields` / `allPublicFields`. That is enough for frameworks that find annotated fields, such as picocli. |
+| `reflect-config.json` | The listed classes are compiled even when no code calls them, with the constructors and methods the entry names (`allDeclaredConstructors`, `allPublicMethods`, `methods`, …). The backend emits **field, method and annotation** metadata for them: the fields named in `fields`, or all of them with `allDeclaredFields` / `allPublicFields` (which includes the public fields of the superclasses), and the registered methods. |
 | `resource-config.json` | The resources whose path matches an include pattern (`pattern` is a regular expression, `glob` a glob) and no exclude pattern are embedded in the executable. A bundle in `bundles` embeds its `.properties` files; its class-based variants are compiled for reflection. |
 | `proxy-config.json` | A proxy class is generated at build time for each interface list. |
 | `reachability-metadata.json` | The newer single file: its `reflection` (including `"type": {"proxy": […]}`), `resources` and `bundles` sections. |
@@ -64,7 +64,8 @@ A native executable has no class files or class path at run time. As with GraalV
 
 At run time:
 
-- **Resources.** `Class.getResource[AsStream]` (relative and absolute names), `ClassLoader.getResource[s|AsStream]` and `ClassLoader.getSystemResource[s|AsStream]` read the embedded resources. A URL has the `resource:` protocol, and its `openStream()` works. `ResourceBundle.getBundle` finds the bundles: a class bundle or else the properties, for each candidate locale, with the JDK's fallback to the default locale.
+- **Fields and methods.** `getDeclaredFields`, `getFields`, `getField` (public, also inherited), `Field.get`/`set` and the typed accessors (`getInt`, `setLong`, …, with the JDK's widening) and `getModifiers` work on the registered fields. `getDeclaredMethods`, `getMethods` (public, also inherited, overrides hidden), `getMethod` and `getDeclaredMethod` return the registered methods, with name, parameter and return types, modifiers and `toString`; `Method.invoke` calls instance (with virtual dispatch), static and private methods and wraps what they throw in an `InvocationTargetException`. A method that is not registered is not found (`NoSuchMethodException`).
+- **Resources.** `Class.getResource[AsStream]` (relative and absolute names), `ClassLoader.getResource[s|AsStream]` and `ClassLoader.getSystemResource[s|AsStream]` read the embedded resources. A URL has the `resource:` protocol, and its `openStream()` works. A path that occurs in several classpath roots is embedded once per root: `getResource` finds the first, `getResources` enumerates all of them in classpath order. `ResourceBundle.getBundle` finds the bundles: a class bundle or else the properties, for each candidate locale, with the JDK's fallback to the default locale.
 - **Proxies.** `Proxy.newProxyInstance` returns an instance of the generated class for that interface list; a list without configuration throws an `IllegalArgumentException`. The handler gets a `Method` with its name, parameter and return types and `toString`. `method.invoke(target, args)` works for the methods of a proxied interface, which covers handlers that delegate to a real object.
 
 ## Output

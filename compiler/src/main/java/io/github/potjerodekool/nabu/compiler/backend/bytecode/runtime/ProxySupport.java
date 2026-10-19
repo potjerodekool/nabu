@@ -12,7 +12,7 @@ import java.util.Map;
  * Calls to {@code Proxy.newProxyInstance}, {@code Proxy.getInvocationHandler},
  * {@code Proxy.isProxyClass} and {@code Method.invoke} are redirected here
  * (see {@code RuntimeCalls}); the generated {@link ProxyClasses} creates the
- * proxies and calls interface methods for {@code Method.invoke}.
+ * proxies, and {@link ReflectionData} calls methods for {@code Method.invoke}.
  *
  * <p>Written for bytecode lowering: no string concatenation with {@code +}
  * and no lambdas.
@@ -25,18 +25,23 @@ public final class ProxySupport {
     }
 
     /** The C runtime's Method for the method {@code name descriptor} of {@code declaring}. */
-    private static native Method method0(Class<?> declaring, String name, String descriptor);
+    private static native Method method0(Class<?> declaring, String name, String descriptor, int modifiers);
 
     /** "owner#name#descriptor" of a Method made by {@link #method0}, else null. */
     private static native String methodKey(Method method);
 
-    /** The Method a proxy passes to its handler: one object per method. */
-    public static Method method(final Class<?> declaring, final String name, final String descriptor) {
+    /**
+     * The Method object of a method: one object per method, so == holds as
+     * for the JVM's root methods. {@code modifiers} are its access flags
+     * (plus a bit for a method declared in an interface).
+     */
+    public static Method method(final Class<?> declaring, final String name, final String descriptor,
+                                final int modifiers) {
         final String key = declaring.getName().concat("#").concat(name).concat("#").concat(descriptor);
         synchronized (METHODS) {
             Method method = METHODS.get(key);
             if (method == null) {
-                method = method0(declaring, name, descriptor);
+                method = method0(declaring, name, descriptor, modifiers);
                 METHODS.put(key, method);
             }
             return method;
@@ -76,9 +81,9 @@ public final class ProxySupport {
     }
 
     /**
-     * {@code Method.invoke}: a method of a proxied interface (as a handler
-     * gets it) is called on the target through the generated dispatcher;
-     * any other Method goes to the C runtime as before.
+     * {@code Method.invoke}: a Method this runtime made (a registered method
+     * or one of a proxied interface) is called through the generated
+     * dispatcher; any other Method goes to the C runtime as before.
      */
     public static Object invoke(final Method method, final Object target, final Object[] args)
             throws IllegalAccessException, InvocationTargetException {
@@ -86,11 +91,11 @@ public final class ProxySupport {
         if (key == null) {
             return method.invoke(target, args);
         }
-        if (target == null) {
+        if (target == null && !java.lang.reflect.Modifier.isStatic(method.getModifiers())) {
             throw new NullPointerException();
         }
         try {
-            return ProxyClasses.invoke(key, target, args == null ? new Object[0] : args);
+            return ReflectionData.invoke(key, target, args == null ? new Object[0] : args);
         } catch (final InvocationTargetException | RuntimeException e) {
             throw e;
         } catch (final Exception e) {

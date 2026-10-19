@@ -10,8 +10,11 @@ public final class Resources {
     private Resources() {
     }
 
-    /** The contents of the resource at {@code name} (no leading slash), or null. */
-    public static byte[] data(final String name) {
+    /**
+     * The contents of the index-th occurrence (class-path order) of the
+     * resource at {@code name} (no leading slash), or null.
+     */
+    public static byte[] data(final String name, final int index) {
         return null;
     }
 }

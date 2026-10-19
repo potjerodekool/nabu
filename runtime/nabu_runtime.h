@@ -332,6 +332,7 @@ typedef struct nabu_field_info {
     const char *name;         /* veldnaam */
     const char *type_desc;    /* JVM-descriptor van het veldtype */
     size_t      offset;       /* offset t.o.v. objectbegin */
+    int32_t     modifiers;    /* JVM-toegangsvlaggen (public 0x1, private 0x2, ...) */
 } nabu_field_info;
 
 typedef struct nabu_annotation_value {

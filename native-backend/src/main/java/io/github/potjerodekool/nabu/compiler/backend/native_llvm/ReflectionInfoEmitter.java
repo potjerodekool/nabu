@@ -93,6 +93,7 @@ public class ReflectionInfoEmitter {
             return;
         }
         declareRegisterFunction();
+        registerSuperclassesForPublicFields(layouts, modules, registry);
 
         int index = 0;
         for (final IRModule module : modules) {
@@ -111,6 +112,36 @@ public class ReflectionInfoEmitter {
             final LLVMValueRef info = emitForClass(internalName, layout, module, entry, index++);
             if (info != null) {
                 ctors.add(emitRegisterFunction(internalName, info));
+            }
+        }
+    }
+
+    /**
+     * {@code allPublicFields} also covers inherited public fields
+     * ({@code Class.getFields}): the superclasses of such a class get
+     * metadata for their public fields too (added to their own entry).
+     */
+    private static void registerSuperclassesForPublicFields(final ClassLayouts layouts,
+                                                            final List<IRModule> modules,
+                                                            final ReflectionRegistry registry) {
+        for (final IRModule module : modules) {
+            final String internalName = ClassLayouts.normalizeInternalName(module.name);
+            final ReflectEntry entry = internalName != null ? registry.entryFor(internalName) : null;
+            if (entry == null || !entry.allPublicFields()) {
+                continue;
+            }
+            for (String c = layouts.superInternalName(internalName); c != null && !"java/lang/Object".equals(c);
+                 c = layouts.superInternalName(c)) {
+                final ReflectEntry existing = registry.entryFor(c);
+                if (existing == null) {
+                    registry.registerIfAbsent(new ReflectEntry(c.replace('/', '.'), false, false, false, false,
+                            List.of(), List.of(), false, true));
+                } else if (!existing.allPublicFields()) {
+                    registry.replace(new ReflectEntry(existing.name(), existing.allDeclaredConstructors(),
+                            existing.allPublicConstructors(), existing.allDeclaredMethods(),
+                            existing.allPublicMethods(), existing.fields(), existing.methods(),
+                            existing.allDeclaredFields(), true));
+                }
             }
         }
     }
@@ -196,7 +227,8 @@ public class ReflectionInfoEmitter {
                     result.add(new FieldData(
                             field.name(),
                             BytecodeHelper.createDescriptor(field.type()),
-                            offsetOfElement(layout, structIndex)));
+                            offsetOfElement(layout, structIndex),
+                            accessFlags(field.flags())));
                 }
             }
             counter++;
@@ -218,11 +250,12 @@ public class ReflectionInfoEmitter {
         final PointerPointer<Pointer> elems = new PointerPointer<>(n);
         for (int i = 0; i < n; i++) {
             final FieldData f = fields.get(i);
-            final PointerPointer<Pointer> fieldInit = new PointerPointer<>(3);
+            final PointerPointer<Pointer> fieldInit = new PointerPointer<>(4);
             fieldInit.put(0, stringLit(f.name));
             fieldInit.put(1, stringLit(f.typeDesc));
             fieldInit.put(2, LLVMConstInt(LLVMInt64TypeInContext(ctx), f.offset, 0));
-            elems.put(i, LLVMConstNamedStruct(fieldInfoType, fieldInit, 3));
+            fieldInit.put(3, LLVMConstInt(LLVMInt32TypeInContext(ctx), f.modifiers, 0));
+            elems.put(i, LLVMConstNamedStruct(fieldInfoType, fieldInit, 4));
             Reference.reachabilityFence(fieldInit);
         }
         final String name = ".refl.fields." + (arrayCounter++);
@@ -480,11 +513,13 @@ public class ReflectionInfoEmitter {
 
     private void fieldInfoType() {
         if (fieldInfoType == null) {
-            final PointerPointer<Pointer> t = new PointerPointer<>(3);
+            // struct nabu_field_info { name, type_desc, offset, modifiers }
+            final PointerPointer<Pointer> t = new PointerPointer<>(4);
             t.put(0, LLVMPointerTypeInContext(ctx, 0));
             t.put(1, LLVMPointerTypeInContext(ctx, 0));
             t.put(2, LLVMInt64TypeInContext(ctx));
-            fieldInfoType = LLVMStructTypeInContext(ctx, t, 3, 0);
+            t.put(3, LLVMInt32TypeInContext(ctx));
+            fieldInfoType = LLVMStructTypeInContext(ctx, t, 4, 0);
             Reference.reachabilityFence(t);
         }
     }
@@ -538,7 +573,22 @@ public class ReflectionInfoEmitter {
     // Datamodellen
     // -------------------------------------------------------
 
-    record FieldData(String name, String typeDesc, long offset) {
+    /** The JVM access flags of a field (Field.getModifiers). */
+    private static int accessFlags(final long flags) {
+        int access = 0;
+        if (Flags.hasFlag(flags, Flags.PUBLIC)) access |= 0x0001;
+        if (Flags.hasFlag(flags, Flags.PRIVATE)) access |= 0x0002;
+        if (Flags.hasFlag(flags, Flags.PROTECTED)) access |= 0x0004;
+        if (Flags.hasFlag(flags, Flags.STATIC)) access |= 0x0008;
+        if (Flags.hasFlag(flags, Flags.FINAL)) access |= 0x0010;
+        if (Flags.hasFlag(flags, Flags.VOLATILE)) access |= 0x0040;
+        if (Flags.hasFlag(flags, Flags.TRANSIENT)) access |= 0x0080;
+        if (Flags.hasFlag(flags, Flags.SYNTHETIC)) access |= 0x1000;
+        if (Flags.hasFlag(flags, Flags.ENUM)) access |= 0x4000;
+        return access;
+    }
+
+    record FieldData(String name, String typeDesc, long offset, int modifiers) {
     }
 
     record AnnotationData(String typeName, String owner, List<ValueData> values) {

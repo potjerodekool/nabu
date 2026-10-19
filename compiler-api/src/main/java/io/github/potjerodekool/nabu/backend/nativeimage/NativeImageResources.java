@@ -26,16 +26,17 @@ import java.util.stream.Stream;
  * variants ({@code a.b.Messages_nl}) are instantiated reflectively and are
  * returned as {@link #bundleClasses()}.
  *
- * <p>With the same path in several roots, the first root wins (class-path
- * order).
+ * <p>With the same path in several roots, each one is kept, in class-path
+ * order: the first is what {@code getResource} finds, all of them are what
+ * {@code getResources} enumerates (as with a class loader).
  */
 public final class NativeImageResources {
 
-    private final Map<String, byte[]> resources;
+    private final Map<String, List<byte[]>> resources;
     private final List<String> bundleClasses;
     private final List<String> bundleNames;
 
-    private NativeImageResources(final Map<String, byte[]> resources, final List<String> bundleClasses,
+    private NativeImageResources(final Map<String, List<byte[]>> resources, final List<String> bundleClasses,
                                  final List<String> bundleNames) {
         this.resources = resources;
         this.bundleClasses = bundleClasses;
@@ -57,8 +58,8 @@ public final class NativeImageResources {
         return false;
     }
 
-    /** Resource path (no leading slash) → contents, sorted by path. */
-    public Map<String, byte[]> resources() {
+    /** Resource path (no leading slash) → the contents of each occurrence (class-path order), sorted by path. */
+    public Map<String, List<byte[]>> resources() {
         return resources;
     }
 
@@ -92,7 +93,7 @@ public final class NativeImageResources {
             }
         }
 
-        final Map<String, byte[]> resources = new TreeMap<>();
+        final Map<String, List<byte[]>> resources = new TreeMap<>();
         final Set<String> bundleClasses = new LinkedHashSet<>();
         if (includes.isEmpty()) {
             return new NativeImageResources(resources, List.of(), List.of());
@@ -105,13 +106,12 @@ public final class NativeImageResources {
                 if (bundleClassPatterns.stream().anyMatch(p -> p.matcher(name).matches())) {
                     bundleClasses.add(name.substring(0, name.length() - ".class".length()).replace('/', '.'));
                 }
-                if (resources.containsKey(name)
-                        || includes.stream().noneMatch(p -> p.matcher(name).matches())
+                if (includes.stream().noneMatch(p -> p.matcher(name).matches())
                         || excludes.stream().anyMatch(p -> p.matcher(name).matches())) {
                     return;
                 }
                 try {
-                    resources.put(name, Files.readAllBytes(file));
+                    resources.computeIfAbsent(name, k -> new ArrayList<>()).add(Files.readAllBytes(file));
                 } catch (final IOException e) {
                     throw new UncheckedIOException(e);
                 }

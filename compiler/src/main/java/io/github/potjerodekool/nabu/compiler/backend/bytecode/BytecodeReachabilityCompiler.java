@@ -501,18 +501,28 @@ public final class BytecodeReachabilityCompiler {
     }
 
     /** Resource path → contents of the application resources to embed (see {@link EmbeddedResources}). */
-    private Map<String, byte[]> applicationResources = Map.of();
+    private Map<String, List<byte[]>> applicationResources = Map.of();
 
-    public void setApplicationResources(final Map<String, byte[]> applicationResources) {
+    public void setApplicationResources(final Map<String, List<byte[]>> applicationResources) {
         this.applicationResources = applicationResources;
     }
 
-    /** Classes generated for this program (the dynamic proxies), by internal name. */
-    private Map<String, ClassNode> generatedClasses = ProxyClassGenerator.generate(List.of());
+    /** Classes generated for this program (dynamic proxies, reflection data), by internal name. */
+    private Map<String, ClassNode> generatedClasses = generateClasses(List.of(), Map.of());
 
-    /** The dynamic proxy classes to generate, from the proxy configuration. */
-    public void setProxies(final List<ProxyClassGenerator.ProxySpec> proxies) {
-        this.generatedClasses = ProxyClassGenerator.generate(proxies);
+    /** The proxy classes to generate (proxy configuration) and the methods reflection knows (reflection configuration). */
+    public void setDynamicAccess(final List<ProxyClassGenerator.ProxySpec> proxies,
+                                 final Map<String, ReflectionDataGenerator.ClassMethods> reflectionMethods) {
+        this.generatedClasses = generateClasses(proxies, reflectionMethods);
+    }
+
+    private static Map<String, ClassNode> generateClasses(
+            final List<ProxyClassGenerator.ProxySpec> proxies,
+            final Map<String, ReflectionDataGenerator.ClassMethods> reflectionMethods) {
+        final Map<String, ClassNode> classes = new java.util.LinkedHashMap<>(ProxyClassGenerator.generate(proxies));
+        classes.put(ReflectionDataGenerator.REFLECTION_DATA, ReflectionDataGenerator.generate(reflectionMethods,
+                ProxyClassGenerator.dispatchedMethods(proxies)));
+        return classes;
     }
 
     public BytecodeReachabilityCompiler(final FileManager fileManager,
@@ -544,7 +554,8 @@ public final class BytecodeReachabilityCompiler {
         // methods are reached through interface calls, also on source
         // interfaces, which the closure does not follow.
         for (final String generated : generatedClasses.keySet()) {
-            if (!ProxyClassGenerator.PROXY_CLASSES.equals(generated)) {
+            if (!ProxyClassGenerator.PROXY_CLASSES.equals(generated)
+                    && !ReflectionDataGenerator.REFLECTION_DATA.equals(generated)) {
                 queueReflectionRoot(new ReflectEntry(generated, true, true, true, true, List.of(), List.of()));
             }
         }

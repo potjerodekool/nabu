@@ -18,7 +18,9 @@ import java.util.List;
  * Redirects calls to VM-bound JDK methods to static helpers in the runtime
  * package, in JDK and library bytecode and in the IR of source classes
  * alike: resource lookups to {@code ResourceSupport}, dynamic proxies and
- * {@code Method.invoke} to {@code ProxySupport}. Class, ClassLoader, Module,
+ * {@code Method.invoke} to {@code ProxySupport}, method lookups
+ * ({@code Class.getMethod(s)}, {@code getDeclaredMethod(s)}) to
+ * {@code ReflectSupport}. Class, ClassLoader, Module,
  * Proxy and Method are modelled by the C runtime, so their own methods
  * cannot run; a helper takes the receiver of an instance method as its first
  * argument instead.
@@ -34,6 +36,8 @@ final class RuntimeCalls {
     static final String RESOURCE_SUPPORT = RUNTIME_PACKAGE + "ResourceSupport";
 
     static final String PROXY_SUPPORT = RUNTIME_PACKAGE + "ProxySupport";
+
+    static final String REFLECT_SUPPORT = RUNTIME_PACKAGE + "ReflectSupport";
 
     private record Redirect(String owner, String name, String desc, boolean isStatic,
                             String targetClass, String target) {
@@ -71,7 +75,17 @@ final class RuntimeCalls {
             new Redirect("java/lang/reflect/Proxy", "isProxyClass",
                     "(Ljava/lang/Class;)Z", true, PROXY_SUPPORT, "isProxyClass"),
             new Redirect("java/lang/reflect/Method", "invoke",
-                    "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", false, PROXY_SUPPORT, "invoke"));
+                    "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;", false, PROXY_SUPPORT, "invoke"),
+            new Redirect("java/lang/Class", "getMethods",
+                    "()[Ljava/lang/reflect/Method;", false, REFLECT_SUPPORT, "getMethods"),
+            new Redirect("java/lang/Class", "getDeclaredMethods",
+                    "()[Ljava/lang/reflect/Method;", false, REFLECT_SUPPORT, "getDeclaredMethods"),
+            new Redirect("java/lang/Class", "getMethod",
+                    "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;", false, REFLECT_SUPPORT,
+                    "getMethod"),
+            new Redirect("java/lang/Class", "getDeclaredMethod",
+                    "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;", false, REFLECT_SUPPORT,
+                    "getDeclaredMethod"));
 
     private RuntimeCalls() {
     }

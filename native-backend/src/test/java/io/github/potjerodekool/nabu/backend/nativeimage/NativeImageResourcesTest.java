@@ -72,7 +72,7 @@ class NativeImageResourcesTest {
     }
 
     @Test
-    void selectsMatchingFilesFirstRootWins() throws Exception {
+    void selectsMatchingFilesInClassPathOrder() throws Exception {
         final Path first = tempDir.resolve("first");
         final Path second = tempDir.resolve("second");
         write(first.resolve("a/one.txt"), "first");
@@ -94,7 +94,9 @@ class NativeImageResourcesTest {
         final var resources = NativeImageResources.collect(List.of(config), List.of(first, second));
 
         assertEquals(List.of("a/one.txt", "m/Messages_nl.properties"), List.copyOf(resources.resources().keySet()));
-        assertEquals("first", new String(resources.resources().get("a/one.txt")));
+        // Both occurrences, in class-path order (getResource finds the first).
+        assertEquals(List.of("first", "second"),
+                resources.resources().get("a/one.txt").stream().map(String::new).toList());
         assertEquals(List.of("m.Messages_de"), resources.bundleClasses());
         assertTrue(resources.isBundleClass("m.Messages"));
         assertTrue(resources.isBundleClass("m.Messages_fr_FR"));

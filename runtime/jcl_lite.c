@@ -1671,13 +1671,45 @@ BIND(void *, jcl_java_lang_Class_getEnumConstants, "java.lang.Class_getEnumConst
 BIND(void *, jcl_java_lang_Class_getEnumConstantsShared, "java.lang.Class_getEnumConstantsShared", (void *self)) {
     return jcl_java_lang_Class_getEnumConstants(self);
 }
+void *jcl_java_lang_Class_getSuperclass(void *self) __asm__("java.lang.Class_getSuperclass");
+
+/* Class.getField: a public field of the class or of a superclass (JLS:
+ * the class first). With reflection metadata generated for allPublicFields,
+ * the superclasses have theirs too. Fields of a superclass without
+ * metadata are not found. */
 BIND(void *, jcl_java_lang_Class_getField, "java.lang.Class_getField", (void *self, void *nm)) {
-    const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(self));
-    if (ri == NULL) return NULL;
-    for (int i = 0; i < ri->field_count; i++) {
-        if (strcmp(ri->fields[i].name, jcl_str(nm)) == 0) return jcl_field_obj(ri->type_name, &ri->fields[i]);
+    const char *name = jcl_str(nm);
+    for (void *c = self; c != NULL; c = jcl_java_lang_Class_getSuperclass(c)) {
+        const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(c));
+        if (ri == NULL) continue;
+        for (int i = 0; i < ri->field_count; i++) {
+            if ((ri->fields[i].modifiers & 0x0001) != 0 && strcmp(ri->fields[i].name, name) == 0) {
+                return jcl_field_obj(ri->type_name, &ri->fields[i]);
+            }
+        }
     }
+    nabu_throw(jcl_throw("java/lang/NoSuchFieldException", "java/lang/ReflectiveOperationException", name));
     return NULL;
+}
+/* Class.getFields: the public fields of the class and its superclasses. */
+BIND(void *, jcl_java_lang_Class_getFields, "java.lang.Class_getFields", (void *self)) {
+    int32_t count = 0;
+    for (void *c = self; c != NULL; c = jcl_java_lang_Class_getSuperclass(c)) {
+        const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(c));
+        if (ri == NULL) continue;
+        for (int i = 0; i < ri->field_count; i++) if ((ri->fields[i].modifiers & 0x0001) != 0) count++;
+    }
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, "[Ljava/lang/reflect/Field;");
+    int32_t k = 0;
+    for (void *c = self; c != NULL; c = jcl_java_lang_Class_getSuperclass(c)) {
+        const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(c));
+        if (ri == NULL) continue;
+        for (int i = 0; i < ri->field_count; i++) {
+            if ((ri->fields[i].modifiers & 0x0001) != 0) jcl_arr_set(arr, k++, jcl_field_obj(ri->type_name, &ri->fields[i]));
+        }
+    }
+    return arr;
 }
 BIND(void *, jcl_java_lang_Class_getMethod, "java.lang.Class_getMethod", (void *self, void *nm, void *pts)) { (void)self; (void)nm; (void)pts; return NULL; }
 BIND(void *, jcl_java_lang_Class_getMethods, "java.lang.Class_getMethods", (void *self)) { (void)self; return jcl_arr_ref(0); }
@@ -1854,7 +1886,10 @@ BIND(void *, jcl_java_lang_reflect_Field_getType, "java.lang.reflect.Field_getTy
     s_field *f = jcl_field_of(self);
     return jcl_class(f != NULL ? jcl_desc_name(f->f->type_desc) : "");
 }
-BIND(int32_t, jcl_java_lang_reflect_Field_getModifiers, "java.lang.reflect.Field_getModifiers", (void *self)) { (void)self; return 0; }
+BIND(int32_t, jcl_java_lang_reflect_Field_getModifiers, "java.lang.reflect.Field_getModifiers", (void *self)) {
+    s_field *f = jcl_field_of(self);
+    return f != NULL ? f->f->modifiers : 0;
+}
 static void * jcl_java_lang_reflect_Field_toGenericString (void *self) {
     s_field *f = jcl_field_of(self);
     if (f == NULL) return (void *)"";
@@ -1887,6 +1922,101 @@ BIND(void *, jcl_java_lang_reflect_Field_get, "java.lang.reflect.Field_get", (vo
     }
     return nabu_reflect_get_ref(obj, cls, nm);
 }
+/* The typed accessors of Field (getInt, setLong, ...), with the widening the
+ * JDK allows (getLong on an int field, getDouble on any number). A field of
+ * a type that does not widen throws IllegalArgumentException. */
+static s_field *jcl_field_access(void *self, void *obj) {
+    s_field *f = jcl_field_of(self);
+    if (f == NULL) return NULL;
+    if (obj == NULL) {
+        nabu_throw(jcl_throw("java/lang/NullPointerException", "java/lang/RuntimeException", f->f->name));
+        return NULL;
+    }
+    return f;
+}
+static void jcl_field_type_mismatch(s_field *f) {
+    nabu_throw(jcl_throw("java/lang/IllegalArgumentException", "java/lang/RuntimeException",
+            jcl_concat("Can not convert the value of field ", f->f->name)));
+}
+/* The value of an integral field (including char and boolean as 0/1); `ok` 0 for another type. */
+static int64_t jcl_field_integral(s_field *f, void *obj, const char *allowed, int *ok) {
+    const char t = f->f->type_desc[0];
+    *ok = strchr(allowed, t) != NULL;
+    if (!*ok) return 0;
+    return t == 'J' ? nabu_reflect_get_i64(obj, f->cls, f->f->name) : nabu_reflect_get_i32(obj, f->cls, f->f->name);
+}
+static double jcl_field_number(s_field *f, void *obj, const char *allowed, int *ok) {
+    const char t = f->f->type_desc[0];
+    *ok = strchr(allowed, t) != NULL;
+    if (!*ok) return 0;
+    switch (t) {
+        case 'D': return nabu_reflect_get_f64(obj, f->cls, f->f->name);
+        case 'F': return nabu_reflect_get_f32(obj, f->cls, f->f->name);
+        case 'J': return (double)nabu_reflect_get_i64(obj, f->cls, f->f->name);
+        default: return nabu_reflect_get_i32(obj, f->cls, f->f->name);
+    }
+}
+#define JCL_FIELD_GET_INTEGRAL(ret, sym, cname, allowed) \
+BIND(ret, cname, sym, (void *self, void *obj)) { \
+    s_field *f = jcl_field_access(self, obj); \
+    if (f == NULL) return 0; \
+    int ok; \
+    int64_t v = jcl_field_integral(f, obj, allowed, &ok); \
+    if (!ok) { jcl_field_type_mismatch(f); return 0; } \
+    return (ret)v; \
+}
+JCL_FIELD_GET_INTEGRAL(int32_t, "java.lang.reflect.Field_getInt", jcl_java_lang_reflect_Field_getInt, "BSCI")
+JCL_FIELD_GET_INTEGRAL(int64_t, "java.lang.reflect.Field_getLong", jcl_java_lang_reflect_Field_getLong, "BSCIJ")
+JCL_FIELD_GET_INTEGRAL(int16_t, "java.lang.reflect.Field_getShort", jcl_java_lang_reflect_Field_getShort, "BS")
+JCL_FIELD_GET_INTEGRAL(int8_t, "java.lang.reflect.Field_getByte", jcl_java_lang_reflect_Field_getByte, "B")
+JCL_FIELD_GET_INTEGRAL(uint16_t, "java.lang.reflect.Field_getChar", jcl_java_lang_reflect_Field_getChar, "C")
+JCL_FIELD_GET_INTEGRAL(int, "java.lang.reflect.Field_getBoolean", jcl_java_lang_reflect_Field_getBoolean, "Z")
+BIND(double, jcl_java_lang_reflect_Field_getDouble, "java.lang.reflect.Field_getDouble", (void *self, void *obj)) {
+    s_field *f = jcl_field_access(self, obj);
+    if (f == NULL) return 0;
+    int ok;
+    double v = jcl_field_number(f, obj, "BSCIJFD", &ok);
+    if (!ok) { jcl_field_type_mismatch(f); return 0; }
+    return v;
+}
+BIND(float, jcl_java_lang_reflect_Field_getFloat, "java.lang.reflect.Field_getFloat", (void *self, void *obj)) {
+    s_field *f = jcl_field_access(self, obj);
+    if (f == NULL) return 0;
+    int ok;
+    double v = jcl_field_number(f, obj, "BSCIJF", &ok);
+    if (!ok) { jcl_field_type_mismatch(f); return 0; }
+    return (float)v;
+}
+/* Stores a value of source kind `from` (a descriptor letter) into a field it widens to. */
+static void jcl_field_store(void *self, void *obj, char from, int64_t i, double d) {
+    s_field *f = jcl_field_access(self, obj);
+    if (f == NULL) return;
+    static const char *const widens_to[] = {
+        "BSIJFD", /* B */ "SIJFD", /* S */ "CIJFD", /* C */ "IJFD", /* I */ "JFD", /* J */ "FD", /* F */ "D", /* D */ "Z"
+    };
+    const char *kinds = "BSCIJFDZ";
+    const char *k = strchr(kinds, from);
+    const char t = f->f->type_desc[0];
+    if (k == NULL || strchr(widens_to[k - kinds], t) == NULL) {
+        jcl_field_type_mismatch(f);
+        return;
+    }
+    const int floating = from == 'F' || from == 'D';
+    switch (t) {
+        case 'J': nabu_reflect_set_i64(obj, f->cls, f->f->name, i); return;
+        case 'D': nabu_reflect_set_f64(obj, f->cls, f->f->name, floating ? d : (double)i); return;
+        case 'F': nabu_reflect_set_f32(obj, f->cls, f->f->name, (float)(floating ? d : (double)i)); return;
+        default: nabu_reflect_set_i32(obj, f->cls, f->f->name, (int)i); return;
+    }
+}
+BIND(void, jcl_java_lang_reflect_Field_setInt, "java.lang.reflect.Field_setInt", (void *self, void *obj, int32_t v)) { jcl_field_store(self, obj, 'I', v, 0); }
+BIND(void, jcl_java_lang_reflect_Field_setLong, "java.lang.reflect.Field_setLong", (void *self, void *obj, int64_t v)) { jcl_field_store(self, obj, 'J', v, 0); }
+BIND(void, jcl_java_lang_reflect_Field_setShort, "java.lang.reflect.Field_setShort", (void *self, void *obj, int16_t v)) { jcl_field_store(self, obj, 'S', v, 0); }
+BIND(void, jcl_java_lang_reflect_Field_setByte, "java.lang.reflect.Field_setByte", (void *self, void *obj, int8_t v)) { jcl_field_store(self, obj, 'B', v, 0); }
+BIND(void, jcl_java_lang_reflect_Field_setChar, "java.lang.reflect.Field_setChar", (void *self, void *obj, uint16_t v)) { jcl_field_store(self, obj, 'C', v, 0); }
+BIND(void, jcl_java_lang_reflect_Field_setBoolean, "java.lang.reflect.Field_setBoolean", (void *self, void *obj, int v)) { jcl_field_store(self, obj, 'Z', v != 0, 0); }
+BIND(void, jcl_java_lang_reflect_Field_setDouble, "java.lang.reflect.Field_setDouble", (void *self, void *obj, double v)) { jcl_field_store(self, obj, 'D', (int64_t)v, v); }
+BIND(void, jcl_java_lang_reflect_Field_setFloat, "java.lang.reflect.Field_setFloat", (void *self, void *obj, float v)) { jcl_field_store(self, obj, 'F', (int64_t)v, v); }
 BIND(void, jcl_java_lang_reflect_Field_set, "java.lang.reflect.Field_set", (void *self, void *obj, void *val)) {
     s_field *f = jcl_field_of(self);
     if (f == NULL || obj == NULL) return;
@@ -1906,23 +2036,28 @@ BIND(void, jcl_java_lang_reflect_Field_set, "java.lang.reflect.Field_set", (void
     }
     nabu_reflect_set_ref(obj, cls, nm, val);
 }
-/* java.lang.reflect.Method: a declaring class, a name and a JVM descriptor
- * (K_METHOD). Only the methods of dynamic proxies have one so far: the
- * generated proxy classes ask ProxySupport.method for theirs, which caches
- * them (one object per method, so == and equals agree). Method.invoke on
- * them is redirected to ProxySupport.invoke, which dispatches in bytecode. */
-typedef struct { int kind; char *cls; char *name; char *desc; } s_method;
+/* java.lang.reflect.Method: a declaring class, a name, a JVM descriptor and
+ * the access flags (K_METHOD). They come from the generated ReflectionData
+ * (methods of the reflection configuration) and the proxy classes, through
+ * ProxySupport.method, which caches them (one object per method, so == and
+ * equals agree). Method.invoke on them is redirected to ProxySupport.invoke,
+ * which dispatches in bytecode. */
+typedef struct { int kind; char *cls; char *name; char *desc; int32_t modifiers; } s_method;
+
+/* Set by the compiler next to the access flags: declared in an interface. */
+#define JCL_INTERFACE_OWNER 0x40000000
 
 static s_method *jcl_method_of(void *self) { return (s_method *)jcl_state_kind(self, K_METHOD); }
 
-/* ProxySupport.method0(Class declaring, String name, String descriptor). */
+/* ProxySupport.method0(Class declaring, String name, String descriptor, int modifiers). */
 BIND(void *, jcl_proxy_method0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ProxySupport_method0",
-     (void *cls, void *name, void *desc)) {
+     (void *cls, void *name, void *desc, int32_t modifiers)) {
     s_method *st = (s_method *)jcl_alloc(sizeof(s_method));
     st->kind = K_METHOD;
     st->cls = jcl_dup(jcl_str(cls));
     st->name = jcl_dup(jcl_str(name));
     st->desc = jcl_dup(jcl_str(desc));
+    st->modifiers = modifiers;
     return jcl_new_obj("java/lang/reflect/Method", st);
 }
 
@@ -2013,11 +2148,78 @@ BIND(int32_t, jcl_java_lang_reflect_Method_getParameterCount, "java.lang.reflect
 BIND(void *, jcl_java_lang_reflect_Method_getGenericParameterTypes, "java.lang.reflect.Method_getGenericParameterTypes", (void *self)) {
     return jcl_java_lang_reflect_Method_getParameterTypes(self);
 }
-BIND(void *, jcl_java_lang_reflect_Method_getParameterAnnotations, "java.lang.reflect.Method_getParameterAnnotations", (void *self)) { (void)self; return jcl_arr_ref(0); }
-/* public, and abstract for an interface method (Object's are not). */
+/* One (empty) array per parameter: callers index it by parameter. */
+BIND(void *, jcl_java_lang_reflect_Method_getParameterAnnotations, "java.lang.reflect.Method_getParameterAnnotations", (void *self)) {
+    int32_t count = jcl_java_lang_reflect_Method_getParameterCount(self);
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, "[[Ljava/lang/annotation/Annotation;");
+    for (int32_t i = 0; i < count; i++) {
+        void *inner = jcl_arr_ref(0);
+        jcl_arr_set_type(inner, "[Ljava/lang/annotation/Annotation;");
+        jcl_arr_set(arr, i, inner);
+    }
+    return arr;
+}
 BIND(int32_t, jcl_java_lang_reflect_Method_getModifiers, "java.lang.reflect.Method_getModifiers", (void *self)) {
     s_method *m = jcl_method_of(self);
-    return m != NULL && strcmp(m->cls, "java/lang/Object") != 0 ? 1 | 1024 : 1;
+    return m != NULL ? m->modifiers & ~JCL_INTERFACE_OWNER : 1;
+}
+BIND(int, jcl_java_lang_reflect_Method_isVarArgs, "java.lang.reflect.Method_isVarArgs", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    return m != NULL && (m->modifiers & 0x0080) != 0;
+}
+BIND(int, jcl_java_lang_reflect_Method_isBridge, "java.lang.reflect.Method_isBridge", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    return m != NULL && (m->modifiers & 0x0040) != 0;
+}
+BIND(int, jcl_java_lang_reflect_Method_isSynthetic, "java.lang.reflect.Method_isSynthetic", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    return m != NULL && (m->modifiers & 0x1000) != 0;
+}
+/* A public, non-abstract instance method of an interface (JLS 9.4). */
+BIND(int, jcl_java_lang_reflect_Method_isDefault, "java.lang.reflect.Method_isDefault", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    return m != NULL && (m->modifiers & JCL_INTERFACE_OWNER) != 0
+            && (m->modifiers & (0x0001 | 0x0008 | 0x0400)) == 0x0001;
+}
+/* Declared exceptions, annotations and type parameters are not part of the
+ * metadata: empty, as for a method without them. */
+BIND(void *, jcl_java_lang_reflect_Method_getExceptionTypes, "java.lang.reflect.Method_getExceptionTypes", (void *self)) {
+    (void)self;
+    void *arr = jcl_arr_ref(0);
+    jcl_arr_set_type(arr, "[Ljava/lang/Class;");
+    return arr;
+}
+BIND(void *, jcl_java_lang_reflect_Method_getGenericExceptionTypes, "java.lang.reflect.Method_getGenericExceptionTypes", (void *self)) {
+    return jcl_java_lang_reflect_Method_getExceptionTypes(self);
+}
+BIND(void *, jcl_java_lang_reflect_Method_getTypeParameters, "java.lang.reflect.Method_getTypeParameters", (void *self)) { (void)self; return jcl_arr_ref(0); }
+BIND(void *, jcl_java_lang_reflect_Method_getDeclaredAnnotations, "java.lang.reflect.Method_getDeclaredAnnotations", (void *self)) { (void)self; return jcl_arr_ref(0); }
+BIND(void *, jcl_java_lang_reflect_Method_getAnnotations, "java.lang.reflect.Method_getAnnotations", (void *self)) { (void)self; return jcl_arr_ref(0); }
+BIND(void *, jcl_java_lang_reflect_Method_getAnnotationsByType, "java.lang.reflect.Method_getAnnotationsByType", (void *self, void *t)) { (void)self; (void)t; return jcl_arr_ref(0); }
+BIND(void *, jcl_java_lang_reflect_Method_getDeclaredAnnotation, "java.lang.reflect.Method_getDeclaredAnnotation", (void *self, void *t)) { (void)self; (void)t; return NULL; }
+BIND(int, jcl_java_lang_reflect_Method_isAnnotationPresent, "java.lang.reflect.Method_isAnnotationPresent", (void *self, void *t)) { (void)self; (void)t; return 0; }
+BIND(void *, jcl_java_lang_reflect_Method_getDefaultValue, "java.lang.reflect.Method_getDefaultValue", (void *self)) { (void)self; return NULL; }
+BIND(int, jcl_java_lang_reflect_Method_trySetAccessible, "java.lang.reflect.Method_trySetAccessible", (void *self)) { (void)self; return 1; }
+BIND(int, jcl_java_lang_reflect_Method_canAccess, "java.lang.reflect.Method_canAccess", (void *self, void *o)) { (void)self; (void)o; return 1; }
+BIND(int, jcl_java_lang_reflect_Method_isAccessible, "java.lang.reflect.Method_isAccessible", (void *self)) { (void)self; return 1; }
+/* As the JDK: equal declaring class, name and parameter types (here: the
+ * descriptor); the hash is that of the class name xor that of the name. */
+BIND(int, jcl_java_lang_reflect_Method_equals, "java.lang.reflect.Method_equals", (void *self, void *other)) {
+    if (self == other) return 1;
+    s_method *a = jcl_method_of(self);
+    s_method *b = jcl_method_of(other);
+    return a != NULL && b != NULL && strcmp(a->cls, b->cls) == 0 && strcmp(a->name, b->name) == 0
+            && strcmp(a->desc, b->desc) == 0;
+}
+static int32_t jcl_string_hash(const char *s, int dots) {
+    int32_t h = 0;
+    for (; *s; s++) h = 31 * h + (dots && *s == '/' ? '.' : (unsigned char)*s);
+    return h;
+}
+BIND(int32_t, jcl_java_lang_reflect_Method_hashCode, "java.lang.reflect.Method_hashCode", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    return m == NULL ? 0 : jcl_string_hash(m->cls, 1) ^ jcl_string_hash(m->name, 0);
 }
 BIND(void *, jcl_java_lang_reflect_Method_invoke, "java.lang.reflect.Method_invoke", (void *self, void *tgt, void *args)) { (void)self; (void)tgt; (void)args; return NULL; }
 BIND(void, jcl_java_lang_reflect_Method_setAccessible, "java.lang.reflect.Method_setAccessible", (void *self, int v)) { (void)self; (void)v; }
@@ -2028,8 +2230,20 @@ static void * jcl_java_lang_reflect_Method_toString (void *self) {
     const char *r = strchr(m->desc, ')');
     char *cls = jcl_dup(m->cls);
     for (char *c = cls; *c; c++) if (*c == '/') *c = '.';
-    char *out = jcl_concat(jcl_java_lang_reflect_Method_getModifiers(self) == 1 ? "public " : "public abstract ",
-            r != NULL ? jcl_desc_type_name(r + 1, strlen(r + 1)) : "void");
+    /* Modifier words in the order of java.lang.reflect.Modifier.toString. */
+    static const struct { int32_t bit; const char *word; } words[] = {
+        {0x0001, "public "}, {0x0004, "protected "}, {0x0002, "private "}, {0x0400, "abstract "},
+        {0x0008, "static "}, {0x0010, "final "}, {0x0020, "synchronized "}, {0x0100, "native "}
+    };
+    const int32_t mods = m->modifiers;
+    char *out = jcl_dup("");
+    for (size_t i = 0; i < sizeof words / sizeof words[0]; i++) {
+        if ((mods & words[i].bit) != 0) out = jcl_concat(out, words[i].word);
+    }
+    if ((mods & JCL_INTERFACE_OWNER) != 0 && (mods & (0x0001 | 0x0008 | 0x0400)) == 0x0001) {
+        out = jcl_concat(out, "default ");
+    }
+    out = jcl_concat(out, r != NULL ? jcl_desc_type_name(r + 1, strlen(r + 1)) : "void");
     out = jcl_concat(jcl_concat(jcl_concat(jcl_concat(out, " "), cls), "."), m->name);
     out = jcl_concat(out, "(");
     int first = 1;

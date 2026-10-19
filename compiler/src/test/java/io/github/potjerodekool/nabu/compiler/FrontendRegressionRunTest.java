@@ -321,4 +321,48 @@ class FrontendRegressionRunTest {
                 java.util.function.Supplier<java.util.function.ToIntFunction<String>> g = () -> { return String::length; };
                 return f.get().getAsInt() + " " + g.get().applyAsInt("abc");"""));
     }
+
+    /**
+     * A package-qualified superclass ({@code extends java.util.Random}): the
+     * qualifier was looked up as a type, the superclass became an error type
+     * and the implicit {@code super()} did not resolve.
+     */
+    @Test
+    void packageQualifiedSuperclass() throws Exception {
+        assertEquals("b 7", run("""
+                static class Bundle extends java.util.ResourceBundle {
+                    protected Object handleGetObject(String key) { return "b"; }
+                    public java.util.Enumeration<String> getKeys() { return java.util.Collections.emptyEnumeration(); }
+                }
+                static class Fixed extends java.util.Random {
+                    public int nextInt(int bound) { return 7; }
+                }""", """
+                return new Bundle().getString("a") + " " + new Fixed().nextInt(10);"""));
+    }
+
+    /**
+     * A lambda whose parameter has an array type (InvocationHandler's
+     * {@code Object[] args}): resolving it threw on the element-less array
+     * type, and lowering it had no type tree for an array.
+     */
+    @Test
+    void lambdaWithArrayParameter() throws Exception {
+        assertEquals("size=2 hi", run("""
+                java.lang.reflect.InvocationHandler h = (proxy, method, args) ->
+                        method.getName().equals("size") ? (Object) 2 : "hi";
+                java.util.function.Function<String[], Integer> length = a -> a.length;
+                java.util.Collection<?> c = (java.util.Collection<?>) java.lang.reflect.Proxy.newProxyInstance(
+                        Probe.class.getClassLoader(), new Class<?>[] { java.util.Collection.class }, h);
+                return "size=" + (c.size() * length.apply(new String[1])) + " " + c;"""));
+    }
+
+    /** A boxing cast to a supertype of the wrapper: {@code valueOf} had the cast type as return type. */
+    @Test
+    void boxingCastToObject() throws Exception {
+        assertEquals("2 true 3.5", run("""
+                Object o = (Object) 2;
+                java.io.Serializable s = (java.io.Serializable) true;
+                Number n = (Number) 3.5;
+                return o + " " + s + " " + n;"""));
+    }
 }

@@ -1835,6 +1835,21 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
         final var varElement = TreeUtils.getSymbol(selected);
 
+        // A package-qualified name (`extends java.util.Random`): the
+        // qualifier is no type (JLS 6.5.5.2), so the whole name is one.
+        // Looking up `Random` in the error type of `java.util` made the
+        // superclass an error type and its constructors unresolvable.
+        if (varElement == null && (selected.getType() == null || selected.getType() instanceof ErrorType)
+                && scope.getCurrentClass() instanceof ClassSymbol currentClass) {
+            final var qualifiedName = nameOfExpression(fieldAccessExpression);
+            final var type = qualifiedName != null ? resolveType(qualifiedName, currentClass) : null;
+            if (type != null && !(type instanceof ErrorType)) {
+                fieldAccessExpression.getField().setType(type);
+                fieldAccessExpression.setType(type);
+                return fieldAccessExpression;
+            }
+        }
+
         if (varElement != null) {
             final var varType = varElement.asType();
             final DeclaredType declaredType = asDeclaredType(varType);

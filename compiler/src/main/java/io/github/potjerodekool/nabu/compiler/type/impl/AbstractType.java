@@ -74,7 +74,8 @@ public abstract class AbstractType implements TypeMirror {
             return true;
         }
 
-        return element.isError();
+        // A type without an element (an array) is no error type itself.
+        return element != null && element.isError();
     }
 
     public boolean hasErasedSupertypes() {

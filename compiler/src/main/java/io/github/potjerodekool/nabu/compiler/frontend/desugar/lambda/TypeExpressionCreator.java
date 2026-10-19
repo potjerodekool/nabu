@@ -39,6 +39,18 @@ public class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object
         return typeIdentifier;
     }
 
+    /**
+     * An array parameter ({@code Object[] args} of InvocationHandler.invoke):
+     * the component type with one dimension, nested for more.
+     */
+    @Override
+    public ExpressionTree visitArrayType(final ArrayType arrayType, final Object param) {
+        final var componentType = arrayType.getComponentType().accept(this, param);
+        final var arrayTypeTree = TreeMaker.arrayTypeTree(componentType, java.util.List.of(), -1, -1);
+        arrayTypeTree.setType(arrayType);
+        return arrayTypeTree;
+    }
+
     @Override
     public ExpressionTree visitPrimitiveType(final PrimitiveType primitiveType, final Object param) {
         final var kind = switch (primitiveType.getKind()) {

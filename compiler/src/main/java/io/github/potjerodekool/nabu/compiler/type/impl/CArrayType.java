@@ -27,6 +27,12 @@ public class CArrayType extends AbstractType implements ArrayType {
         return visitor.visitArrayType(this, param);
     }
 
+    /** An array type is erroneous when its component type is (it has no element of its own). */
+    @Override
+    public boolean isError() {
+        return getComponentType() != null && getComponentType().isError();
+    }
+
     @Override
     public TypeMirror getComponentType() {
         return componentType;

@@ -3505,17 +3505,21 @@ if (argVal != null) args.add(argVal);
             // Object en de box-implementerende interfaces: de primitieve
             // waarde bepaalt de wrapper ((Object) boolean -> Boolean).
             case "Ljava/lang/Object;",
-                 "Ljava/lang/Serializable;",
+                 "Ljava/io/Serializable;",
+                 "Ljava/lang/Number;",
                  "Ljava/lang/Comparable;" -> wrapperForPrimitive(value.type());
             default -> null;
         };
         if (boxClass == null) {
             return value;
         }
+        // valueOf returns the wrapper, not the cast target: with Object
+        // as return type the call had the descriptor (I)Ljava/lang/Object;,
+        // which does not exist (NoSuchMethodError for `(Object) 2`).
         return builder.emitCall(
                 CallKind.STATIC,
                 boxClass.replace('.', '_') + "_valueOf",
-                target,
+                new IRType.Ptr(IRType.I8, "L" + boxClass.replace('.', '/') + ";"),
                 java.util.List.of(value.type()),
                 java.util.List.of(value)
         );

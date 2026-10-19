@@ -1435,6 +1435,23 @@ public class InstructionEmitter {
             slot = declared != null
                     ? layout.vtableSlot(declared.name, slotParams) : -1;
         }
+        if (slot < 0) {
+            // The receiver's IR type can be wrong for bytecode: javac reuses a
+            // local slot (a caught exception, later an InputStream), and the
+            // load keeps the type of the first. The method's own class then
+            // gives the slot (its subclasses keep the index). A direct call
+            // went to the body-less declaration of InputStream.close, which
+            // is `unreachable`, instead of ByteArrayInputStream.close.
+            final ClassLayouts.ClassLayout declaring = classLayouts.findLayoutForVtableSlot(
+                    call.function(), slotParams);
+            if (declaring != null && declaring.vtableGlobal != null && !declaring.isInterface) {
+                final int declaringSlot = declaring.vtableSlot(call.function(), slotParams);
+                if (declaringSlot >= 0) {
+                    layout = declaring;
+                    slot = declaringSlot;
+                }
+            }
+        }
         if (slot < 0) return false;
 
         LLVMTypeRef ptrType = LLVMPointerType(LLVMInt8TypeInContext(ctx), 0);

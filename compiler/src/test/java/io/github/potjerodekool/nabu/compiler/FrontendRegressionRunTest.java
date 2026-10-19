@@ -199,6 +199,20 @@ class FrontendRegressionRunTest {
                         + " " + literal[1][1] + " " + literal.length + " " + bare[0][0] + " " + bare[1].length;"""));
     }
 
-
-
+    /** A catch parameter with a qualified type name; a multi-catch catches every alternative. */
+    @Test
+    void qualifiedCatchType() throws Exception {
+        assertEquals("x y", run("""
+                String first;
+                try {
+                    throw new java.io.FileNotFoundException("x");
+                } catch (java.io.FileNotFoundException e) {
+                    first = e.getMessage();
+                }
+                try {
+                    throw new IllegalStateException("y");
+                } catch (IllegalArgumentException | IllegalStateException e) {
+                    return first + " " + e.getMessage();
+                }"""));
+    }
 }

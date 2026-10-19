@@ -111,8 +111,7 @@ public final class BytecodeReachabilityCompiler {
             "java/lang/reflect/Field",
             "java/lang/reflect/Constructor",
             "java/lang/reflect/Parameter",
-            "java/lang/reflect/Proxy",
-            "java/io/File");
+            "java/lang/reflect/Proxy");
 
     /**
      * Gesynthetiseerde opstartklasse: het deel van {@code System.initPhase1}
@@ -262,9 +261,14 @@ public final class BytecodeReachabilityCompiler {
     /**
      * Void methods whose body becomes empty. {@code Tripwire.trip} only
      * reports (through the platform logger) when a debug property is set.
+     * {@code FileCleanable.register/unregister}: see the entry.
      */
     private static final Map<String, Set<String>> NO_OP = Map.of(
-            "java/util/stream/Tripwire", Set.of("trip"));
+            "java/util/stream/Tripwire", Set.of("trip"),
+            // Registering a file descriptor with the Cleaner starts the
+            // cleaner thread machinery; a native program closes its files
+            // with close() (an unclosed descriptor is not closed by the GC).
+            "java/io/FileCleanable", Set.of("register", "unregister"));
 
     private static void throwUnsupported(final org.objectweb.asm.tree.InsnList insns, final String what) {
         insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, "java/lang/UnsupportedOperationException"));

@@ -3549,7 +3549,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         List<CatchTree> catchers = List.of();
         if (ctx.catches() != null) {
             catchers = ctx.catches().catchClause().stream()
-                    .map(cc -> (CatchTree) visitCatchClause(cc))
+                    .flatMap(cc -> catchClauses(cc).stream())
                     .toList();
         }
 
@@ -3571,7 +3571,26 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitCatchClause(final Java20Parser.CatchClauseContext ctx) {
         final var catchParam = ctx.catchFormalParameter();
-        final var type = (ExpressionTree) catchParam.catchType().unannClassType().accept(this);
+        return catchClause(ctx, (ExpressionTree) catchParam.catchType().unannClassType().accept(this));
+    }
+
+    /**
+     * The catch clauses of {@code ctx}: one per alternative of a multi-catch
+     * ({@code catch (A | B e)}), each with its own copy of the body (parsed
+     * again). Only the first alternative was caught before.
+     */
+    private List<CatchTree> catchClauses(final Java20Parser.CatchClauseContext ctx) {
+        final var catchType = ctx.catchFormalParameter().catchType();
+        final List<CatchTree> clauses = new ArrayList<>();
+        clauses.add(catchClause(ctx, (ExpressionTree) catchType.unannClassType().accept(this)));
+        for (final var alternative : catchType.classType()) {
+            clauses.add(catchClause(ctx, (ExpressionTree) alternative.accept(this)));
+        }
+        return clauses;
+    }
+
+    private CatchTree catchClause(final Java20Parser.CatchClauseContext ctx, final ExpressionTree type) {
+        final var catchParam = ctx.catchFormalParameter();
         final var varId = (IdentifierTree) catchParam.variableDeclaratorId().accept(this);
 
         final var variable = (VariableDeclaratorTree) TreeMaker.variableDeclarator(
@@ -3596,5 +3615,36 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
+    }
+
+    /**
+     * A class type in a declaration ({@code catch (java.io.IOException e)}):
+     * without this, ANTLR's default gave the last child only, the simple
+     * name, and the package was lost.
+     */
+    @Override
+    public Object visitUnannClassType(final Java20Parser.UnannClassTypeContext ctx) {
+        ExpressionTree prefix = null;
+        if (ctx.packageName() != null) {
+            prefix = (ExpressionTree) ctx.packageName().accept(this);
+        } else if (ctx.unannClassOrInterfaceType() != null) {
+            prefix = (ExpressionTree) ctx.unannClassOrInterfaceType().accept(this);
+        }
+        ExpressionTree result = (ExpressionTree) ctx.typeIdentifier().accept(this);
+        if (prefix != null) {
+            result = TreeMaker.fieldAccessExpressionTree(prefix, (IdentifierTree) result,
+                    ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+        }
+        final List<AnnotationTree> annotations = acceptList(ctx.annotation());
+        if (!annotations.isEmpty()) {
+            result = TreeMaker.annotatedTypeTree(annotations, result, List.of(),
+                    ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+        }
+        if (ctx.typeArguments() != null) {
+            final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
+            result = TreeMaker.typeApplyTree(result, typeArguments,
+                    ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
+        }
+        return result;
     }
 }

@@ -11,6 +11,7 @@
 #include <direct.h>
 #include <io.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #else
 #include <unistd.h>
 #endif
@@ -31,7 +32,7 @@
 #define BIND(ret, cname, sym, params) ret cname params __asm__(sym); ret cname params
 
 enum {
-    K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_FILE, K_CLASSOBJ, K_CTOR
+    K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_CLASSOBJ, K_CTOR
 };
 
 enum { B_I32, B_I64, B_BOOL, B_F64, B_F32, B_I16, B_I8, B_CHAR };
@@ -42,7 +43,6 @@ typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
 typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
-typedef struct { int kind; char *path; } s_file;
 
 static void *jcl_alloc(size_t n) {
     void *p = JCL_MEM(n);
@@ -385,6 +385,18 @@ static const char *jcl_arr_type_name(const void *a) {
     int32_t id = a != NULL ? (int32_t)(((const uint32_t *)a)[1] >> 8) : 0;
     return id > 0 && id < nabu_array_type_count ? nabu_array_type_names[id] : NULL;
 }
+/* The array class of p if p looks like an array the backend (or
+ * Array.newInstance) allocated: a non-negative length, a valid element size
+ * and a known type index. Used where only an Object reference is known
+ * (Object.getClass, hashCode); a C string or another object does not match
+ * (its fifth byte is no element size, or its first word is a type pointer). */
+static const char *jcl_typed_array_name(const void *p) {
+    if (p == NULL) return NULL;
+    const int32_t *w = (const int32_t *)p;
+    int32_t es = w[1] & 0xff;
+    if (w[0] < 0 || !(es == 1 || es == 2 || es == 4 || es == 8)) return NULL;
+    return jcl_arr_type_name(p);
+}
 static int32_t jcl_arr_type_id(const char *name) {
     for (int32_t i = 1; i < nabu_array_type_count; i++) {
         if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) return i;
@@ -611,6 +623,10 @@ BIND(void *, jcl_java_lang_Object_getClass, "java.lang.Object_getClass", (void *
          * global in het programma zelf (niet in de type-cache van de
          * runtime) en draagt de interne klassenaam. */
         const char *compiled = jcl_compiled_type_name(self);
+        if (compiled == NULL) {
+            const char *array = jcl_typed_array_name(self);
+            if (array != NULL) return jcl_class(array);
+        }
         return jcl_class(compiled != NULL ? compiled : "java/lang/String");
     }
     nabu_object *h = (nabu_object *)self;
@@ -624,6 +640,8 @@ BIND(int32_t, jcl_java_lang_Object_hashCode, "java.lang.Object_hashCode", (void 
      * alle objecten van één klasse kregen dezelfde hash, waardoor HashMap
      * buckets ging treeifyen (DateTimeFormatterBuilder.<clinit>). */
     if (nabu_compiled_type_name(self) != NULL) return (int32_t)((intptr_t)self >> 4);
+    /* An array: identity as well (it was hashed as a C string). */
+    if (jcl_typed_array_name(self) != NULL) return (int32_t)((intptr_t)self >> 4);
     if (!nabu_jcl_is_object(self)) return jcl_hash(self);
     s_str *st = (s_str *)jcl_state_kind(self, K_STR);
     if (st != NULL && st->v != NULL) return jcl_hash(st->v);
@@ -820,7 +838,23 @@ BIND(int64_t, jcl_java_io_FileDescriptor_getHandle, "java.io.FileDescriptor_getH
 #endif
 }
 BIND(uint8_t, jcl_java_io_FileDescriptor_getAppend, "java.io.FileDescriptor_getAppend", (int32_t fd)) { (void)fd; return 0; }
-BIND(void, jcl_java_io_FileDescriptor_close0, "java.io.FileDescriptor_close0", (void *self)) { (void)self; }
+/* The int field `fd` of a FileDescriptor; files opened by open0 are CRT
+ * descriptors above 2. */
+static int32_t *jcl_fd_slot(void *fdObj) {
+    intptr_t off = fdObj != NULL ? nabu_instance_field_offset(fdObj, "fd") : -1;
+    return off >= 0 ? (int32_t *)((char *)fdObj + off) : NULL;
+}
+BIND(void, jcl_java_io_FileDescriptor_close0, "java.io.FileDescriptor_close0", (void *self)) {
+    int32_t *slot = jcl_fd_slot(self);
+    if (slot != NULL && *slot > 2) {
+#ifdef _WIN32
+        _close(*slot);
+#else
+        close(*slot);
+#endif
+        *slot = -1;
+    }
+}
 
 /* Het fd-nummer van een gecompileerde FileOutputStream: this.fd.fd. */
 static int32_t jcl_fos_fd(void *self) {
@@ -834,17 +868,32 @@ static int32_t jcl_fos_fd(void *self) {
 
 static void jcl_fos_write(void *self, const void *data, size_t len) {
     int32_t fd = jcl_fos_fd(self);
+    if (fd > 2) {
+        /* A file opened by FileOutputStream.open0: a CRT descriptor. */
+        const char *p = (const char *)data;
+        while (len > 0) {
+#ifdef _WIN32
+            int n = _write(fd, p, (unsigned int)len);
+#else
+            ssize_t n = write(fd, p, len);
+#endif
+            if (n <= 0) {
+                nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Write error"));
+                return;
+            }
+            p += n;
+            len -= (size_t)n;
+        }
+        return;
+    }
     FILE *f = fd == 1 ? stdout : fd == 2 ? stderr : NULL;
     if (f == NULL) {
         nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed"));
         return;
     }
 #ifdef _WIN32
-    /* FileOutputStream schrijft ruwe bytes; de JDK heeft line.separator
-     * ("
-") al uitgeschreven. In tekstmodus maakte de CRT er "
-
-" van. */
+    /* FileOutputStream writes raw bytes; the JDK has already written the
+     * line separator ("\r\n"). In text mode the CRT made it "\r\r\n". */
     static int binary_set[3] = {0, 0, 0};
     if (!binary_set[fd]) {
         fflush(f);
@@ -880,21 +929,21 @@ BIND(void, jcl_java_io_FileOutputStream_write, "java.io.FileOutputStream_write$P
  * is delivered without waiting for a full buffer. -1 at end of input. */
 static int32_t jcl_fis_read(void *self, void *buf, int32_t len) {
     int32_t fd = jcl_fos_fd(self);
-    if (fd != 0) {
+    if (fd != 0 && fd <= 2) {
         nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed"));
         return -1;
     }
     if (len == 0) return 0;
 #ifdef _WIN32
     static int binary_set = 0;
-    if (!binary_set) {
+    if (fd == 0 && !binary_set) {
         /* Raw bytes, as the JDK reads them; BufferedReader handles "\r\n". */
         _setmode(0, _O_BINARY);
         binary_set = 1;
     }
-    int n = _read(0, buf, (unsigned int)len);
+    int n = _read(fd, buf, (unsigned int)len);
 #else
-    ssize_t n = read(0, buf, (size_t)len);
+    ssize_t n = read(fd, buf, (size_t)len);
 #endif
     if (n < 0) {
         nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Read error"));
@@ -933,6 +982,357 @@ BIND(int64_t, jcl_java_io_FileInputStream_skip0, "java.io.FileInputStream_skip0"
     return skipped;
 }
 
+/* --- java.io.File: the natives of the JDK's file system class -------------
+ * java.io.File is compiled from the JDK's bytecode; DefaultFileSystem gives
+ * a WinNTFileSystem (Windows) or UnixFileSystem, whose natives are here.
+ * Paths come in as Java strings (UTF-8 via nabu_cstr); Windows uses the
+ * wide-character API. */
+
+#define JCL_BA_EXISTS    0x01
+#define JCL_BA_REGULAR   0x02
+#define JCL_BA_DIRECTORY 0x04
+#define JCL_BA_HIDDEN    0x08
+
+/* File.path of a java.io.File object. */
+static const char *jcl_file_path_of(void *file) {
+    intptr_t off = file != NULL ? nabu_instance_field_offset(file, "path") : -1;
+    if (off < 0) return "";
+    void *path = *(void **)((char *)file + off);
+    return path != NULL ? nabu_cstr(path) : "";
+}
+
+static void *jcl_string_array(int32_t n) {
+    void *arr = jcl_arr_ref(n);
+    jcl_arr_set_type(arr, "[Ljava/lang/String;");
+    return arr;
+}
+
+#ifdef _WIN32
+static wchar_t *jcl_wide(const char *utf8) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    wchar_t *w = (wchar_t *)jcl_alloc((size_t)(n > 0 ? n : 1) * sizeof(wchar_t));
+    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, utf8, -1, w, n);
+    return w;
+}
+static void *jcl_jstring_wide(const wchar_t *w) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    char *u = (char *)jcl_alloc((size_t)(n > 0 ? n : 1));
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w, -1, u, n, NULL, NULL);
+    return nabu_jstring_new(u);
+}
+static int32_t jcl_fs_attributes(const char *path) {
+    DWORD a = GetFileAttributesW(jcl_wide(path));
+    if (a == INVALID_FILE_ATTRIBUTES) return 0;
+    int32_t r = JCL_BA_EXISTS;
+    r |= (a & FILE_ATTRIBUTE_DIRECTORY) ? JCL_BA_DIRECTORY : JCL_BA_REGULAR;
+    if (a & FILE_ATTRIBUTE_HIDDEN) r |= JCL_BA_HIDDEN;
+    return r;
+}
+static int jcl_fs_info(const char *path, WIN32_FILE_ATTRIBUTE_DATA *data) {
+    return GetFileAttributesExW(jcl_wide(path), GetFileExInfoStandard, data) != 0;
+}
+/* FILETIME (100 ns since 1601) <-> milliseconds since 1970. */
+static int64_t jcl_filetime_ms(FILETIME t) {
+    int64_t v = ((int64_t)t.dwHighDateTime << 32) | t.dwLowDateTime;
+    return (v - 116444736000000000LL) / 10000;
+}
+#define JCL_FS(name) "java.io.WinNTFileSystem_" name
+#else
+#include <sys/stat.h>
+#include <dirent.h>
+#include <limits.h>
+#include <utime.h>
+static int32_t jcl_fs_attributes(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    int32_t r = JCL_BA_EXISTS;
+    r |= S_ISDIR(st.st_mode) ? JCL_BA_DIRECTORY : S_ISREG(st.st_mode) ? JCL_BA_REGULAR : 0;
+    const char *base = strrchr(path, '/');
+    if ((base != NULL ? base[1] : path[0]) == '.') r |= JCL_BA_HIDDEN;
+    return r;
+}
+#define JCL_FS(name) "java.io.UnixFileSystem_" name
+#endif
+
+BIND(int32_t, jcl_fs_getBooleanAttributes0, JCL_FS("getBooleanAttributes0"), (void *self, void *f)) {
+    return jcl_fs_attributes(jcl_file_path_of(f));
+}
+
+/* access: FileSystem.ACCESS_READ 4, ACCESS_WRITE 2, ACCESS_EXECUTE 1. */
+BIND(uint8_t, jcl_fs_checkAccess0, JCL_FS("checkAccess0"), (void *self, void *f, int32_t access)) {
+    const char *path = jcl_file_path_of(f);
+#ifdef _WIN32
+    DWORD a = GetFileAttributesW(jcl_wide(path));
+    if (a == INVALID_FILE_ATTRIBUTES) return 0;
+    if ((access & 2) && (a & FILE_ATTRIBUTE_READONLY) && !(a & FILE_ATTRIBUTE_DIRECTORY)) return 0;
+    return 1;
+#else
+    int mode = ((access & 4) ? R_OK : 0) | ((access & 2) ? W_OK : 0) | ((access & 1) ? X_OK : 0);
+    return access(path, mode) == 0;
+#endif
+}
+
+BIND(int64_t, jcl_fs_getLastModifiedTime0, JCL_FS("getLastModifiedTime0"), (void *self, void *f)) {
+#ifdef _WIN32
+    WIN32_FILE_ATTRIBUTE_DATA d;
+    return jcl_fs_info(jcl_file_path_of(f), &d) ? jcl_filetime_ms(d.ftLastWriteTime) : 0;
+#else
+    struct stat st;
+    return stat(jcl_file_path_of(f), &st) == 0 ? (int64_t)st.st_mtime * 1000 : 0;
+#endif
+}
+
+BIND(int64_t, jcl_fs_getLength0, JCL_FS("getLength0"), (void *self, void *f)) {
+#ifdef _WIN32
+    WIN32_FILE_ATTRIBUTE_DATA d;
+    if (!jcl_fs_info(jcl_file_path_of(f), &d) || (d.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return 0;
+    return ((int64_t)d.nFileSizeHigh << 32) | d.nFileSizeLow;
+#else
+    struct stat st;
+    return stat(jcl_file_path_of(f), &st) == 0 && S_ISREG(st.st_mode) ? (int64_t)st.st_size : 0;
+#endif
+}
+
+/* Only the write permission of the owner has an effect (the read-only
+ * attribute on Windows); the others succeed, as on Windows in the JDK. */
+BIND(uint8_t, jcl_fs_setPermission0, JCL_FS("setPermission0"),
+     (void *self, void *f, int32_t access, uint8_t enable, uint8_t ownerOnly)) {
+    const char *path = jcl_file_path_of(f);
+#ifdef _WIN32
+    if (!(access & 2)) return jcl_fs_attributes(path) != 0;
+    wchar_t *w = jcl_wide(path);
+    DWORD a = GetFileAttributesW(w);
+    if (a == INVALID_FILE_ATTRIBUTES) return 0;
+    a = enable ? (a & ~FILE_ATTRIBUTE_READONLY) : (a | FILE_ATTRIBUTE_READONLY);
+    return SetFileAttributesW(w, a) != 0;
+#else
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    mode_t bits = ((access & 4) ? S_IRUSR : 0) | ((access & 2) ? S_IWUSR : 0) | ((access & 1) ? S_IXUSR : 0);
+    if (!ownerOnly) bits |= bits >> 3 | bits >> 6;
+    return chmod(path, enable ? (st.st_mode | bits) : (st.st_mode & ~bits)) == 0;
+#endif
+}
+
+BIND(uint8_t, jcl_fs_createFileExclusively0, JCL_FS("createFileExclusively0"), (void *self, void *pathString)) {
+    const char *path = nabu_cstr(pathString);
+#ifdef _WIN32
+    HANDLE h = CreateFileW(jcl_wide(path), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+        if (GetLastError() == ERROR_FILE_EXISTS) return 0;
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Could not create file"));
+        return 0;
+    }
+    CloseHandle(h);
+    return 1;
+#else
+    int fd = open(path, O_RDWR | O_CREAT | O_EXCL, 0666);
+    if (fd < 0) {
+        if (errno == EEXIST) return 0;
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", strerror(errno)));
+        return 0;
+    }
+    close(fd);
+    return 1;
+#endif
+}
+
+BIND(void *, jcl_fs_list0, JCL_FS("list0"), (void *self, void *f)) {
+    const char *path = jcl_file_path_of(f);
+    int32_t count = 0, cap = 16;
+    void **names = (void **)jcl_alloc((size_t)cap * sizeof(void *));
+#ifdef _WIN32
+    size_t len = strlen(path);
+    char *pattern = (char *)jcl_alloc(len + 3);
+    memcpy(pattern, path, len);
+    if (len > 0 && path[len - 1] != '\\' && path[len - 1] != '/') pattern[len++] = '\\';
+    pattern[len++] = '*';
+    pattern[len] = 0;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(jcl_wide(pattern), &fd);
+    if (h == INVALID_HANDLE_VALUE) return NULL;
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+        if (count == cap) {
+            void **bigger = (void **)jcl_alloc((size_t)cap * 2 * sizeof(void *));
+            memcpy(bigger, names, (size_t)cap * sizeof(void *));
+            names = bigger;
+            cap *= 2;
+        }
+        names[count++] = jcl_jstring_wide(fd.cFileName);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+#else
+    DIR *dir = opendir(path);
+    if (dir == NULL) return NULL;
+    struct dirent *e;
+    while ((e = readdir(dir)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (count == cap) {
+            void **bigger = (void **)jcl_alloc((size_t)cap * 2 * sizeof(void *));
+            memcpy(bigger, names, (size_t)cap * sizeof(void *));
+            names = bigger;
+            cap *= 2;
+        }
+        names[count++] = nabu_jstring_new(e->d_name);
+    }
+    closedir(dir);
+#endif
+    void *arr = jcl_string_array(count);
+    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, names[i]);
+    return arr;
+}
+
+BIND(uint8_t, jcl_fs_createDirectory0, JCL_FS("createDirectory0"), (void *self, void *f)) {
+#ifdef _WIN32
+    return CreateDirectoryW(jcl_wide(jcl_file_path_of(f)), NULL) != 0;
+#else
+    return mkdir(jcl_file_path_of(f), 0777) == 0;
+#endif
+}
+
+BIND(uint8_t, jcl_fs_setLastModifiedTime0, JCL_FS("setLastModifiedTime0"), (void *self, void *f, int64_t ms)) {
+#ifdef _WIN32
+    HANDLE h = CreateFileW(jcl_wide(jcl_file_path_of(f)), FILE_WRITE_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    int64_t v = ms * 10000 + 116444736000000000LL;
+    FILETIME t = { (DWORD)v, (DWORD)(v >> 32) };
+    BOOL ok = SetFileTime(h, NULL, NULL, &t);
+    CloseHandle(h);
+    return ok != 0;
+#else
+    struct utimbuf times = { (time_t)(ms / 1000), (time_t)(ms / 1000) };
+    return utime(jcl_file_path_of(f), &times) == 0;
+#endif
+}
+
+BIND(uint8_t, jcl_fs_setReadOnly0, JCL_FS("setReadOnly0"), (void *self, void *f)) {
+#ifdef _WIN32
+    wchar_t *w = jcl_wide(jcl_file_path_of(f));
+    DWORD a = GetFileAttributesW(w);
+    return a != INVALID_FILE_ATTRIBUTES && SetFileAttributesW(w, a | FILE_ATTRIBUTE_READONLY) != 0;
+#else
+    struct stat st;
+    const char *path = jcl_file_path_of(f);
+    return stat(path, &st) == 0 && chmod(path, st.st_mode & ~(S_IWUSR | S_IWGRP | S_IWOTH)) == 0;
+#endif
+}
+
+#ifdef _WIN32
+BIND(uint8_t, jcl_fs_delete0, JCL_FS("delete0"), (void *self, void *f, uint8_t allowReadOnly)) {
+    wchar_t *w = jcl_wide(jcl_file_path_of(f));
+    DWORD a = GetFileAttributesW(w);
+    if (a == INVALID_FILE_ATTRIBUTES) return 0;
+    if (a & FILE_ATTRIBUTE_DIRECTORY) return RemoveDirectoryW(w) != 0;
+    if ((a & FILE_ATTRIBUTE_READONLY) && allowReadOnly) SetFileAttributesW(w, a & ~FILE_ATTRIBUTE_READONLY);
+    return DeleteFileW(w) != 0;
+}
+#else
+BIND(uint8_t, jcl_fs_delete0, JCL_FS("delete0"), (void *self, void *f)) {
+    return remove(jcl_file_path_of(f)) == 0;
+}
+#endif
+
+BIND(uint8_t, jcl_fs_rename0, JCL_FS("rename0"), (void *self, void *from, void *to)) {
+#ifdef _WIN32
+    return MoveFileW(jcl_wide(jcl_file_path_of(from)), jcl_wide(jcl_file_path_of(to))) != 0;
+#else
+    return rename(jcl_file_path_of(from), jcl_file_path_of(to)) == 0;
+#endif
+}
+
+/* The absolute, normalized path; links and the case of names are not
+ * resolved (the JDK does that on Windows). */
+BIND(void *, jcl_fs_canonicalize0, JCL_FS("canonicalize0"), (void *self, void *pathString)) {
+    const char *path = nabu_cstr(pathString);
+#ifdef _WIN32
+    wchar_t buf[32768];
+    DWORD n = GetFullPathNameW(jcl_wide(path), 32768, buf, NULL);
+    return n > 0 && n < 32768 ? jcl_jstring_wide(buf) : pathString;
+#else
+    char buf[PATH_MAX];
+    return realpath(path, buf) != NULL ? nabu_jstring_new(buf) : pathString;
+#endif
+}
+
+BIND(int32_t, jcl_fs_getNameMax0, JCL_FS("getNameMax0"), (void *self, void *pathString)) { return 255; }
+
+BIND(int64_t, jcl_fs_getSpace0, JCL_FS("getSpace0"), (void *self, void *f, int32_t t)) {
+#ifdef _WIN32
+    ULARGE_INTEGER freeToCaller, total, freeTotal;
+    if (!GetDiskFreeSpaceExW(jcl_wide(jcl_file_path_of(f)), &freeToCaller, &total, &freeTotal)) return 0;
+    return t == 0 ? (int64_t)total.QuadPart : t == 1 ? (int64_t)freeTotal.QuadPart : (int64_t)freeToCaller.QuadPart;
+#else
+    return 0;
+#endif
+}
+
+#ifdef _WIN32
+BIND(void *, jcl_fs_getFinalPath0, JCL_FS("getFinalPath0"), (void *self, void *pathString)) {
+    return jcl_fs_canonicalize0(self, pathString);
+}
+BIND(int32_t, jcl_fs_listRoots0, JCL_FS("listRoots0"), (void)) { return (int32_t)GetLogicalDrives(); }
+/* The current directory of a drive (1 = A:), without the drive letter. */
+BIND(void *, jcl_fs_getDriveDirectory, JCL_FS("getDriveDirectory$PI32"), (void *self, int32_t drive)) {
+    wchar_t buf[MAX_PATH];
+    if (_wgetdcwd(drive, buf, MAX_PATH) == NULL) return NULL;
+    const wchar_t *p = buf;
+    if (iswalpha(p[0]) && p[1] == L':') p += 2;
+    return jcl_jstring_wide(p);
+}
+#endif
+
+/* --- FileInputStream / FileOutputStream on files ------------------------ */
+
+static void jcl_open_file(void *self, void *pathString, int flags) {
+    const char *path = nabu_cstr(pathString);
+#ifdef _WIN32
+    int fd = _wopen(jcl_wide(path), flags | _O_BINARY | _O_NOINHERIT, _S_IREAD | _S_IWRITE);
+#else
+    int fd = open(path, flags, 0666);
+#endif
+    if (fd < 0) {
+        const char *reason = strerror(errno);
+        nabu_throw(jcl_throw("java/io/FileNotFoundException", "java/io/IOException",
+                jcl_concat(jcl_concat(jcl_concat(path, " ("), reason), ")")));
+        return;
+    }
+    intptr_t off = nabu_instance_field_offset(self, "fd");
+    int32_t *slot = off >= 0 ? jcl_fd_slot(*(void **)((char *)self + off)) : NULL;
+    if (slot != NULL) *slot = fd;
+}
+BIND(void, jcl_java_io_FileInputStream_open0, "java.io.FileInputStream_open0", (void *self, void *path)) {
+    jcl_open_file(self, path, O_RDONLY);
+}
+BIND(void, jcl_java_io_FileOutputStream_open0, "java.io.FileOutputStream_open0", (void *self, void *path, uint8_t append)) {
+    jcl_open_file(self, path, O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC));
+}
+BIND(int64_t, jcl_java_io_FileInputStream_length0, "java.io.FileInputStream_length0", (void *self)) {
+    int32_t fd = jcl_fos_fd(self);
+    if (fd <= 2) return 0;
+#ifdef _WIN32
+    return _filelengthi64(fd);
+#else
+    struct stat st;
+    return fstat(fd, &st) == 0 ? (int64_t)st.st_size : 0;
+#endif
+}
+BIND(int64_t, jcl_java_io_FileInputStream_position0, "java.io.FileInputStream_position0", (void *self)) {
+    int32_t fd = jcl_fos_fd(self);
+    if (fd <= 2) return 0;
+#ifdef _WIN32
+    return _telli64(fd);
+#else
+    return (int64_t)lseek(fd, 0, SEEK_CUR);
+#endif
+}
+BIND(uint8_t, jcl_java_io_FileInputStream_isRegularFile0, "java.io.FileInputStream_isRegularFile0", (void *self, void *fdObj)) {
+    int32_t *slot = jcl_fd_slot(fdObj);
+    return slot != NULL && *slot > 2;
+}
+
 BIND(void *, jcl_java_lang_System_getProperties, "java.lang.System_getProperties", (void)) {
     if (nabu_properties_meta.type != NULL && nabu_properties_meta.init != NULL
             && nabu_properties_meta.set_property != NULL && nabu_properties_meta.size > 0) {
@@ -955,30 +1355,6 @@ static void * jcl_java_lang_System_getProperty_P523beb0aP523beb0a (void *key, vo
 }
 BIND(void *, jcl_java_lang_System_getProperty_P523beb0aP523beb0a_jstr, "java.lang.System_getProperty$P523beb0aP523beb0a", (void *key, void *dflt)) {
     void *r = (void *)jcl_java_lang_System_getProperty_P523beb0aP523beb0a(key, dflt);
-    return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
-}
-
-
-/* File(String parent, String child). Stond eerder onder het symbool van
- * File(String, File): de frontend koos die overload ten onrechte, omdat de
- * constructorkeuze elk referentiepaar als passend zag. */
-static const char *jcl_file_path(void *self) {
-    s_file *s = (s_file *)jcl_state_kind(self, K_FILE);
-    if (s != NULL) return s->path;
-    return jcl_str(self);
-}
-/* File(File parent, String child). */
-BIND(int, jcl_java_io_File_exists, "java.io.File_exists", (void *self)) {
-    FILE *f = fopen(jcl_file_path(self), "rb");
-    if (f != NULL) { fclose(f); return 1; }
-    return 0;
-}
-BIND(int, jcl_java_io_File_canRead, "java.io.File_canRead", (void *self)) { return jcl_java_io_File_exists(self); }
-static void * jcl_java_io_File_getAbsolutePath (void *self) {
-    return (void *)jcl_dup(jcl_file_path(self));
-}
-BIND(void *, jcl_java_io_File_getAbsolutePath_jstr, "java.io.File_getAbsolutePath", (void *self)) {
-    void *r = (void *)jcl_java_io_File_getAbsolutePath(self);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 

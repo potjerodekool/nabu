@@ -1774,7 +1774,9 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                         elements.add(element);
                     }
                 } else if (variableInitializer.arrayInitializer() != null) {
-                    elements.addAll(arrayInitializerElements(variableInitializer.arrayInitializer()));
+                    // A nested initializer is an array of its own: `{{1}, {2, 3}}`
+                    // has two elements. They were flattened into [1, 2, 3].
+                    elements.add((ExpressionTree) variableInitializer.arrayInitializer().accept(this));
                 }
             }
         }

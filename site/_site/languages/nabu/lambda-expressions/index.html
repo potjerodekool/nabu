@@ -60,7 +60,7 @@
 
 <p>Because lambdas are lowered in a dedicated phase before the backend, every backend sees the same synthetic methods. The JVM backends create the lambda objects with <code class="language-plaintext highlighter-rouge">invokedynamic</code> and <code class="language-plaintext highlighter-rouge">LambdaMetafactory</code>, in any context: as a method argument, in a variable or field, or as a return value. The <a href="/backends/llvm/">LLVM backend</a> has no <code class="language-plaintext highlighter-rouge">LambdaMetafactory</code> at run time: <code class="language-plaintext highlighter-rouge">SourceLambdaLowering</code> generates the class that it would create (as for lambdas in compiled JDK bytecode), and the lambda expression becomes <code class="language-plaintext highlighter-rouge">new</code> of that class with the captured values.</p>
 
-<p>A lambda whose body is itself a lambda (<code class="language-plaintext highlighter-rouge">() -&gt; () -&gt; x</code>) is not supported yet; see <a href="/limitations/">Known limitations</a>.</p>
+<p>A lambda whose body is itself a lambda (<code class="language-plaintext highlighter-rouge">() -&gt; () -&gt; x</code>, <code class="language-plaintext highlighter-rouge">a -&gt; b -&gt; a + b</code>) gets the inner functional interface as its target, and the inner lambda can capture the outer lambda’s parameters.</p>
 
   </main>
 </div>

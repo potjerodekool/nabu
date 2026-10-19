@@ -58,7 +58,7 @@ This is the same format GraalVM `native-image` uses, so tools that generate it w
 
 ## Output
 
-For a program with a `main` method the backend writes three files to the class output directory, named after the **first** compiled class:
+For a program with a `main` method the backend writes three files to the class output directory, named after the class with the `main` method:
 
 | File | Content |
 |---|---|

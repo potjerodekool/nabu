@@ -302,7 +302,6 @@ mvn <span class="nb">install</span> <span class="nt">-DskipTests</span> <span cl
   <li><strong>The JDK is compiled from bytecode.</strong> The backend follows every call from your code and compiles the JDK methods it reaches, and the same goes for libraries on the classpath. You do not configure anything for this.</li>
   <li><strong>The build takes a while.</strong> Even for a small program the backend compiles about 2,300 JDK classes (15,700 methods), and LLVM then optimizes all of it, in parallel parts. On the verification machine (8 cores) a small program (the integration-test programs) takes about 30 seconds and produces a 13 MB executable.</li>
   <li><strong>The build prints many warnings</strong>, for example about static fields of classes outside the compiled closure. They are informational. Functions that could not be compiled at all are listed in <code class="language-plaintext highlighter-rouge">&lt;name&gt;.unresolved.txt</code> next to the executable; the program only fails if it actually calls one of them.</li>
-  <li>The executable is named after the <strong>first</strong> compiled class, which is not necessarily the class with <code class="language-plaintext highlighter-rouge">main</code>.</li>
 </ul>
 
 <h2 id="next-steps">Next steps</h2>

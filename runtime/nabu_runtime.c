@@ -973,12 +973,40 @@ static void *nabu_str_mem(size_t n) {
 /* Een virtuele/interface-aanroep op null (zie InstructionEmitter.
  * emitReceiverNullCheck): gooit java.lang.NullPointerException. `site`
  * ("callee in functie") wordt gemeld als NABU_TRACE_NPE gezet is. */
+/* Exceptions the runtime throws itself, as real compiled objects: the
+ * backend emits their type, tables, size and (String) constructor
+ * (LLVMModuleEmitter.emitExceptionTable). A header-only shell made compiled
+ * code that called getMessage() on a caught exception read past its end. */
+typedef struct nabu_exception_entry {
+    const char *name; void *type; void *vtable; void *itable; int64_t size; void (*init)(void *, void *);
+} nabu_exception_entry;
+extern const nabu_exception_entry nabu_exception_table[];
+extern const int32_t nabu_exception_count;
+
+void *nabu_new_exception(const char *internal_name, const char *message) {
+    for (int32_t i = 0; i < nabu_exception_count; i++) {
+        const nabu_exception_entry *e = &nabu_exception_table[i];
+        if (strcmp(e->name, internal_name) == 0) {
+            nabu_object *obj = (nabu_object *) nabu_str_mem((size_t) e->size);
+            obj->type = e->type;
+            obj->vtable = e->vtable;
+            obj->itable = e->itable;
+            e->init(obj, message != NULL ? nabu_jstring_new(message) : NULL);
+            return obj;
+        }
+    }
+    return NULL;
+}
+
 void nabu_throw_npe(const char *site) {
     static int trace = -1;
     if (trace < 0) trace = getenv("NABU_TRACE_NPE") != NULL;
     if (trace) fprintf(stderr, "nabu: NullPointerException: %s\n", site != NULL ? site : "?");
-    void *obj = nabu_str_mem(sizeof(nabu_object) + 2 * sizeof(void *));
-    nabu_init_object_ex(obj, "java/lang/NullPointerException", "java/lang/RuntimeException");
+    void *obj = nabu_new_exception("java/lang/NullPointerException", NULL);
+    if (obj == NULL) {
+        obj = nabu_str_mem(sizeof(nabu_object) + 2 * sizeof(void *));
+        nabu_init_object_ex(obj, "java/lang/NullPointerException", "java/lang/RuntimeException");
+    }
     nabu_throw(obj);
     fprintf(stderr, "nabu: unhandled NullPointerException\n");
     abort();

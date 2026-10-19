@@ -354,6 +354,20 @@ public final class BytecodeReachabilityCompiler {
             code.add(new org.objectweb.asm.tree.FieldInsnNode(org.objectweb.asm.Opcodes.PUTSTATIC,
                     "java/lang/System", stream, "Ljava/io/PrintStream;"));
         }
+        // System.in = new BufferedInputStream(new FileInputStream(FileDescriptor.in)),
+        // as in System.initPhase1. Without it System.in was null.
+        code.add(new org.objectweb.asm.tree.TypeInsnNode(org.objectweb.asm.Opcodes.NEW, "java/io/BufferedInputStream"));
+        code.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.DUP));
+        code.add(new org.objectweb.asm.tree.TypeInsnNode(org.objectweb.asm.Opcodes.NEW, "java/io/FileInputStream"));
+        code.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.DUP));
+        code.add(new org.objectweb.asm.tree.FieldInsnNode(org.objectweb.asm.Opcodes.GETSTATIC,
+                "java/io/FileDescriptor", "in", "Ljava/io/FileDescriptor;"));
+        code.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESPECIAL,
+                "java/io/FileInputStream", "<init>", "(Ljava/io/FileDescriptor;)V", false));
+        code.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESPECIAL,
+                "java/io/BufferedInputStream", "<init>", "(Ljava/io/InputStream;)V", false));
+        code.add(new org.objectweb.asm.tree.FieldInsnNode(org.objectweb.asm.Opcodes.PUTSTATIC,
+                "java/lang/System", "in", "Ljava/io/InputStream;"));
         code.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.RETURN));
         init.maxStack = 6;
         init.maxLocals = 0;
@@ -511,6 +525,13 @@ public final class BytecodeReachabilityCompiler {
             ensureShape(root.ownerInternalName());
             queueInit(root.ownerInternalName());
             queueMethod(root);
+        }
+        // The C runtime creates these exceptions as real objects
+        // (nabu_exception_table), through their (String) constructor.
+        for (final String exception : io.github.potjerodekool.nabu.backend.RuntimeExceptions.CLASSES) {
+            ensureShape(exception);
+            queueInstantiate(exception);
+            queueMethod(new MethodRef(exception, "<init>", "(Ljava/lang/String;)V", false));
         }
 
         drainWorklists();

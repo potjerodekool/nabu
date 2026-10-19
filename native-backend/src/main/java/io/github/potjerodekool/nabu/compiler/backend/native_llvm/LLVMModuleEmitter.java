@@ -161,6 +161,7 @@ public void setReflectionRegistry(
         emitPropertiesMeta();
         emitEnumTable(modules);
         emitCtorTable(modules);
+        emitExceptionTable(modules);
 
         // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
         //     nabu_reflection_info-globals + @llvm.global_ctors-registratie.
@@ -196,6 +197,37 @@ public void setReflectionRegistry(
                 functions.emitBody(fn);
             }
         }
+
+        // 5. Array classes, after the bodies that allocate the arrays.
+        emitArrayTypeTable(instructions.arrayTypeNames());
+    }
+
+    /**
+     * Emits {@code nabu_array_type_names} (index 0 is null, "unknown") and
+     * {@code nabu_array_type_count}: the JVM names of the allocated array
+     * types, indexed as in the upper bits of each array's element-size word.
+     */
+    private void emitArrayTypeTable(final List<String> names) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final PointerPointer<Pointer> elems = new PointerPointer<>(names.size() + 1);
+        elems.put(0, LLVMConstNull(ptrType));
+        for (int i = 0; i < names.size(); i++) {
+            final String name = names.get(i);
+            final LLVMValueRef str = LLVMConstStringInContext(ctx, new BytePointer(name), name.length(), 0);
+            final LLVMValueRef global = LLVMAddGlobal(mod, LLVMTypeOf(str), new BytePointer(".array.type." + i));
+            LLVMSetLinkage(global, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(global, 1);
+            LLVMSetInitializer(global, str);
+            elems.put(i + 1, global);
+        }
+        final LLVMTypeRef arrayType = LLVMArrayType(ptrType, names.size() + 1);
+        final LLVMValueRef table = LLVMAddGlobal(mod, arrayType, new BytePointer("nabu_array_type_names"));
+        LLVMSetInitializer(table, LLVMConstArray(ptrType, elems, names.size() + 1));
+        LLVMSetGlobalConstant(table, 1);
+        final LLVMValueRef count = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx),
+                new BytePointer("nabu_array_type_count"));
+        LLVMSetInitializer(count, LLVMConstInt(LLVMInt32TypeInContext(ctx), names.size() + 1, 0));
+        LLVMSetGlobalConstant(count, 1);
     }
 
     /**
@@ -423,6 +455,84 @@ public void setReflectionRegistry(
         LLVMSetInitializer(table, LLVMConstArray(entryType, elems, entries.size()));
         LLVMSetGlobalConstant(table, 1);
         final LLVMValueRef count = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx), new BytePointer("nabu_ctor_count"));
+        LLVMSetInitializer(count, LLVMConstInt(LLVMInt32TypeInContext(ctx), entries.size(), 0));
+        LLVMSetGlobalConstant(count, 1);
+    }
+
+    /**
+     * Emits {@code nabu_exception_table} ({@code { i8* internalName, ptr type,
+     * ptr vtable, ptr itable, i64 size, ptr init(self, String) }}) and
+     * {@code nabu_exception_count} for the exceptions the C runtime throws
+     * itself ({@link io.github.potjerodekool.nabu.backend.RuntimeExceptions}),
+     * so that {@code nabu_new_exception} creates real objects. Before, the
+     * runtime allocated a header-only shell, and {@code getMessage()} on a
+     * caught exception read past its end.
+     */
+    private void emitExceptionTable(final List<IRModule> modules) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(6);
+        for (int i = 0; i < 6; i++) {
+            memberTypes.put(i, i == 4 ? i64 : ptrType);
+        }
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 6, 0);
+        final List<LLVMValueRef> entries = new java.util.ArrayList<>();
+        final java.util.Set<String> wanted = new java.util.HashSet<>(
+                io.github.potjerodekool.nabu.backend.RuntimeExceptions.CLASSES);
+        final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
+        int index = 0;
+        for (final IRModule module : modules) {
+            final String internalName = ClassLayouts.normalizeInternalName(module.name);
+            if (internalName == null || !wanted.remove(internalName)) {
+                continue;
+            }
+            final IRFunction init = module.functions().stream()
+                    .filter(fn -> fn.name != null && fn.name.endsWith("_init") && fn.isConstructor()
+                            && fn.params.size() == 2 && !fn.isExternal() && !fn.blocks().isEmpty()
+                            && fn.params.get(1).type() instanceof io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr p
+                            && "Ljava/lang/String;".equals(p.jvmDescriptor()))
+                    .findFirst().orElse(null);
+            if (init == null) {
+                continue;
+            }
+            final LLVMValueRef initValue = this.classLayouts.functionValue(init);
+            final ClassLayouts.ClassLayout layout = this.classLayouts.getFor(
+                    new io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr(
+                            io.github.potjerodekool.nabu.backend.ir.types.IRType.I8,
+                            "L" + internalName + ";"));
+            final LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
+                    new BytePointer("_ZNabu" + this.classLayouts.typeSymbol(internalName) + "Etype_info"));
+            if (initValue == null || initValue.isNull() || layout == null || layout.vtableGlobal == null
+                    || typeInfo == null || typeInfo.isNull()) {
+                continue;
+            }
+            final LLVMValueRef nameStr = LLVMConstStringInContext(ctx, new BytePointer(internalName),
+                    internalName.length(), 0);
+            final LLVMValueRef nameGlobal = LLVMAddGlobal(mod, LLVMTypeOf(nameStr),
+                    new BytePointer(".exception.name." + (index++)));
+            LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(nameGlobal, 1);
+            LLVMSetInitializer(nameGlobal, nameStr);
+            final LLVMValueRef[] fields = {
+                    nameGlobal,
+                    typeInfo,
+                    layout.vtableGlobal,
+                    layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType),
+                    LLVMConstInt(i64, LLVMABISizeOfType(dl, layout.structType), 0),
+                    initValue};
+            entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
+        }
+        LLVMDisposeTargetData(dl);
+        final PointerPointer<Pointer> elems = new PointerPointer<>(Math.max(1, entries.size()));
+        for (int i = 0; i < entries.size(); i++) {
+            elems.put(i, entries.get(i));
+        }
+        final LLVMTypeRef arrayType = LLVMArrayType(entryType, entries.size());
+        final LLVMValueRef table = LLVMAddGlobal(mod, arrayType, new BytePointer("nabu_exception_table"));
+        LLVMSetInitializer(table, LLVMConstArray(entryType, elems, entries.size()));
+        LLVMSetGlobalConstant(table, 1);
+        final LLVMValueRef count = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx),
+                new BytePointer("nabu_exception_count"));
         LLVMSetInitializer(count, LLVMConstInt(LLVMInt32TypeInContext(ctx), entries.size(), 0));
         LLVMSetGlobalConstant(count, 1);
     }

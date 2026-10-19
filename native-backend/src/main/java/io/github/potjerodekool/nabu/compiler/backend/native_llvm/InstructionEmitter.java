@@ -479,9 +479,84 @@ public class InstructionEmitter {
             }
         };
         storeArrayLength(array, count);
-        storeArrayElemSize(array, elemSize);
+        final String arrayClass = arrayClassName(a);
+        storeArrayElemSize(array, elemSize | ((long) (arrayClass != null ? arrayTypeId(arrayClass) : 0) << 8));
         storeLocal(a.result(), array);
         refCounts.onAlloc(a.result(), array);
+    }
+
+    /**
+     * JVM names of the array types this module allocates, by index (index 0
+     * is "unknown"). The index goes into the upper 24 bits of the array's
+     * element-size word, so the runtime knows the class of an array
+     * ({@code nabu_array_class}); LLVMModuleEmitter emits the table.
+     */
+    private final Map<String, Integer> arrayTypeIds = new java.util.LinkedHashMap<>();
+
+    private int arrayTypeId(final String arrayClass) {
+        return arrayTypeIds.computeIfAbsent(arrayClass, k -> arrayTypeIds.size() + 1);
+    }
+
+    /** The array type names in index order, starting at index 1. */
+    List<String> arrayTypeNames() {
+        return new ArrayList<>(arrayTypeIds.keySet());
+    }
+
+    /** The JVM name of the allocated array type ("[Ljava/lang/String;", "[I"), or null. */
+    private static String arrayClassName(final IRInstruction.AllocaArray a) {
+        if (a.result() != null && a.result().type() instanceof IRType.Ptr ptr
+                && ptr.jvmDescriptor() != null && ptr.jvmDescriptor().startsWith("[")) {
+            return ptr.jvmDescriptor();
+        }
+        final String element = switch (a.allocType()) {
+            case IRType.Ptr ptr when ptr.jvmDescriptor() != null
+                    && (ptr.jvmDescriptor().startsWith("L") || ptr.jvmDescriptor().startsWith("[")) -> ptr.jvmDescriptor();
+            case IRType.Bool ignored -> "Z";
+            case IRType.Float f -> f.bits() == 32 ? "F" : "D";
+            case IRType.Int i -> switch (i.bits()) {
+                case 8 -> "B";
+                case 16 -> i.unsigned() ? "C" : "S";
+                case 64 -> "J";
+                case 32 -> "I";
+                default -> null;
+            };
+            default -> null;
+        };
+        return element != null ? "[" + element : null;
+    }
+
+    /**
+     * {@code array.getClass()}: an array has no object header, so the class
+     * comes from the runtime ({@code nabu_array_class}, from the element-type
+     * index in the header). Object.getClass in C took the array's length for
+     * a type pointer and answered String.
+     */
+    private boolean tryEmitArrayGetClass(final IRInstruction.Call call) {
+        if (!"java.lang.Object_getClass".equals(call.function()) || call.args().isEmpty()
+                || !isArrayReceiver(call.args().get(0))) {
+            return false;
+        }
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final PointerPointer<Pointer> params = new PointerPointer<>(1);
+        params.put(0, ptrType);
+        final LLVMTypeRef fnType = LLVMFunctionType(ptrType, params, 1, 0);
+        LLVMValueRef fn = globalValueMap.get("@nabu_array_class");
+        if (fn == null || fn.isNull()) {
+            final LLVMModuleRef mod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+            fn = LLVMGetNamedFunction(mod, "nabu_array_class");
+            if (fn == null || fn.isNull()) {
+                fn = LLVMAddFunction(mod, "nabu_array_class", fnType);
+                LLVMSetLinkage(fn, LLVMExternalLinkage);
+            }
+            globalValueMap.put("@nabu_array_class", fn);
+        }
+        final PointerPointer<Pointer> args = new PointerPointer<>(1);
+        args.put(0, resolveValue(call.args().get(0)));
+        final LLVMValueRef result = emitCallOrInvoke("nabu_array_class", fnType, fn, args, 1, call.result());
+        if (call.result() != null) {
+            storeLocal(call.result(), result);
+        }
+        return true;
     }
 
     private void emitHeapAlloc(IRInstruction.HeapAlloc ha) {
@@ -926,6 +1001,10 @@ public class InstructionEmitter {
         // (zie CallTargets); vóór de dispatch-routes, want een array heeft
         // geen vtable.
         final IRInstruction.Call call = classLayouts.canonicalize(CallTargets.normalize(rawCall));
+
+        if (tryEmitArrayGetClass(call)) {
+            return;
+        }
 
         // Virtuele dispatch: als de receiver een bekende klasse is met een
         // vtable-slot voor deze methode, roepen we indirect via de vtable aan.

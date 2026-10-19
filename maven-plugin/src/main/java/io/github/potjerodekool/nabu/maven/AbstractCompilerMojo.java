@@ -316,12 +316,12 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
 
     }
 
-    private CompilerOption create(final String name) {
+    static CompilerOption create(final String name) {
+        // Compare without the leading dashes on both sides: `--system:dir`,
+        // `system:dir` and `-d` all name a known option.
+        final var wanted = stripDashes(name.trim());
         final var optionOptional = CompilerOption.COMPILER_OPTIONS.stream()
-                .filter(option -> {
-                    final var optionName = option.optionName().replace("-", "");
-                    return optionName.equals(name);
-                })
+                .filter(option -> stripDashes(option.optionName().trim()).equals(wanted))
                 .findFirst();
 
         if  (optionOptional.isPresent()) {
@@ -329,6 +329,14 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
         }
 
         return new CompilerOption(name);
+    }
+
+    private static String stripDashes(final String optionName) {
+        int start = 0;
+        while (start < optionName.length() && optionName.charAt(start) == '-') {
+            start++;
+        }
+        return optionName.substring(start);
     }
 
     /*

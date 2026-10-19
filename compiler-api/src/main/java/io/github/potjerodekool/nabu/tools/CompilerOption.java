@@ -7,7 +7,7 @@ public record CompilerOption(String optionName) {
     public static final CompilerOption SOURCE_PATH = new CompilerOption("--source-path");
     public static final CompilerOption MODULE_SOURCE_PATH = new CompilerOption("--module-source-path");
     public static final CompilerOption CLASS_PATH = new CompilerOption("--class-path");
-    public static final CompilerOption SYSTEM = new CompilerOption(" --system");
+    public static final CompilerOption SYSTEM = new CompilerOption("--system");
     public static final CompilerOption TARGET_VERSION = new CompilerOption("--target");
     public static final CompilerOption SOURCE_OUTPUT = new CompilerOption("-s");
     public static final CompilerOption CLASS_OUTPUT = new CompilerOption("-d");
@@ -32,7 +32,8 @@ public record CompilerOption(String optionName) {
             BACKEND,
             GC,
             OPT,
-            INCREMENTAL
+            INCREMENTAL,
+            BYTECODE_JDK_HOME
     );
 
     public static final List<CompilerOption> INCREMENTAL_FINGERPRINT_OPTIONS = List.of(

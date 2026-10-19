@@ -17,4 +17,4 @@ Method references are supported in Java sources: static (`Math::max`), unbound (
 
 Because lambdas are lowered in a dedicated phase before the backend, every backend sees the same synthetic methods. The JVM backends create the lambda objects with `invokedynamic` and `LambdaMetafactory`, in any context: as a method argument, in a variable or field, or as a return value. The [LLVM backend](/backends/llvm/) has no `LambdaMetafactory` at run time: `SourceLambdaLowering` generates the class that it would create (as for lambdas in compiled JDK bytecode), and the lambda expression becomes `new` of that class with the captured values.
 
-A lambda whose body is itself a lambda (`() -> () -> x`) is not supported yet; see [Known limitations](/limitations/).
+A lambda whose body is itself a lambda (`() -> () -> x`, `a -> b -> a + b`) gets the inner functional interface as its target, and the inner lambda can capture the outer lambda's parameters.

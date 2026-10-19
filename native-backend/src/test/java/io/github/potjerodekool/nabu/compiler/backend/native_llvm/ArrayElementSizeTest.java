@@ -46,9 +46,18 @@ class ArrayElementSizeTest {
                 io.github.potjerodekool.nabu.tools.JavaVersion.MINIMAL_VERSION), out);
         final String ll = Files.readString(tempDir.resolve("out.ll"));
 
-        for (final int size : new int[]{1, 2, 4, 8}) {
-            assertTrue(Pattern.compile("store i32 " + size + ", ptr %\\.esize\\.ptr").matcher(ll).find(),
-                    "Verwacht elementgrootte " + size + " in de array-header:\n" + ll);
+        // The low 8 bits are the element size, the bits above it the index
+        // of the array type in nabu_array_type_names (for getClass()).
+        final var stored = new java.util.ArrayList<Integer>();
+        final var matcher = Pattern.compile("store i32 (\\d+), ptr %\\.esize\\.ptr").matcher(ll);
+        while (matcher.find()) {
+            stored.add(Integer.parseInt(matcher.group(1)));
         }
+        assertTrue(stored.stream().map(v -> v & 0xff).toList().containsAll(List.of(1, 2, 4, 8)),
+                "Verwacht elementgroottes 1, 2, 4 en 8 in de array-header: " + stored + "\n" + ll);
+        assertTrue(stored.stream().allMatch(v -> (v >> 8) > 0),
+                "Verwacht een array-type-index bij elke allocatie: " + stored);
+        assertTrue(ll.contains("[Ljava/lang/String;") && ll.contains("@nabu_array_type_names"),
+                "Verwacht de array-typenamen-tabel:\n" + ll);
     }
 }

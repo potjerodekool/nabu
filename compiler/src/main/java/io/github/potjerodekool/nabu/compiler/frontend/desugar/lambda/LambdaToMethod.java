@@ -98,7 +98,13 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         // Alleen de locals die de body gebruikt worden gecaptured (JLS 15.27.2),
         // niet alles wat in scope is: een ongebruikte, later of conditioneel
         // toegewezen local werd anders uit een nooit beschreven slot geladen.
-        final var recording = new RecordingScope(scope);
+        // The body is visited in a scope of its own that has the lambda's
+        // parameters (and, through the recording scope, the body's locals):
+        // a lambda inside this one captures them from here. Before, an inner
+        // lambda (`a -> b -> a + b`) did not see `a`.
+        final var bodyScope = new SimpleScope(scope, lambdaExpression, scope.getLambdaContext());
+        lambdaParameters.forEach(bodyScope::define);
+        final var recording = new RecordingScope(bodyScope);
         acceptTree(lambdaExpression.getBody(), recording);
         final var parameterNames = lambdaParameters.stream()
                 .map(Element::getSimpleName)
@@ -385,8 +391,10 @@ class RecordingScope extends LambdaScope {
         return Set.of();
     }
 
+    /** Locals declared in the body, for lambdas nested in it. */
     @Override
     public void define(final Element element) {
+        getParent().define(element);
     }
 
     @Override

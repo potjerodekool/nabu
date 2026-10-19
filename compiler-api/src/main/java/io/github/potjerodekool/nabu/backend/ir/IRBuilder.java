@@ -696,7 +696,7 @@ public class IRBuilder {
         return new IRValue.Temp("%" + tempCounter++, type);
     }
 
-    private String uniqueLabel(String base) {
+    public String uniqueLabel(String base) {
         int n = labelCounters.merge(base, 1, Integer::sum);
         return n == 1 ? base : base + "." + n;
     }

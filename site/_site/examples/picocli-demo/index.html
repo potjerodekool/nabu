@@ -61,7 +61,7 @@
     <tr>
       <td><strong>llvm</strong></td>
       <td>Nabu’s <a href="/backends/llvm/">LLVM backend</a>, with picocli compiled from the bytecode in its jar</td>
-      <td>a native <code class="language-plaintext highlighter-rouge">greet.GreetCommand.exe</code> (15 MB)</td>
+      <td>a native <code class="language-plaintext highlighter-rouge">greet.Main.exe</code> (15 MB)</td>
     </tr>
     <tr>
       <td><strong>jvm</strong></td>
@@ -314,7 +314,7 @@ Usage: greet [-hV] [-c=&lt;count&gt;] [-n=&lt;name&gt;]
 <p>The <code class="language-plaintext highlighter-rouge">compilerArgs</code> of the profile replace those of the base build, so this build uses the LLVM backend instead of ASM. The <a href="/backends/llvm/installation/">toolchain</a> has to be installed.</p>
 
 <div class="language-powershell highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">mvn</span><span class="w"> </span><span class="nt">-Pllvm</span><span class="w"> </span><span class="nx">clean</span><span class="w"> </span><span class="nx">package</span><span class="w"> </span><span class="nt">-Dnabu</span><span class="o">.</span><span class="nf">incremental</span><span class="o">=</span><span class="n">false</span><span class="w">
-</span><span class="o">.</span><span class="nx">\target\classes\greet.GreetCommand.exe</span><span class="w"> </span><span class="nt">--help</span><span class="w">
+</span><span class="o">.</span><span class="nx">\target\classes\greet.Main.exe</span><span class="w"> </span><span class="nt">--help</span><span class="w">
 </span></code></pre></div></div>
 
 <p>The build takes about 45 seconds on the verification machine (8 cores). Nabu compiles about 2,600 classes from bytecode (the reachable parts of picocli and of the JDK) and writes a 110 MB <code class="language-plaintext highlighter-rouge">.ll</code> file next to the executable.</p>

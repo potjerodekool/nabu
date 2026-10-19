@@ -52,7 +52,7 @@
 <h2 id="compiler-all-backends">Compiler (all backends)</h2>
 
 <ul>
-  <li><strong>Nested lambdas.</strong> A lambda whose body is itself a lambda, such as <code class="language-plaintext highlighter-rouge">Supplier&lt;IntSupplier&gt; s = () -&gt; () -&gt; x + 1;</code>, makes the compiler crash: the inner lambda gets no target type. Use a method or an anonymous class for the inner function.</li>
+  <li><strong>Bound method references</strong> (<code class="language-plaintext highlighter-rouge">expr::m</code>) evaluate <code class="language-plaintext highlighter-rouge">expr</code> at each call instead of once when the reference is created.</li>
   <li><strong>Java language level.</strong> Java sources are parsed with a Java 20 grammar. Newer language features are not recognized.</li>
   <li><strong>Kotlin</strong> support is experimental: only top-level class declarations are handled.</li>
   <li>The <strong>Java backend</strong> (ClassFile API) needs Java 24 or later to run.</li>
@@ -66,7 +66,6 @@
   <li><strong>Reflection needs configuration.</strong> Classes that are only used through reflection must be listed in a GraalVM configuration file (<code class="language-plaintext highlighter-rouge">META-INF/native-image/**/reflect-config.json</code>), as with GraalVM <code class="language-plaintext highlighter-rouge">native-image</code>; otherwise they are not compiled.</li>
   <li><strong>Slow builds, large executables.</strong> The whole reachable part of the JDK is compiled and optimized: about 30 seconds and 13 MB for a small program, about 45 seconds and 15 MB for the <a href="/examples/picocli-demo/">picocli example</a>, on an 8-core machine. LLVM’s optimization and code generation run in parallel parts, so fewer cores means a slower build.</li>
   <li><strong>Incremental builds</strong> have not been tested with the LLVM backend; the examples build with <code class="language-plaintext highlighter-rouge">-Dnabu.incremental=false</code>.</li>
-  <li>The executable is named after the <strong>first</strong> compiled class, not after the class with <code class="language-plaintext highlighter-rouge">main</code>.</li>
   <li>The build prints many warnings (for example about static fields of classes outside the compiled closure). They do not stop the build, and most are harmless, but they make real problems harder to spot.</li>
 </ul>
 
@@ -87,8 +86,7 @@
   <li><strong>No stack traces.</strong> Exceptions print their class and message when they reach the top of the program; set <code class="language-plaintext highlighter-rouge">NABU_TRACE_NPE=1</code> to locate <code class="language-plaintext highlighter-rouge">NullPointerException</code>s. See <a href="/backends/llvm/troubleshooting/">Troubleshooting</a>.</li>
   <li><strong>Garbage collection:</strong> only <code class="language-plaintext highlighter-rouge">--gc=BOEHM</code> (the default) is suitable for executables. <code class="language-plaintext highlighter-rouge">REFCOUNT</code> leaks every object that escapes its frame and does not collect cycles; <code class="language-plaintext highlighter-rouge">NONE</code> allocates objects on the stack, so they are invalid once the creating function returns.</li>
   <li>The VM-bound parts of the class library (<code class="language-plaintext highlighter-rouge">Class</code>, <code class="language-plaintext highlighter-rouge">System</code>, <code class="language-plaintext highlighter-rouge">Thread</code>, <code class="language-plaintext highlighter-rouge">Runtime</code>, reflection, <code class="language-plaintext highlighter-rouge">java.io.File</code>, <code class="language-plaintext highlighter-rouge">Unsafe</code>) are implemented in C (<code class="language-plaintext highlighter-rouge">runtime/jcl_lite.c</code>) instead of compiled from the JDK. They can behave differently from the JDK in edge cases.</li>
-  <li><strong>Arrays do not know their class.</strong> <code class="language-plaintext highlighter-rouge">getClass().getName()</code> of an array is empty, and <code class="language-plaintext highlighter-rouge">Arrays.copyOf(T[], int)</code> and <code class="language-plaintext highlighter-rouge">Array.newInstance</code> create untyped arrays.</li>
-  <li><strong>Standard input</strong> is not set up: <code class="language-plaintext highlighter-rouge">System.in</code> is <code class="language-plaintext highlighter-rouge">null</code>, so a program cannot read from the console.</li>
+  <li><strong>The class of an array</strong> is only known where the expression has an array type (<code class="language-plaintext highlighter-rouge">String[] a; a.getClass()</code>). Through a reference of type <code class="language-plaintext highlighter-rouge">Object</code> (<code class="language-plaintext highlighter-rouge">Object o = a; o.getClass()</code>) the runtime cannot tell an array from other memory and does not answer an array class.</li>
 </ul>
 
   </main>

@@ -100,10 +100,11 @@ static int jcl_eq(const void *a, const void *b) {
         return 0;
     }
     if (ba != NULL || bb != NULL) {
-        const void *box = ba != NULL ? a : b;
+        /* One side is boxed; with only b boxed, ba was dereferenced as NULL. */
+        const s_box *box = ba != NULL ? ba : bb;
         const void *oth = ba != NULL ? b : a;
         const char *s = jcl_str(oth);
-        if (ba->t == B_BOOL) return (strcmp(s, "true") == 0) == (ba->v.i != 0);
+        if (box->t == B_BOOL) return (strcmp(s, "true") == 0) == (box->v.i != 0);
         return 0;
     }
     /* Geen van beide is een boxed primitive. Een inhoudelijke strcmp is hier
@@ -369,8 +370,30 @@ static int32_t jcl_arr_len(void *a) { return a != NULL ? *(int32_t *)a : 0; }
 /* Elementgrootte van een array; 8 (referentie) voor een array zonder geldige
  * grootte in de header, zoals vóór de elementgrootte bestond. */
 static size_t jcl_arr_esize(const void *a) {
-    int32_t es = a != NULL ? ((const int32_t *)a)[1] : 0;
+    int32_t es = a != NULL ? (((const int32_t *)a)[1] & 0xff) : 0;
     return (es == 1 || es == 2 || es == 4 || es == 8) ? (size_t)es : 8;
+}
+
+/* The class of an array: the upper 24 bits of the element-size word are an
+ * index into nabu_array_type_names, which the backend emits with the JVM
+ * name of every array type it allocates ("[Ljava/lang/String;", "[I");
+ * 0 means unknown. */
+extern const char *const nabu_array_type_names[];
+extern const int32_t nabu_array_type_count;
+
+static const char *jcl_arr_type_name(const void *a) {
+    int32_t id = a != NULL ? (int32_t)(((const uint32_t *)a)[1] >> 8) : 0;
+    return id > 0 && id < nabu_array_type_count ? nabu_array_type_names[id] : NULL;
+}
+static int32_t jcl_arr_type_id(const char *name) {
+    for (int32_t i = 1; i < nabu_array_type_count; i++) {
+        if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) return i;
+    }
+    return 0;
+}
+static void jcl_arr_set_type(void *a, const char *name) {
+    int32_t es = ((int32_t *)a)[1] & 0xff;
+    ((int32_t *)a)[1] = es | (jcl_arr_type_id(name) << 8);
 }
 
 static void *jcl_arr_elem(void *a, int32_t i) {
@@ -470,6 +493,8 @@ static int ann_bool(const void *ann, const char *name, int dflt) {
 
 
 static void *jcl_throw(const char *cls, const char *super, const char *msg) {
+    void *real = nabu_new_exception(cls, msg);
+    if (real != NULL) return real;
     s_throw *st = (s_throw *)jcl_alloc(sizeof(s_throw));
     st->kind = K_THROW;
     st->msg = jcl_dup(msg);
@@ -846,6 +871,66 @@ BIND(void, jcl_java_io_FileOutputStream_write, "java.io.FileOutputStream_write$P
     (void)append;
     const char c = (char)b;
     jcl_fos_write(self, &c, 1);
+}
+
+/* --- java.io.FileInputStream natives (standard input) ---------------- */
+
+/* Reads up to len bytes from the stream's descriptor; only fd 0 (System.in)
+ * is open. read()/_read() return what is available, so an interactive line
+ * is delivered without waiting for a full buffer. -1 at end of input. */
+static int32_t jcl_fis_read(void *self, void *buf, int32_t len) {
+    int32_t fd = jcl_fos_fd(self);
+    if (fd != 0) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed"));
+        return -1;
+    }
+    if (len == 0) return 0;
+#ifdef _WIN32
+    static int binary_set = 0;
+    if (!binary_set) {
+        /* Raw bytes, as the JDK reads them; BufferedReader handles "\r\n". */
+        _setmode(0, _O_BINARY);
+        binary_set = 1;
+    }
+    int n = _read(0, buf, (unsigned int)len);
+#else
+    ssize_t n = read(0, buf, (size_t)len);
+#endif
+    if (n < 0) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Read error"));
+        return -1;
+    }
+    return n == 0 ? -1 : (int32_t)n;
+}
+
+BIND(int32_t, jcl_java_io_FileInputStream_readBytes, "java.io.FileInputStream_readBytes",
+     (void *self, void *b, int32_t off, int32_t len)) {
+    if (b == NULL) { nabu_throw(jcl_throw("java/lang/NullPointerException", "java/lang/RuntimeException", NULL)); return -1; }
+    if (off < 0 || len < 0 || off + len > jcl_arr_len(b)) {
+        nabu_throw(jcl_throw("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException", NULL));
+        return -1;
+    }
+    return jcl_fis_read(self, (char *)b + 8 + off, len);
+}
+BIND(int32_t, jcl_java_io_FileInputStream_read0, "java.io.FileInputStream_read0", (void *self)) {
+    unsigned char c;
+    int32_t n = jcl_fis_read(self, &c, 1);
+    return n == 1 ? (int32_t)c : -1;
+}
+BIND(int32_t, jcl_java_io_FileInputStream_available0, "java.io.FileInputStream_available0", (void *self)) {
+    (void)self;
+    return 0;
+}
+BIND(int64_t, jcl_java_io_FileInputStream_skip0, "java.io.FileInputStream_skip0", (void *self, int64_t n)) {
+    char buf[512];
+    int64_t skipped = 0;
+    while (skipped < n) {
+        int32_t chunk = (int32_t)(n - skipped < (int64_t)sizeof buf ? n - skipped : (int64_t)sizeof buf);
+        int32_t r = jcl_fis_read(self, buf, chunk);
+        if (r <= 0) break;
+        skipped += r;
+    }
+    return skipped;
 }
 
 BIND(void *, jcl_java_lang_System_getProperties, "java.lang.System_getProperties", (void)) {
@@ -1326,7 +1411,38 @@ BIND(void *, jcl_java_lang_reflect_AnnotatedElement_getAnnotation, "java.lang.re
 }
 BIND(void *, jcl_java_lang_reflect_Array_get, "java.lang.reflect.Array_get", (void *a, int32_t i)) { return jcl_arr_elem(a, i); }
 BIND(int32_t, jcl_java_lang_reflect_Array_getLength, "java.lang.reflect.Array_getLength", (void *a)) { return jcl_arr_len(a); }
-BIND(void *, jcl_java_lang_reflect_Array_newInstance, "java.lang.reflect.Array_newInstance", (void *cls, int32_t n)) { (void)cls; return jcl_arr_ref(n); }
+/* Array.newInstance(component, n): an array with the component's element
+ * size and class. Before, every array was one of references (8-byte
+ * elements, so a copy of an int[] went wrong) without a class. */
+BIND(void *, jcl_java_lang_reflect_Array_newInstance, "java.lang.reflect.Array_newInstance", (void *cls, int32_t n)) {
+    if (cls == NULL) { nabu_throw(jcl_throw("java/lang/NullPointerException", "java/lang/RuntimeException", NULL)); return NULL; }
+    if (n < 0) { nabu_throw(jcl_throw("java/lang/NegativeArraySizeException", "java/lang/RuntimeException", NULL)); return NULL; }
+    const char *c = jcl_str(cls);
+    static const struct { const char *name; const char *array; int32_t size; } prims[] = {
+        {"boolean", "[Z", 1}, {"byte", "[B", 1}, {"char", "[C", 2}, {"short", "[S", 2},
+        {"int", "[I", 4}, {"float", "[F", 4}, {"long", "[J", 8}, {"double", "[D", 8}};
+    const char *arrayName = NULL;
+    int32_t size = (int32_t)sizeof(void *);
+    for (size_t i = 0; i < sizeof prims / sizeof prims[0]; i++) {
+        if (strcmp(prims[i].name, c) == 0) { arrayName = prims[i].array; size = prims[i].size; }
+    }
+    if (arrayName == NULL) {
+        arrayName = c[0] == '[' ? jcl_concat("[", c) : jcl_concat(jcl_concat("[L", c), ";");
+    }
+    void *p = jcl_alloc(8 + (size_t)n * (size_t)size);
+    ((int32_t *)p)[0] = n;
+    ((int32_t *)p)[1] = size;
+    jcl_arr_set_type(p, arrayName);
+    return p;
+}
+
+/* Object.getClass() of an array (the backend calls this for an array-typed
+ * receiver; an array has no object header). */
+void *nabu_array_class(void *a) {
+    if (a == NULL) { nabu_throw_npe("getClass"); return NULL; }
+    const char *name = jcl_arr_type_name(a);
+    return jcl_class(name != NULL ? name : "[Ljava/lang/Object;");
+}
 BIND(void, jcl_java_lang_reflect_Array_set, "java.lang.reflect.Array_set", (void *a, int32_t i, void *v)) { jcl_arr_set(a, i, v); }
 BIND(void *, jcl_java_lang_reflect_Constructor_newInstance, "java.lang.reflect.Constructor_newInstance", (void *self, void *args)) {
     s_ctor *st = (s_ctor *)jcl_state_kind(self, K_CTOR);
@@ -1481,6 +1597,8 @@ BIND(void *, jcl_java_util_Arrays_copyOf_refs, "java.util.Arrays_copyOf$P7b09cd3
     int32_t n = jcl_arr_len(original);
     if (n > new_length) n = new_length;
     if (n > 0) memcpy((char *)copy + 8, (char *)original + 8, (size_t)n * sizeof(void *));
+    /* Same class as the original (Arrays.copyOf(T[], int) keeps the type). */
+    if (original != NULL) ((int32_t *)copy)[1] = ((int32_t *)original)[1];
     return copy;
 }
 /* Throwable.fillInStackTrace(int): er is geen stack-walker, dus de

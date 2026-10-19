@@ -161,4 +161,44 @@ class FrontendRegressionRunTest {
         org.junit.jupiter.api.Assertions.assertTrue(
                 error.getMessage().contains("Failed to resolve method valueOf"), error.getMessage());
     }
+
+    @Test
+    void nestedLambda() throws Exception {
+        assertEquals("42 6 !", run("""
+                int base = 41;
+                java.util.function.Supplier<java.util.function.IntSupplier> s = () -> () -> base + 1;
+                java.util.function.Function<Integer, java.util.function.Function<Integer, Integer>> add = a -> b -> a + b;
+                return s.get().getAsInt() + " " + add.apply(2).apply(4) + " " + p("x", () -> ((java.util.function.Supplier<String>) () -> "!").get()).substring(2);"""));
+    }
+
+    /** Two wrappers: unboxed for arithmetic, compared as references by ==. */
+    @Test
+    void boxedArithmetic() throws Exception {
+        assertEquals("6 6 true 2.5", run("""
+                Integer x = 2;
+                Integer y = 4;
+                int z = x + y;
+                Double d = 5.0;
+                Double two = 2.0;
+                return z + " " + (x + y) + " " + (x < y) + " " + (d / two);"""));
+    }
+
+    /**
+     * `new int[2][3]` had type int[] and allocated only the outer array, and
+     * nested initializers ({{1}, {2, 3}}) were flattened into one array.
+     */
+    @Test
+    void multiDimensionalArray() throws Exception {
+        assertEquals("2 3 5 2 null 3 2 4 0", run("""
+                int[][] m = new int[2][3];
+                m[1][2] = 5;
+                String[][] partial = new String[2][];
+                int[][] literal = new int[][]{{1}, {2, 3}};
+                int[][] bare = {{4}, {}};
+                return m.length + " " + m[1].length + " " + m[1][2] + " " + partial.length + " " + partial[0]
+                        + " " + literal[1][1] + " " + literal.length + " " + bare[0][0] + " " + bare[1].length;"""));
+    }
+
+
+
 }

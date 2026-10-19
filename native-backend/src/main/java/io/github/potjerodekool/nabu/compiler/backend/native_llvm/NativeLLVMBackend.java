@@ -79,7 +79,7 @@ public class NativeLLVMBackend implements Backend {
     public void compile(List<IRModule> modules,
                         CompileOptions opts,
                         Path outputObj) throws CompileException {
-        ensureMainEntry(modules);
+        final IRModule mainModule = ensureMainEntry(modules);
         loadNativeImageConfigs(outputObj, opts.classPath());
 
         // Triple zoveel mogelijk één keer bepalen: expliciet (opties) of
@@ -89,7 +89,9 @@ public class NativeLLVMBackend implements Backend {
                 ? opts.targetTriple()
                 : Linker.guessTargetTriple(LLVMGetDefaultTargetTriple().getString());
 
-        Path outFile = resolveOutputFile(modules.getFirst(), outputObj);
+        // Named after the class with the main method (as GraalVM's
+        // native-image does), not after whichever class came first.
+        Path outFile = resolveOutputFile(mainModule != null ? mainModule : modules.getFirst(), outputObj);
         List<Path> objectFiles = compileToObject(modules, opts, outFile, triple, true);
 
         // Alleen linken als er een main-functie aanwezig is
@@ -129,15 +131,17 @@ public class NativeLLVMBackend implements Backend {
         }
     }
 
-    private void ensureMainEntry(List<IRModule> modules) {
+    /** @return the module with the entry method, or null */
+    private IRModule ensureMainEntry(List<IRModule> modules) {
         for (IRModule m : modules) {
             boolean hasEntry = m.functions().stream()
                     .anyMatch(f -> !f.isExternal() && f.name.endsWith("_main"));
             if (hasEntry) {
                 ensureMainEntry(m);
-                return;
+                return m;
             }
         }
+        return null;
     }
 
     /**

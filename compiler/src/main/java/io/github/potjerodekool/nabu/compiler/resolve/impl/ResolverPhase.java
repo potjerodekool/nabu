@@ -259,6 +259,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     }
                 }
 
+                // `int[][] x = {{1}}`: an initializer without `new` has the
+                // variable's type (and passes the component type down).
+                if (variableDeclaratorStatement.getValue() instanceof NewArrayExpression initializer
+                        && initializer.getElementType() == null && initializer.getType() == null
+                        && variableType instanceof ArrayType) {
+                    initializer.setType(variableType);
+                }
                 lambdaCheck(variableDeclaratorStatement.getValue(), variableType);
                 acceptTree(variableDeclaratorStatement.getValue(), scope);
                 // Net als bij een methode-argument: met het doeltype bekend
@@ -334,6 +341,12 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         for (final var variable : lambda.getVariables()) {
             if (variable instanceof IdentifierTree identifier) {
                 identifier.setSymbol(null);
+            } else if (variable instanceof VariableDeclaratorTree declarator
+                    && declarator.getVariableType() == null) {
+                // `b -> ...`: an implicit parameter as a declarator without a
+                // type. Its symbol from the untyped first pass kept an error
+                // type (in `a -> b -> a + b` the sum became a string concat).
+                declarator.getName().setSymbol(null);
             }
         }
     }
@@ -580,7 +593,8 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
         super.visitBinaryExpression(binaryExpression, scope);
         final var leftType = compilerContext.getTreeUtils().typeOf(binaryExpression.getLeft());
-        final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());        var binaryType = switch (binaryExpression.getTag()) {
+        final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());
+        var binaryType = switch (binaryExpression.getTag()) {
             case EQ, NE, LT, GT, LE, GE, AND, OR -> types.getPrimitiveType(TypeKind.BOOLEAN);
             case ADD, SUB -> {
                 final var module = scope.findModuleElement();
@@ -1045,6 +1059,38 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         });
 
         acceptTree(lambdaExpression.getBody(), lambdaScope);
+
+        // A lambda whose body is a lambda (`() -> () -> x`, `a -> b -> a + b`):
+        // the inner one gets the SAM's return type as its target, like a
+        // lambda in a return statement. Without a target it kept an
+        // undetermined type and LambdaToMethod failed.
+        final var body = lambdaExpression.getBody();
+        final Tree bodyExpression = body instanceof ExpressionStatementTree statement
+                ? statement.getExpression() : body;
+        final var returnType = member.getReturnType();
+        if (bodyExpression instanceof LambdaExpressionTree inner && isFunctionalInterface(returnType)) {
+            resetImplicitLambdaParameters(inner);
+            postResolve(inner, returnType, lambdaScope);
+        }
+    }
+
+    private static boolean isFunctionalInterface(final TypeMirror type) {
+        return type instanceof DeclaredType && type.asTypeElement() != null
+                && type.asTypeElement().isFunctionalInterface();
+    }
+
+    /** A lambda in a cast (`(Supplier<String>) () -> "x"`) has the cast type as target. */
+    @Override
+    public Object visitCastExpression(final CastExpressionTree castExpression, final Scope scope) {
+        final Object result = super.visitCastExpression(castExpression, scope);
+        final var targetType = castExpression.getTargetType() != null
+                ? castExpression.getTargetType().getType() : null;
+        if (castExpression.getExpression() instanceof LambdaExpressionTree lambda
+                && isFunctionalInterface(targetType)) {
+            resetImplicitLambdaParameters(lambda);
+            postResolve(lambda, targetType, scope);
+        }
+        return result;
     }
 
     @Override
@@ -2026,12 +2072,26 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 : null;
 
         if (elementType != null) {
-            final var arrayType = types.getArrayType(elementType);
+            // One array level per dimension expression (`new int[2][3]` is
+            // int[][]); trailing empty dimensions are already part of the
+            // element type, and with an initializer there are none.
+            TypeMirror arrayType = elementType;
+            final int levels = Math.max(1, dimensions != null ? dimensions.size() : 0);
+            for (int i = 0; i < levels; i++) {
+                arrayType = types.getArrayType(arrayType);
+            }
             newArrayExpression.setType(arrayType);
         }
 
         if (newArrayExpression.getElements() != null) {
+            // A nested initializer (`{{1}, {2}}`) has no element type of its
+            // own: it is an array of this array's component type.
+            final TypeMirror ownType = newArrayExpression.getType();
             for (final var element : newArrayExpression.getElements()) {
+                if (element instanceof NewArrayExpression nested && nested.getElementType() == null
+                        && nested.getType() == null && ownType instanceof ArrayType ownArray) {
+                    nested.setType(ownArray.getComponentType());
+                }
                 acceptTree(element, scope);
             }
         }

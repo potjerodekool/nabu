@@ -2177,7 +2177,42 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         right = unboxIfNeeded(right, left.type());
         left = unboxIfNeeded(left, right.type());
 
+        // Two wrappers (`Integer a + Integer b`): neither side is primitive,
+        // so the lines above unbox nothing and the emitter concatenated the
+        // two references as strings ("24" for 2 + 4). Arithmetic and ordering
+        // unbox both (JLS 5.6.2); == and != between two references stay a
+        // reference comparison.
+        if (tag != Tag.EQ && tag != Tag.NE
+                && !(isStringType(left.type()) || isStringType(right.type()))) {
+            final IRType leftPrimitive = wrapperPrimitive(left.type());
+            final IRType rightPrimitive = wrapperPrimitive(right.type());
+            if (leftPrimitive != null) {
+                left = unboxIfNeeded(left, leftPrimitive);
+            }
+            if (rightPrimitive != null) {
+                right = unboxIfNeeded(right, rightPrimitive);
+            }
+        }
+
         return builder.emitBinaryOp(op, left, right);
+    }
+
+    /** The primitive of a wrapper type (Integer -> i32), or null. */
+    private static IRType wrapperPrimitive(final IRType type) {
+        if (!(type instanceof IRType.Ptr ptr) || ptr.jvmDescriptor() == null) {
+            return null;
+        }
+        return switch (ptr.jvmDescriptor()) {
+            case "Ljava/lang/Integer;" -> IRType.I32;
+            case "Ljava/lang/Long;" -> IRType.I64;
+            case "Ljava/lang/Short;" -> IRType.I16;
+            case "Ljava/lang/Byte;" -> IRType.I8;
+            case "Ljava/lang/Character;" -> IRType.CHAR;
+            case "Ljava/lang/Float;" -> IRType.F32;
+            case "Ljava/lang/Double;" -> IRType.F64;
+            case "Ljava/lang/Boolean;" -> IRType.BOOL;
+            default -> null;
+        };
     }
 
     /**
@@ -4128,7 +4163,52 @@ if (argVal != null) args.add(argVal);
             }
         }
 
+        // `new int[2][3]`: the sub-arrays of every further dimension (JLS
+        // 15.10.2). Only the outer array was allocated, and m[1] was null.
+        if (dimensions.size() > 1 && objectType instanceof IRType.Ptr outerType) {
+            final List<IRValue> sizes = new ArrayList<>();
+            sizes.add(size != null ? size : IRValue.ofI32(0));
+            for (int i = 1; i < dimensions.size(); i++) {
+                final IRValue dimension = acceptTree(dimensions.get(i), builder);
+                sizes.add(dimension != null ? dimension : IRValue.ofI32(0));
+            }
+            fillSubArrays(arrayPtr, outerType, sizes, 0);
+        }
+
         return arrayPtr;
+    }
+
+    /** Allocates the sub-arrays of dimension {@code depth + 1} into {@code array}. */
+    private void fillSubArrays(final IRValue array, final IRType.Ptr arrayType,
+                               final List<IRValue> sizes, final int depth) {
+        if (depth + 1 >= sizes.size() || !(arrayType.pointee() instanceof IRType.Ptr componentType)
+                || componentType.jvmDescriptor() == null || !componentType.jvmDescriptor().startsWith("[")) {
+            return;
+        }
+        final var index = builder.emitAlloca("mdim.index", IRType.I32);
+        builder.emitStore(index, IRValue.ofI32(0));
+        final var function = builder.currentFunction();
+        final var condition = new IRBasicBlock(builder.uniqueLabel("mdim.cond"));
+        final var body = new IRBasicBlock(builder.uniqueLabel("mdim.body"));
+        final var exit = new IRBasicBlock(builder.uniqueLabel("mdim.exit"));
+        function.addBlock(condition);
+        function.addBlock(body);
+        function.addBlock(exit);
+        builder.emitBranch(condition);
+
+        builder.setCurrentBlock(condition);
+        final var more = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.LT, builder.emitLoad(index), sizes.get(depth));
+        builder.emitCondBranch(more, body, exit);
+
+        builder.setCurrentBlock(body);
+        final var inner = builder.emitAllocaArray(sizes.get(depth + 1), componentType);
+        fillSubArrays(inner, componentType, sizes, depth + 1);
+        builder.emitArrayStore(array, builder.emitLoad(index), inner, componentType);
+        builder.emitStore(index, builder.emitBinaryOp(IRInstruction.BinaryOp.Op.ADD,
+                builder.emitLoad(index), IRValue.ofI32(1)));
+        builder.emitBranch(condition);
+
+        builder.setCurrentBlock(exit);
     }
 
     @Override

@@ -489,6 +489,10 @@ const char *nabu_cstr(const void *p);
  *  meegecompileerd, anders een kopie van de C-string. */
 void *nabu_jstring_new(const char *utf8);
 
+/** A real compiled exception of a class in nabu_exception_table, made with
+ *  its (String) constructor, or NULL if the class is not in the table. */
+void *nabu_new_exception(const char *internal_name, const char *message);
+
 #ifdef __cplusplus
 }
 #endif

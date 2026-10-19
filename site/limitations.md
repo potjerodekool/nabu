@@ -7,7 +7,7 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 
 ## Compiler (all backends)
 
-- **Nested lambdas.** A lambda whose body is itself a lambda, such as `Supplier<IntSupplier> s = () -> () -> x + 1;`, makes the compiler crash: the inner lambda gets no target type. Use a method or an anonymous class for the inner function.
+- **Bound method references** (`expr::m`) evaluate `expr` at each call instead of once when the reference is created.
 - **Java language level.** Java sources are parsed with a Java 20 grammar. Newer language features are not recognized.
 - **Kotlin** support is experimental: only top-level class declarations are handled.
 - The **Java backend** (ClassFile API) needs Java 24 or later to run.
@@ -19,7 +19,6 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 - **Reflection needs configuration.** Classes that are only used through reflection must be listed in a GraalVM configuration file (`META-INF/native-image/**/reflect-config.json`), as with GraalVM `native-image`; otherwise they are not compiled.
 - **Slow builds, large executables.** The whole reachable part of the JDK is compiled and optimized: about 30 seconds and 13 MB for a small program, about 45 seconds and 15 MB for the [picocli example](/examples/picocli-demo/), on an 8-core machine. LLVM's optimization and code generation run in parallel parts, so fewer cores means a slower build.
 - **Incremental builds** have not been tested with the LLVM backend; the examples build with `-Dnabu.incremental=false`.
-- The executable is named after the **first** compiled class, not after the class with `main`.
 - The build prints many warnings (for example about static fields of classes outside the compiled closure). They do not stop the build, and most are harmless, but they make real problems harder to spot.
 
 ### Platforms
@@ -36,5 +35,4 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 - **No stack traces.** Exceptions print their class and message when they reach the top of the program; set `NABU_TRACE_NPE=1` to locate `NullPointerException`s. See [Troubleshooting](/backends/llvm/troubleshooting/).
 - **Garbage collection:** only `--gc=BOEHM` (the default) is suitable for executables. `REFCOUNT` leaks every object that escapes its frame and does not collect cycles; `NONE` allocates objects on the stack, so they are invalid once the creating function returns.
 - The VM-bound parts of the class library (`Class`, `System`, `Thread`, `Runtime`, reflection, `java.io.File`, `Unsafe`) are implemented in C (`runtime/jcl_lite.c`) instead of compiled from the JDK. They can behave differently from the JDK in edge cases.
-- **Arrays do not know their class.** `getClass().getName()` of an array is empty, and `Arrays.copyOf(T[], int)` and `Array.newInstance` create untyped arrays.
-- **Standard input** is not set up: `System.in` is `null`, so a program cannot read from the console.
+- **The class of an array** is only known where the expression has an array type (`String[] a; a.getClass()`). Through a reference of type `Object` (`Object o = a; o.getClass()`) the runtime cannot tell an array from other memory and does not answer an array class.

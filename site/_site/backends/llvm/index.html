@@ -152,11 +152,47 @@ JDK bytecode (.class) ──► bytecode lowering ──► IR ─┘           
 
 <p>With <code class="language-plaintext highlighter-rouge">BOEHM</code>, <code class="language-plaintext highlighter-rouge">GC_init</code> runs from <code class="language-plaintext highlighter-rouge">@llvm.global_ctors</code> before <code class="language-plaintext highlighter-rouge">main</code> and before any allocation. Every object, including ones created by the runtime, goes through <code class="language-plaintext highlighter-rouge">GC_malloc</code>.</p>
 
-<h2 id="reflection">Reflection</h2>
+<h2 id="reflection-resources-and-proxies">Reflection, resources and proxies</h2>
 
-<p>Native executables have no class files to inspect at run time, so reflection works from <strong>metadata generated at build time</strong>. As with GraalVM <code class="language-plaintext highlighter-rouge">native-image</code>, classes that are used through reflection must be listed in a GraalVM configuration file under <code class="language-plaintext highlighter-rouge">META-INF/native-image/</code>: <code class="language-plaintext highlighter-rouge">reflect-config.json</code> or the newer <code class="language-plaintext highlighter-rouge">reachability-metadata.json</code>. The backend reads these files from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. The listed classes are compiled even when no code calls them directly (with the constructors and methods the configuration names), and the backend emits <strong>field and annotation</strong> tables for them. That is enough for frameworks that find annotated fields, such as picocli; reflective method invocation is limited.</p>
+<p>A native executable has no class files or class path at run time. As with GraalVM <code class="language-plaintext highlighter-rouge">native-image</code>, what a program uses dynamically must be known at build time, from GraalVM configuration files under <code class="language-plaintext highlighter-rouge">META-INF/native-image/</code>. The backend reads them from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. It is the same format GraalVM uses, so tools that generate it work for Nabu too. picocli’s annotation processor (<code class="language-plaintext highlighter-rouge">picocli-codegen</code>) writes these files into the class output, which is how the <a href="/examples/picocli-demo/">picocli example</a> gets its metadata.</p>
 
-<p>This is the same format GraalVM <code class="language-plaintext highlighter-rouge">native-image</code> uses, so tools that generate it work for Nabu too. picocli’s annotation processor (<code class="language-plaintext highlighter-rouge">picocli-codegen</code>) writes these files into the class output, which is how the <a href="/examples/picocli-demo/">picocli example</a> gets its metadata. Configuration files inside jars on the classpath are <strong>not</strong> read.</p>
+<table>
+  <thead>
+    <tr>
+      <th>File</th>
+      <th>What it does</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">reflect-config.json</code></td>
+      <td>The listed classes are compiled even when no code calls them, with the constructors and methods the entry names (<code class="language-plaintext highlighter-rouge">allDeclaredConstructors</code>, <code class="language-plaintext highlighter-rouge">allPublicMethods</code>, <code class="language-plaintext highlighter-rouge">methods</code>, …). The backend emits <strong>field and annotation</strong> tables for them: the fields named in <code class="language-plaintext highlighter-rouge">fields</code>, or all of them with <code class="language-plaintext highlighter-rouge">allDeclaredFields</code> / <code class="language-plaintext highlighter-rouge">allPublicFields</code>. That is enough for frameworks that find annotated fields, such as picocli.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">resource-config.json</code></td>
+      <td>The resources whose path matches an include pattern (<code class="language-plaintext highlighter-rouge">pattern</code> is a regular expression, <code class="language-plaintext highlighter-rouge">glob</code> a glob) and no exclude pattern are embedded in the executable. A bundle in <code class="language-plaintext highlighter-rouge">bundles</code> embeds its <code class="language-plaintext highlighter-rouge">.properties</code> files; its class-based variants are compiled for reflection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">proxy-config.json</code></td>
+      <td>A proxy class is generated at build time for each interface list.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">reachability-metadata.json</code></td>
+      <td>The newer single file: its <code class="language-plaintext highlighter-rouge">reflection</code> (including <code class="language-plaintext highlighter-rouge">"type": {"proxy": […]}</code>), <code class="language-plaintext highlighter-rouge">resources</code> and <code class="language-plaintext highlighter-rouge">bundles</code> sections.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">native-image.properties</code></td>
+      <td>From <code class="language-plaintext highlighter-rouge">Args</code>: <code class="language-plaintext highlighter-rouge">-H:ReflectionConfigurationResources</code>, <code class="language-plaintext highlighter-rouge">-H:ResourceConfigurationResources</code> and <code class="language-plaintext highlighter-rouge">-H:DynamicProxyConfigurationResources</code> (with <code class="language-plaintext highlighter-rouge">${.}</code> for the directory of the file), their <code class="language-plaintext highlighter-rouge">…ConfigurationFiles</code> variants, <code class="language-plaintext highlighter-rouge">-H:ConfigurationFileDirectories</code>, <code class="language-plaintext highlighter-rouge">-H:IncludeResources</code>, <code class="language-plaintext highlighter-rouge">-H:ExcludeResources</code> and <code class="language-plaintext highlighter-rouge">-H:IncludeResourceBundles</code>. Other options have no meaning for this backend and are ignored.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>At run time:</p>
+
+<ul>
+  <li><strong>Resources.</strong> <code class="language-plaintext highlighter-rouge">Class.getResource[AsStream]</code> (relative and absolute names), <code class="language-plaintext highlighter-rouge">ClassLoader.getResource[s|AsStream]</code> and <code class="language-plaintext highlighter-rouge">ClassLoader.getSystemResource[s|AsStream]</code> read the embedded resources. A URL has the <code class="language-plaintext highlighter-rouge">resource:</code> protocol, and its <code class="language-plaintext highlighter-rouge">openStream()</code> works. <code class="language-plaintext highlighter-rouge">ResourceBundle.getBundle</code> finds the bundles: a class bundle or else the properties, for each candidate locale, with the JDK’s fallback to the default locale.</li>
+  <li><strong>Proxies.</strong> <code class="language-plaintext highlighter-rouge">Proxy.newProxyInstance</code> returns an instance of the generated class for that interface list; a list without configuration throws an <code class="language-plaintext highlighter-rouge">IllegalArgumentException</code>. The handler gets a <code class="language-plaintext highlighter-rouge">Method</code> with its name, parameter and return types and <code class="language-plaintext highlighter-rouge">toString</code>. <code class="language-plaintext highlighter-rouge">method.invoke(target, args)</code> works for the methods of a proxied interface, which covers handlers that delegate to a real object.</li>
+</ul>
 
 <h2 id="output">Output</h2>
 

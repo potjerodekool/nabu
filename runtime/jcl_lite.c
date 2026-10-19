@@ -32,7 +32,7 @@
 #define BIND(ret, cname, sym, params) ret cname params __asm__(sym); ret cname params
 
 enum {
-    K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_CLASSOBJ, K_CTOR
+    K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_CLASSOBJ, K_CTOR, K_METHOD
 };
 
 enum { B_I32, B_I64, B_BOOL, B_F64, B_F32, B_I16, B_I8, B_CHAR };
@@ -1906,21 +1906,140 @@ BIND(void, jcl_java_lang_reflect_Field_set, "java.lang.reflect.Field_set", (void
     }
     nabu_reflect_set_ref(obj, cls, nm, val);
 }
-static void * jcl_java_lang_reflect_Method_getName (void *self) { (void)self; return (void *)""; }
+/* java.lang.reflect.Method: a declaring class, a name and a JVM descriptor
+ * (K_METHOD). Only the methods of dynamic proxies have one so far: the
+ * generated proxy classes ask ProxySupport.method for theirs, which caches
+ * them (one object per method, so == and equals agree). Method.invoke on
+ * them is redirected to ProxySupport.invoke, which dispatches in bytecode. */
+typedef struct { int kind; char *cls; char *name; char *desc; } s_method;
+
+static s_method *jcl_method_of(void *self) { return (s_method *)jcl_state_kind(self, K_METHOD); }
+
+/* ProxySupport.method0(Class declaring, String name, String descriptor). */
+BIND(void *, jcl_proxy_method0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ProxySupport_method0",
+     (void *cls, void *name, void *desc)) {
+    s_method *st = (s_method *)jcl_alloc(sizeof(s_method));
+    st->kind = K_METHOD;
+    st->cls = jcl_dup(jcl_str(cls));
+    st->name = jcl_dup(jcl_str(name));
+    st->desc = jcl_dup(jcl_str(desc));
+    return jcl_new_obj("java/lang/reflect/Method", st);
+}
+
+/* ProxySupport.methodKey(Method): "owner#name#descriptor", or null for a
+ * Method without K_METHOD state. */
+BIND(void *, jcl_proxy_methodKey, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ProxySupport_methodKey",
+     (void *method)) {
+    s_method *m = jcl_method_of(method);
+    if (m == NULL) return NULL;
+    return nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(jcl_concat(m->cls, "#"), m->name), "#"), m->desc));
+}
+
+/* Length of the field descriptor at d ("I", "[J", "Ljava/lang/String;"). */
+static size_t jcl_desc_len(const char *d) {
+    size_t n = 0;
+    while (d[n] == '[') n++;
+    if (d[n] == 'L') {
+        while (d[n] != ';' && d[n] != 0) n++;
+    }
+    return d[n] == 0 ? n : n + 1;
+}
+
+/* The Class of the field descriptor of length n at d. */
+static void *jcl_desc_class(const char *d, size_t n) {
+    char buf[512];
+    if (n >= sizeof buf) n = sizeof buf - 1;
+    memcpy(buf, d, n);
+    buf[n] = 0;
+    return jcl_class(jcl_desc_name(buf));
+}
+
+/* The source form of a field descriptor ("java.lang.String[]", "int"). */
+static char *jcl_desc_type_name(const char *d, size_t n) {
+    size_t dims = 0;
+    while (dims < n && d[dims] == '[') dims++;
+    char base[512];
+    size_t len = n - dims;
+    if (len >= sizeof base) len = sizeof base - 1;
+    memcpy(base, d + dims, len);
+    base[len] = 0;
+    char *name = jcl_dup(jcl_desc_name(base));
+    for (char *c = name; *c; c++) if (*c == '/') *c = '.';
+    for (size_t i = 0; i < dims; i++) name = jcl_concat(name, "[]");
+    return name;
+}
+
+static void * jcl_java_lang_reflect_Method_getName (void *self) {
+    s_method *m = jcl_method_of(self);
+    return (void *)(m != NULL ? m->name : "");
+}
 BIND(void *, jcl_java_lang_reflect_Method_getName_jstr, "java.lang.reflect.Method_getName", (void *self)) {
     void *r = (void *)jcl_java_lang_reflect_Method_getName(self);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
-BIND(void *, jcl_java_lang_reflect_Method_getDeclaringClass, "java.lang.reflect.Method_getDeclaringClass", (void *self)) { (void)self; return jcl_class(""); }
-BIND(void *, jcl_java_lang_reflect_Method_getReturnType, "java.lang.reflect.Method_getReturnType", (void *self)) { (void)self; return jcl_class("void"); }
-BIND(void *, jcl_java_lang_reflect_Method_getGenericReturnType, "java.lang.reflect.Method_getGenericReturnType", (void *self)) { (void)self; return jcl_class("void"); }
-BIND(void *, jcl_java_lang_reflect_Method_getParameterTypes, "java.lang.reflect.Method_getParameterTypes", (void *self)) { (void)self; return jcl_arr_ref(0); }
-BIND(void *, jcl_java_lang_reflect_Method_getGenericParameterTypes, "java.lang.reflect.Method_getGenericParameterTypes", (void *self)) { (void)self; return jcl_arr_ref(0); }
+BIND(void *, jcl_java_lang_reflect_Method_getDeclaringClass, "java.lang.reflect.Method_getDeclaringClass", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    return jcl_class(m != NULL ? m->cls : "");
+}
+BIND(void *, jcl_java_lang_reflect_Method_getReturnType, "java.lang.reflect.Method_getReturnType", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    if (m == NULL) return jcl_class("void");
+    const char *r = strchr(m->desc, ')');
+    return r == NULL ? jcl_class("void") : jcl_desc_class(r + 1, strlen(r + 1));
+}
+BIND(void *, jcl_java_lang_reflect_Method_getGenericReturnType, "java.lang.reflect.Method_getGenericReturnType", (void *self)) {
+    return jcl_java_lang_reflect_Method_getReturnType(self);
+}
+BIND(void *, jcl_java_lang_reflect_Method_getParameterTypes, "java.lang.reflect.Method_getParameterTypes", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    if (m == NULL || m->desc[0] != '(') return jcl_arr_ref(0);
+    int32_t count = 0;
+    for (const char *d = m->desc + 1; *d != ')' && *d != 0; d += jcl_desc_len(d)) count++;
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, "[Ljava/lang/Class;");
+    int32_t i = 0;
+    for (const char *d = m->desc + 1; *d != ')' && *d != 0; d += jcl_desc_len(d)) {
+        jcl_arr_set(arr, i++, jcl_desc_class(d, jcl_desc_len(d)));
+    }
+    return arr;
+}
+BIND(int32_t, jcl_java_lang_reflect_Method_getParameterCount, "java.lang.reflect.Method_getParameterCount", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    if (m == NULL || m->desc[0] != '(') return 0;
+    int32_t count = 0;
+    for (const char *d = m->desc + 1; *d != ')' && *d != 0; d += jcl_desc_len(d)) count++;
+    return count;
+}
+BIND(void *, jcl_java_lang_reflect_Method_getGenericParameterTypes, "java.lang.reflect.Method_getGenericParameterTypes", (void *self)) {
+    return jcl_java_lang_reflect_Method_getParameterTypes(self);
+}
 BIND(void *, jcl_java_lang_reflect_Method_getParameterAnnotations, "java.lang.reflect.Method_getParameterAnnotations", (void *self)) { (void)self; return jcl_arr_ref(0); }
-BIND(int32_t, jcl_java_lang_reflect_Method_getModifiers, "java.lang.reflect.Method_getModifiers", (void *self)) { (void)self; return 1; }
+/* public, and abstract for an interface method (Object's are not). */
+BIND(int32_t, jcl_java_lang_reflect_Method_getModifiers, "java.lang.reflect.Method_getModifiers", (void *self)) {
+    s_method *m = jcl_method_of(self);
+    return m != NULL && strcmp(m->cls, "java/lang/Object") != 0 ? 1 | 1024 : 1;
+}
 BIND(void *, jcl_java_lang_reflect_Method_invoke, "java.lang.reflect.Method_invoke", (void *self, void *tgt, void *args)) { (void)self; (void)tgt; (void)args; return NULL; }
 BIND(void, jcl_java_lang_reflect_Method_setAccessible, "java.lang.reflect.Method_setAccessible", (void *self, int v)) { (void)self; (void)v; }
-static void * jcl_java_lang_reflect_Method_toString (void *self) { (void)self; return (void *)""; }
+/* As the JDK: "public abstract java.lang.String a.I.m(int,java.lang.Object)". */
+static void * jcl_java_lang_reflect_Method_toString (void *self) {
+    s_method *m = jcl_method_of(self);
+    if (m == NULL) return (void *)"";
+    const char *r = strchr(m->desc, ')');
+    char *cls = jcl_dup(m->cls);
+    for (char *c = cls; *c; c++) if (*c == '/') *c = '.';
+    char *out = jcl_concat(jcl_java_lang_reflect_Method_getModifiers(self) == 1 ? "public " : "public abstract ",
+            r != NULL ? jcl_desc_type_name(r + 1, strlen(r + 1)) : "void");
+    out = jcl_concat(jcl_concat(jcl_concat(jcl_concat(out, " "), cls), "."), m->name);
+    out = jcl_concat(out, "(");
+    int first = 1;
+    for (const char *d = m->desc + 1; *d != ')' && *d != 0; d += jcl_desc_len(d)) {
+        if (!first) out = jcl_concat(out, ",");
+        out = jcl_concat(out, jcl_desc_type_name(d, jcl_desc_len(d)));
+        first = 0;
+    }
+    return (void *)jcl_concat(out, ")");
+}
 BIND(void *, jcl_java_lang_reflect_Method_toString_jstr, "java.lang.reflect.Method_toString", (void *self)) {
     void *r = (void *)jcl_java_lang_reflect_Method_toString(self);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
@@ -1930,6 +2049,49 @@ BIND(void *, jcl_java_lang_reflect_Method_toGenericString_jstr, "java.lang.refle
     void *r = (void *)jcl_java_lang_reflect_Method_toGenericString(self);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
+/* toString of the objects this runtime makes (Method, Field, Class, ...).
+ * They carry a copy of java.lang.Object's vtable (nabu_set_library_vtable)
+ * whose toString slot is this function: a virtual toString() or "" + obj
+ * then gives what the JDK gives instead of "java.lang.reflect.Method@1f". */
+static void *(*jcl_object_tostring)(void *) = NULL;
+
+static void *jcl_library_tostring(void *self) {
+    if (jcl_state_kind(self, K_METHOD) != NULL) {
+        return jcl_java_lang_reflect_Method_toString_jstr(self);
+    }
+    if (jcl_state_kind(self, K_FIELD) != NULL) {
+        s_field *f = jcl_field_of(self);
+        char *cls = jcl_dup(f->cls);
+        for (char *c = cls; *c; c++) if (*c == '/') *c = '.';
+        const char *type = f->f->type_desc;
+        char *out = jcl_concat(jcl_desc_type_name(type, strlen(type)), " ");
+        return nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(out, cls), "."), f->f->name));
+    }
+    if (jcl_state_kind(self, K_CLASSOBJ) != NULL) {
+        return nabu_jstring_new(jcl_concat("class ", jcl_binary_name(jcl_str(self))));
+    }
+    return jcl_object_tostring != NULL ? jcl_object_tostring(self) : NULL;
+}
+
+/* Called by the backend instead of nabu_set_object_vtable when it knows
+ * Object.toString's slot: the runtime's objects get a copy of Object's
+ * vtable with jcl_library_tostring in that slot. */
+void nabu_set_library_vtable(void **vtable, int32_t length, int32_t tostring_slot) {
+    if (vtable == NULL || tostring_slot < 0 || tostring_slot >= length) {
+        nabu_set_object_vtable(vtable);
+        return;
+    }
+    void **copy = (void **)malloc(sizeof(void *) * (size_t)length);
+    if (copy == NULL) {
+        nabu_set_object_vtable(vtable);
+        return;
+    }
+    memcpy(copy, vtable, sizeof(void *) * (size_t)length);
+    jcl_object_tostring = (void *(*)(void *))vtable[tostring_slot];
+    copy[tostring_slot] = (void *)jcl_library_tostring;
+    nabu_set_object_vtable(copy);
+}
+
 BIND(void *, jcl_java_lang_reflect_ParameterizedType_getActualTypeArguments, "java.lang.reflect.ParameterizedType_getActualTypeArguments", (void *self)) { (void)self; return jcl_arr_ref(0); }
 BIND(void *, jcl_java_lang_reflect_ParameterizedType_getRawType, "java.lang.reflect.ParameterizedType_getRawType", (void *self)) { (void)self; return jcl_class(""); }
 BIND(void *, jcl_java_lang_reflect_Proxy_getInvocationHandler, "java.lang.reflect.Proxy_getInvocationHandler", (void *self, void *p)) { (void)self; (void)p; return NULL; }

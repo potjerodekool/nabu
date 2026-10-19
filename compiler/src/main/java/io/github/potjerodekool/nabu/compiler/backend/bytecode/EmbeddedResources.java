@@ -1,7 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.backend.bytecode;
 
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
@@ -15,106 +15,100 @@ import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * JDK-resources die een native programma meekrijgt (vergelijk GraalVM's
- * resource-configuratie). Een native programma heeft geen module-image om
- * resources uit te lezen; de JDK leest bv. de data van zijn
- * {@code BreakIterator}s via {@code Module.getResourceAsStream}.
+ * The resources a native program carries (compare GraalVM's resource
+ * configuration). A native program has no class path or module image to
+ * read resources from: the JDK reads e.g. the data of its
+ * {@code BreakIterator}s through {@code Module.getResourceAsStream}, and an
+ * application its own files through {@code Class.getResourceAsStream}.
  *
- * <p>Alles blijft bytecode: een gesynthetiseerde klasse
- * {@code nabu/runtime/Resources} bevat de bytes (als Latin-1-string-constanten)
- * en geeft ze als {@code ByteArrayInputStream} terug; aanroepen van
- * {@code Module.getResourceAsStream(String)} in gelowerde JDK-bytecode worden
- * naar die klasse omgeleid.
+ * <p>Everything stays bytecode: the generated class {@link #CLASS} returns
+ * the bytes of each resource (stored as Latin-1 string constants) from
+ * {@code data(String)}; {@code ResourceSupport} (see {@link RuntimeCalls})
+ * builds streams and URLs on it. The resources are a few JDK files plus
+ * those the application's resource configuration selects.
  */
 final class EmbeddedResources {
 
-    /** De gesynthetiseerde klasse. */
-    static final String CLASS = "nabu/runtime/Resources";
+    /** The generated class (its placeholder in the compiler has the same name). */
+    static final String CLASS = RuntimeCalls.RUNTIME_PACKAGE + "Resources";
 
-    /** Meegeleverde resources: pad binnen de module java.base. */
-    private static final List<String> RESOURCES = List.of(
+    /** JDK resources, by their path within the module java.base. */
+    private static final List<String> JDK_RESOURCES = List.of(
             "sun/text/resources/LineBreakIteratorData",
             "sun/text/resources/WordBreakIteratorData",
             "sun/text/resources/SentenceBreakIteratorData",
             "sun/text/resources/CharacterBreakIteratorData");
 
-    /** Een UTF-8-constante mag hooguit 65535 bytes zijn; een Latin-1-teken kost er tot 2. */
+    /** Keeps each constant well below the class-file limit of 65535 UTF-8 bytes; a Latin-1 char takes up to 2. */
     private static final int CHUNK = 16_000;
 
-    private static final String OPEN_DESC = "(Ljava/lang/Module;Ljava/lang/String;)Ljava/io/InputStream;";
+    private static final String DATA_DESC = "(Ljava/lang/String;)[B";
 
     private EmbeddedResources() {
     }
 
     /**
-     * Leidt {@code Module.getResourceAsStream(String)} om naar
-     * {@code Resources.open(Module, String)}: dezelfde stack-vorm (receiver +
-     * naam), dus alleen de instructie wisselt.
+     * A class of the runtime package ({@code ResourceSupport} and its nested
+     * classes), read from the compiler itself; null for any other name.
      */
-    static void rewriteResourceCalls(final ClassNode classNode) {
-        if (CLASS.equals(classNode.name)) {
-            return;
+    static ClassNode runtimeClass(final String internalName) {
+        if (!internalName.startsWith(RuntimeCalls.RUNTIME_PACKAGE) || CLASS.equals(internalName)) {
+            return null;
         }
-        for (final MethodNode method : classNode.methods) {
-            if (method.instructions == null) {
-                continue;
+        try (InputStream in = EmbeddedResources.class.getClassLoader()
+                .getResourceAsStream(internalName + ".class")) {
+            if (in == null) {
+                return null;
             }
-            for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                if (insn instanceof MethodInsnNode call
-                        && call.getOpcode() == Opcodes.INVOKEVIRTUAL
-                        && "java/lang/Module".equals(call.owner)
-                        && "getResourceAsStream".equals(call.name)
-                        && "(Ljava/lang/String;)Ljava/io/InputStream;".equals(call.desc)) {
-                    final var replacement = new MethodInsnNode(Opcodes.INVOKESTATIC, CLASS, "open", OPEN_DESC, false);
-                    method.instructions.set(call, replacement);
-                    insn = replacement;
-                }
-            }
+            final ClassNode node = new ClassNode();
+            new ClassReader(in.readAllBytes()).accept(node, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+            return node;
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
-    /** {@code public static InputStream open(Module module, String name)}. */
-    static ClassNode build() {
+    /**
+     * {@code public static byte[] data(String name)}.
+     *
+     * @param applicationResources resource path → contents, from the
+     *                             resource configuration.
+     */
+    static ClassNode build(final Map<String, byte[]> applicationResources) {
         final ClassNode node = new ClassNode();
         node.version = Opcodes.V17;
         node.access = Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_SUPER;
         node.name = CLASS;
         node.superName = "java/lang/Object";
 
-        final MethodNode open = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "open", OPEN_DESC, null, null);
-        final InsnList code = open.instructions;
-        final FileSystem jrt = FileSystems.getFileSystem(URI.create("jrt:/"));
-        for (final String resource : RESOURCES) {
-            final byte[] bytes;
-            try {
-                final Path path = jrt.getPath("/modules/java.base/" + resource);
-                if (!Files.exists(path)) {
-                    continue;
-                }
-                bytes = Files.readAllBytes(path);
-            } catch (final IOException e) {
-                continue;
-            }
+        final Map<String, byte[]> resources = new LinkedHashMap<>(jdkResources());
+        applicationResources.forEach(resources::putIfAbsent);
+
+        final MethodNode data = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "data", DATA_DESC, null, null);
+        final InsnList code = data.instructions;
+        for (final var resource : resources.entrySet()) {
             final LabelNode next = new LabelNode();
-            code.add(new VarInsnNode(Opcodes.ALOAD, 1));
-            code.add(new LdcInsnNode(resource));
+            code.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            code.add(new LdcInsnNode(resource.getKey()));
             code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "equals",
                     "(Ljava/lang/Object;)Z", false));
             code.add(new JumpInsnNode(Opcodes.IFEQ, next));
-            code.add(new TypeInsnNode(Opcodes.NEW, "java/io/ByteArrayInputStream"));
-            code.add(new InsnNode(Opcodes.DUP));
             code.add(new TypeInsnNode(Opcodes.NEW, "java/lang/StringBuilder"));
             code.add(new InsnNode(Opcodes.DUP));
             code.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false));
-            final String latin1 = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+            final String latin1 = new String(resource.getValue(), java.nio.charset.StandardCharsets.ISO_8859_1);
             for (int i = 0; i < latin1.length(); i += CHUNK) {
                 code.add(new LdcInsnNode(latin1.substring(i, Math.min(latin1.length(), i + CHUNK))));
                 code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
@@ -126,16 +120,30 @@ final class EmbeddedResources {
                     "Ljava/nio/charset/Charset;"));
             code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "getBytes",
                     "(Ljava/nio/charset/Charset;)[B", false));
-            code.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/io/ByteArrayInputStream", "<init>",
-                    "([B)V", false));
             code.add(new InsnNode(Opcodes.ARETURN));
             code.add(next);
         }
         code.add(new InsnNode(Opcodes.ACONST_NULL));
         code.add(new InsnNode(Opcodes.ARETURN));
-        open.maxStack = 6;
-        open.maxLocals = 2;
-        node.methods.add(open);
+        data.maxStack = 4;
+        data.maxLocals = 1;
+        node.methods.add(data);
         return node;
+    }
+
+    private static Map<String, byte[]> jdkResources() {
+        final Map<String, byte[]> resources = new LinkedHashMap<>();
+        final FileSystem jrt = FileSystems.getFileSystem(URI.create("jrt:/"));
+        for (final String resource : JDK_RESOURCES) {
+            try {
+                final Path path = jrt.getPath("/modules/java.base/" + resource);
+                if (Files.exists(path)) {
+                    resources.put(resource, Files.readAllBytes(path));
+                }
+            } catch (final IOException e) {
+                // Not in this JDK: the JDK code that reads it gets null.
+            }
+        }
+        return resources;
     }
 }

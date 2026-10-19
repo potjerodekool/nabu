@@ -177,7 +177,7 @@ public final class BytecodeReachabilityCompiler {
         if (classNode == null) {
             return null;
         }
-        EmbeddedResources.rewriteResourceCalls(classNode);
+        RuntimeCalls.rewrite(classNode);
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         if ("java/util/ServiceLoader".equals(classNode.name)) {
             for (final MethodNode m : classNode.methods) {
@@ -500,6 +500,21 @@ public final class BytecodeReachabilityCompiler {
         this(fileManager, alreadyCompiledQualifiedNames, null);
     }
 
+    /** Resource path → contents of the application resources to embed (see {@link EmbeddedResources}). */
+    private Map<String, byte[]> applicationResources = Map.of();
+
+    public void setApplicationResources(final Map<String, byte[]> applicationResources) {
+        this.applicationResources = applicationResources;
+    }
+
+    /** Classes generated for this program (the dynamic proxies), by internal name. */
+    private Map<String, ClassNode> generatedClasses = ProxyClassGenerator.generate(List.of());
+
+    /** The dynamic proxy classes to generate, from the proxy configuration. */
+    public void setProxies(final List<ProxyClassGenerator.ProxySpec> proxies) {
+        this.generatedClasses = ProxyClassGenerator.generate(proxies);
+    }
+
     public BytecodeReachabilityCompiler(final FileManager fileManager,
                                         final Set<String> alreadyCompiledQualifiedNames,
                                         final String jdkHomeOverride) {
@@ -525,6 +540,14 @@ public final class BytecodeReachabilityCompiler {
         for (final ReflectEntry root : reflectionRoots) {
             queueReflectionRoot(root);
         }
+        // Configured proxy classes are roots, whole (as with GraalVM): their
+        // methods are reached through interface calls, also on source
+        // interfaces, which the closure does not follow.
+        for (final String generated : generatedClasses.keySet()) {
+            if (!ProxyClassGenerator.PROXY_CLASSES.equals(generated)) {
+                queueReflectionRoot(new ReflectEntry(generated, true, true, true, true, List.of(), List.of()));
+            }
+        }
         for (final MethodRef root : RUNTIME_ROOTS) {
             ensureShape(root.ownerInternalName());
             queueInit(root.ownerInternalName());
@@ -546,6 +569,10 @@ public final class BytecodeReachabilityCompiler {
         // loweren bindt zo'n call in de backend aan een toevallig wél
         // gelowerde overload met een ander parameterprofiel. Herhalen tot er
         // niets meer bijkomt: elke ronde kan nieuwe klassen vormen.
+        // Resource lookups in source go to ResourceSupport, as in bytecode.
+        for (final IRModule module : alreadyCompiledModules) {
+            RuntimeCalls.rewrite(module);
+        }
         final Map<String, Boolean> sourceCalls = collectSourceCalls(alreadyCompiledModules);
         while (queueSourceCalls(sourceCalls) | queueReflectiveInstantiations()) {
             drainWorklists();
@@ -1232,7 +1259,9 @@ public final class BytecodeReachabilityCompiler {
     private ClassNode loadClassNode(final String internalName) {
         return loadedClassNodes.computeIfAbsent(internalName,
                 name -> BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
-                        : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build()
+                        : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build(applicationResources)
+                        : generatedClasses.containsKey(name) ? generatedClasses.get(name)
+                        : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? EmbeddedResources.runtimeClass(name)
                         : AnnotationAccessors.CLASS.equals(name) ? AnnotationAccessors.build()
                         : withAnnotationAccessors(substitute(classLoader.load(name))));
     }

@@ -64,4 +64,22 @@ class ReflectionMetadataEmissionTest {
         assertTrue(ll.contains("picocli/CommandLine$Option"));
         assertTrue(ll.contains("-n,--name"));
     }
+
+    /** {@code allDeclaredFields} registers every instance field without listing it. */
+    @Test
+    void allDeclaredFieldsRegistersEveryField() throws Exception {
+        final var genDir = tempDir.resolve("META-INF").resolve("native-image").resolve("app");
+        Files.createDirectories(genDir);
+        Files.writeString(genDir.resolve("reflect-config.json"), """
+                [ { "name" : "greet.GreetCommand", "allDeclaredFields" : true } ]
+                """);
+
+        new NativeLLVMBackend().compile(List.of(TestReflectionModel.greetCommandModule()),
+                CompileOptions.debug(), tempDir.resolve("out.o"));
+
+        final String ll = Files.readString(tempDir.resolve("out.ll"));
+        // Both instance fields (count, name) in the field table.
+        assertTrue(java.util.regex.Pattern.compile("@\\.refl\\.fields\\.\\d+ = [^\\n]*\\[2 x ").matcher(ll).find(),
+                "verwacht een veldtabel met 2 velden:\n" + ll);
+    }
 }

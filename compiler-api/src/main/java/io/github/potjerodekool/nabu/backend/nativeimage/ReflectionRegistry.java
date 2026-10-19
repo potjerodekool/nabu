@@ -27,7 +27,7 @@ public final class ReflectionRegistry {
 
     public boolean hasField(final String fqClassName, final String fieldName) {
         final var entry = entryForClassName(fqClassName);
-        return entry != null && entry.fieldNames().contains(fieldName);
+        return entry != null && (entry.allDeclaredFields() || entry.fieldNames().contains(fieldName));
     }
 
     public int size() {

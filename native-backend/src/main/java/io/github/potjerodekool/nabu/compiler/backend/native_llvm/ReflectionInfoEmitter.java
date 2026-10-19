@@ -186,11 +186,11 @@ public class ReflectionInfoEmitter {
     private List<FieldData> collectFields(final ClassLayouts.ClassLayout layout,
                                           final IRModule module,
                                           final ReflectEntry entry) {
-        final List<String> wanted = entry.fieldNames();
         final List<FieldData> result = new ArrayList<>();
         int counter = 0; // telt ALLE velden (statics mee), net als registerStruct
         for (final IRField field : module.fields()) {
-            if (!Flags.hasFlag(field.flags(), Flags.STATIC) && wanted.contains(field.name())) {
+            if (!Flags.hasFlag(field.flags(), Flags.STATIC)
+                    && entry.includesField(field.name(), Flags.hasFlag(field.flags(), Flags.PUBLIC))) {
                 final int structIndex = layout.structIndex(counter);
                 if (structIndex > 0) {
                     result.add(new FieldData(

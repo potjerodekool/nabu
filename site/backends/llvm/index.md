@@ -50,11 +50,22 @@ The options are passed like any other Nabu compiler option. With Maven, use `<co
 
 With `BOEHM`, `GC_init` runs from `@llvm.global_ctors` before `main` and before any allocation. Every object, including ones created by the runtime, goes through `GC_malloc`.
 
-## Reflection
+## Reflection, resources and proxies
 
-Native executables have no class files to inspect at run time, so reflection works from **metadata generated at build time**. As with GraalVM `native-image`, classes that are used through reflection must be listed in a GraalVM configuration file under `META-INF/native-image/`: `reflect-config.json` or the newer `reachability-metadata.json`. The backend reads these files from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. The listed classes are compiled even when no code calls them directly (with the constructors and methods the configuration names), and the backend emits **field and annotation** tables for them. That is enough for frameworks that find annotated fields, such as picocli; reflective method invocation is limited.
+A native executable has no class files or class path at run time. As with GraalVM `native-image`, what a program uses dynamically must be known at build time, from GraalVM configuration files under `META-INF/native-image/`. The backend reads them from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. It is the same format GraalVM uses, so tools that generate it work for Nabu too. picocli's annotation processor (`picocli-codegen`) writes these files into the class output, which is how the [picocli example](/examples/picocli-demo/) gets its metadata.
 
-This is the same format GraalVM `native-image` uses, so tools that generate it work for Nabu too. picocli's annotation processor (`picocli-codegen`) writes these files into the class output, which is how the [picocli example](/examples/picocli-demo/) gets its metadata. Configuration files inside jars on the classpath are **not** read.
+| File | What it does |
+|---|---|
+| `reflect-config.json` | The listed classes are compiled even when no code calls them, with the constructors and methods the entry names (`allDeclaredConstructors`, `allPublicMethods`, `methods`, …). The backend emits **field and annotation** tables for them: the fields named in `fields`, or all of them with `allDeclaredFields` / `allPublicFields`. That is enough for frameworks that find annotated fields, such as picocli. |
+| `resource-config.json` | The resources whose path matches an include pattern (`pattern` is a regular expression, `glob` a glob) and no exclude pattern are embedded in the executable. A bundle in `bundles` embeds its `.properties` files; its class-based variants are compiled for reflection. |
+| `proxy-config.json` | A proxy class is generated at build time for each interface list. |
+| `reachability-metadata.json` | The newer single file: its `reflection` (including `"type": {"proxy": […]}`), `resources` and `bundles` sections. |
+| `native-image.properties` | From `Args`: `-H:ReflectionConfigurationResources`, `-H:ResourceConfigurationResources` and `-H:DynamicProxyConfigurationResources` (with `${.}` for the directory of the file), their `…ConfigurationFiles` variants, `-H:ConfigurationFileDirectories`, `-H:IncludeResources`, `-H:ExcludeResources` and `-H:IncludeResourceBundles`. Other options have no meaning for this backend and are ignored. |
+
+At run time:
+
+- **Resources.** `Class.getResource[AsStream]` (relative and absolute names), `ClassLoader.getResource[s|AsStream]` and `ClassLoader.getSystemResource[s|AsStream]` read the embedded resources. A URL has the `resource:` protocol, and its `openStream()` works. `ResourceBundle.getBundle` finds the bundles: a class bundle or else the properties, for each candidate locale, with the JDK's fallback to the default locale.
+- **Proxies.** `Proxy.newProxyInstance` returns an instance of the generated class for that interface list; a list without configuration throws an `IllegalArgumentException`. The handler gets a `Method` with its name, parameter and return types and `toString`. `method.invoke(target, args)` works for the methods of a proxied interface, which covers handlers that delegate to a real object.
 
 ## Output
 

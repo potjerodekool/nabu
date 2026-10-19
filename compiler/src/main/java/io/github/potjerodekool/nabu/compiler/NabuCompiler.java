@@ -207,9 +207,24 @@ public class NabuCompiler implements Compiler {
                 final var configRoots = new ArrayList<Path>();
                 configRoots.add(targetDirectory);
                 configRoots.addAll(classPath);
-                final var reflectionRoots = NativeImageConfigScanner.scan(configRoots).stream()
+                final var nativeImageConfigs = NativeImageConfigScanner.scan(configRoots);
+                final var resources = io.github.potjerodekool.nabu.backend.nativeimage.NativeImageResources
+                        .collect(nativeImageConfigs, configRoots);
+                final var reflectionRoots = new ArrayList<>(nativeImageConfigs.stream()
                         .flatMap(config -> config.reflectEntries().stream())
-                        .toList();
+                        .toList());
+                // Class-based resource bundles: ResourceBundle instantiates
+                // them reflectively.
+                final var bundleClasses = new java.util.LinkedHashSet<>(resources.bundleClasses());
+                for (final var compiled : alreadyCompiled) {
+                    if (resources.isBundleClass(compiled)) {
+                        bundleClasses.add(compiled);
+                    }
+                }
+                for (final var bundleClass : bundleClasses) {
+                    reflectionRoots.add(new io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig
+                            .ReflectEntry(bundleClass, true, false, false, false, List.of(), List.of()));
+                }
 
                 final var jdkHomeOverride = compilerOptions.getOption(CompilerOption.BYTECODE_JDK_HOME)
                         .orElse(null);
@@ -218,6 +233,14 @@ public class NabuCompiler implements Compiler {
                         alreadyCompiled,
                         jdkHomeOverride
                 );
+                reachabilityCompiler.setApplicationResources(resources.resources());
+                reachabilityCompiler.setProxies(io.github.potjerodekool.nabu.compiler.backend.bytecode.ProxySpecs.resolve(
+                        nativeImageConfigs.stream()
+                                .flatMap(config -> config.proxyEntries().stream())
+                                .map(io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig
+                                        .ProxyEntry::interfaceNames)
+                                .toList(),
+                        compilerContext));
                 final long reachStart = System.nanoTime();
                 // allModules bevat op dit punt alleen de Nabu-source-modules:
                 // de sluiting volgt hun aanroepen.

@@ -24,7 +24,7 @@ The runtime sources are bundled into the plugin jar under `nabu/runtime/` and co
 
 1. **IR modules from source.** The frontend generates one module per class, as for the JVM backends.
 2. **IR modules from library bytecode.** The backend reports `compilesLibraryBytecode()`, so `NabuCompiler` runs the `BytecodeReachabilityCompiler` first (see below) and adds the modules it produces. The JVM backends return `false` and skip this step.
-3. **Reflection metadata.** `NativeImageConfigScanner` reads the GraalVM configuration under `META-INF/native-image/` from the output directory and from every directory and jar on the classpath into a `ReflectionRegistry`.
+3. **Reflection metadata.** `NativeImageConfigScanner` reads the GraalVM configuration under `META-INF/native-image/` (the JSON files and the `Args` of `native-image.properties`) from the output directory and from every directory and jar on the classpath into a `ReflectionRegistry`. Before that, `NabuCompiler` uses the same configuration for the closure: `NativeImageResources` selects the resources to embed, and `ProxySpecs`/`ProxyClassGenerator` generate the proxy classes. Calls to the VM-bound resource and proxy methods (`Class.getResourceAsStream`, `Proxy.newProxyInstance`, `Method.invoke`, …) are redirected to the helpers `ResourceSupport` and `ProxySupport` (`RuntimeCalls`), in source IR and in library bytecode alike; `ResourceBundle.getBundle` is a Java substitution (`BundleSupport`).
 4. **LLVM module emission** (`LLVMModuleEmitter.emitAll`), in phases:
    1. function signatures for every module, so calls can be emitted in any order;
    2. ad-hoc declarations for call targets that no module defines;

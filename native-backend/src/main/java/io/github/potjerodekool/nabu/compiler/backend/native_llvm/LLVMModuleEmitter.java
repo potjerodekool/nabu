@@ -1077,7 +1077,6 @@ public void setReflectionRegistry(
         final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
         if (vtable != null) {
-            callSetter(builder, "@nabu_set_object_vtable", vtable);
             final int toStringSlot = object.toStringSlot();
             if (toStringSlot >= 0) {
                 final LLVMValueRef setter = globalValueMap.get("@nabu_set_object_tostring_slot");
@@ -1085,6 +1084,24 @@ public void setReflectionRegistry(
                 args.put(0, LLVMConstInt(LLVMInt32TypeInContext(ctx), toStringSlot, 0));
                 LLVMBuildCall2(builder, LLVMGlobalGetValueType(setter), setter, args, 1, "");
                 Reference.reachabilityFence(args);
+                // The runtime's own objects (Method, Field, Class) get a copy
+                // of Object's vtable with their own toString in that slot.
+                final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+                final LLVMTypeRef libraryVtableType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
+                        new PointerPointer<>(new Pointer[] {LLVMPointerTypeInContext(ctx, 0), i32, i32}), 3, 0);
+                LLVMValueRef libraryVtable = LLVMGetNamedFunction(mod, "nabu_set_library_vtable");
+                if (libraryVtable == null || libraryVtable.isNull()) {
+                    libraryVtable = LLVMAddFunction(mod, new BytePointer("nabu_set_library_vtable"), libraryVtableType);
+                    LLVMSetLinkage(libraryVtable, LLVMExternalLinkage);
+                }
+                final PointerPointer<Pointer> vtableArgs = new PointerPointer<>(3);
+                vtableArgs.put(0, vtable);
+                vtableArgs.put(1, LLVMConstInt(i32, LLVMGetArrayLength(LLVMGlobalGetValueType(vtable)), 0));
+                vtableArgs.put(2, LLVMConstInt(i32, toStringSlot, 0));
+                LLVMBuildCall2(builder, libraryVtableType, libraryVtable, vtableArgs, 3, "");
+                Reference.reachabilityFence(vtableArgs);
+            } else {
+                callSetter(builder, "@nabu_set_object_vtable", vtable);
             }
         }
         if (itable != null) {

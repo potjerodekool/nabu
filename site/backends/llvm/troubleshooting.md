@@ -36,6 +36,7 @@ That is expected for now. The backend compiles every JDK class the program can r
 The program reached a function that the backend could not compile. All such functions are listed in `<name>.unresolved.txt` next to the executable.
 
 - If a class is only **created or called through reflection** (`Class.forName`, `getDeclaredConstructor().newInstance()`), no code calls it directly, so the backend does not compile it. List it in a `reflect-config.json` under `META-INF/native-image/`, as you would for GraalVM `native-image`.
+- A **resource** that is `null` at run time, or a `MissingResourceException` for a bundle, means it was not embedded: add it to a `resource-config.json` (`resources`/`bundles`). A `Proxy.newProxyInstance` that throws `IllegalArgumentException` ("No proxy class for the interfaces …") needs the interface list in a `proxy-config.json`.
 - If a **specific** function is missing, it is usually a `native` JDK method or a signature-polymorphic method (`MethodHandle.invoke…`) that needs support in the C runtime. See [Known limitations](/limitations/).
 
 ### "unhandled exception"

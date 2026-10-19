@@ -128,6 +128,8 @@ char *nabu_object_to_string(void *obj);
 
 /** Registreert het vtable-slot van Object.toString voor nabu_object_to_string. */
 void nabu_set_object_tostring_slot(int32_t slot);
+/* Object's vtable for the runtime's own objects, with their toString (jcl_lite.c). */
+void nabu_set_library_vtable(void **vtable, int32_t length, int32_t tostring_slot);
 
 /**
  * Het uit bytecode gecompileerde {@code valueOf(primitief)} van een wrapper,

@@ -35,7 +35,8 @@ public final class JavaSubstitutions {
     private static final Map<String, Class<?>> SUBSTITUTIONS = Map.of(
             "jdk/internal/util/ByteArray", ByteArraySubstitution.class,
             "jdk/internal/util/ByteArrayLittleEndian", ByteArrayLittleEndianSubstitution.class,
-            "java/lang/Enum", EnumSubstitution.class);
+            "java/lang/Enum", EnumSubstitution.class,
+            "java/util/ResourceBundle", ResourceBundleSubstitution.class);
 
     /** JDK classes whose {@code <clinit>} is emptied. */
     private static final Set<String> EMPTY_CLINIT = Set.of(

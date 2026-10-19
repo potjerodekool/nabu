@@ -103,7 +103,7 @@ cli-demo/
 
 The snippets below are slightly simplified from the demo's `pom.xml` (comments and a few compiler arguments for the symbol path are left out).
 
-The base build compiles `src/main/nabu` with the [Nabu Maven plugin](/maven-plugin/). The plugin also runs picocli's annotation processor, `picocli-codegen`. That processor writes GraalVM reachability metadata (`META-INF/native-image/picocli-generated/reflect-config.json` and friends) for the annotated classes. Both native builds need this metadata: GraalVM for its own reflection, and Nabu's LLVM backend for its [reflection tables](/backends/llvm/#reflection).
+The base build compiles `src/main/nabu` with the [Nabu Maven plugin](/maven-plugin/). The plugin also runs picocli's annotation processor, `picocli-codegen`. That processor writes GraalVM reachability metadata (`META-INF/native-image/picocli-generated/reflect-config.json` and friends) for the annotated classes. Both native builds need this metadata: GraalVM for its own reflection, and Nabu's LLVM backend for its [reflection tables](/backends/llvm/#reflection-resources-and-proxies).
 
 ```xml
 <properties>

@@ -13,7 +13,7 @@ public fun predicate(expected: String) {
 }
 ```
 
-Method references are supported in Java sources: static (`Math::max`), unbound (`String::length`), bound (`prefix::concat`) and constructor references (`ArrayList::new`). Once the target type is known (a method parameter, a variable or a return type), the resolver rewrites a method reference into the equivalent lambda, for example `String::length` into `(s) -> s.length()`. Unlike the JLS, the receiver expression of a bound reference is evaluated at each call rather than once.
+Method references are supported in Java sources: static (`Math::max`), unbound (`String::length`), bound (`prefix::concat`) and constructor references (`ArrayList::new`). Once the target type is known (a method parameter, a variable or a return type), the resolver rewrites a method reference into the equivalent lambda, for example `String::length` into `(s) -> s.length()`. For a bound reference the receiver expression is evaluated once, where the reference is created, and captured; a `null` receiver throws `NullPointerException` there (JLS 15.13.3).
 
 Because lambdas are lowered in a dedicated phase before the backend, every backend sees the same synthetic methods. The JVM backends create the lambda objects with `invokedynamic` and `LambdaMetafactory`, in any context: as a method argument, in a variable or field, or as a return value. The [LLVM backend](/backends/llvm/) has no `LambdaMetafactory` at run time: `SourceLambdaLowering` generates the class that it would create (as for lambdas in compiled JDK bytecode), and the lambda expression becomes `new` of that class with the captured values.
 

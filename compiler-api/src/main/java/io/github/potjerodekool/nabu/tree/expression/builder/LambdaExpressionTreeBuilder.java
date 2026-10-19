@@ -21,6 +21,10 @@ public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpress
 
     private ExecutableType lambdaMethodType;
 
+    private ExpressionTree boundReceiver;
+
+    private String boundReceiverName;
+
     public LambdaExpressionTreeBuilder() {
         super();
         this.variables = new ArrayList<>();
@@ -31,6 +35,21 @@ public class LambdaExpressionTreeBuilder extends ExpressionBuilder<LambdaExpress
         this.variables = lambdaExpressionTree.getVariables();
         this.body = lambdaExpressionTree.getBody();
         this.lambdaMethodType = lambdaExpressionTree.getLambdaMethodType();
+        this.boundReceiver = lambdaExpressionTree.getBoundReceiver();
+        this.boundReceiverName = lambdaExpressionTree.getBoundReceiverName();
+    }
+
+    public ExpressionTree getBoundReceiver() {
+        return boundReceiver;
+    }
+
+    public String getBoundReceiverName() {
+        return boundReceiverName;
+    }
+
+    public LambdaExpressionTreeBuilder boundReceiver(final ExpressionTree receiver) {
+        this.boundReceiver = receiver;
+        return this;
     }
 
     public List<Tree> getVariables() {

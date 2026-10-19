@@ -110,6 +110,18 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
                 .map(Element::getSimpleName)
                 .collect(Collectors.toSet());
         final List<Element> captured = new ArrayList<>();
+        // A lambda made from a bound method reference (`expr::m`) captures
+        // the receiver's value under a name of its own; the receiver
+        // expression itself belongs to the enclosing code (so an enclosing
+        // lambda captures what it uses).
+        if (lambdaExpression.getBoundReceiver() != null) {
+            acceptTree(lambdaExpression.getBoundReceiver(), scope);
+            captured.add(new VariableSymbolBuilderImpl()
+                    .kind(ElementKind.PARAMETER)
+                    .simpleName(lambdaExpression.getBoundReceiverName())
+                    .type(typeOf(lambdaExpression.getBoundReceiver()))
+                    .build());
+        }
         for (final var local : visibleLocals(scope)) {
             if (recording.referenced.contains(local.getSimpleName())
                     && !parameterNames.contains(local.getSimpleName())) {
@@ -162,6 +174,19 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
             }
         }
         return new ArrayList<>(result.values());
+    }
+
+    /** The type of an expression: its own, a call's return type, or its symbol's. */
+    private static TypeMirror typeOf(final ExpressionTree expression) {
+        if (expression.getType() != null) {
+            return expression.getType();
+        }
+        if (expression instanceof io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree invocation
+                && invocation.getMethodType() != null) {
+            return invocation.getMethodType().getReturnType();
+        }
+        final var symbol = io.github.potjerodekool.nabu.tree.TreeUtils.getSymbol(expression);
+        return symbol != null ? symbol.asType() : null;
     }
 
     private ExecutableElement createLambdaMethod(final LambdaScope scope,

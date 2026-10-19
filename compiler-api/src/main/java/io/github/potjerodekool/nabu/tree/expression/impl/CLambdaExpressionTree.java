@@ -27,6 +27,10 @@ public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpr
 
     private ExecutableType lambdaMethodType;
 
+    private ExpressionTree boundReceiver;
+
+    private String boundReceiverName;
+
     public CLambdaExpressionTree(final List<Tree> parameters,
                                  final Tree body,
                                  final int lineNumber,
@@ -47,6 +51,24 @@ public class CLambdaExpressionTree extends CExpressionTree implements LambdaExpr
         this.parameterKind = resolveParameterKind(builder.getVariables());
         this.body = builder.getBody();
         this.lambdaMethodType = builder.getLambdaMethodType();
+        this.boundReceiver = builder.getBoundReceiver();
+        this.boundReceiverName = builder.getBoundReceiverName();
+    }
+
+    @Override
+    public ExpressionTree getBoundReceiver() {
+        return boundReceiver;
+    }
+
+    @Override
+    public String getBoundReceiverName() {
+        return boundReceiverName;
+    }
+
+    @Override
+    public void setBoundReceiver(final ExpressionTree receiver, final String name) {
+        this.boundReceiver = receiver;
+        this.boundReceiverName = name;
     }
 
     @Override

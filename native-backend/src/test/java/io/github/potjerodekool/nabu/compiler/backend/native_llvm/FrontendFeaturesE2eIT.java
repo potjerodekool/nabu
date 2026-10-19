@@ -49,6 +49,11 @@ class FrontendFeaturesE2eIT {
                         return i + 1;
                     }
                     static String twice(String s) { return s + s; }
+                    static int calls = 0;
+                    static String next() {
+                        calls++;
+                        return "v" + calls;
+                    }
                     public static void main(String[] args) throws Exception {
                         System.out.println(p("a", () -> java.util.List.of("a", "b").contains("b")) + " " + p("b", () -> "x".length()));
                         System.out.println(prim(0) + " " + prim(2));
@@ -61,6 +66,9 @@ class FrontendFeaturesE2eIT {
                         l.sort(String::compareTo);
                         System.out.println(len.apply("abc") + " " + tw.apply("x") + " " + max.apply(3, 7) + " " + l);
                         System.out.println(String.valueOf(Thread.State.valueOf("BLOCKED")));
+                        java.util.function.Supplier<String> once = next()::toUpperCase;
+                        String first = once.get();
+                        System.out.println(calls + " " + first + " " + once.get() + " " + calls);
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -104,7 +112,7 @@ class FrontendFeaturesE2eIT {
         }
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
-        assertEquals("a=true b=1\ntrue 3\n3 xx 7 [a, b]\nBLOCKED\n", output, "exit=" + exit);
+        assertEquals("a=true b=1\ntrue 3\n3 xx 7 [a, b]\nBLOCKED\n1 V1 V1 1\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

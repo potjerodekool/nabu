@@ -82,6 +82,9 @@ public abstract class AbstractTreeTranslator<P> extends AbstractTreeVisitor<Tree
 
         final var body = acceptTree(lambdaExpression.getBody(), param);
         final var builder = lambdaExpression.builder().variables(variables);
+        if (lambdaExpression.getBoundReceiver() != null) {
+            builder.boundReceiver((ExpressionTree) acceptTree(lambdaExpression.getBoundReceiver(), param));
+        }
 
         // Een expressie-lambda (`() -> a + b`) heeft een expressie als body.
         if (body instanceof ExpressionTree expressionBody) {

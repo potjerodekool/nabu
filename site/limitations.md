@@ -7,7 +7,6 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 
 ## Compiler (all backends)
 
-- **Bound method references** (`expr::m`) evaluate `expr` at each call instead of once when the reference is created.
 - **Java language level.** Java sources are parsed with a Java 20 grammar. Newer language features are not recognized.
 - **Kotlin** support is experimental: only top-level class declarations are handled.
 - The **Java backend** (ClassFile API) needs Java 24 or later to run.

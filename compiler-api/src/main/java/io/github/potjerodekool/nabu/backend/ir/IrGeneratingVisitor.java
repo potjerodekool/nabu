@@ -4792,6 +4792,21 @@ if (argVal != null) args.add(argVal);
         ExecutableType methodType = lambdaExpression.getLambdaMethodType();
         if (methodType == null) return null;
 
+        // A lambda made from a bound method reference (`expr::m`): expr is
+        // evaluated here, once, when the reference is created; a null
+        // receiver throws NullPointerException here (JLS 15.13.3). The value
+        // goes into a slot that the lambda captures by name, like a local.
+        if (lambdaExpression.getBoundReceiver() != null) {
+            final IRValue receiver = acceptTree(lambdaExpression.getBoundReceiver(), builder);
+            if (receiver != null) {
+                final var objectType = new IRType.Ptr(IRType.I8, "Ljava/lang/Object;");
+                builder.emitCall(CallKind.STATIC, "java.util.Objects_requireNonNull", objectType,
+                        List.of(objectType), List.of(receiver));
+                final var slot = builder.emitAlloca(lambdaExpression.getBoundReceiverName(), receiver.type());
+                builder.emitStore(slot, receiver);
+            }
+        }
+
         // LambdaToMethod heeft al een static method + Function aangemaakt
         // voor deze lambda. We verwijzen daar naar ipv een duplicaat te maken.
         final var methodSymbol = methodType.getMethodSymbol();

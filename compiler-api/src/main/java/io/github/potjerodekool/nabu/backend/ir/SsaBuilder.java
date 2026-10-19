@@ -90,7 +90,15 @@ public class SsaBuilder {
             }
         }
         final var capturedAllocas = capturedAllocaNames(function);
+        final var lambdaAllocas = lambdaHoldingAllocaNames(function);
         for (final var alloca : allocas) {
+            if (lambdaAllocas.contains(IRValue.nameOf(alloca.result()))) {
+                // Holds a lambda: promoting it replaced every load by the
+                // FunctionRef, so the lambda was created anew at each use,
+                // reading its captured values again (and after a try block
+                // had reset their slots, null).
+                continue;
+            }
             if (capturedAllocas.contains(IRValue.nameOf(alloca.result()))) {
                 // Door een lambda gecaptured: de backend laadt de waarde bij
                 // het maken van de lambda uit het slot van de variabele
@@ -100,7 +108,9 @@ public class SsaBuilder {
             if (loadsInHandlerBlock(function, IRValue.nameOf(alloca.result()), handlerBlocks)
                     || !loadsInReachableBlocksOnly(function,
                             IRValue.nameOf(alloca.result()),
-                            renameReachableBlocks)) {
+                            renameReachableBlocks)
+                    || storesOutside(function, IRValue.nameOf(alloca.result()),
+                            renameReachableBlocks, handlerBlocks)) {
                 // niet promoten
                 continue;
             }
@@ -186,6 +196,19 @@ public class SsaBuilder {
      * SSA verdween de variabele (bv. als constante gepropageerd) en laadde de
      * lambda-creatie een nooit beschreven slot.
      */
+    /** Allocas a lambda (a FunctionRef) is stored into. */
+    private static Set<String> lambdaHoldingAllocaNames(final IRFunction function) {
+        final Set<String> names = new HashSet<>();
+        for (final var block : function.blocks()) {
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.Store store && store.value() instanceof IRValue.FunctionRef) {
+                    names.add(IRValue.nameOf(store.ptr()));
+                }
+            }
+        }
+        return names;
+    }
+
     private static Set<String> capturedAllocaNames(final IRFunction function) {
         final Set<String> names = new HashSet<>();
         for (final var block : function.blocks()) {
@@ -232,7 +255,35 @@ public class SsaBuilder {
         return false;
     }
 
-    private static boolean loadsInReachableBlocksOnly(final IRFunction function,
+    /**
+     * Whether the variable is assigned in an exception handler or a block the
+     * renaming does not reach. Renaming follows the real dominator tree,
+     * which has no edges into handlers, so such a store was never renamed:
+     * `r = "npe"` in a catch block was lost and the merge after the try read
+     * null for r. (Renaming through the handler would not be right either:
+     * it has to see the value at the moment of the throw.) Like a variable
+     * that a handler reads, it stays in memory.
+     */
+    private static boolean storesOutside(final IRFunction function,
+                                         final String ptrName,
+                                         final Set<String> reachableBlocks,
+                                         final Set<String> handlerBlocks) {
+        for (final var block : function.blocks()) {
+            final boolean outside = handlerBlocks.contains(block.label())
+                    || !reachableBlocks.contains(block.label());
+            if (!outside) {
+                continue;
+            }
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.Store store && isSamePointer(store.ptr(), ptrName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+        private static boolean loadsInReachableBlocksOnly(final IRFunction function,
                                                       final String ptrName,
                                                       final Set<String> reachableBlocks) {
         for (final var block : function.blocks()) {

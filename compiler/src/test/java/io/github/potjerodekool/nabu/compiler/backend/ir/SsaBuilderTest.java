@@ -425,7 +425,9 @@ class SsaBuilderTest {
     }
 
     // -------------------------------------------------------
-    // Try/catch: phi op het merge-blok via de augmented dominators
+    // Try/catch: a variable stored in the handler stays in memory (the
+    // augmented dominators only serve phi placement; renaming does not
+    // reach the handler)
     //
     //   entry:
     //     %x.ptr = alloca i32
@@ -451,7 +453,7 @@ class SsaBuilderTest {
     // -------------------------------------------------------
 
     @Test
-    void testTryCatchMergeBlockGetsPhi() {
+    void testVariableStoredInHandlerStaysInMemory() {
         final var builder = new IRBuilder("test");
         builder.setLocation("test.lang", 1, 1);
         builder.beginFunction("tryCatchMerge", IRType.I32, List.of(), 0);
@@ -515,15 +517,22 @@ class SsaBuilderTest {
 
         SsaBuilder.run(module);
 
-        final var tryEndPhis = function.blocks().stream()
+        // The renaming does not reach the handler, so a phi on try.end got
+        // no value from it (the handler's store was never renamed). x is
+        // stored in the handler and therefore stays in memory: the load on
+        // try.end reads whatever the try body or the handler stored.
+        final var tryEndLoadsX = function.blocks().stream()
                 .filter(b -> b.label().equals("try.end"))
                 .flatMap(b -> b.instructions().stream())
-                .filter(IRInstruction.Phi.class::isInstance)
-                .count();
-
-        assertTrue(tryEndPhis > 0,
-                "Er moet een phi op try.end staan zodat de waarde uit de handler "
-                        + "het merge-blok bereikt");
+                .anyMatch(i -> i instanceof IRInstruction.Load load
+                        && "%x.ptr".equals(IRValue.nameOf(load.ptr())));
+        final var handlerStoresX = function.blocks().stream()
+                .filter(b -> b.label().equals("try.catch.0"))
+                .flatMap(b -> b.instructions().stream())
+                .anyMatch(i -> i instanceof IRInstruction.Store store
+                        && "%x.ptr".equals(IRValue.nameOf(store.ptr())));
+        assertTrue(tryEndLoadsX && handlerStoresX,
+                "x, stored in the handler, must stay in memory so try.end sees the handler's value");
     }
 
     // -------------------------------------------------------

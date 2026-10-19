@@ -173,19 +173,21 @@ class InvokeDominanceTest {
     /**
      * De phi-slotgrootte: een slot voor een referentie is 8 bytes (een pointer),
      * niet het pointee-element. Was de slot een `alloca i8` (1 byte) dan zou de
-     * achtbyte `store ptr` de aangrenzende stackslot wegschrijven.
+     * achtbyte `store ptr` de aangrenzende stackslot wegschrijven. (A variable
+     * assigned in a catch block is not promoted, so the phi comes from an
+     * if/else here.)
      */
     @Test
     void referencePhiSlotsArePointerSized() throws Exception {
         String ll = compileToLl("slotsize", """
                 package mini;
-                public class Mini {
+                public class MiniSlots {
                     interface Provider { Object get(); }
-                    Object run(Provider p) {
+                    Object run(Provider p, boolean b) {
                         Object r;
-                        try {
+                        if (b) {
                             r = p.get();
-                        } catch (Exception e) {
+                        } else {
                             r = null;
                         }
                         return r;

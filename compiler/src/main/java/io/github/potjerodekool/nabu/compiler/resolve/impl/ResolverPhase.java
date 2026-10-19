@@ -852,6 +852,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             if (lambdaMethodType == null) {
                 final var lambdaScope = new LocalScope(scope);
                 variables.forEach(variable -> acceptTree(variable, lambdaScope));
+                defineBoundReceiver(lambdaExpression, lambdaScope);
                 acceptTree(lambdaExpression.getBody(), lambdaScope);
             }
             defaultAnswer(lambdaExpression, scope);
@@ -917,6 +918,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 }
             });
 
+            defineBoundReceiver(lambdaExpression, lambdaScope);
             acceptTree(lambdaExpression.getBody(), lambdaScope);
         }
 
@@ -988,6 +990,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     acceptTree(variable, scope);
                 }
             });
+            defineBoundReceiver(lambdaExpression, scope);
             acceptTree(lambdaExpression.getBody(), scope);
         }
 
@@ -1058,6 +1061,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             }
         });
 
+        defineBoundReceiver(lambdaExpression, lambdaScope);
         acceptTree(lambdaExpression.getBody(), lambdaScope);
 
         // A lambda whose body is a lambda (`() -> () -> x`, `a -> b -> a + b`):
@@ -1749,6 +1753,37 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
      */
     private static final String REF_PARAMETER = "ref__";
 
+    /** Name of the captured receiver of a bound method reference (+ a number). */
+    private static final String REF_RECEIVER = "ref__receiver";
+
+    /** Global, so names are unique in a method even across resolver instances. */
+    private static final java.util.concurrent.atomic.AtomicInteger BOUND_RECEIVER_COUNT =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    private static boolean isThisOrSuper(final ExpressionTree tree) {
+        return tree instanceof IdentifierTree identifier
+                && (Constants.THIS.equals(identifier.getName()) || Constants.SUPER.equals(identifier.getName()));
+    }
+
+    /**
+     * Makes the captured receiver of a lambda made from a bound method
+     * reference visible to its body, with the receiver expression's type.
+     */
+    private void defineBoundReceiver(final LambdaExpressionTree lambda, final Scope scope) {
+        if (lambda.getBoundReceiverName() == null) {
+            return;
+        }
+        TypeMirror type = compilerContext.getTreeUtils().typeOf(lambda.getBoundReceiver());
+        if (type == null) {
+            type = types.getUnknownType();
+        }
+        scope.define(new VariableSymbolBuilderImpl()
+                .kind(ElementKind.PARAMETER)
+                .simpleName(lambda.getBoundReceiverName())
+                .type(type)
+                .build());
+    }
+
     private LambdaExpressionTree memberReferenceToLambda(final MemberReference memberReference,
                                                          final TypeMirror targetType) {
         if (!(targetType instanceof DeclaredType) || targetType.asTypeElement() == null
@@ -1784,10 +1819,20 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     && hasMethod(qualifierType, name, arity - 1, false);
             final ExpressionTree selector;
             final List<ExpressionTree> callArguments;
+            String boundReceiverName = null;
             if (unboundReceiver) {
                 selector = TreeMaker.fieldAccessExpressionTree(TreeMaker.identifier(REF_PARAMETER + 0, line, column),
                         TreeMaker.identifier(name, line, column), line, column);
                 callArguments = new ArrayList<>(arguments.subList(1, arguments.size()));
+            } else if (qualifierType == null && !isThisOrSuper(qualifier)) {
+                // `expr::m` (JLS 15.13.3): expr is evaluated once, when the
+                // reference is created, and captured; the body calls m on
+                // the captured value.
+                boundReceiverName = REF_RECEIVER + BOUND_RECEIVER_COUNT.getAndIncrement();
+                selector = TreeMaker.fieldAccessExpressionTree(
+                        TreeMaker.identifier(boundReceiverName, line, column),
+                        TreeMaker.identifier(name, line, column), line, column);
+                callArguments = arguments;
             } else {
                 selector = TreeMaker.fieldAccessExpressionTree(qualifier,
                         TreeMaker.identifier(name, line, column), line, column);
@@ -1795,6 +1840,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             }
             body = TreeMaker.methodInvocationTree(selector, memberReference.getTypeArguments(),
                     callArguments, line, column);
+            if (boundReceiverName != null) {
+                final var lambda = TreeMaker.lambdaExpressionTree(parameters, body, line, column);
+                lambda.setBoundReceiver(qualifier, boundReceiverName);
+                return lambda;
+            }
         }
         return TreeMaker.lambdaExpressionTree(parameters, body, line, column);
     }
@@ -1814,9 +1864,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             final var type = qualifier.getType();
             return type instanceof DeclaredType ? type.asTypeElement() : null;
         }
-        // A parameterized or array type (List<String>::size).
-        final var type = qualifier != null ? qualifier.getType() : null;
-        return type != null ? type.asTypeElement() : null;
+        // A parameterized or array type (List<String>::size); any other
+        // expression (a call, `new X()`) is a receiver, not a type.
+        if (qualifier instanceof TypeApplyTree || qualifier instanceof ArrayTypeTree) {
+            final var type = qualifier.getType();
+            return type != null ? type.asTypeElement() : null;
+        }
+        return null;
     }
 
     /** Whether the type or a supertype declares a method with this name and arity. */

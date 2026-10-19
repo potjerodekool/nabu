@@ -215,4 +215,60 @@ class FrontendRegressionRunTest {
                     return first + " " + e.getMessage();
                 }"""));
     }
+
+    /**
+     * A bound method reference (JLS 15.13.3) evaluates its receiver once,
+     * when it is created, and throws NullPointerException then for a null
+     * receiver; it used to be evaluated at every call.
+     */
+    @Test
+    void boundMethodReferenceEvaluatesReceiverOnce() throws Exception {
+        assertEquals("1 V1 V1 x12 npe at creation", run("""
+                static int calls = 0;
+                static String next() {
+                    calls++;
+                    return "v" + calls;
+                }""", """
+                java.util.function.Supplier<String> s = next()::toUpperCase;
+                String a = s.get();
+                String b = s.get();
+                StringBuilder sb = new StringBuilder("x");
+                java.util.function.Function<String, StringBuilder> append = sb::append;
+                sb = new StringBuilder("y");
+                append.apply("1");
+                String nullCase;
+                try {
+                    String n = null;
+                    java.util.function.Supplier<Integer> length = n::length;
+                    nullCase = "no npe";
+                } catch (NullPointerException e) {
+                    nullCase = "npe at creation";
+                }
+                return calls + " " + a + " " + b + " " + append.apply("2") + " " + nullCase;"""));
+    }
+
+    /**
+     * A variable assigned in a catch block: SSA renaming does not reach
+     * exception handlers, so the assignment was dropped and the merge after
+     * the try read null.
+     */
+    @Test
+    void assignmentInCatchBlock() throws Exception {
+        assertEquals("npe ok", run("""
+                String r;
+                try {
+                    String n = null;
+                    n.length();
+                    r = "no npe";
+                } catch (NullPointerException e) {
+                    r = "npe";
+                }
+                String q;
+                try {
+                    q = "ok";
+                } catch (RuntimeException e) {
+                    q = "catch";
+                }
+                return r + " " + q;"""));
+    }
 }

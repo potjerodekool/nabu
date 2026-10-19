@@ -70,6 +70,7 @@ public class SsaBuilder {
             }
         }
 
+        final var tryBlocks = tryRegionBlocks(function);
         final var promotableAllocas = new ArrayList<IRInstruction.Alloca>();
         // Bereik van de dominator-tree-traversal (de rename voert alleen
         // normale CFG-edges uit): laadt buiten deze verzameling (bv. in
@@ -110,7 +111,8 @@ public class SsaBuilder {
                             IRValue.nameOf(alloca.result()),
                             renameReachableBlocks)
                     || storesOutside(function, IRValue.nameOf(alloca.result()),
-                            renameReachableBlocks, handlerBlocks)) {
+                            renameReachableBlocks, handlerBlocks)
+                    || storesIn(function, IRValue.nameOf(alloca.result()), tryBlocks)) {
                 // niet promoten
                 continue;
             }
@@ -248,6 +250,65 @@ public class SsaBuilder {
             for (final var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.Load load
                         && isSamePointer(load.ptr(), ptrName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The blocks inside a try region: reachable from its start without
+     * passing its end or its handler. A variable assigned there must keep
+     * the value it had when an exception was thrown, which an SSA value
+     * cannot express: `keep = keep + "1"; parse(x);` followed by a catch
+     * left keep null after the catch.
+     */
+    private static Set<String> tryRegionBlocks(final IRFunction function) {
+        final Set<String> result = new HashSet<>();
+        for (final var block : function.blocks()) {
+            for (final var instr : block.instructions()) {
+                if (!(instr instanceof IRInstruction.TryCatchRegion region)) {
+                    continue;
+                }
+                final var pending = new ArrayDeque<String>();
+                pending.push(region.tryStartLabel());
+                final Set<String> seen = new HashSet<>();
+                while (!pending.isEmpty()) {
+                    final String label = pending.pop();
+                    if (label.equals(region.tryEndLabel()) || label.equals(region.handlerLabel())
+                            || !seen.add(label)) {
+                        continue;
+                    }
+                    result.add(label);
+                    final var current = findBlock(function, label);
+                    if (current == null || current.instructions().isEmpty()) {
+                        continue;
+                    }
+                    switch (current.instructions().getLast()) {
+                        case IRInstruction.Branch branch -> pending.push(branch.targetLabel());
+                        case IRInstruction.CondBranch branch -> {
+                            pending.push(branch.trueLabel());
+                            pending.push(branch.falseLabel());
+                        }
+                        default -> { }
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private static boolean storesIn(final IRFunction function, final String ptrName, final Set<String> blocks) {
+        if (blocks.isEmpty()) {
+            return false;
+        }
+        for (final var block : function.blocks()) {
+            if (!blocks.contains(block.label())) {
+                continue;
+            }
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.Store store && isSamePointer(store.ptr(), ptrName)) {
                     return true;
                 }
             }

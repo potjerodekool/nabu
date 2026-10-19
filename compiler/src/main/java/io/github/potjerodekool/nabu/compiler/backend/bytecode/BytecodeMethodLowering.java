@@ -1009,9 +1009,14 @@ public final class BytecodeMethodLowering {
      * "geladen" werd. De cast is voor de backend een no-op (pointer naar
      * pointer) en zet alleen het IR-type recht.
      */
+    /**
+     * An array allocation: like source IR, the AllocaArray carries the array
+     * type (element type as pointee, array descriptor). With only the element
+     * type, `new int[n][]` (elements of type int[]) and `new int[n]` looked
+     * the same to the backend.
+     */
     private IRValue newArray(final IRValue size, final IRType elemType, final String arrayDescriptor) {
-        return builder.emitCast(builder.emitAllocaArray(size, elemType),
-                new IRType.Ptr(IRType.I8, arrayDescriptor));
+        return builder.emitAllocaArray(size, new IRType.Ptr(elemType, arrayDescriptor));
     }
 
     private void emitLdc(final Object cst) {

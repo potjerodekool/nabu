@@ -36,6 +36,10 @@ class ArrayElementSizeTest {
         b.emitAllocaArray(3, IRType.I16);
         b.emitAllocaArray(3, IRType.I32);
         b.emitAllocaArray(3, new IRType.Ptr(IRType.I8, "Ljava/lang/String;"));
+        // Source and bytecode IR pass the array type: its descriptor gives
+        // the element size, not the size of the (pointer) type itself.
+        b.emitAllocaArray(3, new IRType.Ptr(IRType.I32, "[I"));
+        b.emitAllocaArray(3, new IRType.Ptr(IRType.I16, "[C"));
         b.emitReturn(null);
         b.endFunction();
 
@@ -55,6 +59,9 @@ class ArrayElementSizeTest {
         }
         assertTrue(stored.stream().map(v -> v & 0xff).toList().containsAll(List.of(1, 2, 4, 8)),
                 "Verwacht elementgroottes 1, 2, 4 en 8 in de array-header: " + stored + "\n" + ll);
+        assertTrue(stored.stream().filter(v -> (v & 0xff) == 4).count() == 2
+                        && stored.stream().filter(v -> (v & 0xff) == 2).count() == 2,
+                "Verwacht 4 voor [I en 2 voor [C (niet de pointergrootte): " + stored);
         assertTrue(stored.stream().allMatch(v -> (v >> 8) > 0),
                 "Verwacht een array-type-index bij elke allocatie: " + stored);
         assertTrue(ll.contains("[Ljava/lang/String;") && ll.contains("@nabu_array_type_names"),

@@ -271,4 +271,54 @@ class FrontendRegressionRunTest {
                 }
                 return r + " " + q;"""));
     }
+
+    /**
+     * A variable assigned in a try body keeps that value on the exception
+     * path: SSA promotion turned it into a value that the handler (outside
+     * the renaming dominator tree) never saw, so it read the initial value.
+     */
+    @Test
+    void assignmentInTryBodySurvivesException() throws Exception {
+        assertEquals("init-c k1 init", run("static int calls = 0;", """
+                String r = "init";
+                String keep = "k";
+                try {
+                    keep = keep + "1";
+                    Integer.parseInt("x");
+                } catch (NumberFormatException e) {
+                    r = r + "-c";
+                }
+                String u = "init";
+                try {
+                    if (calls < 0) throw new IllegalStateException();
+                } catch (IllegalStateException e) {
+                    u = "c";
+                }
+                return r + " " + keep + " " + u;"""));
+    }
+
+    /** Sibling scopes with locals of the same name (and different types). */
+    @Test
+    void siblingScopesWithSameNamedLocals() throws Exception {
+        assertEquals("30", run("""
+                int total = 0;
+                for (int i = 0; i < 3; i++) { total += i; }
+                for (int i = 10; i < 12; i++) { total += i; }
+                { String s = "a"; total += s.length(); }
+                { int s = 5; total += s; }
+                return "" + total;"""));
+    }
+
+    /**
+     * A return in a block lambda targets the lambda's SAM, not an enclosing
+     * method (which the lambda body has not): returning a lambda or a method
+     * reference from one crashed the resolver.
+     */
+    @Test
+    void blockLambdaReturningLambda() throws Exception {
+        assertEquals("7 3", run("""
+                java.util.function.Supplier<java.util.function.IntSupplier> f = () -> { return () -> 7; };
+                java.util.function.Supplier<java.util.function.ToIntFunction<String>> g = () -> { return String::length; };
+                return f.get().getAsInt() + " " + g.get().applyAsInt("abc");"""));
+    }
 }

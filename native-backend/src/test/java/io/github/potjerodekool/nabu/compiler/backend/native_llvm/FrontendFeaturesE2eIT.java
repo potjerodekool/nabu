@@ -19,7 +19,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Object-returning interface of the compiled class itself (it became a bare
  * function reference, "Unknown function reference"), boxing at
  * {@code return}, method references (static, unbound, overloaded) and a
- * nested-type static call as an argument. See FrontendRegressionRunTest for
+ * nested-type static call as an argument; a try-body assignment kept on
+ * the exception path, a block lambda returning a lambda, and copies of
+ * source int[]/long[] arrays (element size 8 in the header made
+ * System.arraycopy copy twice the bytes). See FrontendRegressionRunTest for
  * the same cases on the JVM backend.
  */
 class FrontendFeaturesE2eIT {
@@ -69,6 +72,32 @@ class FrontendFeaturesE2eIT {
                         java.util.function.Supplier<String> once = next()::toUpperCase;
                         String first = once.get();
                         System.out.println(calls + " " + first + " " + once.get() + " " + calls);
+                        String r = "init";
+                        String keep = "k";
+                        try {
+                            keep = keep + "1";
+                            Integer.parseInt("x");
+                        } catch (NumberFormatException e) {
+                            r = r + "-c";
+                        }
+                        System.out.println(r + " " + keep);
+                        java.util.function.Supplier<java.util.function.IntSupplier> f = () -> { return () -> 7; };
+                        System.out.println(f.get().getAsInt());
+                        int[] src = {1, 2, 3, 4};
+                        int[] dst = new int[6];
+                        System.arraycopy(src, 1, dst, 2, 3);
+                        int[] copy = java.util.Arrays.copyOf(src, 5);
+                        long[] longs = {5L, 6L};
+                        long[] longCopy = new long[2];
+                        System.arraycopy(longs, 0, longCopy, 0, 2);
+                        System.out.println(java.util.Arrays.toString(dst) + " " + java.util.Arrays.toString(copy)
+                                + " " + longCopy[1]);
+                        try {
+                            System.arraycopy(src, 2, dst, 0, 9);
+                            System.out.println("no exception");
+                        } catch (IndexOutOfBoundsException e) {
+                            System.out.println("out of bounds");
+                        }
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -112,7 +141,8 @@ class FrontendFeaturesE2eIT {
         }
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
-        assertEquals("a=true b=1\ntrue 3\n3 xx 7 [a, b]\nBLOCKED\n1 V1 V1 1\n", output, "exit=" + exit);
+        assertEquals("a=true b=1\ntrue 3\n3 xx 7 [a, b]\nBLOCKED\n1 V1 V1 1\n"
+                + "init-c k1\n7\n[0, 0, 2, 3, 4, 0] [1, 2, 3, 4, 0] 6\nout of bounds\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

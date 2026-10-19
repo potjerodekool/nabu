@@ -663,10 +663,11 @@ BIND(int32_t, jcl_java_lang_Object_hashCode, "java.lang.Object_hashCode", (void 
 
 
 BIND(void, jcl_java_lang_System_arraycopy, "java.lang.System_arraycopy", (void *src, int32_t srcPos, void *dst, int32_t dstPos, int32_t len)) {
-    if (src == NULL || dst == NULL) { jcl_throw("java/lang/NullPointerException", "java/lang/RuntimeException", "arraycopy"); return; }
+    /* The exceptions were created but never thrown: a bad copy went on. */
+    if (src == NULL || dst == NULL) { nabu_throw(jcl_throw("java/lang/NullPointerException", "java/lang/RuntimeException", "arraycopy")); return; }
     if (len <= 0) return;
     if (srcPos < 0 || dstPos < 0 || srcPos + len > jcl_arr_len(src) || dstPos + len > jcl_arr_len(dst)) {
-        jcl_throw("java/lang/ArrayIndexOutOfBoundsException", "java/lang/IndexOutOfBoundsException", "arraycopy");
+        nabu_throw(jcl_throw("java/lang/ArrayIndexOutOfBoundsException", "java/lang/IndexOutOfBoundsException", "arraycopy"));
         return;
     }
     /* De elementgrootte van de bron bepaalt de stap: met een vaste 8 schreef

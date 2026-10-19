@@ -458,9 +458,8 @@ public class InstructionEmitter {
     private void emitAllocaArray(IRInstruction.AllocaArray a) {
         // Layout: [i32 length][ element 0 ][ element 1 ]...
         // Totale bytes = ARRAY_HEADER_SIZE + count * elemSize
-        LLVMTypeRef elemType = types.map(a.allocType());
         LLVMValueRef count = resolveValue(a.size());
-        long elemSize = sizeOf(elemType);
+        long elemSize = arrayElementSize(a.allocType());
         LLVMValueRef totalBytes = arrayTotalBytes(count, elemSize);
         // Switch-expressie: de GcStrategy-cases zijn compiler-gedekt. Een
         // nieuwe strategie levert dan een compilefout op in plaats van een
@@ -502,9 +501,31 @@ public class InstructionEmitter {
         return new ArrayList<>(arrayTypeIds.keySet());
     }
 
+    /**
+     * Bytes per element. The AllocaArray carries the array type (source and
+     * bytecode IR alike), whose descriptor says the element: `[I` 4, `[J` 8,
+     * `[Z`/`[B` 1, a reference 8. The pointer size of the array type itself
+     * gave every source array 8-byte elements in the header, while its
+     * elements are stored 4 bytes apart (an int[]): System.arraycopy then
+     * copied twice the bytes. A plain element type (direct IR) still works.
+     */
+    private long arrayElementSize(final IRType allocType) {
+        if (allocType instanceof IRType.Ptr ptr && ptr.jvmDescriptor() != null
+                && ptr.jvmDescriptor().startsWith("[") && ptr.jvmDescriptor().length() > 1) {
+            return switch (ptr.jvmDescriptor().charAt(1)) {
+                case 'Z', 'B' -> 1;
+                case 'C', 'S' -> 2;
+                case 'I', 'F' -> 4;
+                case 'J', 'D' -> 8;
+                default -> sizeOf(LLVMPointerTypeInContext(ctx, 0));
+            };
+        }
+        return sizeOf(types.map(allocType));
+    }
+
     /** The JVM name of the allocated array type ("[Ljava/lang/String;", "[I"), or null. */
     private static String arrayClassName(final IRInstruction.AllocaArray a) {
-        if (a.result() != null && a.result().type() instanceof IRType.Ptr ptr
+        if (a.allocType() instanceof IRType.Ptr ptr
                 && ptr.jvmDescriptor() != null && ptr.jvmDescriptor().startsWith("[")) {
             return ptr.jvmDescriptor();
         }

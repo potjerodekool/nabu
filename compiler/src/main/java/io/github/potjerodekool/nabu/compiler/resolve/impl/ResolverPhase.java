@@ -853,7 +853,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 final var lambdaScope = new LocalScope(scope);
                 variables.forEach(variable -> acceptTree(variable, lambdaScope));
                 defineBoundReceiver(lambdaExpression, lambdaScope);
-                acceptTree(lambdaExpression.getBody(), lambdaScope);
+                acceptLambdaBody(lambdaExpression, lambdaScope, null);
             }
             defaultAnswer(lambdaExpression, scope);
 
@@ -919,7 +919,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             });
 
             defineBoundReceiver(lambdaExpression, lambdaScope);
-            acceptTree(lambdaExpression.getBody(), lambdaScope);
+            acceptLambdaBody(lambdaExpression, lambdaScope, null);
         }
 
         if (lambdaMethodType != null) {
@@ -991,7 +991,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 }
             });
             defineBoundReceiver(lambdaExpression, scope);
-            acceptTree(lambdaExpression.getBody(), scope);
+            acceptLambdaBody(lambdaExpression, scope, lambdaMethodType.getReturnType());
         }
 
         return defaultAnswer(lambdaExpression, scope);
@@ -1062,7 +1062,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         });
 
         defineBoundReceiver(lambdaExpression, lambdaScope);
-        acceptTree(lambdaExpression.getBody(), lambdaScope);
+        acceptLambdaBody(lambdaExpression, lambdaScope, member.getReturnType());
 
         // A lambda whose body is a lambda (`() -> () -> x`, `a -> b -> a + b`):
         // the inner one gets the SAM's return type as its target, like a
@@ -1629,17 +1629,17 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                                        final Scope scope) {
         final var expression = returnStatement.getExpression();
 
-        if (expression instanceof LambdaExpressionTree lambdaExpression) {
-            final var method = scope.getCurrentMethod();
-            final var type = method.getReturnType();
+        final TypeMirror returnType = currentReturnType(scope);
+
+        if (expression instanceof LambdaExpressionTree lambdaExpression && returnType != null) {
+            final var type = returnType;
             lambdaExpression.setType(type);
             lambdaCheck(lambdaExpression, type);
         }
 
-        if (expression instanceof MemberReference memberReference
+        if (expression instanceof MemberReference memberReference && returnType != null
                 && returnStatement instanceof io.github.potjerodekool.nabu.tree.statement.impl.CReturnStatementTree returnTree) {
-            final var method = scope.getCurrentMethod();
-            final var type = method.getReturnType();
+            final var type = returnType;
             acceptTree(memberReference, scope);
             final var lambda = memberReferenceToLambda(memberReference, type);
             if (lambda != null) {
@@ -1769,6 +1769,32 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
      * Makes the captured receiver of a lambda made from a bound method
      * reference visible to its body, with the receiver expression's type.
      */
+    /**
+     * The return types of the lambda bodies being resolved, innermost first
+     * (empty if unknown, as in a first pass): a `return` in a block lambda
+     * targets the lambda's SAM, not the enclosing method, which a lambda body
+     * does not have (`() -> { return () -> 7; }` crashed).
+     */
+    private final java.util.ArrayDeque<java.util.Optional<TypeMirror>> lambdaReturnTypes = new java.util.ArrayDeque<>();
+
+    private void acceptLambdaBody(final LambdaExpressionTree lambda, final Scope scope, final TypeMirror returnType) {
+        lambdaReturnTypes.push(java.util.Optional.ofNullable(returnType));
+        try {
+            acceptTree(lambda.getBody(), scope);
+        } finally {
+            lambdaReturnTypes.pop();
+        }
+    }
+
+    /** The type a `return` here returns: the innermost lambda's, else the method's; null if unknown. */
+    private TypeMirror currentReturnType(final Scope scope) {
+        if (!lambdaReturnTypes.isEmpty()) {
+            return lambdaReturnTypes.peek().orElse(null);
+        }
+        final var method = scope.getCurrentMethod();
+        return method != null ? method.getReturnType() : null;
+    }
+
     private void defineBoundReceiver(final LambdaExpressionTree lambda, final Scope scope) {
         if (lambda.getBoundReceiverName() == null) {
             return;

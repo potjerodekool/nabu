@@ -1454,6 +1454,12 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         } else if (currentSymbol instanceof MethodSymbol methodSymbol) {
             final var methodType = methodSymbol.asType();
             methodType.addTypeVariable(typeVariable);
+            // The symbol's own list too: getTypeParameters() was empty for a
+            // generic source method, and its Signature attribute named type
+            // variables it did not declare (TypeNotPresentException).
+            if (typeVariable.asElement() instanceof io.github.potjerodekool.nabu.lang.model.element.TypeParameterElement element) {
+                methodSymbol.addTypeParameter(element);
+            }
         }
 
         var typeBound = typeParameterTree.getTypeBound().stream()

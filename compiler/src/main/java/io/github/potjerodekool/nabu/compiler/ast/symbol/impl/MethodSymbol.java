@@ -125,6 +125,11 @@ public class MethodSymbol extends Symbol implements ExecutableElement {
         return typeParameters;
     }
 
+    /** A type parameter declared by this (source) method, in declaration order. */
+    public void addTypeParameter(final TypeParameterElement typeParameter) {
+        typeParameters.add(typeParameter);
+    }
+
     @Override
     public <R, P> R accept(final ElementVisitor<R, P> v, final P p) {
         return v.visitExecutable(this, p);

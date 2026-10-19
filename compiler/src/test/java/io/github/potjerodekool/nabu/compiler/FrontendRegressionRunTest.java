@@ -365,4 +365,18 @@ class FrontendRegressionRunTest {
                 Number n = (Number) 3.5;
                 return o + " " + s + " " + n;"""));
     }
+
+    /**
+     * The Signature attribute of a generic method: the method's type
+     * parameters were missing from its symbol (TypeNotPresentException for T)
+     * and a bounded wildcard became {@code ?}.
+     */
+    @Test
+    void genericMethodSignature() throws Exception {
+        assertEquals("public static <T extends java.lang.Comparable<T>> java.util.List<T> "
+                + "mini.Probe.sorted(java.util.Set<? extends T>) 1", run("""
+                public static <T extends Comparable<T>> java.util.List<T> sorted(java.util.Set<? extends T> in) { return null; }""", """
+                java.lang.reflect.Method m = Probe.class.getMethod("sorted", java.util.Set.class);
+                return m.toGenericString() + " " + m.getTypeParameters().length;"""));
+    }
 }

@@ -165,6 +165,30 @@ public final class JvmSignatureBuilder {
             }
 
             case WILDCARD -> {
+                // A wildcard keeps its bound and its kind (extends/super);
+                // its upper/lower bound as a type variable has were null,
+                // and "? extends T" became "*".
+                if (type instanceof io.github.potjerodekool.nabu.type.WildcardType wildcard
+                        && wildcard.getBound() != null) {
+                    switch (wildcard.getBoundKind()) {
+                        case EXTENDS -> {
+                            if (isJavaLangObject(wildcard.getBound())) {
+                                sb.append('*');
+                            } else {
+                                sb.append('+');
+                                appendTypeMirror(sb, wildcard.getBound());
+                            }
+                            return;
+                        }
+                        case SUPER -> {
+                            sb.append('-');
+                            appendTypeMirror(sb, wildcard.getBound());
+                            return;
+                        }
+                        default -> {
+                        }
+                    }
+                }
                 final var upper = type.getUpperBound();
                 final var lower = type.getLowerBound();
                 if (lower != null && lower.getKind() != TypeKind.NONE) {

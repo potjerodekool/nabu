@@ -379,4 +379,24 @@ class FrontendRegressionRunTest {
                 java.lang.reflect.Method m = Probe.class.getMethod("sorted", java.util.Set.class);
                 return m.toGenericString() + " " + m.getTypeParameters().length;"""));
     }
+
+    /**
+     * Nested annotations and enum arrays as annotation values: a nested one
+     * was dropped (and an array of them held nulls), the elements of an
+     * array of enum constants were not resolved.
+     */
+    @Test
+    void nestedAnnotationsAndEnumArrays() throws Exception {
+        assertEquals("t 2b [HIGH, LOW]", run("""
+                @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+                public @interface Tag { String value(); }
+                public enum Level { LOW, HIGH }
+                @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+                public @interface Spec { Tag tag(); Tag[] tags() default {}; Level[] levels() default {}; }
+                @Spec(tag = @Tag("t"), tags = {@Tag("a"), @Tag("b")}, levels = {Level.HIGH, Level.LOW})
+                public static class Target { }""", """
+                Spec s = Target.class.getAnnotation(Spec.class);
+                return s.tag().value() + " " + s.tags().length + s.tags()[1].value() + " "
+                        + java.util.Arrays.toString(s.levels());"""));
+    }
 }

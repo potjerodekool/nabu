@@ -812,7 +812,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         // zoals een element-waarde in een annotatie (zie visitAssignment).
         if (function.getDefaultValue() != null) {
             acceptTree(function.getDefaultValue(), functionScope);
-            final var defaultValue = toAnnotationValue(function.getDefaultValue());
+            final var defaultValue = toAnnotationValue(function.getDefaultValue(), functionScope);
             if (defaultValue != null) {
                 method.setDefaultValue(defaultValue);
             }
@@ -1320,7 +1320,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final var identifier = (IdentifierTree) assignmentExpressionTree.getLeft();
         final var name = identifier.getName();
         acceptTree(assignmentExpressionTree.getRight(), scope);
-        final AnnotationValue annotationValue = toAnnotationValue(assignmentExpressionTree.getRight());
+        final AnnotationValue annotationValue = toAnnotationValue(assignmentExpressionTree.getRight(), scope);
 
         final var executableElement = new MethodSymbolBuilderImpl()
                 .simpleName(name)
@@ -1332,8 +1332,11 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         );
     }
 
-    private AnnotationValue toAnnotationValue(final ExpressionTree expressionTree) {
+    private AnnotationValue toAnnotationValue(final ExpressionTree expressionTree, final Scope scope) {
         return switch (expressionTree) {
+            // A nested annotation (`tag = @Tag("t")`, also as an array
+            // element): it was dropped, and an array of them held nulls.
+            case AnnotationTree annotationTree -> (AnnotationValue) acceptTree(annotationTree, scope);
             case LiteralExpressionTree literalExpressionTree ->
                     AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
             case FieldAccessExpressionTree fieldAccessExpressionTree -> {
@@ -1395,8 +1398,15 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             }
             case NewArrayExpression newArrayExpression -> {
                 final var type = newArrayExpression.getType();
+                // The elements resolved first (`{Level.HIGH, Level.LOW}`): an
+                // enum constant without a type became a class value "null".
                 final var values = newArrayExpression.getElements().stream()
-                        .map(this::toAnnotationValue)
+                        .map(element -> {
+                            if (!(element instanceof AnnotationTree)) {
+                                acceptTree(element, scope);
+                            }
+                            return toAnnotationValue(element, scope);
+                        })
                         .toList();
 
                 yield AnnotationBuilder.createArrayValue(type, values);
@@ -1844,11 +1854,21 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         // A package-qualified name (`extends java.util.Random`): the
         // qualifier is no type (JLS 6.5.5.2), so the whole name is one.
         // Looking up `Random` in the error type of `java.util` made the
-        // superclass an error type and its constructors unresolvable.
-        if (varElement == null && (selected.getType() == null || selected.getType() instanceof ErrorType)
-                && scope.getCurrentClass() instanceof ClassSymbol currentClass) {
+        // superclass an error type and its constructors unresolvable. The
+        // qualifier may even resolve to some type (`java.lang.annotation`
+        // in `java.lang.annotation.RetentionPolicy`), so the whole name is
+        // tried first whenever the qualifier is no variable.
+        if (varElement == null) {
             final var qualifiedName = nameOfExpression(fieldAccessExpression);
-            final var type = qualifiedName != null ? resolveType(qualifiedName, currentClass) : null;
+            TypeMirror type = qualifiedName != null && scope.getCurrentClass() instanceof ClassSymbol currentClass
+                    ? resolveType(qualifiedName, currentClass)
+                    : null;
+            if ((type == null || type instanceof ErrorType) && qualifiedName != null) {
+                // Without a class in scope (an annotation of a class
+                // header: `@Retention(java.lang.annotation.RetentionPolicy.RUNTIME)`).
+                final var loaded = loader.loadClass(null, qualifiedName);
+                type = loaded != null ? loaded.asType() : null;
+            }
             if (type != null && !(type instanceof ErrorType)) {
                 fieldAccessExpression.getField().setType(type);
                 fieldAccessExpression.setType(type);

@@ -376,6 +376,9 @@ int nabu_register_reflection(const nabu_reflection_info *info);
  */
 const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name);
 
+/** The class table holding an annotation entry, and its index in it; NULL if none. */
+const nabu_reflection_info *nabu_annotation_owner(const nabu_annotation_entry *entry, int *index);
+
 /**
  * Offset van een veld bij naam; -1 wanneer onbekend.
  * Retourneert intptr_t (64-bit op alle 64-bit targets) zodat de IR

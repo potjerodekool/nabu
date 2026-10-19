@@ -8,6 +8,7 @@ import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 import java.util.List;
@@ -21,9 +22,8 @@ import java.util.function.Function;
  * daarom een body: lees de waarde uit de metadata via
  * {@value #CLASS}, met de default uit het {@code AnnotationDefault}-attribuut.
  *
- * <p>Ondersteund: String, primitieven, Class, enum, en arrays van String en
- * Class. Andere elementen (geneste annotaties, enum-arrays, ...) blijven
- * abstract en dus onopgelost.
+ * <p>Ondersteund: String, primitieven, Class, enum, geneste annotaties, en
+ * arrays van String, Class, primitieven, enums en annotaties.
  */
 final class AnnotationAccessors {
 
@@ -38,6 +38,12 @@ final class AnnotationAccessors {
     private static final String NUMBER_DESC = "(" + OBJ + STR + "D)D";
     private static final String TYPE_DESC = "(" + OBJ + STR + STR + ")Ljava/lang/Class;";
     private static final String TYPES_DESC = "(" + OBJ + STR + STR + ")[Ljava/lang/Class;";
+    /** (annotation, element, annotation type) → the nested annotation(s). */
+    static final String ANNOTATION_DESC = "(" + OBJ + STR + STR + ")" + OBJ;
+    /** (annotation, element, default as text, array descriptor) → a primitive array. */
+    static final String PRIMITIVES_DESC = "(" + OBJ + STR + STR + STR + ")" + OBJ;
+    static final String ENUM_VALUES_DESC = "([" + STR + "Ljava/lang/Class;)" + OBJ;
+    static final String ANNOTATION_SUPPORT = RuntimeCalls.RUNTIME_PACKAGE + "AnnotationSupport";
 
     private AnnotationAccessors() {
     }
@@ -55,6 +61,9 @@ final class AnnotationAccessors {
         node.methods.add(new MethodNode(access, "number", NUMBER_DESC, null, null));
         node.methods.add(new MethodNode(access, "type", TYPE_DESC, null, null));
         node.methods.add(new MethodNode(access, "types", TYPES_DESC, null, null));
+        node.methods.add(new MethodNode(access, "annotation", ANNOTATION_DESC, null, null));
+        node.methods.add(new MethodNode(access, "annotations", ANNOTATION_DESC, null, null));
+        node.methods.add(new MethodNode(access, "primitives", PRIMITIVES_DESC, null, null));
         return node;
     }
 
@@ -127,6 +136,11 @@ final class AnnotationAccessors {
                     code.add(helper("text", TEXT_DESC));
                     code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, internal, "valueOf",
                             "(" + STR + ")L" + internal + ";", false));
+                } else if (isAnnotation(internal, classLoader)) {
+                    // A nested annotation: its own entry in the metadata.
+                    code.add(new LdcInsnNode(internal));
+                    code.add(helper("annotation", ANNOTATION_DESC));
+                    code.add(new TypeInsnNode(Opcodes.CHECKCAST, internal));
                 } else {
                     return null;
                 }
@@ -143,6 +157,28 @@ final class AnnotationAccessors {
                 } else if ("Ljava/lang/Class;".equals(element)) {
                     code.add(stringConstant(joined(dflt, v -> v instanceof Type t ? t.getInternalName() : v)));
                     code.add(helper("types", TYPES_DESC));
+                } else if (type.getElementType().getSort() != Type.OBJECT) {
+                    // An array of primitives, from its comma-separated items.
+                    code.add(stringConstant(joined(dflt, Function.identity())));
+                    code.add(new LdcInsnNode(type.getDescriptor()));
+                    code.add(helper("primitives", PRIMITIVES_DESC));
+                    code.add(new TypeInsnNode(Opcodes.CHECKCAST, type.getDescriptor()));
+                } else if (isEnum(type.getElementType().getInternalName(), classLoader)) {
+                    // Enum.valueOf finds the enum through its values() in the
+                    // runtime's enum table: reach it (the result is unused).
+                    code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, type.getElementType().getInternalName(),
+                            "values", "()" + type.getDescriptor(), false));
+                    code.add(new InsnNode(Opcodes.POP));
+                    code.add(stringConstant(joined(dflt, v -> v instanceof String[] e && e.length == 2 ? e[1] : v)));
+                    code.add(helper("texts", TEXTS_DESC));
+                    code.add(new LdcInsnNode(type.getElementType()));
+                    code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, ANNOTATION_SUPPORT, "enumValues",
+                            ENUM_VALUES_DESC, false));
+                    code.add(new TypeInsnNode(Opcodes.CHECKCAST, type.getDescriptor()));
+                } else if (isAnnotation(type.getElementType().getInternalName(), classLoader)) {
+                    code.add(new LdcInsnNode(type.getElementType().getInternalName()));
+                    code.add(helper("annotations", ANNOTATION_DESC));
+                    code.add(new TypeInsnNode(Opcodes.CHECKCAST, type.getDescriptor()));
                 } else {
                     return null;
                 }
@@ -153,6 +189,12 @@ final class AnnotationAccessors {
             }
         }
         return code;
+    }
+
+    private static boolean isAnnotation(final String internalName,
+                                        final Function<String, ClassNode> classLoader) {
+        final ClassNode node = classLoader.apply(internalName);
+        return node != null && (node.access & Opcodes.ACC_ANNOTATION) != 0;
     }
 
     private static boolean isEnum(final String internalName,

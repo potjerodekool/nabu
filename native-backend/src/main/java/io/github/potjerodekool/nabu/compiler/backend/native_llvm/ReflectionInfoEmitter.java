@@ -333,23 +333,17 @@ public class ReflectionInfoEmitter {
                                                     final IRModule module) {
         final List<AnnotationData> result = new ArrayList<>();
         for (final CompoundAttribute ann : module.annotations()) {
-            final AnnotationData data = renderAnnotation(ann, null);
-            if (data != null) {
-                result.add(data);
-            }
+            addAnnotation(result, ann, null);
         }
         for (final IRAnnotation ann : module.bytecodeAnnotations()) {
-            result.add(renderBytecodeAnnotation(ann, null));
+            addBytecodeAnnotation(result, ann, null);
         }
         for (final IRField field : module.fields()) {
             for (final CompoundAttribute ann : field.annotations()) {
-                final AnnotationData data = renderAnnotation(ann, field.name());
-                if (data != null) {
-                    result.add(data);
-                }
+                addAnnotation(result, ann, field.name());
             }
             for (final IRAnnotation ann : field.bytecodeAnnotations()) {
-                result.add(renderBytecodeAnnotation(ann, field.name()));
+                addBytecodeAnnotation(result, ann, field.name());
             }
         }
         // Methods and constructors: owner "name(descriptor)", a parameter
@@ -367,29 +361,23 @@ public class ReflectionInfoEmitter {
                 continue;
             }
             for (final CompoundAttribute ann : fn.annotations()) {
-                final AnnotationData data = renderAnnotation(ann, owner);
-                if (data != null) {
-                    result.add(data);
-                }
+                addAnnotation(result, ann, owner);
             }
             for (final IRAnnotation ann : fn.bytecodeAnnotations()) {
-                result.add(renderBytecodeAnnotation(ann, owner));
+                addBytecodeAnnotation(result, ann, owner);
             }
             // Source: the list has a first entry for the receiver of an instance method.
             final List<List<CompoundAttribute>> parameters = fn.parameterAnnotations();
             final int skip = Flags.hasFlag(fn.getFlags(), Flags.STATIC) || parameters.isEmpty() ? 0 : 1;
             for (int i = skip; i < parameters.size(); i++) {
                 for (final CompoundAttribute ann : parameters.get(i)) {
-                    final AnnotationData data = renderAnnotation(ann, owner + "#" + (i - skip));
-                    if (data != null) {
-                        result.add(data);
-                    }
+                    addAnnotation(result, ann, owner + "#" + (i - skip));
                 }
             }
             final List<List<IRAnnotation>> bytecodeParameters = fn.bytecodeParameterAnnotations();
             for (int i = 0; i < bytecodeParameters.size(); i++) {
                 for (final IRAnnotation ann : bytecodeParameters.get(i)) {
-                    result.add(renderBytecodeAnnotation(ann, owner + "#" + i));
+                    addBytecodeAnnotation(result, ann, owner + "#" + i);
                 }
             }
         }
@@ -459,6 +447,54 @@ public class ReflectionInfoEmitter {
     }
 
     /**
+     * Adds an annotation and, after it, the annotations nested in it (an
+     * element whose value is an annotation or an array of them). A nested one
+     * is owned by "^index.element" (or "^index.element#i" in an array), with
+     * index the position of the enclosing annotation in the class's table:
+     * the runtime finds it from there.
+     */
+    private void addAnnotation(final List<AnnotationData> result, final CompoundAttribute ann, final String owner) {
+        final AnnotationData data = renderAnnotation(ann, owner);
+        if (data == null) {
+            return;
+        }
+        final int index = result.size();
+        result.add(data);
+        for (final Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> e :
+                ann.getElementValues().entrySet()) {
+            final String nested = "^" + index + "." + e.getKey().getSimpleName();
+            if (e.getValue() instanceof CompoundAttribute compound) {
+                addAnnotation(result, compound, nested);
+            } else if (e.getValue() instanceof ArrayAttribute array) {
+                int i = 0;
+                for (final AnnotationValue element : array.getValue()) {
+                    if (element instanceof CompoundAttribute compound) {
+                        addAnnotation(result, compound, nested + "#" + i++);
+                    }
+                }
+            }
+        }
+    }
+
+    private void addBytecodeAnnotation(final List<AnnotationData> result, final IRAnnotation ann, final String owner) {
+        final int index = result.size();
+        result.add(renderBytecodeAnnotation(ann, owner));
+        for (final Map.Entry<String, Object> e : ann.values().entrySet()) {
+            final String nested = "^" + index + "." + e.getKey();
+            if (e.getValue() instanceof IRAnnotation inner) {
+                addBytecodeAnnotation(result, inner, nested);
+            } else if (e.getValue() instanceof List<?> list) {
+                int i = 0;
+                for (final Object element : list) {
+                    if (element instanceof IRAnnotation inner) {
+                        addBytecodeAnnotation(result, inner, nested + "#" + i++);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Een annotatie van een klasse uit bytecode (een library), in hetzelfde
      * formaat als een annotatie uit broncode: tekst voor strings, klassen
      * (interne naam), enum-constanten (naam) en arrays (komma-gescheiden),
@@ -522,7 +558,10 @@ public class ReflectionInfoEmitter {
         final List<ValueData> values = new ArrayList<>();
         for (final Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> e :
                 ann.getElementValues().entrySet()) {
-            values.add(renderValue(e.getKey().getSimpleName(), e.getValue()));
+            final ValueData valueData = renderValue(e.getKey().getSimpleName(), e.getValue());
+            if (valueData != null) {
+                values.add(valueData);
+            }
         }
         return new AnnotationData(typeInternal, owner, values);
     }
@@ -535,6 +574,18 @@ public class ReflectionInfoEmitter {
             return te.getQualifiedName().replace('.', '/');
         }
         return null;
+    }
+
+    /** An array element as text: an enum constant's name, a class's internal name, else the value. */
+    private static String elementText(final AnnotationValue element) {
+        if (element instanceof EnumAttribute en && en.getValue() != null) {
+            return en.getValue().getSimpleName();
+        }
+        final Object raw = element.getValue();
+        if (raw instanceof io.github.potjerodekool.nabu.type.TypeMirror type && type.asTypeElement() != null) {
+            return type.asTypeElement().getFlatName().replace('.', '/');
+        }
+        return raw != null ? String.valueOf(raw) : "null";
     }
 
     private ValueData renderValue(final String name, final AnnotationValue value) {
@@ -551,14 +602,19 @@ public class ReflectionInfoEmitter {
             }
             return new ValueData(name, String.valueOf(raw), true, 0.0);
         }
+        if (value instanceof CompoundAttribute) {
+            return null;
+        }
         if (value instanceof ArrayAttribute arr) {
             final StringBuilder sb = new StringBuilder();
             for (final AnnotationValue elem : arr.getValue()) {
+                if (elem instanceof CompoundAttribute) {
+                    return null;
+                }
                 if (sb.length() > 0) {
                     sb.append(',');
                 }
-                final Object raw = elem.getValue();
-                sb.append(raw != null ? raw : "null");
+                sb.append(elementText(elem));
             }
             return new ValueData(name, sb.toString(), true, 0.0);
         }

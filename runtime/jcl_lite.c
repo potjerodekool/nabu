@@ -582,6 +582,97 @@ BIND(void *, jcl_ann_types, "nabu.runtime.Annotations_types", (void *a, void *na
     return jcl_classes_of(v != NULL ? v->text : (dflt != NULL ? nabu_cstr(dflt) : NULL));
 }
 
+static void *jcl_ann_obj(const nabu_annotation_entry *e);
+
+/* Annotations nested in an annotation: entries of the same class table
+ * owned by "^<index of the enclosing entry>.<element>" ("#i" for the i-th
+ * of an array). */
+static char *jcl_nested_key(void *a, const char *name, const nabu_reflection_info **info) {
+    s_ann *st = (s_ann *)jcl_state_kind(a, K_ANN);
+    if (st == NULL) return NULL;
+    int index;
+    *info = nabu_annotation_owner(st->e, &index);
+    if (*info == NULL) return NULL;
+    char prefix[32];
+    snprintf(prefix, sizeof prefix, "^%d.", index);
+    return jcl_concat(prefix, name);
+}
+static const nabu_annotation_entry *jcl_entry_owned(const nabu_reflection_info *info, const char *owner) {
+    for (int i = 0; i < info->annotation_count; i++) {
+        if (info->annotations[i].owner != NULL && strcmp(info->annotations[i].owner, owner) == 0) {
+            return &info->annotations[i];
+        }
+    }
+    return NULL;
+}
+/* An element whose value is an annotation (null if it has none: the
+ * default of such an element is not in the metadata). */
+BIND(void *, jcl_ann_annotation, "nabu.runtime.Annotations_annotation", (void *a, void *name, void *type)) {
+    (void)type;
+    const nabu_reflection_info *info;
+    char *key = jcl_nested_key(a, nabu_cstr(name), &info);
+    const nabu_annotation_entry *e = key != NULL ? jcl_entry_owned(info, key) : NULL;
+    return e != NULL ? jcl_ann_obj(e) : NULL;
+}
+/* An element whose value is an array of annotations of `type` (internal name). */
+BIND(void *, jcl_ann_annotations, "nabu.runtime.Annotations_annotations", (void *a, void *name, void *type)) {
+    const nabu_reflection_info *info;
+    char *key = jcl_nested_key(a, nabu_cstr(name), &info);
+    int32_t count = 0;
+    while (key != NULL) {
+        char index[16];
+        snprintf(index, sizeof index, "#%d", (int)count);
+        if (jcl_entry_owned(info, jcl_concat(key, index)) == NULL) break;
+        count++;
+    }
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, jcl_concat(jcl_concat("[L", nabu_cstr(type)), ";"));
+    for (int32_t i = 0; i < count; i++) {
+        char index[16];
+        snprintf(index, sizeof index, "#%d", (int)i);
+        jcl_arr_set(arr, i, jcl_ann_obj(jcl_entry_owned(info, jcl_concat(key, index))));
+    }
+    return arr;
+}
+/* An element whose value is an array of primitives: the metadata (or the
+ * default) holds its items as comma-separated text; `descriptor` is the
+ * array's ("[I", "[Z", ...). A char item is the character itself. */
+BIND(void *, jcl_ann_primitives, "nabu.runtime.Annotations_primitives", (void *a, void *name, void *dflt, void *descriptor)) {
+    const nabu_annotation_value *v = ann_v(a, nabu_cstr(name));
+    const char *text = v != NULL && v->text != NULL ? v->text : (dflt != NULL ? nabu_cstr(dflt) : "");
+    const char t = nabu_cstr(descriptor)[1];
+    int32_t size = t == 'J' || t == 'D' ? 8 : t == 'I' || t == 'F' ? 4 : t == 'C' || t == 'S' ? 2 : 1;
+    int32_t count = text[0] == 0 ? 0 : 1;
+    for (const char *c = text; *c; c++) if (*c == ',') count++;
+    void *arr = jcl_alloc(8 + (size_t)count * (size_t)size);
+    ((int32_t *)arr)[0] = count;
+    ((int32_t *)arr)[1] = size;
+    jcl_arr_set_type(arr, nabu_cstr(descriptor));
+    char *data = (char *)arr + 8;
+    const char *item = text;
+    for (int32_t i = 0; i < count; i++) {
+        const char *next = strchr(item, ',');
+        size_t len = next != NULL ? (size_t)(next - item) : strlen(item);
+        char buf[64];
+        if (len >= sizeof buf) len = sizeof buf - 1;
+        memcpy(buf, item, len);
+        buf[len] = 0;
+        switch (t) {
+            case 'Z': ((uint8_t *)data)[i] = strcmp(buf, "true") == 0 || strcmp(buf, "1") == 0; break;
+            case 'B': ((int8_t *)data)[i] = (int8_t)strtol(buf, NULL, 10); break;
+            case 'S': ((int16_t *)data)[i] = (int16_t)strtol(buf, NULL, 10); break;
+            case 'C': ((uint16_t *)data)[i] = len == 1 ? (uint16_t)(unsigned char)buf[0] : (uint16_t)strtol(buf, NULL, 10); break;
+            case 'I': ((int32_t *)data)[i] = (int32_t)strtol(buf, NULL, 10); break;
+            case 'J': ((int64_t *)data)[i] = strtoll(buf, NULL, 10); break;
+            case 'F': ((float *)data)[i] = strtof(buf, NULL); break;
+            case 'D': ((double *)data)[i] = strtod(buf, NULL); break;
+        }
+        if (next == NULL) break;
+        item = next + 1;
+    }
+    return arr;
+}
+
 BIND(void *, jcl_java_lang_Object_clone, "java.lang.Object_clone", (void *self)) {
     if (self == NULL) return NULL;
     if (nabu_compiled_type_name(self) != NULL) {

@@ -19,9 +19,10 @@ import java.util.List;
  * runtime makes annotation instances from the reflection metadata and nobody
  * implements the annotation interface, so a call of an element
  * ({@code cmd.value()}) goes straight to the interface's function. Each
- * element of String, primitive, Class, enum, String[] or Class[] type gets a
- * body that reads the value through the runtime's helpers, with the
- * element's default. Other elements stay abstract.
+ * element (String, primitive, Class, enum, nested annotation, and arrays of
+ * those) gets a body that reads the value through the runtime's helpers,
+ * with the element's default (not for a nested annotation, whose default is
+ * not in the metadata).
  */
 final class SourceAnnotationAccessors {
 
@@ -32,7 +33,11 @@ final class SourceAnnotationAccessors {
     private SourceAnnotationAccessors() {
     }
 
-    static void implement(final IRModule module) {
+    /**
+     * @param isAnnotationType whether a type (internal name) is an annotation
+     *                         type: an element of that type is a nested annotation.
+     */
+    static void implement(final IRModule module, final java.util.function.Predicate<String> isAnnotationType) {
         if (!Flags.hasFlag(module.flags, Flags.ANNOTATION)) {
             return;
         }
@@ -41,7 +46,7 @@ final class SourceAnnotationAccessors {
                     || Flags.hasFlag(function.getFlags(), Flags.STATIC)) {
                 continue;
             }
-            final IRFunction body = body(function);
+            final IRFunction body = body(function, isAnnotationType);
             if (body != null) {
                 module.removeFunction(function);
                 module.addFunction(body);
@@ -49,7 +54,8 @@ final class SourceAnnotationAccessors {
         }
     }
 
-    private static IRFunction body(final IRFunction element) {
+    private static IRFunction body(final IRFunction element,
+                                   final java.util.function.Predicate<String> isAnnotationType) {
         final String name = elementName(element.name);
         final IRType type = element.returnType;
         final String descriptor = type instanceof IRType.Ptr ptr ? ptr.jvmDescriptor() : null;
@@ -90,10 +96,39 @@ final class SourceAnnotationAccessors {
             result = builder.emitCall(CallKind.STATIC, HELPERS + (classes ? "types" : "texts"), type,
                     List.of(OBJECT, STRING, STRING),
                     List.of(self, elementName, IRValue.ofString(String.join(",", items))));
+        } else if (descriptor != null && descriptor.startsWith("[") && descriptor.length() == 2) {
+            // An array of primitives, from its comma-separated items.
+            result = builder.emitCast(builder.emitCall(CallKind.STATIC, HELPERS + "primitives", OBJECT,
+                    List.of(OBJECT, STRING, STRING, STRING),
+                    List.of(self, elementName, IRValue.ofString(String.join(",", items(dflt))),
+                            IRValue.ofString(descriptor))), type);
+        } else if (descriptor != null && descriptor.startsWith("[L")) {
+            final String component = descriptor.substring(2, descriptor.length() - 1);
+            final IRType.Ptr componentType = new IRType.Ptr(IRType.I8, "L" + component + ";");
+            if (isAnnotationType.test(component)) {
+                result = builder.emitCast(builder.emitCall(CallKind.STATIC, HELPERS + "annotations", OBJECT,
+                        List.of(OBJECT, STRING, STRING),
+                        List.of(self, elementName, IRValue.ofString(component))), type);
+            } else {
+                // An array of enum constants, by name.
+                final IRType stringArray = new IRType.Ptr(STRING, "[Ljava/lang/String;");
+                final IRValue names = builder.emitCall(CallKind.STATIC, HELPERS + "texts", stringArray,
+                        List.of(OBJECT, STRING, STRING),
+                        List.of(self, elementName, IRValue.ofString(String.join(",", items(dflt)))));
+                result = builder.emitCast(builder.emitCall(CallKind.STATIC,
+                        RuntimeCalls.RUNTIME_PACKAGE.replace('/', '.') + "AnnotationSupport_enumValues", OBJECT,
+                        List.of(stringArray, new IRType.Ptr(IRType.I8, "Ljava/lang/Class;")),
+                        List.of(names, new IRValue.ConstClass(componentType))), type);
+            }
+        } else if (descriptor != null && descriptor.startsWith("L")
+                && isAnnotationType.test(descriptor.substring(1, descriptor.length() - 1))) {
+            // A nested annotation: its own entry in the metadata.
+            result = builder.emitCast(builder.emitCall(CallKind.STATIC, HELPERS + "annotation", OBJECT,
+                    List.of(OBJECT, STRING, STRING),
+                    List.of(self, elementName, IRValue.ofString(descriptor.substring(1, descriptor.length() - 1)))),
+                    type);
         } else if (descriptor != null && descriptor.startsWith("L")) {
-            // An enum (the metadata holds the constant's name). A nested
-            // annotation is not in the metadata: no value, and no default
-            // name, gives null.
+            // An enum (the metadata holds the constant's name).
             final String constant = dflt instanceof io.github.potjerodekool.nabu.lang.model.element.VariableElement variable
                     ? variable.getSimpleName() : null;
             final IRValue constantName = builder.emitCall(CallKind.STATIC, HELPERS + "text", STRING,
@@ -113,6 +148,19 @@ final class SourceAnnotationAccessors {
         final IRFunction function = builder.build().functions().getFirst();
         function.setAnnotationDefault(element.annotationDefault());
         return function;
+    }
+
+    /** The items of an array default as the metadata has them: names of enum constants, values. */
+    private static List<String> items(final Object dflt) {
+        final List<String> items = new ArrayList<>();
+        if (dflt instanceof List<?> list) {
+            for (final Object item : list) {
+                final Object value = item instanceof AnnotationValue v ? v.getValue() : item;
+                items.add(value instanceof io.github.potjerodekool.nabu.lang.model.element.VariableElement variable
+                        ? variable.getSimpleName() : String.valueOf(value));
+            }
+        }
+        return items;
     }
 
     private static IRValue stringOrNull(final String value) {

@@ -581,9 +581,23 @@ public final class BytecodeReachabilityCompiler {
         // gelowerde overload met een ander parameterprofiel. Herhalen tot er
         // niets meer bijkomt: elke ronde kan nieuwe klassen vormen.
         // Resource lookups in source go to ResourceSupport, as in bytecode.
+        final Set<String> sourceAnnotationTypes = new HashSet<>();
+        for (final IRModule module : alreadyCompiledModules) {
+            if (io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags,
+                    io.github.potjerodekool.nabu.lang.Flags.ANNOTATION)) {
+                sourceAnnotationTypes.add(module.name.replace('.', '/'));
+            }
+        }
         for (final IRModule module : alreadyCompiledModules) {
             RuntimeCalls.rewrite(module);
-            SourceAnnotationAccessors.implement(module);
+            SourceAnnotationAccessors.implement(module, type -> {
+                if (sourceAnnotationTypes.contains(type)) {
+                    return true;
+                }
+                // An annotation type from a library: its class file says.
+                final ClassNode node = loadClassNode(type);
+                return node != null && (node.access & Opcodes.ACC_ANNOTATION) != 0;
+            });
         }
         final Map<String, Boolean> sourceCalls = collectSourceCalls(alreadyCompiledModules);
         while (queueSourceCalls(sourceCalls) | queueReflectiveInstantiations()) {

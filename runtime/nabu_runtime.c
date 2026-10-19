@@ -73,6 +73,20 @@ int nabu_register_reflection(const nabu_reflection_info *info) {
     return 1;
 }
 
+/* The class table that holds an annotation entry, and the entry's index in
+ * it: annotations nested in it are owned by "^index.element". */
+const nabu_reflection_info *nabu_annotation_owner(const nabu_annotation_entry *entry, int *index) {
+    for (int i = 0; i < nabu_reflection_count; i++) {
+        const nabu_reflection_info *info = nabu_reflection_table[i];
+        if (info->annotations != NULL && entry >= info->annotations
+                && entry < info->annotations + info->annotation_count) {
+            if (index != NULL) *index = (int)(entry - info->annotations);
+            return info;
+        }
+    }
+    return NULL;
+}
+
 const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name) {
     if (internal_name == NULL) {
         return NULL;

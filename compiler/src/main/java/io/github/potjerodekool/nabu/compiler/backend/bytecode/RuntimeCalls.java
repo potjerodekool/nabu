@@ -85,7 +85,18 @@ final class RuntimeCalls {
                     "getMethod"),
             new Redirect("java/lang/Class", "getDeclaredMethod",
                     "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;", false, REFLECT_SUPPORT,
-                    "getDeclaredMethod"));
+                    "getDeclaredMethod"),
+            new Redirect("java/lang/Class", "getConstructors",
+                    "()[Ljava/lang/reflect/Constructor;", false, REFLECT_SUPPORT, "getConstructors"),
+            new Redirect("java/lang/Class", "getDeclaredConstructors",
+                    "()[Ljava/lang/reflect/Constructor;", false, REFLECT_SUPPORT, "getDeclaredConstructors"),
+            new Redirect("java/lang/Class", "getConstructor",
+                    "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", false, REFLECT_SUPPORT, "getConstructor"),
+            new Redirect("java/lang/Class", "getDeclaredConstructor",
+                    "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", false, REFLECT_SUPPORT,
+                    "getDeclaredConstructor"),
+            new Redirect("java/lang/reflect/Constructor", "newInstance",
+                    "([Ljava/lang/Object;)Ljava/lang/Object;", false, REFLECT_SUPPORT, "newInstance"));
 
     private RuntimeCalls() {
     }

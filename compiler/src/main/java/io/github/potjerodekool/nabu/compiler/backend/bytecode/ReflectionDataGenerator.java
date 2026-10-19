@@ -25,7 +25,9 @@ import java.util.Map;
  * The generated {@code ReflectionData} of a native executable: the
  * {@code Method} objects of the classes in the reflection configuration
  * ({@code methods}: what {@code getDeclaredMethods} and {@code getMethods}
- * return) and the dispatcher behind {@code Method.invoke} ({@code invoke}),
+ * return), their {@code Constructor} objects ({@code constructors}) and the
+ * dispatcher behind {@code Method.invoke} and {@code Constructor.newInstance}
+ * ({@code invoke}),
  * for those methods and for the methods of proxied interfaces. A native
  * executable cannot call a method by name; the dispatcher calls each known
  * method by a key "owner#name#descriptor".
@@ -37,8 +39,25 @@ public final class ReflectionDataGenerator {
     /** Bit in the modifiers handed to the runtime: the method is declared in an interface (Method.isDefault). */
     public static final int INTERFACE_OWNER = 0x40000000;
 
-    /** A method known to reflection: declaring class (internal name), name, descriptor and access flags. */
-    public record ReflectedMethod(String owner, boolean ownerIsInterface, String name, String desc, int modifiers) {
+    /** Bit in the modifiers of a constructor: its class is abstract (newInstance throws InstantiationException). */
+    public static final int ABSTRACT_OWNER = 0x20000000;
+
+    /**
+     * A method (or constructor, named {@code <init>}) known to reflection:
+     * declaring class (internal name), name, descriptor, access flags,
+     * declared exceptions (internal names) and generic signature (or null).
+     */
+    public record ReflectedMethod(String owner, boolean ownerIsInterface, String name, String desc, int modifiers,
+                                  List<String> exceptions, String signature) {
+
+        public ReflectedMethod(final String owner, final boolean ownerIsInterface, final String name,
+                               final String desc, final int modifiers) {
+            this(owner, ownerIsInterface, name, desc, modifiers, List.of(), null);
+        }
+
+        boolean isConstructor() {
+            return "<init>".equals(name);
+        }
 
         String key() {
             return owner + "#" + name + "#" + desc;
@@ -53,8 +72,9 @@ public final class ReflectionDataGenerator {
         }
     }
 
-    /** The methods of one class: those getDeclaredMethods and getMethods return. */
-    public record ClassMethods(List<ReflectedMethod> declared, List<ReflectedMethod> publics) {
+    /** The methods of one class: those getDeclaredMethods and getMethods return, and its registered constructors. */
+    public record ClassMethods(List<ReflectedMethod> declared, List<ReflectedMethod> publics,
+                               List<ReflectedMethod> constructors) {
     }
 
     private ReflectionDataGenerator() {
@@ -82,8 +102,12 @@ public final class ReflectionDataGenerator {
             for (final ReflectedMethod method : methods.publics()) {
                 dispatched.putIfAbsent(method.key(), method);
             }
+            for (final ReflectedMethod constructor : methods.constructors()) {
+                dispatched.putIfAbsent(constructor.key(), constructor);
+            }
         }
         node.methods.add(methods(classes));
+        node.methods.add(constructors(classes));
         node.methods.add(invoke(List.copyOf(dispatched.values())));
         return node;
     }
@@ -112,14 +136,45 @@ public final class ReflectionDataGenerator {
         }
         code.add(new InsnNode(Opcodes.ACONST_NULL));
         code.add(new InsnNode(Opcodes.ARETURN));
-        node.maxStack = 8;
+        node.maxStack = 16;
         node.maxLocals = 2;
         return node;
     }
 
+    /** {@code Constructor[] constructors(String className)}, null for a class without data. */
+    private static MethodNode constructors(final Map<String, ClassMethods> classes) {
+        final MethodNode node = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "constructors",
+                "(Ljava/lang/String;)[Ljava/lang/reflect/Constructor;", null, null);
+        final InsnList code = node.instructions;
+        for (final var entry : classes.entrySet()) {
+            if (entry.getValue().constructors().isEmpty()) {
+                continue;
+            }
+            final LabelNode next = new LabelNode();
+            code.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            code.add(new LdcInsnNode(entry.getKey()));
+            code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "equals",
+                    "(Ljava/lang/Object;)Z", false));
+            code.add(new JumpInsnNode(Opcodes.IFEQ, next));
+            executableArray(code, entry.getValue().constructors(), "java/lang/reflect/Constructor");
+            code.add(new InsnNode(Opcodes.ARETURN));
+            code.add(next);
+        }
+        code.add(new InsnNode(Opcodes.ACONST_NULL));
+        code.add(new InsnNode(Opcodes.ARETURN));
+        node.maxStack = 16;
+        node.maxLocals = 1;
+        return node;
+    }
+
     private static void methodArray(final InsnList code, final List<ReflectedMethod> methods) {
+        executableArray(code, methods, "java/lang/reflect/Method");
+    }
+
+    private static void executableArray(final InsnList code, final List<ReflectedMethod> methods,
+                                        final String elementType) {
         pushInt(code, methods.size());
-        code.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/reflect/Method"));
+        code.add(new TypeInsnNode(Opcodes.ANEWARRAY, elementType));
         for (int i = 0; i < methods.size(); i++) {
             code.add(new InsnNode(Opcodes.DUP));
             pushInt(code, i);
@@ -128,14 +183,31 @@ public final class ReflectionDataGenerator {
         }
     }
 
-    /** {@code ProxySupport.method(Owner.class, name, descriptor, modifiers)}. */
+    /**
+     * {@code ProxySupport.method(Owner.class, name, descriptor, modifiers,
+     * exceptions, signature)}: a Method, or a Constructor for {@code <init>}
+     * (as an Object: the caller casts).
+     */
     static void pushMethod(final InsnList code, final ReflectedMethod method) {
         code.add(new LdcInsnNode(Type.getObjectType(method.owner())));
         code.add(new LdcInsnNode(method.name()));
         code.add(new LdcInsnNode(method.desc()));
         code.add(new LdcInsnNode(method.runtimeModifiers()));
+        if (method.exceptions().isEmpty()) {
+            code.add(new InsnNode(Opcodes.ACONST_NULL));
+        } else {
+            code.add(new LdcInsnNode(String.join(",", method.exceptions())));
+        }
+        if (method.signature() == null) {
+            code.add(new InsnNode(Opcodes.ACONST_NULL));
+        } else {
+            code.add(new LdcInsnNode(method.signature()));
+        }
         code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, RuntimeCalls.PROXY_SUPPORT, "method",
-                "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;I)Ljava/lang/reflect/Method;", false));
+                "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)"
+                        + "Ljava/lang/Object;", false));
+        code.add(new TypeInsnNode(Opcodes.CHECKCAST,
+                method.isConstructor() ? "java/lang/reflect/Constructor" : "java/lang/reflect/Method"));
     }
 
     /**
@@ -159,7 +231,20 @@ public final class ReflectionDataGenerator {
                     "(Ljava/lang/Object;)Z", false));
             code.add(new JumpInsnNode(Opcodes.IFEQ, next));
             final Type[] params = Type.getArgumentTypes(method.desc());
-            if (!method.isStatic()) {
+            if (method.isConstructor() && (method.modifiers() & ABSTRACT_OWNER) != 0) {
+                code.add(new TypeInsnNode(Opcodes.NEW, "java/lang/InstantiationException"));
+                code.add(new InsnNode(Opcodes.DUP));
+                code.add(new LdcInsnNode(method.owner().replace('/', '.')));
+                code.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/InstantiationException", "<init>",
+                        "(Ljava/lang/String;)V", false));
+                code.add(new InsnNode(Opcodes.ATHROW));
+                code.add(next);
+                continue;
+            }
+            if (method.isConstructor()) {
+                code.add(new TypeInsnNode(Opcodes.NEW, method.owner()));
+                code.add(new InsnNode(Opcodes.DUP));
+            } else if (!method.isStatic()) {
                 code.add(new VarInsnNode(Opcodes.ALOAD, 1));
                 code.add(new TypeInsnNode(Opcodes.CHECKCAST, method.owner()));
             }
@@ -172,12 +257,15 @@ public final class ReflectionDataGenerator {
             final LabelNode start = new LabelNode();
             final LabelNode end = new LabelNode();
             code.add(start);
-            final int opcode = method.isStatic() ? Opcodes.INVOKESTATIC
+            final int opcode = method.isConstructor() ? Opcodes.INVOKESPECIAL
+                    : method.isStatic() ? Opcodes.INVOKESTATIC
                     : method.ownerIsInterface() ? Opcodes.INVOKEINTERFACE : Opcodes.INVOKEVIRTUAL;
             code.add(new MethodInsnNode(opcode, method.owner(), method.name(), method.desc(), method.ownerIsInterface()));
             code.add(end);
             final Type returnType = Type.getReturnType(method.desc());
-            if (returnType.getSort() == Type.VOID) {
+            if (method.isConstructor()) {
+                // The new object (NEW, DUP) is left on the stack.
+            } else if (returnType.getSort() == Type.VOID) {
                 code.add(new InsnNode(Opcodes.ACONST_NULL));
             } else {
                 box(code, returnType);

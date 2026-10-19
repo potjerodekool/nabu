@@ -168,7 +168,8 @@ public void setReflectionRegistry(
         //     3.6 GC-init hoort in dezelfde ctor-array: één appending global
         //     per module, dus alles wat vóór main moet draaien staat hier.
         final ModuleCtors ctors = new ModuleCtors(ctx, mod);
-        new ReflectionInfoEmitter(ctx, mod, globalValueMap)
+        new ReflectionInfoEmitter(ctx, mod, globalValueMap,
+                internalName -> instructions.classInitFunction(internalName, mod))
                 .emit(mod, this.classLayouts, modules, reflectionRegistry, ctors);
         registerBoehmGcInit(ctors);
         registerObjectVtable(ctors);

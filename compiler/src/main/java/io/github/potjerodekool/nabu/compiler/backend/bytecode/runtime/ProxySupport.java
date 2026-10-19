@@ -19,29 +19,41 @@ import java.util.Map;
  */
 public final class ProxySupport {
 
-    private static final Map<String, Method> METHODS = new HashMap<>();
+    private static final Map<String, Object> METHODS = new HashMap<>();
 
     private ProxySupport() {
     }
 
-    /** The C runtime's Method for the method {@code name descriptor} of {@code declaring}. */
-    private static native Method method0(Class<?> declaring, String name, String descriptor, int modifiers);
+    /**
+     * The C runtime's Method (a Constructor for {@code <init>}) for the
+     * method {@code name descriptor} of {@code declaring}, with its declared
+     * exceptions (internal names, comma-separated, or null) and generic
+     * signature (or null).
+     */
+    private static native Object method0(Class<?> declaring, String name, String descriptor, int modifiers,
+                                         String exceptions, String signature);
 
-    /** "owner#name#descriptor" of a Method made by {@link #method0}, else null. */
-    private static native String methodKey(Method method);
+    /** "owner#name#descriptor" of a Method or Constructor made by {@link #method0}, else null. */
+    private static native String methodKey(Object executable);
+
+    /** {@link #methodKey} for the other helpers of this package. */
+    static String key(final Object executable) {
+        return methodKey(executable);
+    }
 
     /**
-     * The Method object of a method: one object per method, so == holds as
-     * for the JVM's root methods. {@code modifiers} are its access flags
-     * (plus a bit for a method declared in an interface).
+     * The Method object of a method (a Constructor for {@code <init>}): one
+     * object per method, so == holds as for the JVM's root methods.
+     * {@code modifiers} are its access flags (plus a bit for a method
+     * declared in an interface).
      */
-    public static Method method(final Class<?> declaring, final String name, final String descriptor,
-                                final int modifiers) {
+    public static Object method(final Class<?> declaring, final String name, final String descriptor,
+                                final int modifiers, final String exceptions, final String signature) {
         final String key = declaring.getName().concat("#").concat(name).concat("#").concat(descriptor);
         synchronized (METHODS) {
-            Method method = METHODS.get(key);
+            Object method = METHODS.get(key);
             if (method == null) {
-                method = method0(declaring, name, descriptor, modifiers);
+                method = method0(declaring, name, descriptor, modifiers, exceptions, signature);
                 METHODS.put(key, method);
             }
             return method;
@@ -95,8 +107,22 @@ public final class ProxySupport {
             throw new NullPointerException();
         }
         try {
+            return call(key, target, args);
+        } catch (final InstantiationException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    /**
+     * Calls a method or constructor by key through the generated dispatcher
+     * (which throws InstantiationException for a constructor of an abstract
+     * class).
+     */
+    static Object call(final String key, final Object target, final Object[] args)
+            throws InvocationTargetException, InstantiationException {
+        try {
             return ReflectionData.invoke(key, target, args == null ? new Object[0] : args);
-        } catch (final InvocationTargetException | RuntimeException e) {
+        } catch (final InvocationTargetException | InstantiationException | RuntimeException e) {
             throw e;
         } catch (final Exception e) {
             throw new IllegalArgumentException(e);

@@ -149,6 +149,41 @@ public class IRFunction {
         return genericSignature;
     }
 
+    /** For a function lowered from bytecode: its name and descriptor in the class file (null from source). */
+    private String jvmName;
+    private String jvmDescriptor;
+    private List<IRAnnotation> bytecodeAnnotations = List.of();
+    private List<List<IRAnnotation>> bytecodeParameterAnnotations = List.of();
+
+    public void setJvmSignature(final String name, final String descriptor) {
+        this.jvmName = name;
+        this.jvmDescriptor = descriptor;
+    }
+
+    public String jvmName() {
+        return jvmName;
+    }
+
+    public String jvmDescriptor() {
+        return jvmDescriptor;
+    }
+
+    /** The runtime-visible annotations of a method from bytecode (reflection metadata). */
+    public void setBytecodeAnnotations(final List<IRAnnotation> annotations,
+                                       final List<List<IRAnnotation>> parameterAnnotations) {
+        this.bytecodeAnnotations = List.copyOf(annotations);
+        this.bytecodeParameterAnnotations = List.copyOf(parameterAnnotations);
+    }
+
+    public List<IRAnnotation> bytecodeAnnotations() {
+        return bytecodeAnnotations;
+    }
+
+    /** Per explicit parameter (no receiver). */
+    public List<List<IRAnnotation>> bytecodeParameterAnnotations() {
+        return bytecodeParameterAnnotations;
+    }
+
     @Override
     public String toString() {
         return "@" + name;

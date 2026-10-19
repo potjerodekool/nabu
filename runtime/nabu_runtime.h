@@ -333,6 +333,9 @@ typedef struct nabu_field_info {
     const char *type_desc;    /* JVM-descriptor van het veldtype */
     size_t      offset;       /* offset t.o.v. objectbegin */
     int32_t     modifiers;    /* JVM-toegangsvlaggen (public 0x1, private 0x2, ...) */
+    void       *static_address; /* een statisch veld: zijn global (offset geldt dan niet), anders NULL */
+    void      (*class_init)(void); /* initialisatie van de klasse voor een statisch veld, of NULL */
+    const char *signature;    /* generieke signatuur (Signature-attribuut), of NULL */
 } nabu_field_info;
 
 typedef struct nabu_annotation_value {
@@ -356,6 +359,7 @@ typedef struct nabu_reflection_info {
     const nabu_field_info *fields;
     int         annotation_count;
     const nabu_annotation_entry *annotations;
+    const char *signature;    /* generieke signatuur van de klasse (typeparameters), of NULL */
 } nabu_reflection_info;
 
 /**

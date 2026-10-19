@@ -18,6 +18,11 @@ public final class ReflectionData {
         return null;
     }
 
+    /** The registered constructors of {@code className}, null if it has no data. */
+    public static java.lang.reflect.Constructor<?>[] constructors(final String className) {
+        return null;
+    }
+
     /**
      * Calls the method {@code key} ("owner#name#descriptor") on
      * {@code target} (ignored for a static method), unboxing {@code args}

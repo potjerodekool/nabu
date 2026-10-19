@@ -2,6 +2,7 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import io.github.potjerodekool.nabu.backend.ir.IRAnnotation;
 import io.github.potjerodekool.nabu.backend.ir.IRField;
+import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.jvm.BytecodeHelper;
@@ -69,12 +70,23 @@ public class ReflectionInfoEmitter {
     private LLVMTypeRef annotationEntryType;
     private LLVMTypeRef reflectionInfoType;
 
+    /** Internal class name → its {@code .clinit.once} function (or null): for static fields. */
+    private final java.util.function.Function<String, LLVMValueRef> classInit;
+
     public ReflectionInfoEmitter(final LLVMContextRef ctx,
                                  final LLVMModuleRef mod,
                                  final Map<String, LLVMValueRef> globalValueMap) {
+        this(ctx, mod, globalValueMap, internalName -> null);
+    }
+
+    public ReflectionInfoEmitter(final LLVMContextRef ctx,
+                                 final LLVMModuleRef mod,
+                                 final Map<String, LLVMValueRef> globalValueMap,
+                                 final java.util.function.Function<String, LLVMValueRef> classInit) {
         this.ctx = ctx;
         this.mod = mod;
         this.globalValueMap = globalValueMap;
+        this.classInit = classInit;
     }
 
     /**
@@ -168,7 +180,8 @@ public class ReflectionInfoEmitter {
                 : emitAnnotationArray(annotations);
 
         // struct nabu_reflection_info { i8* type_name, i32 field_count,
-        //                               i8* fields, i32 annotation_count, i8* annotations }
+        //                               i8* fields, i32 annotation_count, i8* annotations,
+        //                               i8* signature }
         final LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
         final LLVMTypeRef i32   = LLVMInt32TypeInContext(ctx);
         reflectionInfoType();
@@ -178,13 +191,15 @@ public class ReflectionInfoEmitter {
         LLVMSetLinkage(infoGlobal, LLVMExternalLinkage);
         LLVMSetGlobalConstant(infoGlobal, 1);
 
-        final PointerPointer<Pointer> init = new PointerPointer<>(5);
+        final PointerPointer<Pointer> init = new PointerPointer<>(6);
         init.put(0, stringLit(internalName));
         init.put(1, LLVMConstInt(i32, fields.size(), 0));
         init.put(2, fieldsGlobal != null ? fieldsGlobal : LLVMConstNull(i8Ptr));
         init.put(3, LLVMConstInt(i32, annotations.size(), 0));
         init.put(4, annotationsGlobal != null ? annotationsGlobal : LLVMConstNull(i8Ptr));
-        final LLVMValueRef constInfo = LLVMConstNamedStruct(reflectionInfoType, init, 5);
+        // The class's generic signature: the bounds of its type variables.
+        init.put(5, module.genericSignature() != null ? stringLit(module.genericSignature()) : LLVMConstNull(i8Ptr));
+        final LLVMValueRef constInfo = LLVMConstNamedStruct(reflectionInfoType, init, 6);
         LLVMSetInitializer(infoGlobal, constInfo);
         Reference.reachabilityFence(init);
         Reference.reachabilityFence(constInfo);
@@ -220,20 +235,59 @@ public class ReflectionInfoEmitter {
         final List<FieldData> result = new ArrayList<>();
         int counter = 0; // telt ALLE velden (statics mee), net als registerStruct
         for (final IRField field : module.fields()) {
-            if (!Flags.hasFlag(field.flags(), Flags.STATIC)
-                    && entry.includesField(field.name(), Flags.hasFlag(field.flags(), Flags.PUBLIC))) {
-                final int structIndex = layout.structIndex(counter);
-                if (structIndex > 0) {
-                    result.add(new FieldData(
-                            field.name(),
-                            BytecodeHelper.createDescriptor(field.type()),
-                            offsetOfElement(layout, structIndex),
-                            accessFlags(field.flags())));
+            final boolean isStatic = Flags.hasFlag(field.flags(), Flags.STATIC);
+            if (entry.includesField(field.name(), Flags.hasFlag(field.flags(), Flags.PUBLIC))) {
+                if (isStatic) {
+                    // A static field lives in its global; the runtime
+                    // initializes the class before it reads or writes it.
+                    final LLVMValueRef global = staticGlobal(layout.internalName, module, field);
+                    if (global != null) {
+                        result.add(new FieldData(field.name(), BytecodeHelper.createDescriptor(field.type()),
+                                0, accessFlags(field.flags()), global, classInit.apply(layout.internalName),
+                                field.genericSignature()));
+                    }
+                } else {
+                    final int structIndex = layout.structIndex(counter);
+                    if (structIndex > 0) {
+                        result.add(new FieldData(
+                                field.name(),
+                                BytecodeHelper.createDescriptor(field.type()),
+                                offsetOfElement(layout, structIndex),
+                                accessFlags(field.flags()), null, null, field.genericSignature()));
+                    }
                 }
             }
             counter++;
         }
         return result;
+    }
+
+    /**
+     * The global of a static field: the one the code uses is named after
+     * the qualified owner ({@code app.Main$Child_counter}); a source module
+     * also declares one under the simple owner name, which nothing reads.
+     */
+    private LLVMValueRef staticGlobal(final String internalName, final IRModule module, final IRField field) {
+        final String qualified = internalName.replace('/', '.') + "_" + field.name();
+        LLVMValueRef canonical = globalValueMap.get("@" + qualified);
+        if (canonical == null || canonical.isNull()) {
+            canonical = LLVMGetNamedGlobal(mod, qualified);
+        }
+        if (canonical != null && !canonical.isNull()) {
+            return canonical;
+        }
+        for (final var global : module.globals().values()) {
+            if (global.isStatic() && global.name().endsWith("_" + field.name())) {
+                LLVMValueRef value = globalValueMap.get("@" + global.name());
+                if (value == null || value.isNull()) {
+                    value = LLVMGetNamedGlobal(mod, global.name());
+                }
+                if (value != null && !value.isNull()) {
+                    return value;
+                }
+            }
+        }
+        return null;
     }
 
     private long offsetOfElement(final ClassLayouts.ClassLayout layout, final int structIndex) {
@@ -250,12 +304,16 @@ public class ReflectionInfoEmitter {
         final PointerPointer<Pointer> elems = new PointerPointer<>(n);
         for (int i = 0; i < n; i++) {
             final FieldData f = fields.get(i);
-            final PointerPointer<Pointer> fieldInit = new PointerPointer<>(4);
+            final LLVMValueRef nullPtr = LLVMConstNull(LLVMPointerTypeInContext(ctx, 0));
+            final PointerPointer<Pointer> fieldInit = new PointerPointer<>(7);
             fieldInit.put(0, stringLit(f.name));
             fieldInit.put(1, stringLit(f.typeDesc));
             fieldInit.put(2, LLVMConstInt(LLVMInt64TypeInContext(ctx), f.offset, 0));
             fieldInit.put(3, LLVMConstInt(LLVMInt32TypeInContext(ctx), f.modifiers, 0));
-            elems.put(i, LLVMConstNamedStruct(fieldInfoType, fieldInit, 4));
+            fieldInit.put(4, f.staticAddress != null ? f.staticAddress : nullPtr);
+            fieldInit.put(5, f.classInit != null && !f.classInit.isNull() ? f.classInit : nullPtr);
+            fieldInit.put(6, f.signature != null ? stringLit(f.signature) : nullPtr);
+            elems.put(i, LLVMConstNamedStruct(fieldInfoType, fieldInit, 7));
             Reference.reachabilityFence(fieldInit);
         }
         final String name = ".refl.fields." + (arrayCounter++);
@@ -294,7 +352,110 @@ public class ReflectionInfoEmitter {
                 result.add(renderBytecodeAnnotation(ann, field.name()));
             }
         }
+        // Methods and constructors: owner "name(descriptor)", a parameter
+        // "name(descriptor)#index" (what the runtime's Method looks up).
+        for (final IRFunction fn : module.functions()) {
+            final boolean hasSource = !fn.annotations().isEmpty()
+                    || fn.parameterAnnotations().stream().anyMatch(list -> !list.isEmpty());
+            final boolean hasBytecode = !fn.bytecodeAnnotations().isEmpty()
+                    || fn.bytecodeParameterAnnotations().stream().anyMatch(list -> !list.isEmpty());
+            if (!hasSource && !hasBytecode) {
+                continue;
+            }
+            final String owner = executableKey(module, fn);
+            if (owner == null) {
+                continue;
+            }
+            for (final CompoundAttribute ann : fn.annotations()) {
+                final AnnotationData data = renderAnnotation(ann, owner);
+                if (data != null) {
+                    result.add(data);
+                }
+            }
+            for (final IRAnnotation ann : fn.bytecodeAnnotations()) {
+                result.add(renderBytecodeAnnotation(ann, owner));
+            }
+            // Source: the list has a first entry for the receiver of an instance method.
+            final List<List<CompoundAttribute>> parameters = fn.parameterAnnotations();
+            final int skip = Flags.hasFlag(fn.getFlags(), Flags.STATIC) || parameters.isEmpty() ? 0 : 1;
+            for (int i = skip; i < parameters.size(); i++) {
+                for (final CompoundAttribute ann : parameters.get(i)) {
+                    final AnnotationData data = renderAnnotation(ann, owner + "#" + (i - skip));
+                    if (data != null) {
+                        result.add(data);
+                    }
+                }
+            }
+            final List<List<IRAnnotation>> bytecodeParameters = fn.bytecodeParameterAnnotations();
+            for (int i = 0; i < bytecodeParameters.size(); i++) {
+                for (final IRAnnotation ann : bytecodeParameters.get(i)) {
+                    result.add(renderBytecodeAnnotation(ann, owner + "#" + i));
+                }
+            }
+        }
         return result;
+    }
+
+    /**
+     * "name(descriptor)" of a method or constructor ({@code <init>}): from
+     * the class file for one lowered from bytecode, else rebuilt from the
+     * IR (name without its owner prefix and overload suffix, explicit
+     * parameter types). Null if the name cannot be told.
+     */
+    static String executableKey(final IRModule module, final IRFunction fn) {
+        if (fn.jvmName() != null && fn.jvmDescriptor() != null) {
+            return fn.jvmName() + fn.jvmDescriptor();
+        }
+        final String name;
+        if (fn.isConstructor()) {
+            name = "<init>";
+        } else {
+            final String qualified = module.name + "_";
+            String simple = module.name.substring(module.name.lastIndexOf('.') + 1);
+            simple = simple.substring(simple.lastIndexOf('$') + 1) + "_";
+            String tail;
+            if (fn.name.startsWith(qualified)) {
+                tail = fn.name.substring(qualified.length());
+            } else if (fn.name.startsWith(simple)) {
+                tail = fn.name.substring(simple.length());
+            } else {
+                return null;
+            }
+            // An overloaded function carries "$P<hash>..." after its name.
+            final int overload = tail.indexOf("$P");
+            name = overload > 0 ? tail.substring(0, overload) : tail;
+        }
+        final var descriptor = new StringBuilder("(");
+        final boolean hasReceiver = !Flags.hasFlag(fn.getFlags(), Flags.STATIC) && !fn.params.isEmpty();
+        for (int i = hasReceiver ? 1 : 0; i < fn.params.size(); i++) {
+            descriptor.append(irDescriptor(fn.params.get(i).type()));
+        }
+        descriptor.append(')').append(fn.isConstructor() ? "V" : irDescriptor(fn.returnType));
+        return name + descriptor;
+    }
+
+    private static String irDescriptor(final IRType type) {
+        if (type instanceof IRType.Int i) {
+            return switch (i.bits()) {
+                case 8 -> "B";
+                case 16 -> i.unsigned() ? "C" : "S";
+                case 64 -> "J";
+                default -> "I";
+            };
+        }
+        if (type instanceof IRType.Float f) {
+            return f.bits() == 64 ? "D" : "F";
+        }
+        if (type instanceof IRType.Bool) {
+            return "Z";
+        }
+        if (type instanceof IRType.Void || type == null) {
+            return "V";
+        }
+        if (type instanceof IRType.Ptr ptr && ptr.jvmDescriptor() != null) {
+            return ptr.jvmDescriptor();
+        }
+        return "Ljava/lang/Object;";
     }
 
     /**
@@ -513,13 +674,17 @@ public class ReflectionInfoEmitter {
 
     private void fieldInfoType() {
         if (fieldInfoType == null) {
-            // struct nabu_field_info { name, type_desc, offset, modifiers }
-            final PointerPointer<Pointer> t = new PointerPointer<>(4);
+            // struct nabu_field_info { name, type_desc, offset, modifiers,
+            //                          static_address, class_init, signature }
+            final PointerPointer<Pointer> t = new PointerPointer<>(7);
             t.put(0, LLVMPointerTypeInContext(ctx, 0));
             t.put(1, LLVMPointerTypeInContext(ctx, 0));
             t.put(2, LLVMInt64TypeInContext(ctx));
             t.put(3, LLVMInt32TypeInContext(ctx));
-            fieldInfoType = LLVMStructTypeInContext(ctx, t, 4, 0);
+            t.put(4, LLVMPointerTypeInContext(ctx, 0));
+            t.put(5, LLVMPointerTypeInContext(ctx, 0));
+            t.put(6, LLVMPointerTypeInContext(ctx, 0));
+            fieldInfoType = LLVMStructTypeInContext(ctx, t, 7, 0);
             Reference.reachabilityFence(t);
         }
     }
@@ -550,13 +715,14 @@ public class ReflectionInfoEmitter {
 
     private void reflectionInfoType() {
         if (reflectionInfoType == null) {
-            final PointerPointer<Pointer> t = new PointerPointer<>(5);
+            final PointerPointer<Pointer> t = new PointerPointer<>(6);
             t.put(0, LLVMPointerTypeInContext(ctx, 0));
             t.put(1, LLVMInt32TypeInContext(ctx));
             t.put(2, LLVMPointerTypeInContext(ctx, 0));
             t.put(3, LLVMInt32TypeInContext(ctx));
             t.put(4, LLVMPointerTypeInContext(ctx, 0));
-            reflectionInfoType = LLVMStructTypeInContext(ctx, t, 5, 0);
+            t.put(5, LLVMPointerTypeInContext(ctx, 0));
+            reflectionInfoType = LLVMStructTypeInContext(ctx, t, 6, 0);
             Reference.reachabilityFence(t);
         }
     }
@@ -588,7 +754,8 @@ public class ReflectionInfoEmitter {
         return access;
     }
 
-    record FieldData(String name, String typeDesc, long offset, int modifiers) {
+    record FieldData(String name, String typeDesc, long offset, int modifiers,
+                     LLVMValueRef staticAddress, LLVMValueRef classInit, String signature) {
     }
 
     record AnnotationData(String typeName, String owner, List<ValueData> values) {

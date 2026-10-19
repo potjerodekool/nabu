@@ -44,7 +44,7 @@ public final class ProxyClassGenerator {
                               List<String> exceptions, int modifiers) {
 
         ReflectedMethod reflected() {
-            return new ReflectedMethod(owner, ownerIsInterface, name, desc, modifiers);
+            return new ReflectedMethod(owner, ownerIsInterface, name, desc, modifiers, exceptions, null);
         }
     }
 
@@ -197,7 +197,7 @@ public final class ProxyClassGenerator {
             node.tryCatchBlocks.add(new TryCatchBlockNode(start, end, rethrow, exception));
         }
         node.tryCatchBlocks.add(new TryCatchBlockNode(start, end, wrap, "java/lang/Throwable"));
-        node.maxStack = 8;
+        node.maxStack = 16;
         node.maxLocals = local + 1;
         return node;
     }

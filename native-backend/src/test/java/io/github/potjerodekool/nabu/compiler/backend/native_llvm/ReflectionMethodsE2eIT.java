@@ -22,7 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * of instance (virtual), static and private methods with the target's
  * exception wrapped, the modifiers and {@code toString}; {@code getFields}
  * and {@code getField} with the inherited public fields of
- * {@code allPublicFields}.
+ * {@code allPublicFields}; static fields; generic types of fields and
+ * methods; method and parameter annotations; declared exceptions;
+ * constructors with arguments (and InstantiationException for an abstract
+ * class).
  */
 class ReflectionMethodsE2eIT {
 
@@ -54,9 +57,25 @@ class ReflectionMethodsE2eIT {
                         public String hello(String name) { return "base " + name; }
                         public String inherited() { return "inherited"; }
                     }
+                    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+                    public @interface Cmd { String value(); Level level() default Level.LOW; }
+                    public enum Level { LOW, HIGH }
+                    public static class Box<T extends Number> {
+                        public T item;
+                        public Box(java.util.List<T> items) { }
+                    }
+                    public abstract static class Shape {
+                        public Shape() { }
+                    }
                     public static class Child extends Base {
                         public String name = "c";
-                        public String hello(String name) { return "child " + name; }
+                        public static int counter = 5;
+                        public java.util.List<String> tags = new ArrayList<>();
+                        public Child() { }
+                        public Child(String name, int times) { this.name = name.repeat(times); }
+                        @Cmd(value = "greet", level = Level.HIGH)
+                        public String hello(@Cmd("who") String name) { return "child " + name; }
+                        public <T extends Comparable<T>> List<T> sorted(java.util.Set<? extends T> in) { return new ArrayList<>(in); }
                         public static int twice(int x) { return x * 2; }
                         private String secret() { return "s"; }
                         public void fail() throws java.io.IOException { throw new java.io.IOException("io"); }
@@ -105,6 +124,35 @@ class ReflectionMethodsE2eIT {
                         } catch (NoSuchMethodException e) {
                             System.out.println("no method " + e.getMessage());
                         }
+                        Field counter = c.getField("counter");
+                        counter.setInt(null, counter.getInt(null) + 1);
+                        System.out.println("static " + Child.counter + " " + Modifier.isStatic(counter.getModifiers()));
+                        java.lang.reflect.Type tagsType = c.getField("tags").getGenericType();
+                        java.lang.reflect.ParameterizedType tagsParameterized = (java.lang.reflect.ParameterizedType) tagsType;
+                        Method sorted = c.getMethod("sorted", java.util.Set.class);
+                        System.out.println(tagsType + " " + (tagsParameterized.getActualTypeArguments()[0] == String.class)
+                                + " " + (tagsParameterized.getRawType() == List.class) + " | " + sorted.getGenericReturnType()
+                                + " " + sorted.getGenericParameterTypes()[0] + " " + sorted.getTypeParameters()[0].getName());
+                        Cmd cmd = hello.getAnnotation(Cmd.class);
+                        Cmd who = (Cmd) hello.getParameterAnnotations()[0][0];
+                        System.out.println(cmd.value() + " " + cmd.level() + " " + (who.level() == Level.LOW)
+                                + " " + who.value() + " " + hello.isAnnotationPresent(Cmd.class)
+                                + " " + twice.getAnnotations().length + " " + hello.getDeclaredAnnotations().length);
+                        Method fail = c.getMethod("fail");
+                        System.out.println(fail.getExceptionTypes()[0].getName() + " | " + fail);
+                        java.lang.reflect.Constructor<?> two = c.getConstructor(String.class, int.class);
+                        Child made = (Child) two.newInstance("ab", 2);
+                        System.out.println(made.name + " " + c.getDeclaredConstructors().length + " " + two
+                                + " " + ((Child) c.getDeclaredConstructor().newInstance()).name);
+                        java.lang.reflect.TypeVariable<?> item = (java.lang.reflect.TypeVariable<?>) Box.class.getField("item").getGenericType();
+                        System.out.println(item + " " + item.getBounds()[0] + " " + Box.class.getTypeParameters()[0].getName()
+                                + " " + Box.class.getConstructor(List.class).getGenericParameterTypes()[0]);
+                        try {
+                            Shape.class.getDeclaredConstructor().newInstance();
+                            System.out.println("abstract made");
+                        } catch (InstantiationException e) {
+                            System.out.println("abstract " + e.getMessage());
+                        }
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -114,8 +162,11 @@ class ReflectionMethodsE2eIT {
         Files.createDirectories(config);
         Files.writeString(config.resolve("reflect-config.json"), """
                 [
-                  { "name": "app.Main$Child", "allPublicFields": true, "allDeclaredMethods": true, "allPublicMethods": true },
-                  { "name": "app.Main$Base", "allPublicMethods": true }
+                  { "name": "app.Main$Child", "allPublicFields": true, "allDeclaredMethods": true, "allPublicMethods": true,
+                    "allDeclaredConstructors": true },
+                  { "name": "app.Main$Base", "allPublicMethods": true },
+                  { "name": "app.Main$Shape", "allDeclaredConstructors": true },
+                  { "name": "app.Main$Box", "allPublicFields": true, "allPublicConstructors": true }
                 ]
                 """);
 
@@ -147,13 +198,20 @@ class ReflectionMethodsE2eIT {
         final String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         final int exit = proc.exitValue();
         assertEquals("""
-                name baseCount | Base true 1
+                name counter tags baseCount | Base true 1
                 no field hidden
-                fail,hello,secret,twice | fail,hello,twice | inherited
+                fail,hello,secret,sorted,twice | fail,hello,sorted,twice | inherited
                 child x child y inherited 42 s
                 true true true public static int app.Main$Child.twice(int)
                 target io
                 no method app.Main$Child.secret()
+                static 6 true
+                java.util.List<java.lang.String> true true | java.util.List<T> java.util.Set<? extends T> T
+                greet HIGH true who true 0 1
+                java.io.IOException | public void app.Main$Child.fail() throws java.io.IOException
+                abab 2 public app.Main$Child(java.lang.String,int) c
+                T class java.lang.Number T java.util.List<T>
+                abstract app.Main$Shape
                 """, output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

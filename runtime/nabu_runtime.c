@@ -91,7 +91,8 @@ intptr_t nabu_reflect_field_offset(const char *type_name, const char *field_name
         return -1;
     }
     for (int i = 0; i < info->field_count; i++) {
-        if (strcmp(info->fields[i].name, field_name) == 0) {
+        /* A static field has no offset in an object: it lives in a global. */
+        if (info->fields[i].static_address == NULL && strcmp(info->fields[i].name, field_name) == 0) {
             return (intptr_t)info->fields[i].offset;
         }
     }

@@ -583,6 +583,7 @@ public final class BytecodeReachabilityCompiler {
         // Resource lookups in source go to ResourceSupport, as in bytecode.
         for (final IRModule module : alreadyCompiledModules) {
             RuntimeCalls.rewrite(module);
+            SourceAnnotationAccessors.implement(module);
         }
         final Map<String, Boolean> sourceCalls = collectSourceCalls(alreadyCompiledModules);
         while (queueSourceCalls(sourceCalls) | queueReflectiveInstantiations()) {
@@ -913,6 +914,7 @@ public final class BytecodeReachabilityCompiler {
         shapeBuilders.put(internalName, builder);
         // build() geeft steeds hetzelfde (muterende) IRModule-object terug.
         builder.build().setBytecodeAnnotations(irAnnotations(classNode.visibleAnnotations));
+        builder.build().setGenericSignature(classNode.signature);
 
         if (classNode.superName != null) {
             builder.superType(new IRType.Ptr(IRType.I8, "L" + classNode.superName + ";"));
@@ -939,6 +941,7 @@ public final class BytecodeReachabilityCompiler {
 
             final IRField field = IRField.field(fieldFlags, fieldNode.name, fieldType, null);
             field.setBytecodeAnnotations(irAnnotations(fieldNode.visibleAnnotations));
+            field.setGenericSignature(fieldNode.signature);
             builder.field(field);
 
             if (isStatic) {
@@ -1328,6 +1331,7 @@ public final class BytecodeReachabilityCompiler {
         final Set<MethodRef> methodRefs = new HashSet<>();
         final var lowering = new BytecodeMethodLowering(
                 builder, qualifiedName, classNode, methodNode, typeRefs, methodRefs);
+        final int functionsBefore = builder.build().functions().size();
         try {
             lowering.lower();
         } catch (final RuntimeException e) {
@@ -1348,6 +1352,20 @@ public final class BytecodeReachabilityCompiler {
         // van `builder` zelf wordt pas aan het eind van compileClosure() één
         // keer toegevoegd, zie daar.)
         resultModules.addAll(lowering.extraModules());
+
+        // The class-file name, descriptor and annotations, for the reflection
+        // metadata of the method.
+        final List<IRFunction> functions = builder.build().functions();
+        final List<List<IRAnnotation>> parameterAnnotations = new ArrayList<>();
+        if (methodNode.visibleParameterAnnotations != null) {
+            for (final List<AnnotationNode> annotations : methodNode.visibleParameterAnnotations) {
+                parameterAnnotations.add(irAnnotations(annotations));
+            }
+        }
+        for (int i = functionsBefore; i < functions.size(); i++) {
+            functions.get(i).setJvmSignature(methodNode.name, methodNode.desc);
+            functions.get(i).setBytecodeAnnotations(irAnnotations(methodNode.visibleAnnotations), parameterAnnotations);
+        }
 
         for (final String typeRef : typeRefs) {
             shapeWorklist.add(typeRef);

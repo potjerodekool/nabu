@@ -65,6 +65,106 @@ final class ElementSignatures {
         };
     }
 
+    /**
+     * The generic signature of a method (the class-file Signature attribute,
+     * JVMS 4.7.9.1), or null if it has no type parameters and no generic
+     * parameter or return types, as javac does.
+     */
+    static String genericSignature(final ExecutableElement method) {
+        final boolean constructor = method.getKind() == ElementKind.CONSTRUCTOR;
+        boolean generic = !method.getTypeParameters().isEmpty()
+                || (!constructor && isGeneric(method.getReturnType()));
+        for (final var parameter : method.getParameters()) {
+            generic |= isGeneric(parameter.asType());
+        }
+        if (!generic) {
+            return null;
+        }
+        final var signature = new StringBuilder();
+        if (!method.getTypeParameters().isEmpty()) {
+            signature.append('<');
+            for (final var typeParameter : method.getTypeParameters()) {
+                signature.append(typeParameter.getSimpleName());
+                final var bounds = typeParameter.getBounds();
+                if (bounds.isEmpty()) {
+                    signature.append(":Ljava/lang/Object;");
+                }
+                for (final TypeMirror bound : bounds) {
+                    final boolean isInterface = bound.asTypeElement() != null && isInterface(bound.asTypeElement());
+                    signature.append(isInterface ? "::" : ":").append(signature(bound));
+                }
+            }
+            signature.append('>');
+        }
+        signature.append('(');
+        for (final var parameter : method.getParameters()) {
+            signature.append(signature(parameter.asType()));
+        }
+        return signature.append(')').append(constructor ? "V" : signature(method.getReturnType())).toString();
+    }
+
+    private static boolean isGeneric(final TypeMirror type) {
+        if (type == null) {
+            return false;
+        }
+        return switch (type.getKind()) {
+            case TYPEVAR, WILDCARD, INTERSECTION -> true;
+            case ARRAY -> isGeneric(((ArrayType) type).getComponentType());
+            case DECLARED -> type instanceof io.github.potjerodekool.nabu.type.DeclaredType declared
+                    && declared.getTypeArguments() != null && !declared.getTypeArguments().isEmpty();
+            default -> false;
+        };
+    }
+
+    /** The generic signature of a type: type arguments, type variables and wildcards kept. */
+    static String signature(final TypeMirror type) {
+        if (type == null) {
+            return "Ljava/lang/Object;";
+        }
+        return switch (type.getKind()) {
+            case TYPEVAR -> type instanceof TypeVariable variable && variable.asElement() != null
+                    ? "T" + variable.asElement().getSimpleName() + ";"
+                    : "Ljava/lang/Object;";
+            case ARRAY -> "[" + signature(((ArrayType) type).getComponentType());
+            case WILDCARD -> {
+                final var wildcard = (io.github.potjerodekool.nabu.type.WildcardType) type;
+                yield switch (wildcard.getBoundKind()) {
+                    case EXTENDS -> "+" + signature(wildcard.getBound());
+                    case SUPER -> "-" + signature(wildcard.getBound());
+                    default -> "*";
+                };
+            }
+            case DECLARED -> {
+                if (type.asTypeElement() == null) {
+                    yield "Ljava/lang/Object;";
+                }
+                final var result = new StringBuilder("L").append(internalName(type.asTypeElement()));
+                if (type instanceof io.github.potjerodekool.nabu.type.DeclaredType declared
+                        && declared.getTypeArguments() != null && !declared.getTypeArguments().isEmpty()) {
+                    result.append('<');
+                    for (final TypeMirror argument : declared.getTypeArguments()) {
+                        result.append(signature(argument));
+                    }
+                    result.append('>');
+                }
+                yield result.append(';').toString();
+            }
+            default -> descriptor(type);
+        };
+    }
+
+    /** The declared exceptions of a method, as internal names. */
+    static java.util.List<String> exceptions(final ExecutableElement method) {
+        final java.util.List<String> exceptions = new java.util.ArrayList<>();
+        for (final var thrown : method.getThrownTypes()) {
+            final String desc = descriptor(thrown);
+            if (desc.startsWith("L")) {
+                exceptions.add(desc.substring(1, desc.length() - 1));
+            }
+        }
+        return exceptions;
+    }
+
     /** The descriptor of a type named as in a configuration ({@code int}, {@code a.B}, {@code a.B[]}). */
     static String descriptorOfName(final String name) {
         if (name.endsWith("[]")) {

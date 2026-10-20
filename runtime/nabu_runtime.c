@@ -1336,6 +1336,44 @@ int nabu_instanceof(void *obj, const char *type_name) {
     return 0;
 }
 
+/* Whether the internal class name `actual` is `wanted` or a subtype of it (compiled classes only). */
+static int nabu_type_assignable(const char *actual, const char *wanted) {
+    if (strcmp(actual, wanted) == 0 || strcmp(wanted, "java/lang/Object") == 0) return 1;
+    for (const nabu_type_info *ti = nabu_compiled_type_for(actual); ti != NULL; ti = ti->super_type) {
+        if (strcmp(ti->name, wanted) == 0) return 1;
+        for (int i = 0; i < ti->interface_count; i++) {
+            if (strcmp(ti->interfaces[i], wanted) == 0) return 1;
+        }
+    }
+    return 0;
+}
+
+/* `obj instanceof T[]`: `wanted` is the JVM name of the array type ("[B", "[Ljava/lang/String;"). An array has
+ * no object header; it is recognized by its length, element size and the array type id the backend writes. */
+int nabu_instanceof_array(void *obj, const char *wanted) {
+    if (obj == NULL) return 0;
+    const int32_t *w = (const int32_t *) obj;
+    int32_t es = w[1] & 0xff;
+    if (w[0] < 0 || !(es == 1 || es == 2 || es == 4 || es == 8)) return 0;
+    const char *actual = nabu_array_type_name((int32_t) ((uint32_t) w[1] >> 8));
+    if (actual == NULL) return 0; /* an object, or an array of unknown type */
+    if (strcmp(actual, wanted) == 0) return 1;
+    if (actual[0] != '[' || wanted[0] != '[') return 0;
+    /* Reference arrays are covariant: String[] is an Object[] and a CharSequence[]. */
+    const char *a = actual + 1, *b = wanted + 1;
+    while (*a == '[' && *b == '[') { a++; b++; }
+    if (*b == '[') return 0;
+    if (*a != 'L' && *a != '[') return 0;       /* a primitive array only matches itself */
+    if (*b != 'L') return 0;
+    if (*a == '[') return strcmp(b, "Ljava/lang/Object;") == 0;
+    char actual_name[256], wanted_name[256];
+    size_t la = strlen(a), lb = strlen(b);
+    if (la < 3 || lb < 3 || la >= sizeof actual_name || lb >= sizeof wanted_name) return 0;
+    memcpy(actual_name, a + 1, la - 2); actual_name[la - 2] = 0;
+    memcpy(wanted_name, b + 1, lb - 2); wanted_name[lb - 2] = 0;
+    return nabu_type_assignable(actual_name, wanted_name);
+}
+
 /* -------------------------------------------------------
  * String-concat
  * ------------------------------------------------------- */

@@ -1053,7 +1053,9 @@ public final class BytecodeMethodLowering {
             }
             case Opcodes.INSTANCEOF -> {
                 final var v = stack.pop();
-                stack.push(builder.emitInstanceOf(v, new IRType.Ptr(IRType.I8, "L" + typeDesc + ";")));
+                // An array type is its own descriptor ("[B"); a class name is wrapped ("Ljava/lang/String;").
+                stack.push(builder.emitInstanceOf(v, new IRType.Ptr(IRType.I8,
+                        typeDesc.startsWith("[") ? typeDesc : "L" + typeDesc + ";")));
             }
             default -> throw new IllegalStateException();
         }

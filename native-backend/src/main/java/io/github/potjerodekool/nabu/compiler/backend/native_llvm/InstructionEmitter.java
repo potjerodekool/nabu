@@ -2323,7 +2323,20 @@ public class InstructionEmitter {
         LLVMValueRef source   = resolveValue(instanceOf.source());
         LLVMTypeRef  boolType = types.map(IRType.BOOL);
 
-        LLVMValueRef fn = globalValueMap.get("@nabu_instanceof");
+        // An array has no object header: the runtime recognizes it by its type id.
+        final boolean arrayType = instanceOf.type() instanceof IRType.Ptr ap && ap.jvmDescriptor() != null
+                && ap.jvmDescriptor().startsWith("[");
+        final String helper = arrayType ? "nabu_instanceof_array" : "nabu_instanceof";
+        LLVMValueRef fn = globalValueMap.get("@" + helper);
+        if (fn == null && arrayType) {
+            final LLVMModuleRef instanceofMod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+            fn = LLVMGetNamedFunction(instanceofMod, helper);
+            if (fn == null || fn.isNull()) {
+                fn = LLVMAddFunction(instanceofMod, helper, LLVMGlobalGetValueType(globalValueMap.get("@nabu_instanceof")));
+                LLVMSetLinkage(fn, LLVMExternalLinkage);
+            }
+            globalValueMap.put("@" + helper, fn);
+        }
         if (fn == null)
             throw new IllegalStateException("Runtime helper @nabu_instanceof not defined");
 

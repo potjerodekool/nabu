@@ -151,6 +151,9 @@ void nabu_throw(void *exception);
 /** Gooit java.lang.NullPointerException (aanroep op een null-ontvanger). */
 void nabu_throw_npe(const char *site);
 
+/** Whether obj is an array of the type (JVM name, "[B", "[Ljava/lang/String;"); arrays have no object header. */
+int nabu_instanceof_array(void *obj, const char *wanted);
+
 /** Throws ArithmeticException("/ by zero"). */
 void nabu_throw_arith(void);
 

@@ -307,6 +307,7 @@ public class NativeLLVMBackend implements Backend {
                                        Path outputObj,
                                        String triple,
                                        boolean partitioned) throws CompileException {
+        BuildDiagnostics.reset();
         LLVMContextRef ctx     = LLVMContextCreate();
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
@@ -318,18 +319,32 @@ public class NativeLLVMBackend implements Backend {
             emitter.emitAll(modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList());
             final java.util.List<String> unresolved = emitter.stubUnresolvedSymbols();
             if (!unresolved.isEmpty()) {
+                // Grouped by class: a handful of classes (Unsafe, the file
+                // system, ...) usually account for most of the list.
+                final java.util.Map<String, java.util.List<String>> byClass = new java.util.TreeMap<>();
+                for (final String name : unresolved) {
+                    final int sep = name.lastIndexOf('_');
+                    byClass.computeIfAbsent(sep > 0 ? name.substring(0, sep) : name,
+                            k -> new java.util.ArrayList<>()).add(name);
+                }
                 final Path unresolvedPath = replaceExtension(outputObj, ".unresolved.txt");
+                final java.util.List<String> lines = new java.util.ArrayList<>();
+                byClass.forEach((owner, names) -> {
+                    lines.add("# " + owner + " (" + names.size() + ")");
+                    lines.addAll(names);
+                });
                 try {
-                    java.nio.file.Files.write(unresolvedPath, unresolved);
+                    java.nio.file.Files.write(unresolvedPath, lines);
                 } catch (final java.io.IOException e) {
                     System.err.println("[NativeLLVMBackend] could not write " + unresolvedPath
                             + ": " + e.getMessage());
                 }
                 System.err.println("[NativeLLVMBackend] warning: " + unresolved.size()
-                        + " called JDK functions have no implementation (native,"
-                        + " signature-polymorphic or not found) and abort the program"
-                        + " when they are executed. List: " + unresolvedPath);
+                        + " called JDK functions in " + byClass.size() + " classes have no"
+                        + " implementation (native, signature-polymorphic or not found) and abort"
+                        + " the program when they are executed. List by class: " + unresolvedPath);
             }
+            BuildDiagnostics.report(replaceExtension(outputObj, ".warnings.txt"));
             long t1 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] emitAll (" + modules.size() + " IR-modules -> LLVM-IR): "
                     + (t1 - t0) / 1_000_000L + " ms");

@@ -1173,10 +1173,9 @@ public class InstructionEmitter {
             // de runtime of een stub levert het symbool.
             fn = declareSignaturePolymorphic(call);
             if (fn != null && !fn.isNull()) {
-                System.err.println("[nabu/LLVM] warning: " + call.function()
-                        + " is not declared with parameters " + call.paramTypes()
-                        + " (called in " + enclosingFunctionName()
-                        + "); declared as an external symbol.");
+                BuildDiagnostics.warn(BuildDiagnostics.Category.UNDECLARED_CALL,
+                        call.function() + " with parameters " + call.paramTypes()
+                                + " (called in " + enclosingFunctionName() + ")");
             }
         }
         if (fn == null || fn.isNull()) {
@@ -1742,10 +1741,10 @@ public class InstructionEmitter {
             fnParams.addAll(call.paramTypes());
             return fnParams;
         }
-        System.err.println("[nabu/LLVM] warning: indirect call "
-                + call.function() + " in " + enclosingFunctionName()
-                + " has " + call.args().size() + " operands but paramTypes="
-                + call.paramTypes() + "; signature derived from the operands.");
+        BuildDiagnostics.warn(BuildDiagnostics.Category.INDIRECT_CALL_SIGNATURE,
+                call.function() + " in " + enclosingFunctionName()
+                        + " has " + call.args().size() + " operands but paramTypes="
+                        + call.paramTypes());
         for (int i = 1; i < call.args().size(); i++) {
             fnParams.add(call.args().get(i).type());
         }
@@ -2544,6 +2543,10 @@ private void emitThrow(IRInstruction.Throw throwInst) {
      * compileert en linkt. De waarde is dus de default (0/null) tot de
      * runtime het veld zelf gaat leveren; de waarschuwing noemt het veld.
      */
+    /** Static fields of System that nabu.runtime.Bootstrap assigns at start-up: they do get a value. */
+    private static final java.util.Set<String> BOOTSTRAP_FIELDS = java.util.Set.of(
+            "java.lang.System_out", "java.lang.System_err", "java.lang.System_in");
+
     private LLVMValueRef declareOutsideStaticField(final IRValue.Named named) {
         final String plain = named.name().startsWith("@")
                 ? named.name().substring(1) : named.name();
@@ -2567,9 +2570,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         final LLVMValueRef global = LLVMAddGlobal(mod, type, new BytePointer(plain));
         LLVMSetInitializer(global, LLVMConstNull(type));
         globalValueMap.put("@" + plain, global);
-        System.err.println("[nabu/LLVM] warning: static field " + plain
-                + " belongs to a class outside the compiled closure; it has"
-                + " the default value (0/null).");
+        if (!BOOTSTRAP_FIELDS.contains(plain)) {
+            BuildDiagnostics.warn(BuildDiagnostics.Category.STATIC_FIELD_OUTSIDE_CLOSURE, plain);
+        }
         return global;
     }
 
@@ -2876,10 +2879,8 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         if (!warnedUnsupportedFields.add(named.name() + "@" + named.fieldIndex())) {
             return;
         }
-        System.err.println("[nabu/LLVM] warning: field '" + named.name()
-                + "' (index " + named.fieldIndex() + ") is not accessible — " + reason
-                + ". The field yields an undefined value; add the class to the"
-                + " sources (or avoid the field) for real field access.");
+        BuildDiagnostics.warn(BuildDiagnostics.Category.INACCESSIBLE_FIELD,
+                "'" + named.name() + "' (index " + named.fieldIndex() + "): " + reason);
     }
 }
 

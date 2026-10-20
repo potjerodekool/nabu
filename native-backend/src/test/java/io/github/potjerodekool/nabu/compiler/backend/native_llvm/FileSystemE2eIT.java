@@ -46,6 +46,23 @@ class FileSystemE2eIT {
                         java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(f));
                         System.out.println(reader.readLine());
                         reader.close();
+                        java.io.File c = new java.io.File(dir, "Case.txt");
+                        new java.io.FileOutputStream(c).close();
+                        String canonical = new java.io.File("work/../work/CASE.TXT").getCanonicalPath();
+                        System.out.println(canonical.endsWith(java.io.File.separator + "work" + java.io.File.separator
+                                + (java.io.File.separatorChar == '\\\\' ? "Case.txt" : "CASE.TXT")) + " " + c.delete());
+                        // More unclosed streams than a process can have descriptors: the garbage
+                        // collector has to close them. The last ones can still be referenced.
+                        java.io.File leak = new java.io.File("leak.txt");
+                        new java.io.FileOutputStream(leak).close();
+                        int opened = 0;
+                        for (int i = 0; i < 1500; i++) {
+                            new java.io.FileInputStream(leak);
+                            opened++;
+                            if (i % 100 == 99) System.gc();
+                        }
+                        System.out.println("opened " + opened);
+                        leak.delete();
                         java.io.File g = new java.io.File(dir, "b.txt");
                         System.out.println(f.renameTo(g) + " " + f.exists() + " " + java.util.Arrays.toString(dir.list()));
                         System.out.println(g.getName() + " " + g.getAbsolutePath().endsWith("b.txt") + " " + g.delete()
@@ -98,7 +115,7 @@ class FileSystemE2eIT {
         }
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
-        assertEquals("false true true\ntrue true 10\nhello file\ntrue false [b.txt]\nb.txt true true true false\n"
+        assertEquals("false true true\ntrue true 10\nhello file\ntrue true\nopened 1500\ntrue false [b.txt]\nb.txt true true true false\n"
                 + "fnf true\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

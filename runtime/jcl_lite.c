@@ -1340,14 +1340,52 @@ BIND(uint8_t, jcl_fs_rename0, JCL_FS("rename0"), (void *self, void *from, void *
 #endif
 }
 
-/* The absolute, normalized path; links and the case of names are not
- * resolved (the JDK does that on Windows). */
+#ifdef _WIN32
+/* The final path of an existing file or directory (links resolved, names in
+ * their real case) without the \\?\ prefix, or 0 when it does not exist. */
+static int jcl_win_final_path(const wchar_t *path, wchar_t *out, DWORD cap) {
+    HANDLE h = CreateFileW(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                           OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    DWORD n = GetFinalPathNameByHandleW(h, out, cap, VOLUME_NAME_DOS);
+    CloseHandle(h);
+    if (n == 0 || n >= cap) return 0;
+    if (wcsncmp(out, L"\\\\?\\UNC\\", 8) == 0) {
+        out[6] = L'\\'; /* \\?\UNC\server -> \\server */
+        memmove(out, out + 6, (wcslen(out + 6) + 1) * sizeof(wchar_t));
+    } else if (wcsncmp(out, L"\\\\?\\", 4) == 0) {
+        memmove(out, out + 4, (wcslen(out + 4) + 1) * sizeof(wchar_t));
+    }
+    return 1;
+}
+#endif
+
+/* The absolute, normalized path; links and the case of names are resolved
+ * for the part of the path that exists, like the JDK does on Windows. */
 BIND(void *, jcl_fs_canonicalize0, JCL_FS("canonicalize0"), (void *self, void *pathString)) {
     const char *path = nabu_cstr(pathString);
 #ifdef _WIN32
-    wchar_t buf[32768];
+    static wchar_t buf[32768], real[32768];
     DWORD n = GetFullPathNameW(jcl_wide(path), 32768, buf, NULL);
-    return n > 0 && n < 32768 ? jcl_jstring_wide(buf) : pathString;
+    if (n == 0 || n >= 32768) return pathString;
+    /* Resolve the longest existing prefix; the rest does not exist and stays as it is. */
+    size_t len = wcslen(buf);
+    while (len > 3) {
+        wchar_t saved = buf[len];
+        buf[len] = 0;
+        int found = jcl_win_final_path(buf, real, 32768);
+        buf[len] = saved;
+        if (found) {
+            size_t rl = wcslen(real);
+            if (rl > 0 && real[rl - 1] == L'\\' && buf[len] != 0) real[--rl] = 0;
+            if (rl + wcslen(buf + len) + 1 >= 32768) return pathString;
+            wcscpy(real + rl, buf + len);
+            return jcl_jstring_wide(real);
+        }
+        while (len > 3 && buf[len - 1] != L'\\') len--;
+        if (len > 3) len--; /* drop the separator too */
+    }
+    return jcl_jstring_wide(buf);
 #else
     char buf[PATH_MAX];
     return realpath(path, buf) != NULL ? nabu_jstring_new(buf) : pathString;
@@ -1383,6 +1421,23 @@ BIND(void *, jcl_fs_getDriveDirectory, JCL_FS("getDriveDirectory$PI32"), (void *
 
 /* --- FileInputStream / FileOutputStream on files ------------------------ */
 
+#ifdef NABU_GC_BOEHM
+/* A FileDescriptor nobody references any more: close its descriptor, as the
+ * JDK's cleaner does. The descriptor can have been closed already. */
+static void jcl_fd_finalize(void *fdObj, void *unused) {
+    (void)unused;
+    int32_t *slot = jcl_fd_slot(fdObj);
+    if (slot != NULL && *slot > 2) {
+#ifdef _WIN32
+        _close(*slot);
+#else
+        close(*slot);
+#endif
+        *slot = -1;
+    }
+}
+#endif
+
 static void jcl_open_file(void *self, void *pathString, int flags) {
     const char *path = nabu_cstr(pathString);
 #ifdef _WIN32
@@ -1398,7 +1453,20 @@ static void jcl_open_file(void *self, void *pathString, int flags) {
     }
     intptr_t off = nabu_instance_field_offset(self, "fd");
     int32_t *slot = off >= 0 ? jcl_fd_slot(*(void **)((char *)self + off)) : NULL;
-    if (slot != NULL) *slot = fd;
+    if (slot != NULL) {
+        *slot = fd;
+#ifdef NABU_GC_BOEHM
+        /* The descriptor object refers to its stream (parent), so the two form a cycle:
+         * only the unordered variant finalizes those. */
+        GC_register_finalizer_no_order(*(void **)((char *)self + off), jcl_fd_finalize, NULL, NULL, NULL);
+#endif
+    } else {
+#ifdef _WIN32
+        _close(fd);
+#else
+        close(fd);
+#endif
+    }
 }
 BIND(void, jcl_java_io_FileInputStream_open0, "java.io.FileInputStream_open0", (void *self, void *path)) {
     jcl_open_file(self, path, O_RDONLY);
@@ -2933,7 +3001,13 @@ BIND(float, jcl_java_lang_Float_intBitsToFloat, "java.lang.Float_intBitsToFloat"
 BIND(void, jcl_java_lang_Object_notifyAll, "java.lang.Object_notifyAll", (void *self)) { (void)self; }
 BIND(void *, jcl_java_lang_String_intern, "java.lang.String_intern", (void *self)) { return self; }
 BIND(int32_t, jcl_java_lang_Runtime_availableProcessors, "java.lang.Runtime_availableProcessors", (void *self)) { (void)self; return 1; }
-BIND(void, jcl_java_lang_Runtime_gc, "java.lang.Runtime_gc", (void *self)) { (void)self; }
+BIND(void, jcl_java_lang_Runtime_gc, "java.lang.Runtime_gc", (void *self)) {
+    (void)self;
+#ifdef NABU_GC_BOEHM
+    GC_gcollect();
+    GC_invoke_finalizers();
+#endif
+}
 BIND(int, jcl_java_lang_Class_desiredAssertionStatus, "java.lang.Class_desiredAssertionStatus", (void *self)) { (void)self; return 0; }
 /* Arrays.copyOf(Object[], int): de JDK-versie vraagt original.getClass() op,
  * maar een array heeft hier geen objectheader (lengte op 0, data op 8). */

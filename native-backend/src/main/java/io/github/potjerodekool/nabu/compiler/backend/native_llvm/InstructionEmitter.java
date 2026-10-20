@@ -795,7 +795,29 @@ public class InstructionEmitter {
         LLVMValueRef array = resolveValue(as.array());
         LLVMTypeRef elemType = types.map(as.elemType());
         LLVMValueRef elemPtr = arrayElementPtr(array, resolveValue(as.index()), elemType);
-        LLVMBuildStore(builder, resolveValue(as.value()), elemPtr);
+        LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
+    }
+
+    /**
+     * Gives an integer value the width of the array element it is stored in: an int constant
+     * stored into a char[] or byte[] would otherwise write past its element and overwrite the next one.
+     */
+    private LLVMValueRef toElementWidth(final LLVMValueRef value, final LLVMTypeRef elemType) {
+        final LLVMTypeRef valueType = LLVMTypeOf(value);
+        if (LLVMGetTypeKind(valueType) != LLVMIntegerTypeKind || LLVMGetTypeKind(elemType) != LLVMIntegerTypeKind) {
+            return value;
+        }
+        final int valueWidth = LLVMGetIntTypeWidth(valueType);
+        final int elemWidth = LLVMGetIntTypeWidth(elemType);
+        if (valueWidth > elemWidth) {
+            return LLVMBuildTrunc(builder, value, elemType, ".elem.trunc");
+        }
+        if (valueWidth < elemWidth) {
+            return valueWidth == 1
+                    ? LLVMBuildZExt(builder, value, elemType, ".elem.zext")
+                    : LLVMBuildSExt(builder, value, elemType, ".elem.sext");
+        }
+        return value;
     }
 
     private void emitArrayLength(IRInstruction.ArrayLength al) {

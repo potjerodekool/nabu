@@ -32,17 +32,35 @@ import java.util.Set;
 public final class JavaSubstitutions {
 
     /** JDK class (internal name) → substitution class. */
-    private static final Map<String, Class<?>> SUBSTITUTIONS = Map.of(
-            "jdk/internal/util/ByteArray", ByteArraySubstitution.class,
-            "jdk/internal/util/ByteArrayLittleEndian", ByteArrayLittleEndianSubstitution.class,
-            "java/lang/Enum", EnumSubstitution.class,
-            "java/lang/Throwable", ThrowableSubstitution.class,
-            "java/util/ResourceBundle", ResourceBundleSubstitution.class);
+    private static final Map<String, Class<?>> SUBSTITUTIONS = Map.ofEntries(
+            Map.entry("jdk/internal/util/ByteArray", ByteArraySubstitution.class),
+            Map.entry("jdk/internal/util/ByteArrayLittleEndian", ByteArrayLittleEndianSubstitution.class),
+            Map.entry("sun/security/provider/ByteArrayAccess", ByteArrayAccessSubstitution.class),
+            Map.entry("sun/security/provider/MD5", MD5Substitution.class),
+            Map.entry("java/security/SecureRandom", SecureRandomSubstitution.class),
+            Map.entry("java/util/concurrent/atomic/AtomicReferenceArray", AtomicReferenceArraySubstitution.class),
+            Map.entry("java/util/concurrent/atomic/AtomicIntegerArray", AtomicIntegerArraySubstitution.class),
+            Map.entry("java/util/concurrent/atomic/AtomicLongArray", AtomicLongArraySubstitution.class),
+            Map.entry("java/math/BigInteger", BigIntegerSubstitution.class),
+            Map.entry("java/lang/Enum", EnumSubstitution.class),
+            Map.entry("java/lang/Throwable", ThrowableSubstitution.class),
+            Map.entry("jdk/internal/loader/BootLoader", BootLoaderSubstitution.class),
+            Map.entry("java/nio/file/Files", FilesSubstitution.class),
+            Map.entry("java/security/Security$SecPropLoader", SecurityPropertiesSubstitution.class),
+            Map.entry("jdk/internal/event/EventHelper", EventHelperSubstitution.class),
+            Map.entry("sun/security/provider/SeedGenerator", SeedGeneratorSubstitution.class),
+            Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class));
 
     /** JDK classes whose {@code <clinit>} is emptied. */
     private static final Set<String> EMPTY_CLINIT = Set.of(
             "jdk/internal/util/ByteArray",
-            "jdk/internal/util/ByteArrayLittleEndian");
+            "jdk/internal/util/ByteArrayLittleEndian",
+            "sun/security/provider/SeedGenerator",
+            "sun/security/provider/ByteArrayAccess",
+            "java/util/concurrent/atomic/AtomicReferenceArray",
+            "java/util/concurrent/atomic/AtomicIntegerArray",
+            "java/util/concurrent/atomic/AtomicLongArray",
+            "jdk/internal/event/EventHelper");
 
     private JavaSubstitutions() {
     }

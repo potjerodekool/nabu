@@ -34,7 +34,15 @@ class JdkRuntimeE2eIT {
         Files.createDirectories(srcDir);
         Files.writeString(srcDir.resolve("Main.java"), """
                 public class Main {
-                    public static void main(String[] args) {
+                    static String hex(byte[] h) {
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < h.length; i++) {
+                            sb.append(Integer.toHexString((h[i] & 0xff) | 0x100).substring(1));
+                        }
+                        return sb.toString();
+                    }
+
+                    public static void main(String[] args) throws Exception {
                         System.out.println(java.nio.file.Path.of("C:\\\\Users\\\\evert\\\\work").getFileName());
                         System.out.println(String.format(java.util.Locale.ROOT, "%5.2f|%d|%s|%,d", 3.14159, 42, "hi", 1234567));
                         java.util.List<String> words = java.util.Arrays.asList("delta", "alpha", "charlie");
@@ -56,6 +64,29 @@ class JdkRuntimeE2eIT {
                         int minusOne = -1 + args.length;
                         System.out.println(Integer.MIN_VALUE / minusOne);
                         System.out.println(Integer.MIN_VALUE % minusOne);
+
+                        System.out.println(hex(java.security.MessageDigest.getInstance("SHA-256").digest("abc".getBytes())));
+                        System.out.println(hex(java.security.MessageDigest.getInstance("SHA-1").digest("abc".getBytes())));
+                        System.out.println(hex(java.security.MessageDigest.getInstance("MD5").digest("abc".getBytes())));
+                        System.out.println(java.util.UUID.randomUUID().toString().length() + " "
+                                + (new java.security.SecureRandom().nextInt(10) >= 0));
+                        java.math.BigInteger big = new java.math.BigInteger("123456789012345678901234567890").pow(60);
+                        System.out.println(big.bitLength() + " " + big.multiply(big).mod(java.math.BigInteger.valueOf(1000000007L))
+                                + " " + new java.math.BigDecimal("12345.6789").multiply(new java.math.BigDecimal("2.5")));
+                        System.out.println(1.0 / 3 + " " + 1234567.0 + " " + 12345678.0 + " " + 1.0E-4 + " " + (1.0f / 3.0f) + " "
+                                + Math.sqrt(2));
+                        java.nio.file.Path file = java.nio.file.Path.of("jdk-runtime-test.txt");
+                        java.nio.file.Files.writeString(file, "one\\ntwo\\n");
+                        System.out.println(java.nio.file.Files.readAllLines(file) + " " + java.nio.file.Files.size(file));
+                        java.nio.file.Files.delete(file);
+                        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+                        crc.update("abc".getBytes());
+                        System.out.println(crc.getValue());
+                        System.out.println(java.time.LocalDate.of(2020, 1, 31).plusMonths(1) + " "
+                                + (java.time.LocalDate.now().getYear() > 2000) + " "
+                                + java.time.ZonedDateTime.of(2020, 6, 1, 12, 0, 0, 0, java.time.ZoneId.of("UTC")).toInstant());
+                        System.out.println(new java.text.DecimalFormat("#,##0.00",
+                                java.text.DecimalFormatSymbols.getInstance(java.util.Locale.ROOT)).format(1234567.891));
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -99,7 +130,7 @@ class JdkRuntimeE2eIT {
         }
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
-        assertEquals("work\n 3.14|42|hi|1,234,567\n[alpha, charlie, delta] 55\n30\nIndex 2 out of bounds for length 1\n/ by zero\n-2147483648\n0\n", output, "exit=" + exit);
+        assertEquals("work\n 3.14|42|hi|1,234,567\n[alpha, charlie, delta] 55\n30\nIndex 2 out of bounds for length 1\n/ by zero\n-2147483648\n0\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\na9993e364706816aba3e25717850c26c9cd0d89d\n900150983cd24fb0d6963f7d28e17f72\n36 true\n5799 38616657 30864.19725\n0.3333333333333333 1234567.0 1.2345678E7 1.0E-4 0.33333334 1.4142135623730951\n[one, two] 8\n891568578\n2020-02-29 true 2020-06-01T12:00:00Z\n1,234,567.89\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

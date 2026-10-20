@@ -103,6 +103,28 @@ public class NativeLLVMBackend implements Backend {
         Path exe = replaceExtension(outFile,
                 triple.contains("windows") ? ".exe" : "");
         Linker.link(objectFiles, exe, triple, opts.gcStrategy());
+        copyRuntimeData(exe);
+    }
+
+    /**
+     * Data files of the JDK that the compiled JDK code reads at run time, from a {@code lib} directory
+     * next to the executable (the runtime reports the executable's directory as {@code java.home}): the
+     * time zone database. Without it {@code TimeZone}, {@code LocalDate.now()} and
+     * {@code SimpleDateFormat} fail.
+     */
+    private void copyRuntimeData(final Path exe) {
+        final Path source = Path.of(System.getProperty("java.home"), "lib", "tzdb.dat");
+        if (!java.nio.file.Files.isRegularFile(source)) {
+            return;
+        }
+        try {
+            final Path lib = exe.toAbsolutePath().getParent().resolve("lib");
+            java.nio.file.Files.createDirectories(lib);
+            java.nio.file.Files.copy(source, lib.resolve("tzdb.dat"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (final java.io.IOException e) {
+            System.err.println("[NativeLLVMBackend] could not copy tzdb.dat: " + e.getMessage());
+        }
     }
 
     private void loadNativeImageConfigs(final Path outputObj, final List<Path> classPath) {

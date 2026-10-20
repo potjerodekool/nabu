@@ -139,12 +139,25 @@ public final class BytecodeReachabilityCompiler {
      * reflectie-configuratie voor de JDK.)
      */
     private static final Map<String, List<String>> REFLECTIVE_INSTANTIATIONS = Map.of(
+            // The message digests of the SUN provider (Provider$Service.newInstance); SecureRandom's
+            // DRBG has no no-arg constructor and is not covered.
+            "java/security/Provider$Service", List.of(
+                    "sun/security/provider/MD2", "sun/security/provider/MD5", "sun/security/provider/SHA",
+                    "sun/security/provider/SHA2$SHA224", "sun/security/provider/SHA2$SHA256",
+                    "sun/security/provider/SHA5$SHA384", "sun/security/provider/SHA5$SHA512",
+                    "sun/security/provider/SHA5$SHA512_224", "sun/security/provider/SHA5$SHA512_256",
+                    "sun/security/provider/SHA3$SHA224", "sun/security/provider/SHA3$SHA256",
+                    "sun/security/provider/SHA3$SHA384", "sun/security/provider/SHA3$SHA512"),
             "sun/util/locale/provider/LocaleProviderAdapter", List.of(
                     "sun/util/locale/provider/JRELocaleProviderAdapter",
                     "sun/util/locale/provider/FallbackLocaleProviderAdapter"),
             // ResourceBundle-klassen van de root-locale (java.base), via
             // Bundles.findBundleOf: Class.forName(module, naam) + newInstance.
             "sun/util/resources/Bundles", List.of(
+                    "sun/util/resources/CalendarData",
+                    "sun/util/resources/CurrencyNames",
+                    "sun/util/resources/LocaleNames",
+                    "sun/util/resources/TimeZoneNames",
                     "sun/text/resources/FormatData",
                     "sun/text/resources/BreakIteratorInfo",
                     "sun/text/resources/BreakIteratorResources"));

@@ -36,6 +36,7 @@ public final class JavaSubstitutions {
             "jdk/internal/util/ByteArray", ByteArraySubstitution.class,
             "jdk/internal/util/ByteArrayLittleEndian", ByteArrayLittleEndianSubstitution.class,
             "java/lang/Enum", EnumSubstitution.class,
+            "java/lang/Throwable", ThrowableSubstitution.class,
             "java/util/ResourceBundle", ResourceBundleSubstitution.class);
 
     /** JDK classes whose {@code <clinit>} is emptied. */
@@ -67,6 +68,7 @@ public final class JavaSubstitutions {
             for (final MethodNode replacement : source.methods) {
                 if (replacement.name.equals(method.name) && replacement.desc.equals(method.desc)) {
                     redirect(replacement.instructions, source.name, target.name);
+                    method.access &= ~Opcodes.ACC_NATIVE;
                     method.instructions = replacement.instructions;
                     method.tryCatchBlocks = replacement.tryCatchBlocks;
                     method.localVariables = null;

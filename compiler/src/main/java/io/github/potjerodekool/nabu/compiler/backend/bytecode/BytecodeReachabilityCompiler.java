@@ -124,7 +124,9 @@ public final class BytecodeReachabilityCompiler {
 
     /** Methoden die altijd gelowered worden, ook zonder aanroep vanuit source. */
     private static final List<MethodRef> RUNTIME_ROOTS = List.of(
-            new MethodRef(BOOTSTRAP_CLASS, "init", "()V", false));
+            new MethodRef(BOOTSTRAP_CLASS, "init", "()V", false),
+            // For an exception nobody catches (nabu_throw prints it).
+            new MethodRef("java/lang/Throwable", "printStackTrace", "()V", false));
 
     /**
      * Klassen die de JDK alleen reflectief instantieert

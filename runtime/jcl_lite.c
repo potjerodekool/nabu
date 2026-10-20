@@ -3021,9 +3021,36 @@ BIND(void *, jcl_java_util_Arrays_copyOf_refs, "java.util.Arrays_copyOf$P7b09cd3
     if (original != NULL) ((int32_t *)copy)[1] = ((int32_t *)original)[1];
     return copy;
 }
-/* Throwable.fillInStackTrace(int): er is geen stack-walker, dus de
- * exception krijgt geen stack trace maar blijft verder bruikbaar. */
-BIND(void *, jcl_java_lang_Throwable_fillInStackTrace0, "java.lang.Throwable_fillInStackTrace$Pf850ce3bI32", (void *self, int32_t dummy)) { (void)dummy; return self; }
+/* StackTraceSupport.capture0(int max): the return addresses of the calling frames as a long[]. */
+BIND(void *, jcl_stack_capture0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.StackTraceSupport_capture0",
+     (int32_t max)) {
+    uintptr_t frames[256];
+    int n = nabu_capture_frames(frames, max);
+    void *arr = jcl_alloc(8 + (size_t)n * sizeof(int64_t));
+    ((int32_t *)arr)[0] = n;
+    ((int32_t *)arr)[1] = 8;
+    nabu_array_tag(arr, "[J");
+    for (int i = 0; i < n; i++) ((int64_t *)((char *)arr + 8))[i] = (int64_t)frames[i];
+    return arr;
+}
+/* StackTraceSupport.frameName0(long address): the symbol of the function, or null. */
+BIND(void *, jcl_stack_frameName0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.StackTraceSupport_frameName0",
+     (int64_t address)) {
+    const char *name = nabu_frame_name((uintptr_t)address);
+    if (getenv("NABU_TRACE_FRAMES") != NULL) fprintf(stderr, "frame %p %s\n", (void *)(uintptr_t)address, name != NULL ? name : "?");
+    return name != NULL ? nabu_jstring_new(name) : NULL;
+}
+/* StackTraceSupport.frameLocation0(long address): "scope-symbol<TAB>file<TAB>line" of the source line of the
+ * address, or null when the function has no line table. The scope is the function the line belongs to. */
+BIND(void *, jcl_stack_frameLocation0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.StackTraceSupport_frameLocation0",
+     (int64_t address)) {
+    const char *scope = NULL, *file = NULL;
+    int line = nabu_frame_line((uintptr_t)address, &scope, &file);
+    if (line <= 0 || file == NULL) return NULL;
+    char num[16];
+    snprintf(num, sizeof num, "%d", line);
+    return nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(jcl_concat(scope != NULL ? scope : "", "\t"), file), "\t"), num));
+}
 
 /* ---------------------------------------------------------------
  * jdk.internal.misc.Unsafe-natives

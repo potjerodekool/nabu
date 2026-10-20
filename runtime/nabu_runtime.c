@@ -488,12 +488,356 @@ static void nabu_exception_cleanup(_Unwind_Reason_Code reason,
     free(nabu_exc);
 }
 
+/* -------------------------------------------------------
+ * Stack traces
+ *
+ * nabu_capture_frames walks the stack with the unwinder (the code has DWARF
+ * unwind data, not the Windows .pdata) and keeps the return addresses.
+ * nabu_frame_name finds the function of an address in the symbol table of
+ * the executable; there is no line information.
+ * ------------------------------------------------------- */
+
+typedef struct { uintptr_t ip[256]; int count; int max; int skip; } nabu_frame_walk;
+
+static _Unwind_Reason_Code nabu_frame_cb(struct _Unwind_Context *context, void *arg) {
+    nabu_frame_walk *w = (nabu_frame_walk *) arg;
+    int before = 0;
+    uintptr_t ip = (uintptr_t) _Unwind_GetIPInfo(context, &before);
+    if (ip == 0) return _URC_END_OF_STACK;
+    if (w->skip > 0) { w->skip--; return _URC_NO_REASON; }
+    if (w->count >= w->max) return _URC_END_OF_STACK;
+    /* A return address points after the call; the call itself is one byte back. */
+    w->ip[w->count++] = before ? ip : ip - 1;
+    return _URC_NO_REASON;
+}
+
+/* The addresses of the calling frames, innermost first (this function's own frame excluded). */
+int nabu_capture_frames(uintptr_t *out, int max) {
+    nabu_frame_walk w;
+    w.count = 0;
+    w.max = max < 256 ? max : 256;
+    w.skip = 1;
+    _Unwind_Backtrace(nabu_frame_cb, &w);
+    for (int i = 0; i < w.count; i++) out[i] = w.ip[i];
+    return w.count;
+}
+
+#ifdef _WIN32
+typedef struct { uintptr_t addr; char *name; } nabu_sym;
+
+static nabu_sym *nabu_syms = NULL;
+static size_t nabu_sym_count = 0;
+static int nabu_syms_loaded = 0;
+static uintptr_t nabu_image_end = 0;
+
+static int nabu_sym_cmp(const void *a, const void *b) {
+    uintptr_t x = ((const nabu_sym *) a)->addr, y = ((const nabu_sym *) b)->addr;
+    return x < y ? -1 : x > y ? 1 : 0;
+}
+
+
+/* -------------------------------------------------------
+ * Line numbers
+ *
+ * The backend gives every function that comes from source a DWARF line table
+ * (version 4, see DebugLines). nabu_load_lines reads the .debug_line section
+ * of the executable into one table of rows sorted by address. The "directory"
+ * of the file of a row is the symbol of the function the line belongs to
+ * (which differs from the function around the address when LLVM inlined it).
+ * ------------------------------------------------------- */
+
+typedef struct { uintptr_t addr; uint32_t seq; const char *dir; const char *file; int line; } nabu_line_row;
+
+static nabu_line_row *nabu_rows = NULL;
+static size_t nabu_row_count = 0;
+static size_t nabu_row_cap = 0;
+
+static void nabu_row_add(uintptr_t addr, const char *dir, const char *file, int line) {
+    if (nabu_row_count == nabu_row_cap) {
+        size_t cap = nabu_row_cap == 0 ? 256 : nabu_row_cap * 2;
+        nabu_line_row *p = realloc(nabu_rows, cap * sizeof *p);
+        if (p == NULL) return;
+        nabu_rows = p;
+        nabu_row_cap = cap;
+    }
+    nabu_line_row *r = &nabu_rows[nabu_row_count];
+    r->addr = addr; r->seq = (uint32_t) nabu_row_count; r->dir = dir; r->file = file; r->line = line;
+    nabu_row_count++;
+}
+
+static uint64_t nabu_uleb(const unsigned char **p, const unsigned char *end) {
+    uint64_t v = 0; int shift = 0;
+    while (*p < end) {
+        unsigned char b = *(*p)++;
+        if (shift < 64) v |= (uint64_t) (b & 0x7f) << shift;
+        shift += 7;
+        if ((b & 0x80) == 0) break;
+    }
+    return v;
+}
+
+static int64_t nabu_sleb(const unsigned char **p, const unsigned char *end) {
+    int64_t v = 0; int shift = 0; unsigned char b = 0;
+    while (*p < end) {
+        b = *(*p)++;
+        if (shift < 64) v |= (int64_t) (b & 0x7f) << shift;
+        shift += 7;
+        if ((b & 0x80) == 0) break;
+    }
+    if (shift < 64 && (b & 0x40)) v |= -((int64_t) 1 << shift);
+    return v;
+}
+
+/* Parses the line programs in data[0..size); addresses are moved by `delta` (load address - preferred base). */
+static void nabu_parse_lines(const unsigned char *data, size_t size, intptr_t delta) {
+    const unsigned char *p = data, *end = data + size;
+    while (p + 4 <= end) {
+        uint32_t unit_len; memcpy(&unit_len, p, 4); p += 4;
+        if (unit_len == 0xffffffffu || p + unit_len > end) return;
+        const unsigned char *unit_end = p + unit_len;
+        if (p + 2 > unit_end) return;
+        uint16_t version; memcpy(&version, p, 2); p += 2;
+        if (version < 2 || version > 4) { p = unit_end; continue; } /* only what the backend writes */
+        uint32_t header_len; memcpy(&header_len, p, 4); p += 4;
+        const unsigned char *program = p + header_len;
+        unsigned min_inst = *p++;
+        if (version >= 4) p++; /* maximum_operations_per_instruction */
+        p++; /* default_is_stmt */
+        int line_base = (signed char) *p++;
+        unsigned line_range = *p++;
+        unsigned opcode_base = *p++;
+        const unsigned char *op_lens = p;
+        p += opcode_base > 0 ? opcode_base - 1 : 0;
+        if (line_range == 0 || program > unit_end) { p = unit_end; continue; }
+        /* include_directories */
+        size_t dcap = 64; unsigned ndirs = 1;
+        const char **dirs = malloc(dcap * sizeof *dirs);
+        if (dirs == NULL) return;
+        dirs[0] = NULL;
+        while (p < program && *p != 0) {
+            if (ndirs == dcap) { dcap *= 2; const char **n = realloc(dirs, dcap * sizeof *dirs); if (n == NULL) { free(dirs); return; } dirs = n; }
+            dirs[ndirs++] = strdup((const char *) p);
+            p += strlen((const char *) p) + 1;
+        }
+        p++;
+        /* file_names */
+        size_t fcap = 64; unsigned nfiles = 1;
+        const char **fnames = malloc(fcap * sizeof *fnames);
+        unsigned *fdirs = malloc(fcap * sizeof *fdirs);
+        if (fnames == NULL || fdirs == NULL) { free(dirs); free(fnames); free(fdirs); return; }
+        fnames[0] = NULL; fdirs[0] = 0;
+        while (p < program && *p != 0) {
+            const char *name = strdup((const char *) p);
+            p += strlen((const char *) p) + 1;
+            unsigned d = (unsigned) nabu_uleb(&p, program);
+            nabu_uleb(&p, program); nabu_uleb(&p, program);
+            if (nfiles == fcap) {
+                fcap *= 2;
+                const char **nn = realloc(fnames, fcap * sizeof *fnames);
+                unsigned *nd = realloc(fdirs, fcap * sizeof *fdirs);
+                if (nn == NULL || nd == NULL) return;
+                fnames = nn; fdirs = nd;
+            }
+            fnames[nfiles] = name; fdirs[nfiles] = d; nfiles++;
+        }
+        p = program;
+        /* the line number program */
+        uint64_t addr = 0; unsigned file = 1; int64_t line = 1;
+        while (p < unit_end) {
+            unsigned op = *p++;
+            int emit = 0, end_seq = 0;
+            if (op >= opcode_base) {
+                unsigned adj = op - opcode_base;
+                addr += (uint64_t) (adj / line_range) * min_inst;
+                line += line_base + (int) (adj % line_range);
+                emit = 1;
+            } else if (op == 0) {
+                uint64_t len = nabu_uleb(&p, unit_end);
+                const unsigned char *next = p + len;
+                if (len == 0 || next > unit_end) break;
+                unsigned ext = *p++;
+                if (ext == 1) { emit = 1; end_seq = 1; }
+                else if (ext == 2 && len == 9) { memcpy(&addr, p, 8); }
+                p = next;
+            } else switch (op) {
+                case 1: emit = 1; break;
+                case 2: addr += nabu_uleb(&p, unit_end) * min_inst; break;
+                case 3: line += nabu_sleb(&p, unit_end); break;
+                case 4: file = (unsigned) nabu_uleb(&p, unit_end); break;
+                case 8: addr += (uint64_t) ((255 - opcode_base) / line_range) * min_inst; break;
+                case 9: { uint16_t a; memcpy(&a, p, 2); p += 2; addr += a; break; }
+                default:
+                    for (unsigned i = 0; i < op_lens[op - 1]; i++) nabu_uleb(&p, unit_end);
+                    break;
+            }
+            if (emit) {
+                uintptr_t a = (uintptr_t) ((intptr_t) addr + delta);
+                if (end_seq) {
+                    nabu_row_add(a, NULL, NULL, 0);
+                    addr = 0; file = 1; line = 1;
+                } else if (file > 0 && file < nfiles) {
+                    unsigned d = fdirs[file];
+                    nabu_row_add(a, d > 0 && d < ndirs ? dirs[d] : NULL, fnames[file], (int) line);
+                }
+            }
+        }
+        free(dirs); free(fnames); free(fdirs);
+        p = unit_end;
+    }
+}
+
+static int nabu_row_cmp(const void *a, const void *b) {
+    const nabu_line_row *x = (const nabu_line_row *) a, *y = (const nabu_line_row *) b;
+    if (x->addr != y->addr) return x->addr < y->addr ? -1 : 1;
+    int xe = x->file == NULL, ye = y->file == NULL; /* an end of sequence comes before the next start */
+    if (xe != ye) return xe ? -1 : 1;
+    return x->seq < y->seq ? -1 : x->seq > y->seq ? 1 : 0;
+}
+
+
+/* Reads the COFF symbol table of the running executable: the functions in code sections. */
+static void nabu_load_symbols(void) {
+    nabu_syms_loaded = 1;
+    char path[MAX_PATH];
+    if (GetModuleFileNameA(NULL, path, MAX_PATH) == 0) return;
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return;
+    IMAGE_DOS_HEADER dos;
+    IMAGE_NT_HEADERS64 nt;
+    IMAGE_SECTION_HEADER *sections = NULL;
+    char *strings = NULL;
+    unsigned char *table = NULL;
+    do {
+        if (fread(&dos, sizeof dos, 1, f) != 1 || dos.e_magic != IMAGE_DOS_SIGNATURE) break;
+        if (fseek(f, dos.e_lfanew, SEEK_SET) != 0 || fread(&nt, sizeof nt, 1, f) != 1) break;
+        DWORD nsyms = nt.FileHeader.NumberOfSymbols;
+        DWORD symoff = nt.FileHeader.PointerToSymbolTable;
+        WORD nsec = nt.FileHeader.NumberOfSections;
+        if (nsyms == 0 || symoff == 0 || nsec == 0) break;
+        sections = malloc(nsec * sizeof *sections);
+        if (sections == NULL) break;
+        long secoff = dos.e_lfanew + 4 + (long) sizeof(IMAGE_FILE_HEADER) + nt.FileHeader.SizeOfOptionalHeader;
+        if (fseek(f, secoff, SEEK_SET) != 0 || fread(sections, sizeof *sections, nsec, f) != nsec) break;
+        table = malloc((size_t) nsyms * 18);
+        if (table == NULL) break;
+        if (fseek(f, (long) symoff, SEEK_SET) != 0 || fread(table, 18, nsyms, f) != nsyms) break;
+        uint32_t strsize = 0;
+        if (fread(&strsize, 4, 1, f) != 1 || strsize < 4) break;
+        strings = malloc(strsize);
+        if (strings == NULL) break;
+        memcpy(strings, &strsize, 4);
+        if (strsize > 4 && fread(strings + 4, 1, strsize - 4, f) != strsize - 4) break;
+        uintptr_t base = (uintptr_t) GetModuleHandleA(NULL);
+        nabu_image_end = base + nt.OptionalHeader.SizeOfImage;
+        nabu_syms = malloc((size_t) nsyms * sizeof *nabu_syms);
+        if (nabu_syms == NULL) break;
+        for (DWORD i = 0; i < nsyms; ) {
+            unsigned char *e = table + (size_t) i * 18;
+            uint32_t value; int16_t secnum; unsigned char aux = e[17];
+            memcpy(&value, e + 8, 4);
+            memcpy(&secnum, e + 12, 2);
+            if (secnum > 0 && secnum <= nsec && (sections[secnum - 1].Characteristics & IMAGE_SCN_CNT_CODE)) {
+                const char *name = NULL;
+                char shortname[9];
+                uint32_t zero, off;
+                memcpy(&zero, e, 4);
+                memcpy(&off, e + 4, 4);
+                if (zero == 0) {
+                    if (off < strsize) name = strings + off;
+                } else {
+                    memcpy(shortname, e, 8);
+                    shortname[8] = 0;
+                    name = shortname;
+                }
+                if (name != NULL && name[0] != 0 && name[0] != '.') {
+                    nabu_syms[nabu_sym_count].addr = base + sections[secnum - 1].VirtualAddress + value;
+                    nabu_syms[nabu_sym_count].name = strdup(name);
+                    nabu_sym_count++;
+                }
+            }
+            i += 1 + aux;
+        }
+        qsort(nabu_syms, nabu_sym_count, sizeof *nabu_syms, nabu_sym_cmp);
+        for (WORD si = 0; si < nsec; si++) {
+            char secname[9];
+            memcpy(secname, sections[si].Name, 8);
+            secname[8] = 0;
+            const char *sname = secname;
+            if (secname[0] == '/') {
+                uint32_t off = (uint32_t) atoi(secname + 1);
+                if (off < strsize) sname = strings + off;
+            }
+            if (strcmp(sname, ".debug_line") != 0) continue;
+            DWORD size = sections[si].SizeOfRawData;
+            if (sections[si].Misc.VirtualSize != 0 && sections[si].Misc.VirtualSize < size) size = sections[si].Misc.VirtualSize;
+            unsigned char *buf = malloc(size);
+            if (buf != NULL && fseek(f, (long) sections[si].PointerToRawData, SEEK_SET) == 0
+                    && fread(buf, 1, size, f) == size) {
+                nabu_parse_lines(buf, size, (intptr_t) (base - (uintptr_t) nt.OptionalHeader.ImageBase));
+                qsort(nabu_rows, nabu_row_count, sizeof *nabu_rows, nabu_row_cmp);
+            }
+            free(buf);
+        }
+    } while (0);
+    free(sections);
+    free(table);
+    free(strings);
+    fclose(f);
+}
+
+/* The symbol of the function that contains the address, or NULL. */
+const char *nabu_frame_name(uintptr_t addr) {
+    if (!nabu_syms_loaded) nabu_load_symbols();
+    if (addr >= nabu_image_end) return NULL; /* a system DLL */
+    size_t lo = 0, hi = nabu_sym_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (nabu_syms[mid].addr <= addr) lo = mid + 1; else hi = mid;
+    }
+    return lo == 0 ? NULL : nabu_syms[lo - 1].name;
+}
+
+/* The line of the address: its row's function symbol, file and line; 0 when there is none. */
+int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
+    if (!nabu_syms_loaded) nabu_load_symbols();
+    size_t lo = 0, hi = nabu_row_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (nabu_rows[mid].addr <= addr) lo = mid + 1; else hi = mid;
+    }
+    if (lo == 0) return 0;
+    const nabu_line_row *r = &nabu_rows[lo - 1];
+    if (r->file == NULL) return 0; /* after the end of a sequence */
+    *scope = r->dir;
+    *file = r->file;
+    return r->line;
+}
+#else
+#include <dlfcn.h>
+const char *nabu_frame_name(uintptr_t addr) {
+    Dl_info info;
+    return dladdr((void *) addr, &info) != 0 ? info.dli_sname : NULL;
+}
+/* Line tables are only read on Windows. */
+int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
+    (void) addr; (void) scope; (void) file;
+    return 0;
+}
+#endif
+
 /* Throwable.getMessage van het programma (zie nabu_set_throwable_message_fn);
  * alleen voor de melding bij een onbehandelde exception. */
 static void *(*nabu_throwable_message_fn)(void *) = NULL;
 
 void nabu_set_throwable_message_fn(void *fn) {
     nabu_throwable_message_fn = (void *(*)(void *))fn;
+}
+
+/* Throwable.printStackTrace() van het programma; voor een onbehandelde exception. */
+static void (*nabu_throwable_print_fn)(void *) = NULL;
+
+void nabu_set_throwable_print_fn(void *fn) {
+    nabu_throwable_print_fn = (void (*)(void *))fn;
 }
 
 void nabu_throw(void *exception) {
@@ -512,6 +856,15 @@ void nabu_throw(void *exception) {
 
     /* Als we hier komen is er geen handler gevonden */
     (void)result;
+    if (exception != NULL && nabu_throwable_print_fn != NULL && !nabu_jcl_is_object(exception)) {
+        /* Like the JVM: Exception in thread "main" <class>: <message> and the trace. */
+        fflush(stdout);
+        fprintf(stderr, "Exception in thread \"main\" ");
+        fflush(stderr);
+        nabu_throwable_print_fn(exception);
+        fflush(stderr);
+        exit(1);
+    }
     fprintf(stderr, "nabu: unhandled exception\n");
     if (exception != NULL) {
         nabu_type_info *ti = ((nabu_object *)exception)->type;

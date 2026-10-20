@@ -105,6 +105,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     // Bronbestand van de verwerkte compilatie-eenheid (voor debuginfo van
     // top-level ├âãÆ├åÔÇÖ├âÔÇÜ├é┬®n geneste klassen).
     private String currentSourceFile;
+
+    /** The name of the source file being translated, for locations. */
+    private String sourceFileName() {
+        return currentSourceFile != null ? currentSourceFile : currentClassName + ".nabu";
+    }
     private String currentSourcePath;
 
     public record TryCatchRange(String tryStart, String tryEnd, String handler, String exceptionType) {}
@@ -156,7 +161,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         }
 
         // Bronbestand registreren voor debuginfo
-        int lastSlash = fileName.lastIndexOf('/');
+        int lastSlash = Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\'));
         String dir = lastSlash >= 0 ? fileName.substring(0, lastSlash) : ".";
         String file = lastSlash >= 0 ? fileName.substring(lastSlash + 1) : fileName;
 
@@ -1116,7 +1121,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         // Locatie registreren
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 function.getLineNumber(),
                 function.getColumnNumber()
         );
@@ -1358,7 +1363,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             }
 
             builder.setLocation(
-                    currentClassName + ".nabu",
+                    sourceFileName(),
                     0,
                     0
             );
@@ -1412,7 +1417,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitReturnStatement(ReturnStatementTree returnStatement,
                                         IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 returnStatement.getLineNumber(),
                 returnStatement.getColumnNumber()
         );
@@ -1757,7 +1762,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             VariableDeclaratorTree varDecl, IRBuilder param) {
 
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 varDecl.getLineNumber(),
                 varDecl.getColumnNumber()
         );
@@ -1869,7 +1874,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitIfStatement(IfStatementTree ifStatement,
                                     IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 ifStatement.getLineNumber(),
                 ifStatement.getColumnNumber()
         );
@@ -2127,7 +2132,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitBinaryExpression(BinaryExpressionTree binaryExpr,
                                          IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 binaryExpr.getLineNumber(),
                 binaryExpr.getColumnNumber()
         );
@@ -2356,7 +2361,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     @Override
     public IRValue visitIdentifier(IdentifierTree identifier, IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 identifier.getLineNumber(),
                 identifier.getColumnNumber()
         );
@@ -2463,7 +2468,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             FieldAccessExpressionTree fieldAccess, IRBuilder param) {
 
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 fieldAccess.getLineNumber(),
                 fieldAccess.getColumnNumber()
         );
@@ -2578,7 +2583,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitMethodInvocation(MethodInvocationTree invocation,
 IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 invocation.getLineNumber(),
                 invocation.getColumnNumber()
         );
@@ -3039,7 +3044,7 @@ if (argVal == null) continue;
 
 
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 newClass.getLineNumber(),
                 newClass.getColumnNumber()
         );
@@ -3439,7 +3444,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitAssignment(AssignmentExpressionTree assignment,
                                    IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 assignment.getLineNumber(),
                 assignment.getColumnNumber()
         );
@@ -3807,7 +3812,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitConditionalExpression(final ConditionalExpressionTree conditionalExpression,
                                               final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 conditionalExpression.getLineNumber(),
                 conditionalExpression.getColumnNumber()
         );
@@ -4218,7 +4223,7 @@ if (argVal != null) args.add(argVal);
     @Override
     public IRValue visitThrowStatement(final ThrowStatement throwStatement, final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 throwStatement.getLineNumber(),
                 throwStatement.getColumnNumber()
         );
@@ -4262,7 +4267,7 @@ if (argVal != null) args.add(argVal);
     @Override
     public IRValue visitBreakStatement(final BreakStatement breakStatement, final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 breakStatement.getLineNumber(),
                 breakStatement.getColumnNumber()
         );
@@ -4290,7 +4295,7 @@ if (argVal != null) args.add(argVal);
     @Override
     public IRValue visitContinueStatement(final ContinueStatement continueStatement, final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 continueStatement.getLineNumber(),
                 continueStatement.getColumnNumber()
         );
@@ -4323,7 +4328,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitEnhancedForStatement(final EnhancedForStatementTree enhancedFor,
                                               final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 enhancedFor.getLineNumber(),
                 enhancedFor.getColumnNumber()
         );
@@ -4430,7 +4435,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitSwitchStatement(final SwitchStatement switchStatement,
                                          final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 switchStatement.getLineNumber(),
                 switchStatement.getColumnNumber()
         );
@@ -4545,7 +4550,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitAssertStatement(final AssertStatement assertStatement,
                                          final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 assertStatement.getLineNumber(),
                 assertStatement.getColumnNumber()
         );
@@ -4583,7 +4588,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitYieldStatement(final YieldStatement yieldStatement,
                                         final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 yieldStatement.getLineNumber(),
                 yieldStatement.getColumnNumber()
         );
@@ -4606,7 +4611,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitLabeledStatement(final LabeledStatement labeledStatement,
                                           final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 labeledStatement.getLineNumber(),
                 labeledStatement.getColumnNumber()
         );
@@ -4650,7 +4655,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitSynchronizedStatement(final SynchronizedStatement synchronizedStatement,
                                                final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 synchronizedStatement.getLineNumber(),
                 synchronizedStatement.getColumnNumber()
         );
@@ -4680,7 +4685,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitTryStatement(final TryStatementTree tryStatement,
                                       final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 tryStatement.getLineNumber(),
                 tryStatement.getColumnNumber()
         );
@@ -4788,7 +4793,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitLambdaExpression(final LambdaExpressionTree lambdaExpression,
                                          final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 lambdaExpression.getLineNumber(),
                 lambdaExpression.getColumnNumber()
         );
@@ -4908,7 +4913,7 @@ if (argVal != null) args.add(argVal);
     public IRValue visitMemberReference(final MemberReference memberReference,
                                         final IRBuilder param) {
         builder.setLocation(
-                currentClassName + ".nabu",
+                sourceFileName(),
                 memberReference.getLineNumber(),
                 memberReference.getColumnNumber()
         );

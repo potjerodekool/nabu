@@ -110,7 +110,7 @@ class BytecodeLibraryMethodsE2eIT {
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
         assertEquals("123e4567-e89b-12d3-a456-426614174000\nword\n42\nl1 l2 2\nx\ninner\nabcABCllo23\na|b|c\n2.5\n"
-                + "java.lang.RuntimeException: outer/Caused by: java.lang.IllegalStateException: inner/\n"
+                + "java.lang.RuntimeException: outer/\tat Main.main(Main.java:18)/Caused by: java.lang.IllegalStateException: inner/\tat Main.main(Main.java:11)/\n"
                 + "SECONDS\nBLOCKED\nNo enum constant java.util.concurrent.TimeUnit.WEEKS\n",
                 output, "exit=" + exit);
         assertEquals(0, exit, output);

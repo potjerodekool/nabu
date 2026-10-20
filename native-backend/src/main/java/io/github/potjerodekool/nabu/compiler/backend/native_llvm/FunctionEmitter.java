@@ -33,6 +33,7 @@ public class FunctionEmitter {
     private final TypeMapper types;
     private final ConstantResolver constants;
     private final InstructionEmitter instructions;
+    private final DebugLines debugLines;
     private final Map<String, LLVMValueRef>   globalValueMap;
     private final Map<String, LLVMBasicBlockRef> blockMap;
 
@@ -104,6 +105,7 @@ public class FunctionEmitter {
         this.types          = types;
         this.constants      = constants;
         this.instructions   = instructions;
+        this.debugLines     = new DebugLines(ctx, mod, builder);
         this.globalValueMap = globalValueMap;
         this.blockMap       = blockMap;
         this.classLayouts   = classLayouts;
@@ -311,6 +313,19 @@ public class FunctionEmitter {
      * Externe functies worden overgeslagen.
      */
     public void emitBody(IRFunction fn) {
+        try {
+            emitBodyInner(fn);
+        } finally {
+            debugLines.end();
+        }
+    }
+
+    /** Completes the line tables; call after all bodies. */
+    public void finishDebugInfo() {
+        debugLines.finish();
+    }
+
+    private void emitBodyInner(IRFunction fn) {
         if (fn.isExternal()) return;
         currentFnNameForDiagnostics = fn.name;
 
@@ -358,6 +373,8 @@ public class FunctionEmitter {
             }
             return;
         }
+
+        debugLines.begin(fn, llvmFn, LLVMGetValueName(llvmFn).getString());
 
         // Schone lokale staat per functie
         Map<String, LLVMValueRef> localMap = new HashMap<>();
@@ -566,6 +583,7 @@ public class FunctionEmitter {
         for (IRBasicBlock block : fn.blocks()) {
             for (var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.Alloca) {
+                    debugLines.locate(instr);
                     instructions.emit(instr);
                     preEmitted.add(instr);
                 }
@@ -612,6 +630,7 @@ public class FunctionEmitter {
             for (var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.TryCatchRegion) continue;
                 if (preEmitted.contains(instr)) continue;
+                debugLines.locate(instr);
                 instructions.emit(instr);
             }
 

@@ -199,6 +199,8 @@ public void setReflectionRegistry(
             }
         }
 
+        functions.finishDebugInfo();
+
         // 5. Array classes, after the bodies that allocate the arrays.
         emitArrayTypeTable(instructions.arrayTypeNames());
     }
@@ -966,6 +968,13 @@ public void setReflectionRegistry(
         LLVMSetLinkage(setMsgFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_set_throwable_message_fn", setMsgFn);
 
+        // --- void nabu_set_throwable_print_fn(i8* fn) ---
+        LLVMValueRef setPrintFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_throwable_print_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setPrintFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_throwable_print_fn", setPrintFn);
+
         // --- void nabu_register_type_infos(i8* table, i32 count) ---
         PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
         regTypesParams.put(0, i8ptr);
@@ -1050,6 +1059,7 @@ public void setReflectionRegistry(
         final LLVMValueRef vtable = object != null ? object.vtableGlobal : null;
         final LLVMValueRef itable = classLayouts.libraryItable();
         final LLVMValueRef getMessage = throwableGetMessage();
+        final LLVMValueRef printStackTrace = throwableMethod("java.lang.Throwable_printStackTrace");
         // Alleen nodig als het programma Class.getSuperclass() aanroept (de
         // runtime zoekt dan de klasse op naam op).
         final LLVMValueRef superclassFn = LLVMGetNamedFunction(mod, "java.lang.Class_getSuperclass");
@@ -1064,7 +1074,8 @@ public void setReflectionRegistry(
         final LLVMValueRef[] typeTable = needsTypeTable ? classLayouts.buildTypeInfoTable(mod) : null;
         final LLVMValueRef[] boxFns = compiledBoxFunctions();
         final boolean anyBoxFn = java.util.Arrays.stream(boxFns).anyMatch(java.util.Objects::nonNull);
-        if (vtable == null && itable == null && getMessage == null && typeTable == null && !anyBoxFn) {
+        if (vtable == null && itable == null && getMessage == null && printStackTrace == null
+                && typeTable == null && !anyBoxFn) {
             return;
         }
 
@@ -1110,6 +1121,9 @@ public void setReflectionRegistry(
         }
         if (getMessage != null) {
             callSetter(builder, "@nabu_set_throwable_message_fn", getMessage);
+        }
+        if (printStackTrace != null) {
+            callSetter(builder, "@nabu_set_throwable_print_fn", printStackTrace);
         }
         for (int kind = 0; kind < boxFns.length; kind++) {
             if (boxFns[kind] == null) continue;
@@ -1174,11 +1188,16 @@ public void setReflectionRegistry(
      * het programma die methode niet met een body bevat.
      */
     private LLVMValueRef throwableGetMessage() {
-        final IRFunction fn = classLayouts.resolveFunction("java.lang.Throwable_getMessage");
+        return throwableMethod("java.lang.Throwable_getMessage");
+    }
+
+    /** A compiled instance method of Throwable without arguments, or null when the program has no body for it. */
+    private LLVMValueRef throwableMethod(final String name) {
+        final IRFunction fn = classLayouts.resolveFunction(name);
         if (fn == null || fn.blocks().isEmpty() || fn.params.size() != 1) {
             return null;
         }
-        final LLVMValueRef value = LLVMGetNamedFunction(mod, "java.lang.Throwable_getMessage");
+        final LLVMValueRef value = LLVMGetNamedFunction(mod, name);
         return value != null && !value.isNull() ? value : null;
     }
 

@@ -233,6 +233,9 @@ void nabu_set_object_itable(void *itable);
  */
 void nabu_set_throwable_message_fn(void *fn);
 
+/** Registers the compiled Throwable.printStackTrace() for unhandled exceptions. */
+void nabu_set_throwable_print_fn(void *fn);
+
 /**
  * Registreert de type-info van alle gecompileerde klassen (geen interfaces),
  * zodat de runtime een klasse op interne naam kan vinden.

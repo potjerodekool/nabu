@@ -1860,6 +1860,18 @@ void nabu_monitorexit(void *obj) {
 void nabu_unresolved(const char *symbol) {
     fprintf(stderr, "nabu: call to a JDK function without an implementation: %s\n",
             symbol != NULL ? symbol : "?");
+    /* Where it was called from, so the missing function can be traced to the Java code that needs it. */
+    uintptr_t frames[64];
+    int n = nabu_capture_frames(frames, 64);
+    for (int i = 1; i < n; i++) {
+        const char *name = nabu_frame_name(frames[i]);
+        if (name == NULL || strcmp(name, "main") == 0) break;
+        char text[512];
+        snprintf(text, sizeof text, "%s", name);
+        char *sep = strrchr(text, '_');
+        if (sep != NULL && sep != text) *sep = '.';
+        fprintf(stderr, "    at %s\n", text);
+    }
     fflush(stderr);
-    abort();
+    exit(127);
 }

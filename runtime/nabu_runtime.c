@@ -976,6 +976,31 @@ typedef struct nabu_jstring {
     int8_t  hash_is_zero;
 } nabu_jstring;
 
+/* Array classes: the upper 24 bits of the element-size word index
+ * nabu_array_type_names (emitted by the backend). Returns the index of
+ * `name`, or 0 when the program has no such array type; `cache` keeps the
+ * result (-1: not looked up yet). */
+extern const char *const nabu_array_type_names[];
+extern const int32_t nabu_array_type_count;
+
+static int32_t nabu_byte_array_id = -1;
+
+static int32_t nabu_array_type_id(const char *name, int32_t *cache) {
+    if (cache != NULL && *cache >= 0) return *cache;
+    int32_t id = 0;
+    for (int32_t i = 1; i < nabu_array_type_count; i++) {
+        if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) { id = i; break; }
+    }
+    if (cache != NULL) *cache = id;
+    return id;
+}
+
+void nabu_array_tag(void *arr, const char *name) {
+    if (arr == NULL) return;
+    int32_t es = ((int32_t *) arr)[1] & 0xff;
+    ((int32_t *) arr)[1] = es | (nabu_array_type_id(name, NULL) << 8);
+}
+
 static void *nabu_str_mem(size_t n) {
     void *p = NABU_STR_MEM(n);
     if (p == NULL) {
@@ -1118,7 +1143,7 @@ void *nabu_jstring_new(const char *utf8) {
     size_t byte_len = latin1 ? count : utf16_units * 2;
     unsigned char *arr = (unsigned char *) nabu_str_mem(8 + byte_len);
     ((int32_t *) arr)[0] = (int32_t) byte_len;
-    ((int32_t *) arr)[1] = 1; /* elementgrootte: byte[] */
+    ((int32_t *) arr)[1] = 1 | (nabu_array_type_id("[B", &nabu_byte_array_id) << 8); /* byte[] */
     unsigned char *data = arr + 8;
     if (latin1) {
         for (size_t i = 0; i < count; i++) data[i] = (unsigned char) cps[i];

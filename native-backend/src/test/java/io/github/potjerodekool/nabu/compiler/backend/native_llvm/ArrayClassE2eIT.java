@@ -53,6 +53,7 @@ class ArrayClassE2eIT {
                         System.out.println(ta.getClass().getName() + ta[0]);
                         int[][] m = new int[2][3];
                         System.out.println(m.getClass().getName() + " " + m[1].getClass().getName() + " " + m[1].length);
+                        System.out.println(args.getClass().getName() + " " + args.length);
                         Object o = s;
                         Object oi = i;
                         System.out.println(o.getClass().getName() + " " + oi.getClass().getSimpleName());
@@ -100,7 +101,7 @@ class ArrayClassE2eIT {
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
         assertEquals("[Ljava.lang.String;\n[I\n[Ljava.lang.String; 3\n[I 7\n[Ljava.lang.String;\n"
-                + "[Ljava.lang.String;x\n[[I [I 3\n[Ljava.lang.String; int[]\n", output, "exit=" + exit);
+                + "[Ljava.lang.String;x\n[[I [I 3\n[Ljava.lang.String; 0\n[Ljava.lang.String; int[]\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

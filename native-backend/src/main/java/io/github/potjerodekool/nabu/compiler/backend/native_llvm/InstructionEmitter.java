@@ -492,6 +492,18 @@ public class InstructionEmitter {
      */
     private final Map<String, Integer> arrayTypeIds = new java.util.LinkedHashMap<>();
 
+    /** Array types the C runtime allocates itself; always in the table so it can tag them. */
+    private static final List<String> RUNTIME_ARRAY_TYPES = List.of(
+            "[B", "[J", "[Ljava/lang/Object;", "[Ljava/lang/String;", "[Ljava/lang/Class;",
+            "[Ljava/lang/reflect/Field;", "[Ljava/lang/reflect/Method;",
+            "[Ljava/lang/reflect/Constructor;", "[Ljava/lang/reflect/Type;",
+            "[Ljava/lang/reflect/TypeVariable;", "[Ljava/lang/annotation/Annotation;",
+            "[[Ljava/lang/annotation/Annotation;");
+
+    {
+        RUNTIME_ARRAY_TYPES.forEach(this::arrayTypeId);
+    }
+
     private int arrayTypeId(final String arrayClass) {
         return arrayTypeIds.computeIfAbsent(arrayClass, k -> arrayTypeIds.size() + 1);
     }

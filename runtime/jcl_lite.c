@@ -406,6 +406,12 @@ static void jcl_arr_set_type(void *a, const char *name) {
     int32_t es = ((int32_t *)a)[1] & 0xff;
     ((int32_t *)a)[1] = es | (jcl_arr_type_id(name) << 8);
 }
+/* A reference array of n elements with the given array class. */
+static void *jcl_arr_typed(int32_t n, const char *name) {
+    void *a = jcl_arr_ref(n);
+    nabu_array_tag(a, name);
+    return a;
+}
 
 static void *jcl_arr_elem(void *a, int32_t i) {
     if (a == NULL) return NULL;
@@ -427,7 +433,7 @@ static void *jcl_strs(const char *comma_text, int32_t count_hint) {
         for (const char *p = comma_text; *p; p++) if (*p == ',') n++;
     } else n = 0;
     if (count_hint == 0) n = 0;
-    void *arr = jcl_arr_ref(n);
+    void *arr = jcl_arr_typed(n, "[Ljava/lang/String;");
     if (n == 0) return arr;
     int32_t i = 0;
     const char *p = comma_text;
@@ -448,7 +454,7 @@ static void *jcl_strs(const char *comma_text, int32_t count_hint) {
     return arr;
 }
 
-static void *jcl_empty_strs(void) { return jcl_arr_ref(0); }
+static void *jcl_empty_strs(void) { return jcl_arr_typed(0, "[Ljava/lang/String;"); }
 
 /*
  * Bouwt een java.lang.String[] (args) op uit de C-style argv die het
@@ -462,7 +468,7 @@ static void *jcl_empty_strs(void) { return jcl_arr_ref(0); }
  */
 void *nabu_args_from_argv(int32_t argc, char **argv) {
     int32_t n = argc > 1 ? argc - 1 : 0;
-    void *arr = jcl_arr_ref(n);
+    void *arr = jcl_arr_typed(n, "[Ljava/lang/String;");
     for (int32_t i = 0; i < n; i++) {
         jcl_arr_set(arr, i, nabu_jstring_new(argv[i + 1]));
     }
@@ -543,7 +549,7 @@ static void *jcl_strs_of(const char *text) {
 static void *jcl_classes_of(const char *text) {
     void *names = (text == NULL || text[0] == 0) ? jcl_arr_ref(0) : jcl_strs(text, 1);
     int32_t n = jcl_arr_len(names);
-    void *arr = jcl_arr_ref(n);
+    void *arr = jcl_arr_typed(n, "[Ljava/lang/Class;");
     void **src = (void **)((char *)names + 8);
     void **dst = (void **)((char *)arr + 8);
     for (int32_t i = 0; i < n; i++) dst[i] = jcl_class(nabu_cstr(src[i]));
@@ -1732,13 +1738,13 @@ BIND(void *, jcl_java_lang_Class_getConstructor, "java.lang.Class_getConstructor
 BIND(void *, jcl_java_lang_Class_getDeclaredConstructor, "java.lang.Class_getDeclaredConstructor", (void *self, void *pts)) { return jcl_no_arg_ctor(self, pts); }
 BIND(void *, jcl_java_lang_Class_getDeclaredFields, "java.lang.Class_getDeclaredFields", (void *self)) {
     const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(self));
-    if (ri == NULL || ri->field_count <= 0) return jcl_arr_ref(0);
-    void *arr = jcl_arr_ref(ri->field_count);
+    if (ri == NULL || ri->field_count <= 0) return jcl_arr_typed(0, "[Ljava/lang/reflect/Field;");
+    void *arr = jcl_arr_typed(ri->field_count, "[Ljava/lang/reflect/Field;");
     for (int i = 0; i < ri->field_count; i++) jcl_arr_set(arr, i, jcl_field_obj(ri->type_name, &ri->fields[i]));
     return arr;
 }
 BIND(void *, jcl_java_lang_Class_getDeclaredMethod, "java.lang.Class_getDeclaredMethod", (void *self, void *nm, void *pts)) { (void)self; (void)nm; (void)pts; return NULL; }
-BIND(void *, jcl_java_lang_Class_getDeclaredMethods, "java.lang.Class_getDeclaredMethods", (void *self)) { (void)self; return jcl_arr_ref(0); }
+BIND(void *, jcl_java_lang_Class_getDeclaredMethods, "java.lang.Class_getDeclaredMethods", (void *self)) { (void)self; return jcl_arr_typed(0, "[Ljava/lang/reflect/Method;"); }
 /* Enum-reflectie via de door de backend geëmitteerde tabel (zie
  * LLVMModuleEmitter.emitEnumTable): per enum-klasse haar gecompileerde
  * static values(). Enum.valueOf(Class, String) loopt via
@@ -1802,7 +1808,7 @@ BIND(void *, jcl_java_lang_Class_getFields, "java.lang.Class_getFields", (void *
     return arr;
 }
 BIND(void *, jcl_java_lang_Class_getMethod, "java.lang.Class_getMethod", (void *self, void *nm, void *pts)) { (void)self; (void)nm; (void)pts; return NULL; }
-BIND(void *, jcl_java_lang_Class_getMethods, "java.lang.Class_getMethods", (void *self)) { (void)self; return jcl_arr_ref(0); }
+BIND(void *, jcl_java_lang_Class_getMethods, "java.lang.Class_getMethods", (void *self)) { (void)self; return jcl_arr_typed(0, "[Ljava/lang/reflect/Method;"); }
 /* De super van de klasse die `self` NOEMT — niet die van het Class-object zelf
  * (dat is altijd java/lang/Class, met Object als super: getSuperclass gaf dan
  * Object.class terug, ook voor Object.class zelf, en picocli's
@@ -2496,7 +2502,7 @@ static void *jcl_type_array(void **types, int32_t n) {
 
 BIND(void *, jcl_java_lang_reflect_ParameterizedType_getActualTypeArguments, "java.lang.reflect.ParameterizedType_getActualTypeArguments", (void *self)) {
     s_gtype *g = jcl_gtype_of(self, G_PARAM);
-    return g != NULL ? jcl_type_array(g->args, g->argc) : jcl_arr_ref(0);
+    return g != NULL ? jcl_type_array(g->args, g->argc) : jcl_arr_typed(0, "[Ljava/lang/reflect/Type;");
 }
 BIND(void *, jcl_java_lang_reflect_ParameterizedType_getRawType, "java.lang.reflect.ParameterizedType_getRawType", (void *self)) {
     s_gtype *g = jcl_gtype_of(self, G_PARAM);
@@ -2505,7 +2511,7 @@ BIND(void *, jcl_java_lang_reflect_ParameterizedType_getRawType, "java.lang.refl
 BIND(void *, jcl_java_lang_reflect_ParameterizedType_getOwnerType, "java.lang.reflect.ParameterizedType_getOwnerType", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_java_lang_reflect_WildcardType_getUpperBounds, "java.lang.reflect.WildcardType_getUpperBounds", (void *self)) {
     s_gtype *g = jcl_gtype_of(self, G_WILDCARD);
-    return g != NULL ? jcl_type_array(&g->bound, 1) : jcl_arr_ref(0);
+    return g != NULL ? jcl_type_array(&g->bound, 1) : jcl_arr_typed(0, "[Ljava/lang/reflect/Type;");
 }
 BIND(void *, jcl_java_lang_reflect_WildcardType_getLowerBounds, "java.lang.reflect.WildcardType_getLowerBounds", (void *self)) {
     s_gtype *g = jcl_gtype_of(self, G_WILDCARD);
@@ -2521,7 +2527,7 @@ BIND(void *, jcl_java_lang_reflect_TypeVariable_getName, "java.lang.reflect.Type
 }
 BIND(void *, jcl_java_lang_reflect_TypeVariable_getBounds, "java.lang.reflect.TypeVariable_getBounds", (void *self)) {
     s_gtype *g = jcl_gtype_of(self, G_VAR);
-    return g != NULL ? jcl_type_array(&g->bound, 1) : jcl_arr_ref(0);
+    return g != NULL ? jcl_type_array(&g->bound, 1) : jcl_arr_typed(0, "[Ljava/lang/reflect/Type;");
 }
 BIND(void *, jcl_java_lang_reflect_TypeVariable_getGenericDeclaration, "java.lang.reflect.TypeVariable_getGenericDeclaration", (void *self)) { (void)self; return NULL; }
 /* Type.getTypeName is the interface's default (toString), which reaches
@@ -2677,14 +2683,14 @@ BIND(int, jcl_java_lang_reflect_Method_isAnnotationPresent, "java.lang.reflect.M
 }
 BIND(void *, jcl_java_lang_reflect_Method_getDeclaredAnnotations, "java.lang.reflect.Method_getDeclaredAnnotations", (void *self)) {
     s_method *m = jcl_method_of(self);
-    return m != NULL ? jcl_annotations_for(m->cls, jcl_exec_annotation_owner(m)) : jcl_arr_ref(0);
+    return m != NULL ? jcl_annotations_for(m->cls, jcl_exec_annotation_owner(m)) : jcl_arr_typed(0, "[Ljava/lang/annotation/Annotation;");
 }
 BIND(void *, jcl_java_lang_reflect_Method_getAnnotations, "java.lang.reflect.Method_getAnnotations", (void *self)) {
     return jcl_java_lang_reflect_Method_getDeclaredAnnotations(self);
 }
 BIND(void *, jcl_java_lang_reflect_Method_getAnnotationsByType, "java.lang.reflect.Method_getAnnotationsByType", (void *self, void *ann)) {
     void *found = jcl_executable_annotation(self, ann);
-    void *arr = jcl_arr_ref(found != NULL ? 1 : 0);
+    void *arr = jcl_arr_typed(found != NULL ? 1 : 0, "[Ljava/lang/annotation/Annotation;");
     if (found != NULL) jcl_arr_set(arr, 0, found);
     return arr;
 }
@@ -2838,14 +2844,14 @@ BIND(void *, jcl_java_lang_reflect_AccessibleObject_getDeclaredAnnotation, "java
 }
 BIND(void *, jcl_java_lang_reflect_AccessibleObject_getAnnotationsByType, "java.lang.reflect.AccessibleObject_getAnnotationsByType", (void *self, void *ann)) {
     void *found = jcl_java_lang_reflect_AccessibleObject_getAnnotation(self, ann);
-    void *arr = jcl_arr_ref(found != NULL ? 1 : 0);
+    void *arr = jcl_arr_typed(found != NULL ? 1 : 0, "[Ljava/lang/annotation/Annotation;");
     if (found != NULL) jcl_arr_set(arr, 0, found);
     return arr;
 }
 /* All annotations of a field (its owner in the metadata is its name). */
 BIND(void *, jcl_java_lang_reflect_Field_getDeclaredAnnotations, "java.lang.reflect.Field_getDeclaredAnnotations", (void *self)) {
     s_field *f = jcl_field_of(self);
-    return f != NULL ? jcl_annotations_for(f->cls, f->f->name) : jcl_arr_ref(0);
+    return f != NULL ? jcl_annotations_for(f->cls, f->f->name) : jcl_arr_typed(0, "[Ljava/lang/annotation/Annotation;");
 }
 BIND(void *, jcl_java_lang_reflect_Field_getAnnotations, "java.lang.reflect.Field_getAnnotations", (void *self)) {
     return jcl_java_lang_reflect_Field_getDeclaredAnnotations(self);

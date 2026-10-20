@@ -499,6 +499,18 @@ const char *nabu_cstr(const void *p);
  *  meegecompileerd, anders een kopie van de C-string. */
 void *nabu_jstring_new(const char *utf8);
 
+/** Sets the class of an array the runtime allocated (JVM name, e.g. "[Ljava/lang/String;"). */
+void nabu_array_tag(void *arr, const char *name);
+
+/** Return addresses of the calling frames, innermost first; returns how many (at most max, 256). */
+int nabu_capture_frames(uintptr_t *out, int max);
+
+/** The symbol of the function that contains the address, or NULL (no line numbers). */
+const char *nabu_frame_name(uintptr_t addr);
+
+/** The source line of the address (0 if unknown); scope is the symbol of the function the line belongs to. */
+int nabu_frame_line(uintptr_t addr, const char **scope, const char **file);
+
 /** A real compiled exception of a class in nabu_exception_table, made with
  *  its (String) constructor, or NULL if the class is not in the table. */
 void *nabu_new_exception(const char *internal_name, const char *message);

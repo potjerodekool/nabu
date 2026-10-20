@@ -1829,6 +1829,49 @@ void *jcl_java_lang_Class_getSuperclass(void *self) __asm__("java.lang.Class_get
  * the class first). With reflection metadata generated for allPublicFields,
  * the superclasses have theirs too. Fields of a superclass without
  * metadata are not found. */
+/* Class.getDeclaredField: a field of the reflection registry, else an instance field of a
+ * compiled class (the JDK uses it with Unsafe.objectFieldOffset, for example in Random). */
+BIND(void *, jcl_java_lang_Class_getDeclaredField, "java.lang.Class_getDeclaredField", (void *self, void *nm)) {
+    const char *name = jcl_str(nm);
+    const char *cls = jcl_str(self);
+    const nabu_reflection_info *ri = nabu_lookup_reflection(cls);
+    for (int i = 0; ri != NULL && i < ri->field_count; i++) {
+        if (strcmp(ri->fields[i].name, name) == 0) return jcl_field_obj(ri->type_name, &ri->fields[i]);
+    }
+    char internal[512];
+    size_t n = strlen(cls);
+    if (n < sizeof internal) {
+        for (size_t i = 0; i <= n; i++) internal[i] = cls[i] == '.' ? '/' : cls[i];
+        const nabu_type_info *ti = nabu_compiled_type_for(internal);
+        for (int i = 0; ti != NULL && i < ti->instance_field_count; i++) {
+            if (strcmp(ti->instance_fields[i].name, name) == 0) {
+                nabu_field_info *info = (nabu_field_info *)jcl_alloc(sizeof(nabu_field_info));
+                info->name = jcl_dup(name);
+                info->type_desc = "";
+                info->offset = ti->instance_fields[i].offset;
+                info->modifiers = 0x0002;
+                return jcl_field_obj(cls, info);
+            }
+        }
+    }
+    /* A static field of a compiled class: its global is named "<class>_<field>" in the executable. */
+    if (n < sizeof internal) {
+        char symbol[640];
+        snprintf(symbol, sizeof symbol, "%s_%s", cls, name);
+        for (char *q = symbol; *q; q++) if (*q == '/') *q = '.';
+        void *address = nabu_data_symbol(symbol);
+        if (address != NULL) {
+            nabu_field_info *info = (nabu_field_info *)jcl_alloc(sizeof(nabu_field_info));
+            info->name = jcl_dup(name);
+            info->type_desc = "";
+            info->modifiers = 0x000A;
+            info->static_address = address;
+            return jcl_field_obj(cls, info);
+        }
+    }
+    nabu_throw(jcl_throw("java/lang/NoSuchFieldException", "java/lang/ReflectiveOperationException", name));
+    return NULL;
+}
 BIND(void *, jcl_java_lang_Class_getField, "java.lang.Class_getField", (void *self, void *nm)) {
     const char *name = jcl_str(nm);
     for (void *c = self; c != NULL; c = jcl_java_lang_Class_getSuperclass(c)) {
@@ -3092,6 +3135,22 @@ BIND(int64_t, jcl_Unsafe_objectFieldOffset1, "jdk.internal.misc.Unsafe_objectFie
         }
     }
     return (int64_t)nabu_reflect_field_offset(cls_name, field);
+}
+/* Unsafe.objectFieldOffset(Field) after its checks: the offset the Field object carries. */
+BIND(int64_t, jcl_Unsafe_objectFieldOffset0, "jdk.internal.misc.Unsafe_objectFieldOffset0", (void *self, void *field)) {
+    (void)self;
+    s_field *f = jcl_field_of(field);
+    return f != NULL && f->f->static_address == NULL ? (int64_t)f->f->offset : -1;
+}
+/* A static field has no base object: its offset is its address (Unsafe adds the two). */
+BIND(int64_t, jcl_Unsafe_staticFieldOffset0, "jdk.internal.misc.Unsafe_staticFieldOffset0", (void *self, void *field)) {
+    (void)self;
+    s_field *f = jcl_field_of(field);
+    return f != NULL && f->f->static_address != NULL ? (int64_t)(intptr_t)f->f->static_address : -1;
+}
+BIND(void *, jcl_Unsafe_staticFieldBase0, "jdk.internal.misc.Unsafe_staticFieldBase0", (void *self, void *field)) {
+    (void)self; (void)field;
+    return NULL;
 }
 BIND(void, jcl_Unsafe_fullFence, "jdk.internal.misc.Unsafe_fullFence", (void *self)) { (void)self; }
 BIND(void, jcl_Unsafe_ensureClassInitialized0, "jdk.internal.misc.Unsafe_ensureClassInitialized0", (void *self, void *cls)) { (void)self; (void)cls; }

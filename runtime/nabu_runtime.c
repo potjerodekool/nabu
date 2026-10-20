@@ -530,6 +530,14 @@ static size_t nabu_sym_count = 0;
 static int nabu_syms_loaded = 0;
 static uintptr_t nabu_image_end = 0;
 
+/* The data symbols (globals, such as the static fields of compiled classes), by name. */
+static nabu_sym *nabu_dsyms = NULL;
+static size_t nabu_dsym_count = 0;
+
+static int nabu_dsym_cmp(const void *a, const void *b) {
+    return strcmp(((const nabu_sym *) a)->name, ((const nabu_sym *) b)->name);
+}
+
 static int nabu_sym_cmp(const void *a, const void *b) {
     uintptr_t x = ((const nabu_sym *) a)->addr, y = ((const nabu_sym *) b)->addr;
     return x < y ? -1 : x > y ? 1 : 0;
@@ -730,13 +738,15 @@ static void nabu_load_symbols(void) {
         uintptr_t base = (uintptr_t) GetModuleHandleA(NULL);
         nabu_image_end = base + nt.OptionalHeader.SizeOfImage;
         nabu_syms = malloc((size_t) nsyms * sizeof *nabu_syms);
-        if (nabu_syms == NULL) break;
+        nabu_dsyms = malloc((size_t) nsyms * sizeof *nabu_dsyms);
+        if (nabu_syms == NULL || nabu_dsyms == NULL) break;
         for (DWORD i = 0; i < nsyms; ) {
             unsigned char *e = table + (size_t) i * 18;
             uint32_t value; int16_t secnum; unsigned char aux = e[17];
             memcpy(&value, e + 8, 4);
             memcpy(&secnum, e + 12, 2);
-            if (secnum > 0 && secnum <= nsec && (sections[secnum - 1].Characteristics & IMAGE_SCN_CNT_CODE)) {
+            if (secnum > 0 && secnum <= nsec) {
+                int is_code = (sections[secnum - 1].Characteristics & IMAGE_SCN_CNT_CODE) != 0;
                 const char *name = NULL;
                 char shortname[9];
                 uint32_t zero, off;
@@ -750,14 +760,15 @@ static void nabu_load_symbols(void) {
                     name = shortname;
                 }
                 if (name != NULL && name[0] != 0 && name[0] != '.') {
-                    nabu_syms[nabu_sym_count].addr = base + sections[secnum - 1].VirtualAddress + value;
-                    nabu_syms[nabu_sym_count].name = strdup(name);
-                    nabu_sym_count++;
+                    nabu_sym *slot = is_code ? &nabu_syms[nabu_sym_count++] : &nabu_dsyms[nabu_dsym_count++];
+                    slot->addr = base + sections[secnum - 1].VirtualAddress + value;
+                    slot->name = strdup(name);
                 }
             }
             i += 1 + aux;
         }
         qsort(nabu_syms, nabu_sym_count, sizeof *nabu_syms, nabu_sym_cmp);
+        qsort(nabu_dsyms, nabu_dsym_count, sizeof *nabu_dsyms, nabu_dsym_cmp);
         for (WORD si = 0; si < nsec; si++) {
             char secname[9];
             memcpy(secname, sections[si].Name, 8);
@@ -783,6 +794,19 @@ static void nabu_load_symbols(void) {
     free(table);
     free(strings);
     fclose(f);
+}
+
+/* The address of a global by its symbol name (for example "java.util.concurrent.ForkJoinPool_poolIds"), or NULL. */
+void *nabu_data_symbol(const char *name) {
+    if (!nabu_syms_loaded) nabu_load_symbols();
+    size_t lo = 0, hi = nabu_dsym_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        int c = strcmp(nabu_dsyms[mid].name, name);
+        if (c == 0) return (void *) nabu_dsyms[mid].addr;
+        if (c < 0) lo = mid + 1; else hi = mid;
+    }
+    return NULL;
 }
 
 /* The symbol of the function that contains the address, or NULL. */
@@ -818,7 +842,11 @@ const char *nabu_frame_name(uintptr_t addr) {
     Dl_info info;
     return dladdr((void *) addr, &info) != 0 ? info.dli_sname : NULL;
 }
-/* Line tables are only read on Windows. */
+/* Line tables and data symbols are only read on Windows. */
+void *nabu_data_symbol(const char *name) {
+    (void) name;
+    return NULL;
+}
 int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
     (void) addr; (void) scope; (void) file;
     return 0;

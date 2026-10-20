@@ -523,6 +523,9 @@ int nabu_capture_frames(uintptr_t *out, int max);
 /** The symbol of the function that contains the address, or NULL (no line numbers). */
 const char *nabu_frame_name(uintptr_t addr);
 
+/** The address of a global by its symbol name (a static field of a compiled class), or NULL. Windows only. */
+void *nabu_data_symbol(const char *name);
+
 /** The source line of the address (0 if unknown); scope is the symbol of the function the line belongs to. */
 int nabu_frame_line(uintptr_t addr, const char **scope, const char **file);
 

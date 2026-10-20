@@ -2344,7 +2344,9 @@ public class InstructionEmitter {
         // de java-descriptor ("Ljava/lang/Exception;") en al zeker niet
         // type.toString() (dat is "ptr"). Een Ptr met jvmDescriptor zetten we
         // daarom om; alleen typen zonder descriptor vallen terug op de naam.
-        String className = instanceOf.type() instanceof IRType.Ptr p && p.jvmDescriptor() != null
+        String className = arrayType
+                ? ((IRType.Ptr) instanceOf.type()).jvmDescriptor()
+                : instanceOf.type() instanceof IRType.Ptr p && p.jvmDescriptor() != null
                 ? ClassLayouts.fromDescriptor(p.jvmDescriptor())
                 : instanceOf.type().toString();
         LLVMValueRef classStr = constants.resolveString(className, IRGlobal.Linkage.PRIVATE);

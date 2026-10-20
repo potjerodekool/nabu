@@ -1864,7 +1864,55 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         // zelf gebruiken (default-method met body, of abstracte stub) — en alleen
         // als de klasse de interface daadwerkelijk implementeert.
         if (implementsInterface(classInternalName, ownerOf(slotFunction(interfaceMethod)))) {
-            return functionValue(interfaceFn);
+            // A default method of a more specific interface wins over the method the slot names
+            // (Spliterator.OfInt.tryAdvance(Consumer) over the abstract Spliterator.tryAdvance).
+            final LLVMValueRef specific = findMoreSpecificDefault(classInternalName, interfaceFn, sig);
+            return specific != null ? specific : functionValue(interfaceFn);
+        }
+        return null;
+    }
+
+    /**
+     * The default method (with a body) that overrides the slot's method in the most specific
+     * interface the class implements, or null when there is none.
+     */
+    private LLVMValueRef findMoreSpecificDefault(final String classInternalName, final IRFunction interfaceFn,
+                                                 final InterfaceSlotSig sig) {
+        final String slotOwner = normalizeInternalName(ownerOf(interfaceFn.name));
+        final String wanted = sig != null ? FnKeys.fnKey("", sig.paramTypes()) : null;
+        final String tail = methodTail(interfaceFn.name);
+        final List<String> owners = new ArrayList<>();
+        final Map<String, IRFunction> candidates = new LinkedHashMap<>();
+        for (final String itf : implementedInterfacesWithSupers(classInternalName)) {
+            if (itf.equals(slotOwner)) continue;
+            final IRModule module = modulesByInternalName.get(itf);
+            if (module == null) continue;
+            for (final IRFunction fn : module.functions()) {
+                if (fn.isConstructor() || Flags.hasFlag(fn.getFlags(), Flags.STATIC)) continue;
+                if (fn.blocks().isEmpty() || fn.name.endsWith("_super")) continue;
+                if (!methodTail(fn.name).equals(tail)) continue;
+                final boolean sameParams = wanted != null
+                        ? FnKeys.fnKey("", explicitParams(fn)).equals(wanted)
+                        : sameParameters(fn, interfaceFn);
+                if (!sameParams) continue;
+                // Only an interface below the slot's interface overrides it.
+                if (!implementsInterface(itf, slotOwner)) continue;
+                owners.add(itf);
+                candidates.put(itf, fn);
+            }
+        }
+        // The most specific one: no other candidate interface extends it.
+        for (final String owner : owners) {
+            boolean overridden = false;
+            for (final String other : owners) {
+                if (!other.equals(owner) && implementsInterface(other, owner)) {
+                    overridden = true;
+                    break;
+                }
+            }
+            if (!overridden) {
+                return functionValue(candidates.get(owner));
+            }
         }
         return null;
     }

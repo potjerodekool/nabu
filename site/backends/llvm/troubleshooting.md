@@ -41,19 +41,21 @@ The program reached a function that the backend could not compile. All such func
 
 ### "unhandled exception"
 
-An exception reached the top of the program. The runtime prints the exception class and, for exceptions compiled from Java, the message:
+An exception reached the top of the program. As on the JVM, the program prints the exception and its stack trace to standard error and exits with code 1:
 
 ```
-nabu: unhandled exception
-nabu: exception class: java/lang/IllegalStateException
-nabu: message: …
+Exception in thread "main" java.lang.IllegalStateException: …
+	at greet.GreetCommand.run(GreetCommand.java:41)
+	at greet.Main.main(Main.java:9)
 ```
 
-then calls `abort()`.
+The trace has the method names, and the file and line for code compiled from your sources (`Main.java:12`); JDK and library methods show `Unknown Source`. A method that LLVM inlined into its caller does not appear unless it is the innermost one and compiled from your sources. The names come from the symbol table of the executable, so do not strip it. Set `NABU_TRACE_FRAMES=1` to see the raw frames while the trace is built.
+
+An exception that is not a compiled `Throwable` (an object made by the C runtime) still prints only `nabu: unhandled exception` and its class, and then calls `abort()`.
 
 ### A `NullPointerException` you cannot place
 
-Native code has no stack traces. Set `NABU_TRACE_NPE` to make the runtime print where each null check failed:
+The stack trace of a `NullPointerException` points at the method with the null check, which is not always the call that failed. Set `NABU_TRACE_NPE` to make the runtime print where each null check failed:
 
 ```powershell
 $env:NABU_TRACE_NPE = "1"

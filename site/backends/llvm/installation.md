@@ -200,7 +200,7 @@ Some things to expect:
 
 - **The JDK is compiled from bytecode.** The backend follows every call from your code and compiles the JDK methods it reaches, and the same goes for libraries on the classpath. You do not configure anything for this.
 - **The build takes a while.** Even for a small program the backend compiles about 2,300 JDK classes (15,700 methods), and LLVM then optimizes all of it, in parallel parts. On the verification machine (8 cores) a small program (the integration-test programs) takes about 30 seconds and produces a 13 MB executable.
-- **The build prints many warnings**, for example about static fields of classes outside the compiled closure. They are informational. Functions that could not be compiled at all are listed in `<name>.unresolved.txt` next to the executable; the program only fails if it actually calls one of them.
+- **The build prints a summary line per kind of warning**, for example about static fields of classes outside the compiled closure; the details are in `<name>.warnings.txt` next to the executable. They are informational. Functions that could not be compiled at all are listed in `<name>.unresolved.txt` next to the executable; the program only fails if it actually calls one of them.
 
 ## Next steps
 

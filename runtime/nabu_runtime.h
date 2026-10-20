@@ -151,6 +151,12 @@ void nabu_throw(void *exception);
 /** Gooit java.lang.NullPointerException (aanroep op een null-ontvanger). */
 void nabu_throw_npe(const char *site);
 
+/** Throws ArithmeticException("/ by zero"). */
+void nabu_throw_arith(void);
+
+/** Throws ArrayIndexOutOfBoundsException for an index outside the array. */
+void nabu_throw_aioobe(int32_t index, int32_t length);
+
 /**
  * Bepaalt of een gevangen exception-object van het gegeven type is (of een
  * subtype). Wordt in een landing pad gebruikt om een catch-handler al dan

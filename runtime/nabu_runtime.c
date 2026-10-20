@@ -1445,6 +1445,32 @@ void nabu_throw_npe(const char *site) {
     abort();
 }
 
+/* An integer division or remainder by zero. */
+void nabu_throw_arith(void) {
+    void *obj = nabu_new_exception("java/lang/ArithmeticException", "/ by zero");
+    if (obj == NULL) {
+        obj = nabu_str_mem(sizeof(nabu_object) + 2 * sizeof(void *));
+        nabu_init_object_ex(obj, "java/lang/ArithmeticException", "java/lang/RuntimeException");
+    }
+    nabu_throw(obj);
+    fprintf(stderr, "nabu: unhandled ArithmeticException\n");
+    abort();
+}
+
+/* An array index outside 0 .. length-1. */
+void nabu_throw_aioobe(int32_t index, int32_t length) {
+    char message[96];
+    snprintf(message, sizeof message, "Index %d out of bounds for length %d", (int) index, (int) length);
+    void *obj = nabu_new_exception("java/lang/ArrayIndexOutOfBoundsException", message);
+    if (obj == NULL) {
+        obj = nabu_str_mem(sizeof(nabu_object) + 2 * sizeof(void *));
+        nabu_init_object_ex(obj, "java/lang/ArrayIndexOutOfBoundsException", "java/lang/RuntimeException");
+    }
+    nabu_throw(obj);
+    fprintf(stderr, "nabu: unhandled ArrayIndexOutOfBoundsException\n");
+    abort();
+}
+
 int nabu_is_jstring(const void *p) {
     return p != NULL && nabu_string_meta.type != NULL
             && ((const void *const *) p)[0] == nabu_string_meta.type;

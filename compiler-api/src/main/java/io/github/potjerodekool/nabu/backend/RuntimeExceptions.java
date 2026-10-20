@@ -16,6 +16,7 @@ public final class RuntimeExceptions {
     public static final List<String> CLASSES = List.of(
             "java/lang/NullPointerException",
             "java/lang/ArrayIndexOutOfBoundsException",
+            "java/lang/ArithmeticException",
             "java/lang/IndexOutOfBoundsException",
             "java/lang/IllegalArgumentException",
             "java/lang/ClassNotFoundException",

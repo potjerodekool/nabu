@@ -226,6 +226,9 @@ public class InstructionEmitter {
             left = intToPointer(left, rightType);
         }
 
+        final boolean integerDivision = (op.op() == IRInstruction.BinaryOp.Op.DIV || op.op() == IRInstruction.BinaryOp.Op.MOD)
+                && !isFloat(op.left()) && isIntegerType(LLVMTypeOf(left)) && isIntegerType(LLVMTypeOf(right));
+        LLVMValueRef divided = integerDivision ? emitIntegerDivision(op.op(), left, right, name) : null;
         LLVMValueRef result = switch (op.op()) {
             case ADD     -> isFloat(op.left()) ? LLVMBuildFAdd(builder, left, right, name)
                                                : LLVMBuildAdd (builder, left, right, name);
@@ -233,9 +236,11 @@ public class InstructionEmitter {
                                                : LLVMBuildSub (builder, left, right, name);
             case MUL     -> isFloat(op.left()) ? LLVMBuildFMul(builder, left, right, name)
                                                : LLVMBuildMul (builder, left, right, name);
-            case DIV     -> isFloat(op.left()) ? LLVMBuildFDiv(builder, left, right, name)
+            case DIV     -> divided != null ? divided
+                          : isFloat(op.left()) ? LLVMBuildFDiv(builder, left, right, name)
                                                : LLVMBuildSDiv(builder, left, right, name);
-            case MOD     -> isFloat(op.left()) ? LLVMBuildFRem(builder, left, right, name)
+            case MOD     -> divided != null ? divided
+                          : isFloat(op.left()) ? LLVMBuildFRem(builder, left, right, name)
                                                : LLVMBuildSRem(builder, left, right, name);
             case AND, BITAND -> LLVMBuildAnd (builder, left, right, name);
             case OR,  BITOR  -> LLVMBuildOr  (builder, left, right, name);
@@ -785,7 +790,9 @@ public class InstructionEmitter {
     private void emitArrayLoad(IRInstruction.ArrayLoad al) {
         LLVMValueRef array = resolveValue(al.array());
         LLVMTypeRef elemType = types.map(al.elemType());
-        LLVMValueRef elemPtr = arrayElementPtr(array, resolveValue(al.index()), elemType);
+        final LLVMValueRef index = resolveValue(al.index());
+        emitBoundsCheck(array, index);
+        LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
         LLVMValueRef val = LLVMBuildLoad2(builder, elemType, elemPtr,
                 new BytePointer(nameOf(al.result())));
         storeLocal(al.result(), val);
@@ -794,8 +801,90 @@ public class InstructionEmitter {
     private void emitArrayStore(IRInstruction.ArrayStore as) {
         LLVMValueRef array = resolveValue(as.array());
         LLVMTypeRef elemType = types.map(as.elemType());
-        LLVMValueRef elemPtr = arrayElementPtr(array, resolveValue(as.index()), elemType);
+        final LLVMValueRef index = resolveValue(as.index());
+        emitBoundsCheck(array, index);
+        LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
         LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
+    }
+
+    /**
+     * Integer division and remainder with the JVM's rules: a zero divisor throws ArithmeticException,
+     * and Integer.MIN_VALUE / -1 wraps around (LLVM's sdiv would trap).
+     */
+    private LLVMValueRef emitIntegerDivision(final IRInstruction.BinaryOp.Op op, final LLVMValueRef left,
+                                             final LLVMValueRef right, final BytePointer name) {
+        final LLVMTypeRef type = LLVMTypeOf(right);
+        final LLVMValueRef zero = LLVMConstInt(type, 0, 0);
+        final LLVMValueRef minusOne = LLVMConstInt(type, -1L, 1);
+        final LLVMValueRef one = LLVMConstInt(type, 1, 0);
+        emitGuard(LLVMBuildICmp(builder, LLVMIntEQ, right, zero, ".div.zero"), "nabu_throw_arith");
+        final LLVMValueRef isMinusOne = LLVMBuildICmp(builder, LLVMIntEQ, right, minusOne, ".div.m1");
+        final LLVMValueRef safe = LLVMBuildSelect(builder, isMinusOne, one, right, ".div.safe");
+        if (op == IRInstruction.BinaryOp.Op.DIV) {
+            final LLVMValueRef quotient = LLVMBuildSDiv(builder, left, safe, ".div.q");
+            final LLVMValueRef negated = LLVMBuildSub(builder, zero, left, ".div.neg");
+            return LLVMBuildSelect(builder, isMinusOne, negated, quotient, name);
+        }
+        final LLVMValueRef remainder = LLVMBuildSRem(builder, left, safe, ".rem.r");
+        return LLVMBuildSelect(builder, isMinusOne, zero, remainder, name);
+    }
+
+    /** Throws ArrayIndexOutOfBoundsException (or NullPointerException for a null array) for a bad index. */
+    private void emitBoundsCheck(final LLVMValueRef array, final LLVMValueRef index) {
+        if (LLVMGetTypeKind(LLVMTypeOf(index)) != LLVMIntegerTypeKind) {
+            return;
+        }
+        emitReceiverNullCheck(array, "array access");
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final PointerPointer<Pointer> zeroIdx = new PointerPointer<>(1);
+        zeroIdx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), 0, 0));
+        final LLVMValueRef lenPtr = LLVMBuildGEP2(builder, i32, array, zeroIdx, 1, ".arr.len.ptr");
+        final LLVMValueRef length = LLVMBuildLoad2(builder, i32, lenPtr, ".arr.len");
+        Reference.reachabilityFence(zeroIdx);
+        final LLVMValueRef index32 = coerceInt(index, i32, false);
+        // Unsigned: a negative index is a huge one.
+        emitGuard(LLVMBuildICmp(builder, LLVMIntUGE, index32, length, ".arr.oob"), "nabu_throw_aioobe",
+                index32, length);
+    }
+
+    /**
+     * Continues in a block where {@code failure} is false; when it is true, calls the runtime
+     * function {@code thrower} (which does not return) with the given integer arguments.
+     */
+    private void emitGuard(final LLVMValueRef failure, final String thrower, final LLVMValueRef... args) {
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        final LLVMValueRef function = LLVMGetBasicBlockParent(current);
+        final LLVMModuleRef mod = LLVMGetGlobalParent(function);
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final PointerPointer<Pointer> params = new PointerPointer<>(Math.max(args.length, 1));
+        for (int i = 0; i < args.length; i++) {
+            params.put(i, i32);
+        }
+        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), params, args.length, 0);
+        LLVMValueRef fn = LLVMGetNamedFunction(mod, thrower);
+        if (fn == null || fn.isNull()) {
+            fn = LLVMAddFunction(mod, thrower, fnType);
+            LLVMSetLinkage(fn, LLVMExternalLinkage);
+        }
+        // The new blocks belong to the same try region as the current one.
+        final String handler = getHandlerLabel();
+        final LLVMBasicBlockRef failBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("guard.fail"));
+        final LLVMBasicBlockRef okBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("guard.ok"));
+        if (handler != null) {
+            continuationHandlers.put(failBB, handler);
+            continuationHandlers.put(okBB, handler);
+        }
+        LLVMBuildCondBr(builder, failure, failBB, okBB);
+        LLVMPositionBuilderAtEnd(builder, failBB);
+        final PointerPointer<Pointer> callArgs = new PointerPointer<>(Math.max(args.length, 1));
+        for (int i = 0; i < args.length; i++) {
+            callArgs.put(i, args[i]);
+        }
+        emitCallOrInvoke(thrower, fnType, fn, callArgs, args.length, null);
+        LLVMBuildUnreachable(builder);
+        LLVMPositionBuilderAtEnd(builder, okBB);
+        Reference.reachabilityFence(params);
+        Reference.reachabilityFence(callArgs);
     }
 
     /**

@@ -625,10 +625,24 @@ for (IRModule m : modules) {
                 if (fn.isExternal()) continue;
                 for (var block : fn.blocks()) {
                     for (IRInstruction instr : block.instructions()) {
-                        if (instr instanceof IRInstruction.Call call
-                                && call.callKind() == CallKind.INTERFACE
-                                && call.function() != null
-                                && resolveFunction(call.function()) != null) {
+                        // The call as the emitter sees it: a method the interface only inherits
+                        // (Stream.onClose, declared by BaseStream) is named after its declaring interface.
+                        if (instr instanceof IRInstruction.Call raw
+                                && raw.callKind() == CallKind.INTERFACE
+                                && raw.function() != null) {
+                            // Only a call that does not name a declared function is rewritten: the others keep their slot.
+                            final IRInstruction.Call call = resolveFunction(raw.function()) != null
+                                    ? raw : canonicalize(CallTargets.normalize(raw));
+                            if (call.function() == null || resolveFunction(call.function()) == null) {
+                                continue;
+                            }
+                            // A method the interface inherits from Object has a vtable slot, not an itable slot.
+                            if (!call.function().equals(raw.function())) {
+                                final IRModule declaring = modulesByInternalName.get(ownerInternalName(call.function()));
+                                if (declaring == null || !Flags.hasFlag(declaring.flags, Flags.INTERFACE)) {
+                                    continue;
+                                }
+                            }
                             final String key = interfaceSlotKey(call.function(), call.paramTypes());
                             callTargets.add(key);
                             interfaceSlotSigs.putIfAbsent(key,

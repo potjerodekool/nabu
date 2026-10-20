@@ -226,6 +226,18 @@ public class InstructionEmitter {
             left = intToPointer(left, rightType);
         }
 
+        // The JVM uses only the low 5 (int) or 6 (long) bits of a shift distance; LLVM's shift by the width or
+        // more is poison. Integer.rotateRight(x, n) shifts by -n, so the JDK relies on the mask.
+        if ((op.op() == IRInstruction.BinaryOp.Op.SHL || op.op() == IRInstruction.BinaryOp.Op.SHR
+                || op.op() == IRInstruction.BinaryOp.Op.USHR)
+                && isIntegerType(LLVMTypeOf(left)) && isIntegerType(LLVMTypeOf(right))) {
+            final LLVMTypeRef valueType = LLVMTypeOf(left);
+            final int bits = LLVMGetIntTypeWidth(valueType);
+            if (LLVMGetIntTypeWidth(LLVMTypeOf(right)) != bits) {
+                right = coerceInt(right, valueType, false);
+            }
+            right = LLVMBuildAnd(builder, right, LLVMConstInt(valueType, bits - 1, 0), ".shift.mask");
+        }
         final boolean integerDivision = (op.op() == IRInstruction.BinaryOp.Op.DIV || op.op() == IRInstruction.BinaryOp.Op.MOD)
                 && !isFloat(op.left()) && isIntegerType(LLVMTypeOf(left)) && isIntegerType(LLVMTypeOf(right));
         LLVMValueRef divided = integerDivision ? emitIntegerDivision(op.op(), left, right, name) : null;

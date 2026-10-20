@@ -32,7 +32,7 @@
 #define BIND(ret, cname, sym, params) ret cname params __asm__(sym); ret cname params
 
 enum {
-    K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_CLASSOBJ, K_CTOR, K_METHOD, K_GTYPE
+    K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_CLASSOBJ, K_CTOR, K_METHOD, K_GTYPE, K_THREAD
 };
 
 enum { B_I32, B_I64, B_BOOL, B_F64, B_F32, B_I16, B_I8, B_CHAR };
@@ -41,6 +41,9 @@ typedef struct { int kind; char *v; } s_str;
 typedef struct { int kind; int t; union { int32_t i; int64_t j; double d; float f; int16_t c; } v; } s_box;
 typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
 typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
+/* A java.lang.Thread. There is one thread, "main"; other Thread objects can be made but not started. */
+typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
+                 int daemon; int priority; int64_t id; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -963,7 +966,11 @@ static void jcl_fos_write(void *self, const void *data, size_t len) {
             ssize_t n = write(fd, p, len);
 #endif
             if (n <= 0) {
-                nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Write error"));
+                {
+                    char reason[96];
+                    snprintf(reason, sizeof reason, "Write error (fd %d, %s)", (int)fd, strerror(errno));
+                    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(reason)));
+                }
                 return;
             }
             p += n;
@@ -1523,7 +1530,17 @@ BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
 #endif
     }
 }
-BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) { (void)self; }
+BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
+    (void)self;
+    void *e = nabu_new_exception("java/lang/UnsupportedOperationException",
+            "Thread.start: threads are not supported in a native executable");
+    if (e == NULL) e = jcl_throw("java/lang/UnsupportedOperationException", "java/lang/RuntimeException",
+            "Thread.start: threads are not supported in a native executable");
+    nabu_throw(e);
+}
+/* Shutdown hooks do not run: there is no way to start the hook thread. */
+BIND(void, jcl_Runtime_addShutdownHook, "java.lang.Runtime_addShutdownHook", (void *self, void *hook)) { (void)self; (void)hook; }
+BIND(int, jcl_Runtime_removeShutdownHook, "java.lang.Runtime_removeShutdownHook", (void *self, void *hook)) { (void)self; (void)hook; return 0; }
 
 
 static void *jcl_new_obj(const char *type, void *state) {
@@ -1637,6 +1654,7 @@ BIND(void *, jcl_java_lang_Class_forName, "java.lang.Class_forName", (void *name
     }
     return jcl_class(internal);
 }
+BIND(void *, jcl_java_lang_Class_forName_s, "java.lang.Class_forName$P523beb0a", (void *name)) { return jcl_java_lang_Class_forName(name); }
 /* Class.forName(Module, String): als forName(String), maar null i.p.v.
  * ClassNotFoundException voor een onbekende klasse (JDK-contract). */
 BIND(void *, jcl_java_lang_Class_forName_module, "java.lang.Class_forName$Pb8e700fP523beb0a", (void *module, void *name)) {
@@ -3209,16 +3227,71 @@ BIND(int64_t, jcl_CDS_getRandomSeedForDumping, "jdk.internal.misc.CDS_getRandomS
 BIND(int, jcl_CDS_needsClassInitBarrier0, "jdk.internal.misc.CDS_needsClassInitBarrier0", (void *cls)) { (void)cls; return 0; }
 BIND(void, jcl_CDS_logLambdaFormInvoker, "jdk.internal.misc.CDS_logLambdaFormInvoker", (void *line)) { (void)line; }
 
+static void *jcl_new_thread(const char *name, void *target) {
+    static int64_t next_id = 1;
+    s_thread *st = (s_thread *)jcl_alloc(sizeof(s_thread));
+    st->kind = K_THREAD;
+    st->name = jcl_dup(name);
+    st->target = target;
+    st->priority = 5;
+    st->id = next_id++;
+    return jcl_new_obj("java/lang/Thread", st);
+}
+
 static void *jcl_main_thread(void) {
     static void *thread = NULL;
-    if (thread == NULL) thread = jcl_new_str_obj("main");
+    if (thread == NULL) thread = jcl_new_thread("main", NULL);
     return thread;
 }
+
+static s_thread *jcl_thread_of(void *self) {
+    s_thread *st = (s_thread *)jcl_state_kind(self, K_THREAD);
+    if (st == NULL) st = (s_thread *)jcl_state_kind(jcl_main_thread(), K_THREAD);
+    return st;
+}
+
+/* new Thread(...) from source: the first argument that is not a String is the Runnable, a String is the name. */
+BIND(void, jcl_thread_init_src, "java_lang_Thread_init", (void *self, void *a, void *b)) {
+    s_thread *st = (s_thread *)jcl_alloc(sizeof(s_thread));
+    static int64_t next_id = 2;
+    st->kind = K_THREAD;
+    st->priority = 5;
+    st->id = next_id++;
+    const char *name = NULL;
+    void *args[2] = {a, b};
+    for (int i = 0; i < 2; i++) {
+        if (args[i] == NULL) continue;
+        if (!nabu_jcl_is_object(args[i]) || jcl_state_kind(args[i], K_STR) != NULL) name = nabu_cstr(args[i]);
+        else st->target = args[i];
+    }
+    if (name != NULL) {
+        st->name = jcl_dup(name);
+    } else {
+        char generated[32];
+        snprintf(generated, sizeof generated, "Thread-%d", (int)(st->id - 2));
+        st->name = jcl_dup(generated);
+    }
+    nabu_jcl_set_state(self, st);
+}
+BIND(void *, jcl_Thread_threadLocals, "java.lang.Thread_threadLocals", (void *self)) { return jcl_thread_of(self)->threadLocals; }
+BIND(void, jcl_Thread_setThreadLocals, "java.lang.Thread_setThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->threadLocals = map; }
+BIND(void *, jcl_Thread_inheritableThreadLocals, "java.lang.Thread_inheritableThreadLocals", (void *self)) { return jcl_thread_of(self)->inheritableThreadLocals; }
+BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritableThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->inheritableThreadLocals = map; }
+BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { (void)self; return NULL; }
+BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { (void)self; (void)map; }
+BIND(void *, jcl_Thread_currentCarrierThread, "java.lang.Thread_currentCarrierThread", (void)) { return jcl_main_thread(); }
+BIND(void *, jcl_Thread_getThreadGroup, "java.lang.Thread_getThreadGroup", (void *self)) { (void)self; return NULL; }
+BIND(void, jcl_Thread_blockedOn, "java.lang.Thread_blockedOn", (void *self, void *interruptible)) { (void)self; (void)interruptible; }
+BIND(void, jcl_Thread_setDaemon, "java.lang.Thread_setDaemon", (void *self, int on)) { jcl_thread_of(self)->daemon = on; }
+BIND(void, jcl_Thread_setPriority, "java.lang.Thread_setPriority", (void *self, int p)) { jcl_thread_of(self)->priority = p; }
+BIND(void, jcl_Thread_setName, "java.lang.Thread_setName", (void *self, void *name)) { jcl_thread_of(self)->name = jcl_dup(nabu_cstr(name)); }
+BIND(void, jcl_Thread_setContextClassLoader, "java.lang.Thread_setContextClassLoader", (void *self, void *loader)) { (void)self; (void)loader; }
+BIND(void, jcl_Thread_setUncaughtExceptionHandler, "java.lang.Thread_setUncaughtExceptionHandler", (void *self, void *handler)) { (void)self; (void)handler; }
 BIND(void *, jcl_Thread_currentThread, "java.lang.Thread_currentThread", (void)) { return jcl_main_thread(); }
 BIND(void *, jcl_VirtualThread_currentThread, "java.lang.VirtualThread_currentThread", (void)) { return jcl_main_thread(); }
 BIND(int, jcl_Thread_isVirtual, "java.lang.Thread_isVirtual", (void *self)) { (void)self; return 0; }
-BIND(int64_t, jcl_Thread_threadId, "java.lang.Thread_threadId", (void *self)) { (void)self; return 1; }
-BIND(void *, jcl_Thread_getName, "java.lang.Thread_getName", (void *self)) { (void)self; return nabu_jstring_new("main"); }
+BIND(int64_t, jcl_Thread_threadId, "java.lang.Thread_threadId", (void *self)) { return jcl_thread_of(self)->id; }
+BIND(void *, jcl_Thread_getName, "java.lang.Thread_getName", (void *self)) { return nabu_jstring_new(jcl_thread_of(self)->name); }
 BIND(int, jcl_Thread_interrupted, "java.lang.Thread_interrupted", (void)) { return 0; }
 BIND(int, jcl_Thread_isInterrupted, "java.lang.Thread_isInterrupted", (void *self)) { (void)self; return 0; }
 BIND(void, jcl_Thread_clearInterrupt, "java.lang.Thread_clearInterrupt", (void *self)) { (void)self; }
@@ -3237,6 +3310,7 @@ static void *jcl_the_runtime(void) {
     return runtime;
 }
 BIND(void *, jcl_Runtime_getRuntime, "java.lang.Runtime_getRuntime", (void)) { return jcl_the_runtime(); }
+BIND(int64_t, jcl_Runtime_maxMemory, "java.lang.Runtime_maxMemory", (void *self)) { (void)self; return INT64_MAX; }
 BIND(int64_t, jcl_Runtime_freeMemory, "java.lang.Runtime_freeMemory", (void *self)) { (void)self; return (int64_t)64 * 1024 * 1024; }
 BIND(int64_t, jcl_Runtime_totalMemory, "java.lang.Runtime_totalMemory", (void *self)) { (void)self; return (int64_t)256 * 1024 * 1024; }
 BIND(void, jcl_System_gc, "java.lang.System_gc", (void)) { }
@@ -3279,3 +3353,132 @@ BIND(int, jcl_Class_isLocalClass, "java.lang.Class_isLocalClass", (void *self)) 
 BIND(int, jcl_Class_isRecord, "java.lang.Class_isRecord", (void *self)) { (void)self; return 0; }
 BIND(void *, jcl_Class_getClassLoader0, "java.lang.Class_getClassLoader0", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_Class_getTypeName, "java.lang.Class_getTypeName", (void *self)) { return nabu_jstring_new(jcl_source_name(jcl_str(self), 0)); }
+
+/* VM.getNanoTimeAdjustment(offsetInSeconds): nanoseconds of the current time since that offset, or -1 when
+ * the difference does not fit (more than about 136 years). */
+BIND(int64_t, jcl_VM_getNanoTimeAdjustment, "jdk.internal.misc.VM_getNanoTimeAdjustment", (int64_t offsetSeconds)) {
+    int64_t seconds, nanos;
+#ifdef _WIN32
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    int64_t ticks = (((int64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime) - 116444736000000000LL;
+    seconds = ticks / 10000000LL;
+    nanos = (ticks % 10000000LL) * 100;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    seconds = ts.tv_sec;
+    nanos = ts.tv_nsec;
+#endif
+    int64_t diff = seconds - offsetSeconds;
+    if (diff > 4294967295LL || diff < -4294967295LL) return -1;
+    return diff * 1000000000LL + nanos;
+}
+
+/* TimeZone.getSystemTimeZoneID: the TZ variable, else the Windows zone mapped to its tz database id, else UTC. */
+BIND(void *, jcl_TimeZone_getSystemTimeZoneID, "java.util.TimeZone_getSystemTimeZoneID", (void *javaHome)) {
+    (void)javaHome;
+    const char *tz = getenv("TZ");
+    if (tz != NULL && tz[0] != 0) return nabu_jstring_new(tz);
+#ifdef _WIN32
+    static const struct { const char *windows; const char *id; } zones[] = {
+        {"UTC", "UTC"}, {"GMT Standard Time", "Europe/London"}, {"W. Europe Standard Time", "Europe/Berlin"},
+        {"Central Europe Standard Time", "Europe/Budapest"}, {"Romance Standard Time", "Europe/Paris"},
+        {"Central European Standard Time", "Europe/Warsaw"}, {"E. Europe Standard Time", "Europe/Chisinau"},
+        {"GTB Standard Time", "Europe/Bucharest"}, {"FLE Standard Time", "Europe/Kiev"},
+        {"Russian Standard Time", "Europe/Moscow"}, {"Eastern Standard Time", "America/New_York"},
+        {"Central Standard Time", "America/Chicago"}, {"Mountain Standard Time", "America/Denver"},
+        {"Pacific Standard Time", "America/Los_Angeles"}, {"Alaskan Standard Time", "America/Anchorage"},
+        {"Hawaiian Standard Time", "Pacific/Honolulu"}, {"Canada Central Standard Time", "America/Regina"},
+        {"Atlantic Standard Time", "America/Halifax"}, {"E. South America Standard Time", "America/Sao_Paulo"},
+        {"Argentina Standard Time", "America/Buenos_Aires"}, {"India Standard Time", "Asia/Kolkata"},
+        {"China Standard Time", "Asia/Shanghai"}, {"Tokyo Standard Time", "Asia/Tokyo"},
+        {"Korea Standard Time", "Asia/Seoul"}, {"Singapore Standard Time", "Asia/Singapore"},
+        {"AUS Eastern Standard Time", "Australia/Sydney"}, {"New Zealand Standard Time", "Pacific/Auckland"},
+        {"South Africa Standard Time", "Africa/Johannesburg"}, {"Egypt Standard Time", "Africa/Cairo"},
+        {"Arab Standard Time", "Asia/Riyadh"}, {"Turkey Standard Time", "Europe/Istanbul"},
+    };
+    DYNAMIC_TIME_ZONE_INFORMATION info;
+    memset(&info, 0, sizeof info);
+    if (GetDynamicTimeZoneInformation(&info) != TIME_ZONE_ID_INVALID) {
+        char key[256];
+        WideCharToMultiByte(CP_UTF8, 0, info.TimeZoneKeyName, -1, key, sizeof key, NULL, NULL);
+        for (size_t i = 0; i < sizeof zones / sizeof zones[0]; i++) {
+            if (strcmp(zones[i].windows, key) == 0) return nabu_jstring_new(zones[i].id);
+        }
+    }
+#endif
+    return nabu_jstring_new("UTC");
+}
+
+/* java.lang.ref.Reference: a reference is as strong as any other pointer here (the collector does not
+ * clear weak references), so a referent is only cleared by clear(). */
+static void **jcl_referent_slot(void *ref) {
+    intptr_t off = ref != NULL ? nabu_instance_field_offset(ref, "referent") : -1;
+    return off >= 0 ? (void **)((char *)ref + off) : NULL;
+}
+BIND(int, jcl_Reference_refersTo0, "java.lang.ref.Reference_refersTo0", (void *self, void *obj)) {
+    void **slot = jcl_referent_slot(self);
+    return slot != NULL && *slot == obj;
+}
+BIND(int, jcl_PhantomReference_refersTo0, "java.lang.ref.PhantomReference_refersTo0", (void *self, void *obj)) {
+    void **slot = jcl_referent_slot(self);
+    return slot != NULL && *slot == obj;
+}
+BIND(void, jcl_Reference_clear0, "java.lang.ref.Reference_clear0", (void *self)) {
+    void **slot = jcl_referent_slot(self);
+    if (slot != NULL) *slot = NULL;
+}
+BIND(int, jcl_Reference_hasReferencePendingList, "java.lang.ref.Reference_hasReferencePendingList", (void)) { return 0; }
+BIND(void *, jcl_Reference_getAndClearReferencePendingList, "java.lang.ref.Reference_getAndClearReferencePendingList", (void)) { return NULL; }
+
+/* RandomSupport.fill0(byte[]): random bytes from the operating system. */
+BIND(void, jcl_RandomSupport_fill0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.RandomSupport_fill0", (void *bytes)) {
+    if (bytes == NULL) return;
+    int32_t n = *(int32_t *)bytes;
+    unsigned char *data = (unsigned char *)bytes + 8;
+#ifdef _WIN32
+    typedef BOOLEAN (WINAPI *rtl_gen_random)(PVOID, ULONG);
+    static rtl_gen_random generate = NULL;
+    if (generate == NULL) {
+        HMODULE lib = LoadLibraryA("advapi32.dll");
+        if (lib != NULL) generate = (rtl_gen_random)(void *)GetProcAddress(lib, "SystemFunction036");
+    }
+    if (generate != NULL && generate(data, (ULONG)n)) return;
+#else
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (f != NULL) {
+        size_t got = fread(data, 1, (size_t)n, f);
+        fclose(f);
+        if (got == (size_t)n) return;
+    }
+#endif
+    for (int32_t i = 0; i < n; i++) data[i] = (unsigned char)(rand() & 0xff);
+}
+
+/* java.util.zip.CRC32 natives (the JDK uses zlib). */
+static uint32_t jcl_crc_table[256];
+static int jcl_crc_ready = 0;
+static uint32_t jcl_crc_update(uint32_t crc, const unsigned char *data, int32_t len) {
+    if (!jcl_crc_ready) {
+        for (uint32_t n = 0; n < 256; n++) {
+            uint32_t c = n;
+            for (int k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            jcl_crc_table[n] = c;
+        }
+        jcl_crc_ready = 1;
+    }
+    crc = ~crc;
+    for (int32_t i = 0; i < len; i++) crc = jcl_crc_table[(crc ^ data[i]) & 0xff] ^ (crc >> 8);
+    return ~crc;
+}
+BIND(int32_t, jcl_CRC32_update, "java.util.zip.CRC32_update$I32I32", (int32_t crc, int32_t b)) {
+    unsigned char byte = (unsigned char)b;
+    return (int32_t)jcl_crc_update((uint32_t)crc, &byte, 1);
+}
+BIND(int32_t, jcl_CRC32_updateBytes0, "java.util.zip.CRC32_updateBytes0", (int32_t crc, void *bytes, int32_t off, int32_t len)) {
+    return (int32_t)jcl_crc_update((uint32_t)crc, (const unsigned char *)bytes + 8 + off, len);
+}
+BIND(int32_t, jcl_CRC32_updateByteBuffer0, "java.util.zip.CRC32_updateByteBuffer0", (int32_t crc, int64_t address, int32_t off, int32_t len)) {
+    return (int32_t)jcl_crc_update((uint32_t)crc, (const unsigned char *)(intptr_t)address + off, len);
+}

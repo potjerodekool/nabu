@@ -17,6 +17,7 @@ public final class RuntimeExceptions {
             "java/lang/NullPointerException",
             "java/lang/ArrayIndexOutOfBoundsException",
             "java/lang/ArithmeticException",
+            "java/lang/UnsupportedOperationException",
             "java/lang/IndexOutOfBoundsException",
             "java/lang/IllegalArgumentException",
             "java/lang/ClassNotFoundException",

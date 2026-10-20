@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <stdint.h>
 
 #ifdef _WIN32
@@ -1717,26 +1718,60 @@ char *nabu_long_to_string(int64_t value) {
 /* Java-semantiek van Double.toString: altijd een decimaalteken of exponent, en
  * NaN/Infinity met een hoofdletter. %g levert "1" voor 1.0, dus daarachter een
  * ".0" toevoegen. */
-char *nabu_double_to_string(double value) {
-    char buf[40];
-    if (value != value) {                       /* NaN */
-        snprintf(buf, sizeof(buf), "NaN");
-    } else if (value > 1.7976931348623157e308) { /* +Infinity */
-        snprintf(buf, sizeof(buf), "Infinity");
-    } else if (value < -1.7976931348623157e308) {/* -Infinity */
-        snprintf(buf, sizeof(buf), "-Infinity");
-    } else {
-        int n = snprintf(buf, sizeof(buf), "%g", value);
-        if (n < 0) n = 0;
-        if (strpbrk(buf, ".eE") == NULL) {
-            size_t len = strlen(buf);
-            if (len + 3 < sizeof(buf)) {
-                buf[len] = '.';
-                buf[len + 1] = '0';
-                buf[len + 2] = '\0';
-            }
-        }
+/* Double.toString / Float.toString: the shortest digits that read back as the same value, in plain notation for
+ * 1e-3 <= |v| < 1e7 and as computerized scientific notation ("1.0E10") otherwise. */
+static void nabu_java_fp(char *out, size_t cap, double v, int is_float) {
+    if (v != v) { snprintf(out, cap, "NaN"); return; }
+    if (v > 1.7976931348623157e308) { snprintf(out, cap, "Infinity"); return; }
+    if (v < -1.7976931348623157e308) { snprintf(out, cap, "-Infinity"); return; }
+    if (v == 0) { snprintf(out, cap, signbit(v) ? "-0.0" : "0.0"); return; }
+    char sci[48];
+    for (int prec = 0; prec <= 17; prec++) {
+        snprintf(sci, sizeof sci, "%.*e", prec, v);
+        if (is_float ? strtof(sci, NULL) == (float) v : strtod(sci, NULL) == v) break;
     }
+    /* sci is [-]d[.ddd]e[+-]xx */
+    const char *p = sci;
+    int negative = 0;
+    if (*p == '-') { negative = 1; p++; }
+    char digits[24];
+    int nd = 0;
+    while (*p && *p != 'e') {
+        if (*p != '.' && nd < 20) digits[nd++] = *p;
+        p++;
+    }
+    int exp10 = (*p == 'e') ? atoi(p + 1) : 0;
+    while (nd > 1 && digits[nd - 1] == '0') nd--;
+    digits[nd] = 0;
+    char *o = out;
+    size_t left = cap;
+    #define NABU_PUT(c) do { if (left > 1) { *o++ = (c); left--; } } while (0)
+    if (negative) NABU_PUT('-');
+    if (exp10 >= -3 && exp10 < 7) {
+        if (exp10 >= 0) {
+            for (int k = 0; k <= exp10; k++) NABU_PUT(k < nd ? digits[k] : '0');
+            NABU_PUT('.');
+            if (nd > exp10 + 1) { for (int k = exp10 + 1; k < nd; k++) NABU_PUT(digits[k]); }
+            else NABU_PUT('0');
+        } else {
+            NABU_PUT('0'); NABU_PUT('.');
+            for (int k = 0; k < -exp10 - 1; k++) NABU_PUT('0');
+            for (int k = 0; k < nd; k++) NABU_PUT(digits[k]);
+        }
+    } else {
+        NABU_PUT(digits[0]); NABU_PUT('.');
+        if (nd > 1) { for (int k = 1; k < nd; k++) NABU_PUT(digits[k]); }
+        else NABU_PUT('0');
+        NABU_PUT('E');
+        char e[16];
+        snprintf(e, sizeof e, "%d", exp10);
+        for (const char *q = e; *q; q++) NABU_PUT(*q);
+    }
+    #undef NABU_PUT
+    *o = 0;
+}
+
+static char *nabu_fp_result(const char *buf) {
     size_t len = strlen(buf);
     char *out = malloc(len + 1);
     if (out == NULL) {
@@ -1747,8 +1782,16 @@ char *nabu_double_to_string(double value) {
     return nabu_string_meta.type != NULL ? (char *) nabu_jstring_new(out) : out;
 }
 
+char *nabu_double_to_string(double value) {
+    char buf[48];
+    nabu_java_fp(buf, sizeof buf, value, 0);
+    return nabu_fp_result(buf);
+}
+
 char *nabu_float_to_string(float value) {
-    return nabu_double_to_string((double) value);
+    char buf[48];
+    nabu_java_fp(buf, sizeof buf, (double) value, 1);
+    return nabu_fp_result(buf);
 }
 
 char *nabu_bool_to_string(int32_t value) {

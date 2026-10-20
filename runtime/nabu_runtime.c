@@ -1330,28 +1330,68 @@ typedef struct nabu_jstring {
 } nabu_jstring;
 
 /* Array classes: the upper 24 bits of the element-size word index
- * nabu_array_type_names (emitted by the backend). Returns the index of
- * `name`, or 0 when the program has no such array type; `cache` keeps the
- * result (-1: not looked up yet). */
+ * nabu_array_type_names (emitted by the backend, the types the program
+ * allocates) and, from nabu_array_type_count on, the types the runtime met
+ * later (annotation arrays, Array.newInstance, ...). */
 extern const char *const nabu_array_type_names[];
 extern const int32_t nabu_array_type_count;
 
-static int32_t nabu_byte_array_id = -1;
+#define NABU_MAX_ARRAY_TYPES (1 << 24)
 
-static int32_t nabu_array_type_id(const char *name, int32_t *cache) {
-    if (cache != NULL && *cache >= 0) return *cache;
-    int32_t id = 0;
+static char **nabu_dyn_array_names = NULL;
+static int32_t nabu_dyn_array_count = 0;
+static int32_t nabu_dyn_array_cap = 0;
+static volatile char nabu_array_lock = 0;
+
+static void nabu_array_lock_acquire(void) { while (__sync_lock_test_and_set(&nabu_array_lock, 1)) { } }
+static void nabu_array_lock_release(void) { __sync_lock_release(&nabu_array_lock); }
+
+/* The JVM name of an array type id, or NULL when the id is unknown. */
+const char *nabu_array_type_name(int32_t id) {
+    if (id <= 0) return NULL;
+    if (id < nabu_array_type_count) return nabu_array_type_names[id];
+    int32_t k = id - nabu_array_type_count;
+    const char *name = NULL;
+    nabu_array_lock_acquire();
+    if (k < nabu_dyn_array_count) name = nabu_dyn_array_names[k];
+    nabu_array_lock_release();
+    return name;
+}
+
+/* The id of an array type by its JVM name; a name the program does not
+ * allocate gets a new id, so every array the runtime makes has its class. */
+int32_t nabu_array_type_id(const char *name) {
     for (int32_t i = 1; i < nabu_array_type_count; i++) {
-        if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) { id = i; break; }
+        if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) return i;
     }
-    if (cache != NULL) *cache = id;
+    int32_t id = 0;
+    nabu_array_lock_acquire();
+    for (int32_t k = 0; k < nabu_dyn_array_count; k++) {
+        if (strcmp(nabu_dyn_array_names[k], name) == 0) { id = nabu_array_type_count + k; break; }
+    }
+    if (id == 0 && nabu_array_type_count + nabu_dyn_array_count < NABU_MAX_ARRAY_TYPES) {
+        if (nabu_dyn_array_count == nabu_dyn_array_cap) {
+            int32_t cap = nabu_dyn_array_cap == 0 ? 16 : nabu_dyn_array_cap * 2;
+            char **grown = realloc(nabu_dyn_array_names, (size_t) cap * sizeof *grown);
+            if (grown != NULL) { nabu_dyn_array_names = grown; nabu_dyn_array_cap = cap; }
+        }
+        char *copy = nabu_dyn_array_count < nabu_dyn_array_cap ? strdup(name) : NULL;
+        if (copy != NULL) {
+            nabu_dyn_array_names[nabu_dyn_array_count] = copy;
+            id = nabu_array_type_count + nabu_dyn_array_count;
+            nabu_dyn_array_count++;
+        }
+    }
+    nabu_array_lock_release();
     return id;
 }
+
+static int32_t nabu_byte_array_id = -1;
 
 void nabu_array_tag(void *arr, const char *name) {
     if (arr == NULL) return;
     int32_t es = ((int32_t *) arr)[1] & 0xff;
-    ((int32_t *) arr)[1] = es | (nabu_array_type_id(name, NULL) << 8);
+    ((int32_t *) arr)[1] = es | (nabu_array_type_id(name) << 8);
 }
 
 static void *nabu_str_mem(size_t n) {
@@ -1496,7 +1536,8 @@ void *nabu_jstring_new(const char *utf8) {
     size_t byte_len = latin1 ? count : utf16_units * 2;
     unsigned char *arr = (unsigned char *) nabu_str_mem(8 + byte_len);
     ((int32_t *) arr)[0] = (int32_t) byte_len;
-    ((int32_t *) arr)[1] = 1 | (nabu_array_type_id("[B", &nabu_byte_array_id) << 8); /* byte[] */
+    if (nabu_byte_array_id < 0) nabu_byte_array_id = nabu_array_type_id("[B");
+    ((int32_t *) arr)[1] = 1 | (nabu_byte_array_id << 8); /* byte[] */
     unsigned char *data = arr + 8;
     if (latin1) {
         for (size_t i = 0; i < count; i++) data[i] = (unsigned char) cps[i];

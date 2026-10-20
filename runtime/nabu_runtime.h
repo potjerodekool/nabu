@@ -505,6 +505,12 @@ void *nabu_jstring_new(const char *utf8);
 /** Sets the class of an array the runtime allocated (JVM name, e.g. "[Ljava/lang/String;"). */
 void nabu_array_tag(void *arr, const char *name);
 
+/** The JVM name of an array type id (the upper 24 bits of an array's element-size word), or NULL. */
+const char *nabu_array_type_name(int32_t id);
+
+/** The id of an array type by its JVM name; registers names the program does not allocate. */
+int32_t nabu_array_type_id(const char *name);
+
 /** Return addresses of the calling frames, innermost first; returns how many (at most max, 256). */
 int nabu_capture_frames(uintptr_t *out, int max);
 

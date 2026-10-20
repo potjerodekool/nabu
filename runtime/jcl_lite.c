@@ -374,15 +374,10 @@ static size_t jcl_arr_esize(const void *a) {
 }
 
 /* The class of an array: the upper 24 bits of the element-size word are an
- * index into nabu_array_type_names, which the backend emits with the JVM
- * name of every array type it allocates ("[Ljava/lang/String;", "[I");
- * 0 means unknown. */
-extern const char *const nabu_array_type_names[];
-extern const int32_t nabu_array_type_count;
-
+ * array type id (see nabu_array_type_name); 0 means unknown. */
 static const char *jcl_arr_type_name(const void *a) {
     int32_t id = a != NULL ? (int32_t)(((const uint32_t *)a)[1] >> 8) : 0;
-    return id > 0 && id < nabu_array_type_count ? nabu_array_type_names[id] : NULL;
+    return nabu_array_type_name(id);
 }
 /* The array class of p if p looks like an array the backend (or
  * Array.newInstance) allocated: a non-negative length, a valid element size
@@ -396,15 +391,8 @@ static const char *jcl_typed_array_name(const void *p) {
     if (w[0] < 0 || !(es == 1 || es == 2 || es == 4 || es == 8)) return NULL;
     return jcl_arr_type_name(p);
 }
-static int32_t jcl_arr_type_id(const char *name) {
-    for (int32_t i = 1; i < nabu_array_type_count; i++) {
-        if (nabu_array_type_names[i] != NULL && strcmp(nabu_array_type_names[i], name) == 0) return i;
-    }
-    return 0;
-}
 static void jcl_arr_set_type(void *a, const char *name) {
-    int32_t es = ((int32_t *)a)[1] & 0xff;
-    ((int32_t *)a)[1] = es | (jcl_arr_type_id(name) << 8);
+    nabu_array_tag(a, name);
 }
 /* A reference array of n elements with the given array class. */
 static void *jcl_arr_typed(int32_t n, const char *name) {

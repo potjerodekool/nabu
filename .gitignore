@@ -48,3 +48,5 @@ build/
 !**/.codewhale/constitution.json
 .deepseek/
 .aider*
+
+site/_site

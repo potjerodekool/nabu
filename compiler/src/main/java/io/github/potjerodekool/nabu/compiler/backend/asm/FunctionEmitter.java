@@ -361,8 +361,18 @@ private void emitUnreachable() {
             emitValue(binaryOp.right());
         }
 
+        // The distance of a shift is always an int, also for a long operand.
+        if (isShift(binaryOp.op()) && binaryOp.right().type() instanceof IRType.Int distance && distance.bits() == 64) {
+            mv.visitInsn(Opcodes.L2I);
+        }
+
         mv.visitInsn(resolveArithmeticOpcode(binaryOp));
         storeResult(binaryOp.result());
+    }
+
+    private boolean isShift(final IRInstruction.BinaryOp.Op op) {
+        return op == IRInstruction.BinaryOp.Op.SHL || op == IRInstruction.BinaryOp.Op.SHR
+                || op == IRInstruction.BinaryOp.Op.USHR;
     }
 
     private boolean isComparison(final IRInstruction.BinaryOp.Op op) {
@@ -385,6 +395,9 @@ private void emitUnreachable() {
             case BITAND -> resolveBitAndOpcode(binaryOp.left());
             case BITOR -> resolveBitOrOpcode(binaryOp.left());
             case BITXOR -> resolveBitXorOpcode(binaryOp.left());
+            case SHL -> isLong(binaryOp.left()) ? Opcodes.LSHL : Opcodes.ISHL;
+            case SHR -> isLong(binaryOp.left()) ? Opcodes.LSHR : Opcodes.ISHR;
+            case USHR -> isLong(binaryOp.left()) ? Opcodes.LUSHR : Opcodes.IUSHR;
             default -> throw new UnsupportedOperationException("No arithmetic opcode for: " + binaryOp.op());
         };
     }
@@ -2066,6 +2079,10 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
             case IRType.Bool ignored -> Opcodes.IXOR;
             default -> throw new UnsupportedOperationException("Unsupported xor type: " + left.type());
         };
+    }
+
+    private static boolean isLong(final IRValue value) {
+        return value.type() instanceof IRType.Int intType && intType.bits() == 64;
     }
 
     private int resolveBitAndOpcode(final IRValue left) {

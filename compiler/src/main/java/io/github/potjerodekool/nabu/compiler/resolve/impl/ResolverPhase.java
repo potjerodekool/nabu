@@ -160,6 +160,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         clazz.complete();
 
+        // Een lokale klasse (JLS 14.3) is geen member: ze is alleen zichtbaar
+        // in de omsluitende methode. Definieer haar in de huidige scope zodat
+        // `new Adder()` haar via resolveType vindt.
+        if (clazz.getNestingKind() == NestingKind.LOCAL && scope != null) {
+            scope.define(clazz);
+        }
+
         compilerContext.getEnumUsageMap().registerClass(classDeclaration);
 
         final var classScope = new SymbolScope((DeclaredType) clazz.asType(), scope);
@@ -1046,16 +1053,28 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         variables.forEach(variable -> {
             if (variable instanceof IdentifierTree identifier) {
-                if (identifier.getSymbol() == null) {
-                    final var paramType = identifier.getType();
-                    final var symbol = new VariableSymbolBuilderImpl()
-                            .kind(ElementKind.PARAMETER)
-                            .simpleName(identifier.getName())
-                            .type(paramType != null ? paramType : types.getUnknownType())
-                            .build();
-                    identifier.setSymbol(symbol);
-                    lambdaScope.define(symbol);
+                // (Her)definieer de parameter met het definitieve type. De
+                // eerste pass maakte een symbool met UNKNOWN-type; als die
+                // symboolref bleef horen, loste de body-herzoek
+                // (`w.length()`) niet. `w` belandde hierdoor opnieuw met het
+                // opgeloste type in de lambda-scope, zodat de body opnieuw
+                // kans krijgt.
+                var paramType = identifier.getType();
+                if (paramType == null || paramType.isError()) {
+                    paramType = types.getUnknownType();
                 }
+                if (identifier.getSymbol() instanceof VariableSymbol existing
+                        && !paramType.isError()
+                        && paramType instanceof io.github.potjerodekool.nabu.compiler.type.impl.AbstractType abstractType) {
+                    existing.setType(abstractType);
+                }
+                final var symbol = new VariableSymbolBuilderImpl()
+                        .kind(ElementKind.PARAMETER)
+                        .simpleName(identifier.getName())
+                        .type(paramType)
+                        .build();
+                identifier.setSymbol(symbol);
+                lambdaScope.define(symbol);
             } else {
                 acceptTree(variable, lambdaScope);
             }
@@ -1265,6 +1284,64 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     }
 
     @Override
+    public Object visitSwitchExpression(final SwitchExpressionTree switchExpression, final Scope scope) {
+        acceptTree(switchExpression.getSelector(), scope);
+        Element selectorElement = switchExpression.getSelector().getSymbol();
+        if (selectorElement == null && switchExpression.getSelector().getType() != null
+                && switchExpression.getSelector().getType().asElement() instanceof TypeElement selectorType) {
+            selectorElement = selectorType;
+        }
+        final var switchScope = new SwitchScope(
+                selectorElement,
+                scope
+        );
+        switchExpression.getCases().forEach(caseStatement -> acceptTree(caseStatement, switchScope));
+
+        // De switch-expressie evalueert tot het resultaat: het type van de
+        // eerst beschikbare waarde (een regel-expr of een yield).
+        final var type = switchExpressionType(switchExpression);
+        if (type != null) {
+            switchExpression.setType(type);
+        }
+        return defaultAnswer(switchExpression, switchScope);
+    }
+
+    private TypeMirror switchExpressionType(final SwitchExpressionTree switchExpression) {
+        for (final var caseStatement : switchExpression.getCases()) {
+            final var body = caseStatement.getBody();
+            if (body instanceof ExpressionTree expressionTree) {
+                final var type = expressionTree.getType();
+                if (type != null) {
+                    return type;
+                }
+            } else if (body instanceof BlockStatementTree blockStatement) {
+                final var yieldType = firstYieldType(blockStatement);
+                if (yieldType != null) {
+                    return yieldType;
+                }
+            }
+        }
+        return null;
+    }
+
+    private TypeMirror firstYieldType(final BlockStatementTree blockStatement) {
+        for (final var statement : blockStatement.getStatements()) {
+            if (statement instanceof YieldStatement yieldStatement) {
+                final var expression = yieldStatement.getExpression();
+                if (expression != null && expression.getType() != null) {
+                    return expression.getType();
+                }
+            } else if (statement instanceof BlockStatementTree nested) {
+                final var yieldType = firstYieldType(nested);
+                if (yieldType != null) {
+                    return yieldType;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Override
     public Object visitEnhancedForStatement(final EnhancedForStatementTree enhancedForStatement, final Scope scope) {
         acceptTree(enhancedForStatement.getExpression(), scope);
 
@@ -1378,6 +1455,10 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     && arrayAccessLeafType((ArrayAccessExpressionTree) selected) instanceof ArrayType)) {
                 final var intType = types.getPrimitiveType(TypeKind.INT);
                 fieldAccessExpression.getField().setType(intType);
+                // `length` van een array is geen veld: een eerder gevonden
+                // symbool (bv. een ErrorSymbol uit een pass zonder type)
+                // zou als instantieveld worden behandeld.
+                fieldAccessExpression.getField().setSymbol(null);
                 fieldAccessExpression.setType(intType);
                 return defaultAnswer(fieldAccessExpression, scope);
             }

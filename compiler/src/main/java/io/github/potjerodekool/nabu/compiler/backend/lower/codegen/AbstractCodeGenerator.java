@@ -13,6 +13,7 @@ import io.github.potjerodekool.nabu.tree.Modifiers;
 import io.github.potjerodekool.nabu.tree.Tag;
 import io.github.potjerodekool.nabu.tree.TreeFilter;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.element.Function;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
@@ -58,10 +59,12 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
     private void generateClientInit(final ClassDeclaration classDeclaration) {
         final var clazzDeclaration = (CClassDeclaration) classDeclaration;
 
-        final var clientInitializers = TreeFilter.methodsIn(classDeclaration.getEnclosedElements()).stream()
-                .filter(it -> it.getKind() == Kind.STATIC_INIT)
-                .map(it -> (CFunction) it)
-                .toList();
+        // JLS 8.7: de statements van een static-initializer draaien in
+        // <clinit>, na de static veld-initializers. De initializers zijn
+        // geen 'methods' en worden daarom apart gefilterd.
+        final var clientInitializers = TreeFilter.staticInitializersIn(
+                classDeclaration.getEnclosedElements()
+        );
 
         final var mergedClientInit = createClientInit();
 
@@ -72,8 +75,13 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
                 classDeclaration
         );
 
-        if (!mergedClientInit.getBody().getStatements().isEmpty()) {
+        // De static-initializers zelf worden vervangen door de gesmolten
+        // <clinit>; anders zou de IR ze als losse methode emitteren.
+        if (!clientInitializers.isEmpty()) {
             clazzDeclaration.removeEnclosedElements(clientInitializers);
+        }
+
+        if (!mergedClientInit.getBody().getStatements().isEmpty()) {
             classDeclaration.enclosedElement(mergedClientInit);
             final var clazz = (ClassSymbol) clazzDeclaration.getClassSymbol();
             clazz.addEnclosedElement(mergedClientInit.getMethodSymbol());
@@ -288,7 +296,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
         );
     }
 
-    private void mergeClientInitializers(final List<CFunction> clientInitializers,
+    private void mergeClientInitializers(final List<Function> clientInitializers,
                                          final CFunction mergedClientInitializer,
                                          final ClassDeclaration classDeclaration) {
         clientInitializers.forEach(clientInit ->

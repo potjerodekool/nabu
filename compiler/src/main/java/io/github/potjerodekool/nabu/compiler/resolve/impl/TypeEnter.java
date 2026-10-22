@@ -717,7 +717,12 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final var type = (CClassType) currentClass.asType();
         type.setTypeArguments(typeArguments);
 
-        classDeclaration.getEnclosedElements().stream()
+        // Snapshot: de walk hieronder kan de enclosed-elements lijst van
+        // classDeclaration muteren; zonder snapshot levert dat een
+        // ConcurrentModificationException op.
+        final var enclosedElements = new ArrayList<>(classDeclaration.getEnclosedElements());
+
+        enclosedElements.stream()
                 .filter(enclosedElement -> !(enclosedElement instanceof ClassDeclaration))
                 .forEach(enclosedElement -> acceptTree(enclosedElement, scope));
 

@@ -192,7 +192,7 @@ fragment StringCharacters: StringCharacter+;
 
 fragment StringCharacter: ~["\\\r\n] | EscapeSequence;
 
-TextBlock: '"""' [ \t]* [\n\r] [.\r\b]* '"""';
+TextBlock: '"""' ( ~'\\' | '\\' . )*? '"""';
 
 // §3.10.6 Escape Sequences for Character and String Literals
 

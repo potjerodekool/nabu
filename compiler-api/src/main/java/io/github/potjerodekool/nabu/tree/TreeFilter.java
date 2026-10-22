@@ -58,6 +58,32 @@ public final class TreeFilter {
     }
 
     /**
+     * Statische initializers (JLS 8.7: {@code static { ... }}) zijn geen
+     * methoden, maar functies met een eigen {@link Kind}.
+     *
+     * @param enclosedElements A list of elements.
+     * @return Returns a list of static initializers from the given list.
+     */
+    public static List<Function> staticInitializersIn(final List<Tree> enclosedElements) {
+        return filter(enclosedElements, Function.class)
+                .filter(f -> f.getKind() == Kind.STATIC_INIT)
+                .toList();
+    }
+
+    /**
+     * Instantie-initializers (JLS 8.6: {@code { ... }}) draaien in elke
+     * constructor van de klasse.
+     *
+     * @param enclosedElements A list of elements.
+     * @return Returns a list of instance initializers from the given list.
+     */
+    public static List<Function> instanceInitializersIn(final List<Tree> enclosedElements) {
+        return filter(enclosedElements, Function.class)
+                .filter(f -> f.getKind() == Kind.INSTANCE_INIT)
+                .toList();
+    }
+
+    /**
      * @param list A list of elements.
      * @return Returns a list of classes from the given list.
      */

@@ -51,6 +51,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case AssignmentExpressionTree assignmentExpressionTree -> visitAssignment(assignmentExpressionTree, param);
             case CastExpressionTree castExpressionTree -> visitCastExpression(castExpressionTree, param);
             case SwitchStatement switchStatement -> visitSwitchStatement(switchStatement, param);
+            case SwitchExpressionTree switchExpressionTree -> visitSwitchExpression(switchExpressionTree, param);
             case CaseStatement caseStatement -> visitCaseStatement(caseStatement, param);
             case ConstantCaseLabel constantCaseLabel -> visitConstantCaseLabel(constantCaseLabel, param);
             case ThrowStatement throwStatement -> visitThrowStatement(throwStatement, param);
@@ -363,11 +364,26 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     }
 
     @Override
+    public R visitSwitchExpression(final SwitchExpressionTree switchExpression, final P param) {
+        acceptTree(switchExpression.getSelector(), param);
+
+        switchExpression.getCases().forEach(caseStatement ->
+                acceptTree(caseStatement, param));
+        return defaultAnswer(switchExpression, param);
+    }
+
+    @Override
     public R visitCaseStatement(final CaseStatement caseStatement, final P param) {
         caseStatement.getLabels().forEach(label ->
                 acceptTree(label, param));
         acceptTree(caseStatement.getBody(), param);
         return defaultAnswer(caseStatement, param);
+    }
+
+    @Override
+    public R visitYieldStatement(final YieldStatement yieldStatement, final P param) {
+        acceptTree(yieldStatement.getExpression(), param);
+        return defaultAnswer(yieldStatement, param);
     }
 
     @Override

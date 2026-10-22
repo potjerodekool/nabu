@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.backend.ir.optimize;
 import io.github.potjerodekool.nabu.backend.ir.IRBasicBlock;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
+import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 
 import java.util.ArrayList;
@@ -102,6 +103,10 @@ public class ConstantFolder implements OptimizationPass {
             case BITAND -> l & r;
             case BITOR  -> l | r;
             case BITXOR -> l ^ r;
+            // The JVM uses the low 5 (int) or 6 (long) bits of the distance.
+            case SHL -> left.type() instanceof IRType.Int t && t.bits() == 64 ? l << (r & 63) : (long) ((int) l << (int) (r & 31));
+            case SHR -> left.type() instanceof IRType.Int t && t.bits() == 64 ? l >> (r & 63) : (long) ((int) l >> (int) (r & 31));
+            case USHR -> left.type() instanceof IRType.Int t && t.bits() == 64 ? l >>> (r & 63) : (long) ((int) l >>> (int) (r & 31));
             default -> l;
         };
 

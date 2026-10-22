@@ -15,6 +15,7 @@ import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.NestingKind;
 import io.github.potjerodekool.nabu.tree.element.builder.ClassDeclarationBuilder;
 import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
+import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.builder.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
@@ -523,6 +524,55 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
     }
 
+    /**
+     * JLS 8.6: een instance-initializer ({@code { ... }}) in een klasse-body.
+     * De statements draaien in elke constructor, na de veld-initializers.
+     */
+    @Override
+    public Object visitInstanceInitializer(final Java20Parser.InstanceInitializerContext ctx) {
+        return createInitializer(Kind.INSTANCE_INIT, ctx.block(), ctx);
+    }
+
+    /**
+     * JLS 8.7: een static-initializer ({@code static { ... }}) draait een keer,
+     * bij het initialiseren van de klasse (in {@code <clinit>}).
+     */
+    @Override
+    public Object visitStaticInitializer(final Java20Parser.StaticInitializerContext ctx) {
+        return createInitializer(Kind.STATIC_INIT, ctx.block(), ctx);
+    }
+
+    private Function createInitializer(final Kind kind,
+                                       final Java20Parser.BlockContext blockContext,
+                                       final ParserRuleContext ctx) {
+        final BlockStatementTree body;
+        if (skipBody) {
+            body = new CBlockStatementTree(List.of());
+        } else {
+            body = (BlockStatementTree) blockContext.accept(this);
+        }
+
+        final var returnType = TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.VOID, -1, -1);
+        final var modifiers = kind == Kind.STATIC_INIT
+                ? new Modifiers(Flags.STATIC)
+                : new Modifiers(0);
+
+        return new CFunction(
+                kind == Kind.STATIC_INIT ? Constants.CLINIT : Constants.INIT,
+                kind,
+                modifiers,
+                List.of(),
+                null,
+                List.of(),
+                returnType,
+                List.of(),
+                body,
+                null,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+    }
+
     @Override
     public Object visitFieldDeclaration(final Java20Parser.FieldDeclarationContext ctx) {
         final var fieldModifiers = parseModifiers(ctx.fieldModifier());
@@ -762,8 +812,44 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitSwitchStatement(final Java20Parser.SwitchStatementContext ctx) {
         final var selector = (ExpressionTree) ctx.expression().accept(this);
-        final var block = ctx.switchBlock();
-        final var cases = new ArrayList<CaseStatement>();
+        final var cases = switchCases(ctx.switchBlock(), false);
+
+        return new io.github.potjerodekool.nabu.tree.statement.builder.SwitchStatementBuilder()
+                .selector(selector)
+                .cases(cases)
+                .lineNumber(ctx.getStart().getLine())
+                .columnNumber(ctx.getStart().getCharPositionInLine())
+                .build();
+    }
+
+    /**
+     * {@code String s = switch (day) { case 1 -> "x"; default -> "y"; };} (JLS
+     * §15.28). Ontbrak: een switch in expressiepositie verdween geruisloos.
+     */
+    @Override
+    public Object visitSwitchExpression(final Java20Parser.SwitchExpressionContext ctx) {
+        final var selector = (ExpressionTree) ctx.expression().accept(this);
+        final var cases = switchCases(ctx.switchBlock(), true);
+
+        return new io.github.potjerodekool.nabu.tree.expression.builder.SwitchExpressionTreeBuilder()
+                .selector(selector)
+                .cases(cases)
+                .lineNumber(ctx.getStart().getLine())
+                .columnNumber(ctx.getStart().getCharPositionInLine())
+                .build();
+    }
+
+    @Override
+    public Object visitYieldStatement(final Java20Parser.YieldStatementContext ctx) {
+        return io.github.potjerodekool.nabu.tree.statement.YieldStatement.create(
+                (ExpressionTree) ctx.expression().accept(this),
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine());
+    }
+
+    private List<CaseStatement> switchCases(final Java20Parser.SwitchBlockContext block,
+                                            final boolean isExpression) {
+        final List<CaseStatement> cases = new ArrayList<>();
 
         for (final var rule : block.switchRule()) {
             final List<CaseLabel> labels = switchLabels(rule.switchLabel());
@@ -772,6 +858,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 body = (Tree) rule.block().accept(this);
             } else if (rule.throwStatement() != null) {
                 body = (Tree) rule.throwStatement().accept(this);
+            } else if (isExpression) {
+                // De waarde zelf (JLS 15.28.2), geen expression-statement:
+                // de switch-expressie levert dit resultaat op.
+                body = (ExpressionTree) rule.expression().accept(this);
             } else {
                 body = TreeMaker.expressionStatement(
                         (ExpressionTree) rule.expression().accept(this),
@@ -806,12 +896,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                     block.getStart().getLine(), block.getStart().getCharPositionInLine()));
         }
 
-        return new io.github.potjerodekool.nabu.tree.statement.builder.SwitchStatementBuilder()
-                .selector(selector)
-                .cases(cases)
-                .lineNumber(ctx.getStart().getLine())
-                .columnNumber(ctx.getStart().getCharPositionInLine())
-                .build();
+        return cases;
     }
 
     // break/continue/labeled/synchronized/assert (JLS §14.7, §14.10, §14.15,
@@ -2138,6 +2223,9 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             node = ctx.StringLiteral();
             var text = node.getText();
             value = unescapeJava(text.substring(1, text.length() - 1));
+        } else if (ctx.TextBlock() != null) {
+            node = ctx.TextBlock();
+            value = textBlockValue(node.getText());
         } else if (ctx.NullLiteral() != null) {
             node = ctx.NullLiteral();
             value = null;
@@ -2207,6 +2295,112 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             backslashes++;
         }
         return backslashes % 2 == 1;
+    }
+
+    /**
+     * De waarde van een text block (JLS 3.10.6). De regel-einde direct na de
+     * openende quotes hoort niet bij de inhoud; de incidental indentation (de
+     * kleinste indentatie van de niet-lege inhoudregels en van de regel met de
+     * sluitende quotes) wordt weggestreept en de trailing whitespace per regel
+     * verdwijnt.
+     */
+    static String textBlockValue(final String raw) {
+        final var content = raw.substring(3, raw.length() - 3);
+        final var lines = content.split("\r\n|\r|\n", -1);
+
+        int first = 0;
+        int last = lines.length;
+
+        // De regel-einde direct na de openende quotes is geen inhoud.
+        if (last - first > 1 && lines[first].isEmpty()) {
+            first++;
+        }
+
+        // De regel met de sluitende quotes is geen inhoud, maar haar indentatie
+        // telt wel mee voor de incidental indentation.
+        String closingLine = null;
+        if (last - first > 1 && lines[last - 1].isBlank()) {
+            closingLine = lines[last - 1];
+            last--;
+        }
+
+        int indent = closingLine == null ? Integer.MAX_VALUE : countIndent(closingLine);
+        for (int i = first; i < last; i++) {
+            if (!lines[i].isBlank()) {
+                indent = Math.min(indent, countIndent(lines[i]));
+            }
+        }
+        if (indent == Integer.MAX_VALUE) {
+            indent = 0;
+        }
+
+        final var sb = new StringBuilder(content.length());
+        for (int i = first; i < last; i++) {
+            if (i > first) {
+                sb.append('\n');
+            }
+            final var line = lines[i];
+            final var stripped = line.isBlank() ? "" : line.substring(indent);
+            int end = stripped.length();
+            while (end > 0 && (stripped.charAt(end - 1) == ' ' || stripped.charAt(end - 1) == '\t')) {
+                end--;
+            }
+            sb.append(stripped, 0, end);
+        }
+
+        return unescapeJava(textBlockLineContinuations(sb.toString()));
+    }
+
+    /** Het aantal spaties en tabs aan het begin van een regel. */
+    private static int countIndent(final String line) {
+        int i = 0;
+        while (i < line.length() && (line.charAt(i) == ' ' || line.charAt(i) == '\t')) {
+            i++;
+        }
+        return i;
+    }
+
+    /**
+     * Verwijdert de escaped line continuations van een text block: een
+     * backslash gevolgd door een regel-einde verdwijnt, inclusief de
+     * regel-einde (JLS 3.10.6).
+     */
+    private static String textBlockLineContinuations(final String text) {
+        if (text.indexOf('\\') < 0) {
+            return text;
+        }
+        final var sb = new StringBuilder(text.length());
+        int i = 0;
+        while (i < text.length()) {
+            if (text.charAt(i) != '\\') {
+                sb.append(text.charAt(i));
+                i++;
+                continue;
+            }
+            int run = 0;
+            while (i + run < text.length() && text.charAt(i + run) == '\\') {
+                run++;
+            }
+            final int after = i + run;
+            if (after < text.length()
+                    && isLineTerminator(text.charAt(after))
+                    && run % 2 == 1) {
+                sb.append("\\", 0, run - 1);
+                i = after;
+                if (text.charAt(i) == '\r' && i + 1 < text.length() && text.charAt(i + 1) == '\n') {
+                    i++;
+                }
+                i++;
+                continue;
+            }
+            sb.append("\\", 0, run);
+            i = after;
+        }
+        return sb.toString();
+    }
+
+    private static boolean isLineTerminator(final char c) {
+        return c == '\n' || c == '\r';
     }
 
     private long valueOfJavaIntLiteral(final String text) {
@@ -2290,6 +2484,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         final var enclosedElements = new ArrayList<Tree>();
         enclosedElements.add(constructor);
         enclosedElements.addAll(body);
+        addSyntheticRecordMethods(ctx, body, enclosedElements);
 
         return new ClassDeclarationBuilder()
                 .kind(Kind.RECORD)
@@ -2359,6 +2554,167 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 .variableType(type)
                 .name(identifier)
                 .build();
+    }
+
+    // ----------------------------------------------------------------
+    // Record: canonieke equals, hashCode en toString (JLS 8.10.3).
+    // ----------------------------------------------------------------
+
+    /** Naam en (opslag)type van een record-component: varargs worden arrays. */
+    private record RecordComponentSpec(String name, String type) {
+    }
+
+    /**
+     * ${@code record Point(int x, int y) {}} genereert volgens JLS 8.10.3
+     * zijn {@code equals}, {@code hashCode} en {@code toString}; zolang de
+     * front-end daarover geen aparte fase heeft, worden ze hier als bron-
+     * tekst opgebouwd en via de eigen parser geparsed. De record body wint:
+     * een expliciet gedeclareerde {@code equals}/{@code hashCode}/
+     * {@code toString} wordt niet opnieuw gegenereerd.
+     */
+    private void addSyntheticRecordMethods(final Java20Parser.RecordDeclarationContext ctx,
+                                           final List<Tree> body,
+                                           final List<Tree> enclosedElements) {
+        final var header = ctx.recordHeader();
+        if (header == null
+                || header.recordComponentList() == null) {
+            return;
+        }
+
+        final var declared = new java.util.HashSet<String>();
+        for (final Tree tree : body) {
+            if (tree instanceof Function function && function.getKind() == Kind.METHOD) {
+                declared.add(function.getSimpleName());
+            }
+        }
+
+        final List<Java20Parser.RecordComponentContext> components = header.recordComponentList().recordComponent();
+        final List<RecordComponentSpec> specs = new ArrayList<>();
+        for (final Java20Parser.RecordComponentContext component : components) {
+            final String name;
+            final String type;
+            if (component.variableArityRecordComponent() != null) {
+                name = component.variableArityRecordComponent().identifier().getText();
+                type = component.variableArityRecordComponent().unannType().getText() + "[]";
+            } else {
+                name = component.identifier().getText();
+                type = component.unannType().getText();
+            }
+            specs.add(new RecordComponentSpec(name, type));
+        }
+
+        final String className = ctx.typeIdentifier().getText();
+
+        if (!declared.contains("equals")) {
+            enclosedElements.add(parseSyntheticMethod(recordEqualsSource(className, specs)));
+        }
+        if (!declared.contains("hashCode")) {
+            enclosedElements.add(parseSyntheticMethod(recordHashCodeSource(specs)));
+        }
+        if (!declared.contains("toString")) {
+            enclosedElements.add(parseSyntheticMethod(recordToStringSource(className, specs)));
+        }
+    }
+
+    private Tree parseSyntheticMethod(final String text) {
+        final var lexer = new Java20Lexer(org.antlr.v4.runtime.CharStreams.fromString(text));
+        final var parser = new Java20Parser(new org.antlr.v4.runtime.CommonTokenStream(lexer));
+        return (Tree) parser.methodDeclaration().accept(this);
+    }
+
+    private static boolean isPrimitiveRecordComponent(final String type) {
+        return switch (type) {
+            case "byte", "short", "int", "long", "char", "float", "double", "boolean" -> true;
+            default -> false;
+        };
+    }
+
+    private static String recordEqualsSource(final String className,
+                                             final List<RecordComponentSpec> components) {
+        final StringBuilder source = new StringBuilder();
+        source.append("public boolean equals(Object obj) {\n");
+        source.append("    if (this == obj) {\n        return true;\n    }\n");
+        source.append("    if (!(obj instanceof ").append(className).append(")) {\n        return false;\n    }\n");
+        source.append("    final ").append(className).append(" other = (").append(className).append(") obj;\n");
+        if (components.isEmpty()) {
+            source.append("    return true;\n}");
+        } else {
+            final var conditions = new StringBuilder();
+            for (final var component : components) {
+                if (conditions.length() > 0) {
+                    conditions.append(" && ");
+                }
+                conditions.append(componentCondition(component));
+            }
+            source.append("    return ").append(conditions).append(";\n}");
+        }
+        return source.toString();
+    }
+
+    private static String componentCondition(final RecordComponentSpec component) {
+        return switch (component.type()) {
+            case "float" -> "java.lang.Float.floatToIntBits(" + component.name()
+                    + ") == java.lang.Float.floatToIntBits(other." + component.name() + ")";
+            case "double" -> "java.lang.Double.doubleToLongBits(" + component.name()
+                    + ") == java.lang.Double.doubleToLongBits(other." + component.name() + ")";
+            default -> isPrimitiveRecordComponent(component.type())
+                    ? component.name() + " == other." + component.name()
+                    : "java.util.Objects.equals(" + component.name() + ", other." + component.name() + ")";
+        };
+    }
+
+    private static String recordHashCodeSource(final List<RecordComponentSpec> components) {
+        final StringBuilder source = new StringBuilder();
+        source.append("public int hashCode() {\n");
+        if (components.isEmpty()) {
+            source.append("    return 0;\n}");
+            return source.toString();
+        }
+        for (var i = 0; i < components.size(); i++) {
+            if (i == 0) {
+                source.append("    int result = ").append(recordHashComponent(components.get(i))).append(";\n");
+            } else {
+                source.append("    result = result * 31 + ").append(recordHashComponent(components.get(i))).append(";\n");
+            }
+        }
+        source.append("    return result;\n}");
+        return source.toString();
+    }
+
+    private static String recordHashComponent(final RecordComponentSpec component) {
+        return switch (component.type()) {
+            case "boolean" -> "(" + component.name() + " ? 1231 : 1237)";
+            case "byte", "short", "int" -> component.name();
+            case "long" -> "(int) (" + component.name() + " ^ (" + component.name() + " >>> 32))";
+            case "float" -> "java.lang.Float.floatToIntBits(" + component.name() + ")";
+            case "double" -> "(int) (java.lang.Double.doubleToLongBits(" + component.name()
+                    + ") ^ (java.lang.Double.doubleToLongBits(" + component.name() + ") >>> 32))";
+            case "char" -> "(int) " + component.name();
+            default -> "(" + component.name() + " == null ? 0 : " + component.name() + ".hashCode())";
+        };
+    }
+
+    private static String recordToStringSource(final String className,
+                                               final List<RecordComponentSpec> components) {
+        final StringBuilder source = new StringBuilder();
+        source.append("public String toString() {\n");
+        if (components.isEmpty()) {
+            source.append("    return \"").append(className).append("[]\";\n}");
+            return source.toString();
+        }
+        source.append("    return \"").append(className).append("[\"");
+        for (var i = 0; i < components.size(); i++) {
+            final var name = components.get(i).name();
+            source.append(" + ");
+            if (i > 0) {
+                source.append("\", ").append(name).append("=\" + ");
+            } else {
+                source.append("\"").append(name).append("=\" + ");
+            }
+            source.append(name);
+        }
+        source.append(" + \"]\";\n}");
+        return source.toString();
     }
 
     @Override
@@ -3262,7 +3618,11 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         if (ctx.lambdaParameterList() != null) {
             return acceptList(ctx.lambdaParameterList());
         } else if (ctx.identifier() != null) {
-            return toLambdaVariable((Tree) ctx.identifier().accept(this));
+            // Een impliciete lambda-parameter (`w -> ...`) blijft een
+            // IdentifierTree, net als bij `(a, b) -> ...`: de omzetting naar
+            // een VariableDeclaratorTree liet de lambda als EXPLICIT tonen en
+            // de parameter kreeg een error-type in de signatuur.
+            return ctx.identifier().accept(this);
         } else {
             return List.of();
         }
@@ -3566,6 +3926,67 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );
+    }
+
+    /**
+     * {@code try (R r = init; ...) body catches finally} is rewritten as source text, as JLS 14.20.3.1 describes it,
+     * and parsed again: the resource is declared before the try, the body is guarded so that the primary exception
+     * stays primary when {@code close()} throws too, and a trailing catch or finally wraps the whole.
+     * Line numbers of the generated code are those of the {@code try}.
+     */
+    @Override
+    public Object visitTryWithResourcesStatement(final Java20Parser.TryWithResourcesStatementContext ctx) {
+        final var resources = ctx.resourceSpecification().resourceList().resource();
+        final var expanded = new StringBuilder();
+        expanded.append("\n".repeat(Math.max(0, ctx.getStart().getLine() - 1)));
+        final var tail = new StringBuilder();
+        if (ctx.catches() != null) {
+            tail.append(' ').append(sourceText(ctx.catches()));
+        }
+        if (ctx.finallyBlock() != null) {
+            tail.append(' ').append(sourceText(ctx.finallyBlock()));
+        }
+        final boolean wrapped = tail.length() > 0;
+        if (wrapped) {
+            expanded.append("try ");
+        }
+        expanded.append(expandResource(resources, 0, sourceText(ctx.block())));
+        expanded.append(tail);
+
+        final var lexer = new Java20Lexer(org.antlr.v4.runtime.CharStreams.fromString(expanded.toString()));
+        final var parser = new Java20Parser(new org.antlr.v4.runtime.CommonTokenStream(lexer));
+        return parser.statement().accept(this);
+    }
+
+    private String expandResource(final List<Java20Parser.ResourceContext> resources, final int index,
+                                  final String body) {
+        if (index == resources.size()) {
+            return body;
+        }
+        final var resource = resources.get(index);
+        final var declaration = resource.localVariableDeclaration();
+        if (declaration == null) {
+            throw new UnsupportedOperationException(
+                    "try-with-resources on an existing variable is not supported: " + sourceText(resource));
+        }
+        final String name = declaration.variableDeclaratorList().variableDeclarator(0)
+                .variableDeclaratorId().getText();
+        final String text = sourceText(declaration);
+        final String primary = "$twrPrimary" + index;
+        final String thrown = "$twrThrown" + index;
+        final String suppressed = "$twrSuppressed" + index;
+        return "{ " + (text.startsWith("final ") ? "" : "final ") + text + "; java.lang.Throwable " + primary
+                + " = null; try " + expandResource(resources, index + 1, body)
+                + " catch (java.lang.Throwable " + thrown + ") { " + primary + " = " + thrown + "; throw " + thrown + "; }"
+                + " finally { if (" + name + " != null) { if (" + primary + " != null) { try { " + name
+                + ".close(); } catch (java.lang.Throwable " + suppressed + ") { " + primary + ".addSuppressed("
+                + suppressed + "); } } else { " + name + ".close(); } } } }";
+    }
+
+    /** The text of a parse tree as it is in the source, with its whitespace. */
+    private static String sourceText(final org.antlr.v4.runtime.ParserRuleContext ctx) {
+        return ctx.getStart().getInputStream().getText(
+                org.antlr.v4.runtime.misc.Interval.of(ctx.getStart().getStartIndex(), ctx.getStop().getStopIndex()));
     }
 
     @Override

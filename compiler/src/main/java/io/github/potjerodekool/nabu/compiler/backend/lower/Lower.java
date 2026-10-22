@@ -695,6 +695,68 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 .build();
     }
 
+    @Override
+    public Tree visitSwitchExpression(final SwitchExpressionTree switchExpression,
+                                      final LowerScope scope) {
+        var selector = (ExpressionTree) acceptTree(switchExpression.getSelector(), scope);
+
+        final var selectorType = selector.getSymbol() != null
+                ? selector.getSymbol().asType()
+                : compilerContext.getTreeUtils().typeOf(selector);
+
+        final TypeElement enumElement = selectorType != null
+                && selectorType.isReferenceType()
+                && selectorType.asElement() instanceof TypeElement typeElement
+                && typeElement.getKind() == ElementKind.ENUM
+                ? typeElement
+                : null;
+
+        if (enumElement != null) {
+            selector = enumOrdinalSelector(selector, enumElement);
+        } else if (selectorType != null && types.isBoxType(selectorType)) {
+            final var primitiveType = types.unboxedType(selectorType);
+            selector = primitiveType.accept(boxer, selector);
+        }
+
+        final List<String> enumConstants = enumElement != null
+                ? ElementFilter.enumValuesIn(enumElement.getEnclosedElements()).stream()
+                .map(Element::getSimpleName)
+                .toList()
+                : List.of();
+
+        final var loweredSelector = selector;
+        final var cases = switchExpression.getCases().stream()
+                .map(caseStatement -> (CaseStatement) acceptTree(caseStatement, scope))
+                .map(caseStatement -> enumConstants.isEmpty()
+                        ? caseStatement
+                        : toOrdinalCase(caseStatement, enumConstants))
+                .toList();
+
+        return switchExpression.builder()
+                .selector(loweredSelector)
+                .cases(cases)
+                .build();
+    }
+
+    /**
+     * Maakt van {@code selector} (een enum-expressie) de
+     * {@code selector.ordinal()}-aanroep voor de switch-dispatch.
+     */
+    private ExpressionTree enumOrdinalSelector(final ExpressionTree selector,
+                                               final TypeElement enumElement) {
+        final var ordinal = IdentifierTree.create("ordinal");
+        final var methodInvoke = TreeMaker.methodInvocationTree(
+                new CFieldAccessExpressionTree(selector, ordinal),
+                List.of(),
+                List.of(),
+                -1,
+                -1
+        );
+        methodInvoke.setMethodType(ordinalMethod(enumElement));
+        methodInvoke.setType(types.getPrimitiveType(TypeKind.INT));
+        return methodInvoke;
+    }
+
     /**
      * {@code switch (e) { case A: ... }} wordt {@code switch (e.ordinal()) {
      * case 0: ... }}. De hele wereld (ook de enum) wordt samen gecompileerd,
@@ -707,18 +769,9 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     private SwitchStatement visitEnumSwitchStatement(final SwitchStatement switchStatement,
                                                      final LowerScope scope,
                                                      final TypeElement enumElement) {
-        final var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), scope);
-
-        final var ordinal = IdentifierTree.create("ordinal");
-        final var methodInvoke = TreeMaker.methodInvocationTree(
-                new CFieldAccessExpressionTree(selector, ordinal),
-                List.of(),
-                List.of(),
-                -1,
-                -1
-        );
-        methodInvoke.setMethodType(ordinalMethod(enumElement));
-        methodInvoke.setType(types.getPrimitiveType(TypeKind.INT));
+        final var selector = enumOrdinalSelector(
+                (ExpressionTree) acceptTree(switchStatement.getSelector(), scope),
+                enumElement);
 
         final var constants = ElementFilter.enumValuesIn(enumElement.getEnclosedElements()).stream()
                 .map(Element::getSimpleName)
@@ -730,7 +783,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 .toList();
 
         return switchStatement.builder()
-                .selector(methodInvoke)
+                .selector(selector)
                 .cases(cases)
                 .build();
     }

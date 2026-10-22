@@ -363,15 +363,6 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitSwitchStatement(final SwitchStatement switchStatement,
                                        final Scope scope) {
-        final var selector = switchStatement.getSelector();
-        final var selectorType = selector.getType();
-
-        if (selectorType instanceof DeclaredType declaredType
-                && declaredType.asTypeElement() != null
-                && Constants.STRING.equals(declaredType.asTypeElement().getQualifiedName())) {
-            reportUnsupportedConstruct("Switching on a String value", switchStatement, scope);
-        }
-
         // Check for switch expression exhaustiveness (P2 requirement)
         // For now we just validate that pattern matching is allowed
         // More advanced exhaustiveness analysis would need to be added here

@@ -763,6 +763,18 @@ public interface TreeVisitor<R, P> {
     }
 
     /**
+     * Visit switch expression.
+     *
+     * @param switchExpression A switch expression.
+     * @param param A parameter.
+     * @return Returns a result.
+     */
+    default R visitSwitchExpression(SwitchExpressionTree switchExpression,
+                                    P param) {
+        return visitUnknown(switchExpression, param);
+    }
+
+    /**
      * Visit pattern case label.
      *
      * @param patternCaseLabel A pattern case label.

@@ -1914,6 +1914,10 @@ public class CompleteMethodResolver implements MethodResolver {
             }
             return null;
         }
+        // A class or interface type is never an array (Arrays.asList(...) is not a byte[]).
+        if (source instanceof DeclaredType && target instanceof ArrayType) {
+            return false;
+        }
         if (source instanceof DeclaredType sourceDeclared && target instanceof DeclaredType targetDeclared) {
             final TypeElement sourceElement = sourceDeclared.asTypeElement();
             final TypeElement targetElement = targetDeclared.asTypeElement();

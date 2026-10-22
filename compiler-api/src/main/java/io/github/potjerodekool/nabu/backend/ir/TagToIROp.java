@@ -47,14 +47,18 @@ public final class TagToIROp {
             case BITOR -> Op.BITOR;
             case BITXOR -> Op.BITXOR;
 
+            // Shifts: the left operand decides the width, the distance is an int
+            case LSHIFT -> Op.SHL;
+            case RSHIFT -> Op.SHR;
+            case URSHIFT -> Op.USHR;
+
             // Compound assignments, unaire operators, shifts
             // worden door de visitor uitgevouwen of zijn nog niet geïmplementeerd
             case ASSIGN,
                  ADD_ASSIGN, SUB_ASSIGN, MUL_ASSIGN, DIV_ASSIGN,
                  AND_ASSIGN, OR_ASSIGN, XOR_ASSIGN,
                  MOD_ASSIGN, LSHIFT_ASSIGN, RSHIFT_ASSIGN, URSHIFT_ASSIGN,
-                 POST_INC, POST_DEC, PRE_INC, PRE_DEC, NOT, BITNOT,
-                 LSHIFT, RSHIFT, URSHIFT ->
+                 POST_INC, POST_DEC, PRE_INC, PRE_DEC, NOT, BITNOT ->
                     throw new UnsupportedOperationException(
                             "Tag " + tag + " is not a direct binary IR operation — "
                                     + "expand it in the visitor, or it is not implemented yet");
@@ -100,6 +104,9 @@ public final class TagToIROp {
             case OR_ASSIGN     -> Op.OR;
             case XOR_ASSIGN    -> Op.XOR;
             case MOD_ASSIGN    -> Op.MOD;
+            case LSHIFT_ASSIGN -> Op.SHL;
+            case RSHIFT_ASSIGN -> Op.SHR;
+            case URSHIFT_ASSIGN -> Op.USHR;
             default -> throw new UnsupportedOperationException(
                     "No base operation for: " + tag);
         };

@@ -1199,7 +1199,9 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
             if (label.equals(tryEndLabel)) {
                 continue;
             }
-            if (handlerLabels.contains(label)) {
+            // Eigen-handler skipt niet: de catch-all-regio's die per catch-body
+            // genererenden worden, starten op dat catch-handler-label zelf.
+            if (handlerLabels.contains(label) && !label.equals(tryStartLabel)) {
                 continue;
             }
             if (tryStartLabels.contains(label) && !label.equals(tryStartLabel)) {

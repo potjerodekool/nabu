@@ -427,12 +427,18 @@ class BackendIrTest {
         }
 
         @Test
+        void mapShiftOps() {
+            assertSame(IRInstruction.BinaryOp.Op.SHL, TagToIROp.map(Tag.LSHIFT));
+            assertSame(IRInstruction.BinaryOp.Op.SHR, TagToIROp.map(Tag.RSHIFT));
+            assertSame(IRInstruction.BinaryOp.Op.USHR, TagToIROp.map(Tag.URSHIFT));
+        }
+
+        @Test
         void mapUnsupportedThrows() {
             assertThrows(UnsupportedOperationException.class, () -> TagToIROp.map(Tag.ASSIGN));
             assertThrows(UnsupportedOperationException.class, () -> TagToIROp.map(Tag.ADD_ASSIGN));
             assertThrows(UnsupportedOperationException.class, () -> TagToIROp.map(Tag.POST_INC));
             assertThrows(UnsupportedOperationException.class, () -> TagToIROp.map(Tag.NOT));
-            assertThrows(UnsupportedOperationException.class, () -> TagToIROp.map(Tag.LSHIFT));
         }
     }
 

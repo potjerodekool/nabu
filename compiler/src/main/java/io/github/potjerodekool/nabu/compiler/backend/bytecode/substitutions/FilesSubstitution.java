@@ -15,6 +15,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileAttribute;
+import io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ListDirectoryStream;
 import io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ReaderCloser;
 import java.util.ArrayList;
 import java.util.List;
@@ -167,6 +169,70 @@ public final class FilesSubstitution {
             }
         }
         return entries.stream();
+    }
+
+    public static DirectoryStream<Path> newDirectoryStream(final Path dir) throws IOException {
+        final File file = dir.toFile();
+        if (!file.isDirectory()) {
+            throw new NoSuchFileException(dir.toString());
+        }
+        final List<Path> entries = new ArrayList<Path>();
+        final String[] names = file.list();
+        if (names != null) {
+            for (final String name : names) {
+                entries.add(dir.resolve(name));
+            }
+        }
+        return new ListDirectoryStream(entries);
+    }
+
+    public static java.util.stream.Stream<Path> walk(final Path start, final java.nio.file.FileVisitOption... options)
+            throws IOException {
+        return walk(start, Integer.MAX_VALUE, options);
+    }
+
+    public static java.util.stream.Stream<Path> walk(final Path start, final int maxDepth,
+                                                     final java.nio.file.FileVisitOption... options) throws IOException {
+        if (!start.toFile().exists()) {
+            throw new NoSuchFileException(start.toString());
+        }
+        // Depth first, in the order of Files.walk: a directory before its entries. An explicit stack, because a
+        // helper method of this class would not be copied into Files.
+        final List<Path> found = new ArrayList<Path>();
+        final List<Path> pending = new ArrayList<Path>();
+        final List<Integer> depths = new ArrayList<Integer>();
+        pending.add(start);
+        depths.add(0);
+        while (!pending.isEmpty()) {
+            final int last = pending.size() - 1;
+            final Path path = pending.remove(last);
+            final int depth = depths.remove(last);
+            found.add(path);
+            final File file = path.toFile();
+            if (depth < maxDepth && file.isDirectory()) {
+                final String[] names = file.list();
+                if (names != null) {
+                    for (int k = names.length - 1; k >= 0; k--) {
+                        pending.add(path.resolve(names[k]));
+                        depths.add(depth + 1);
+                    }
+                }
+            }
+        }
+        return found.stream();
+    }
+
+    public static java.nio.file.attribute.FileTime getLastModifiedTime(final Path path, final LinkOption... options)
+            throws IOException {
+        final File file = path.toFile();
+        if (!file.exists()) {
+            throw new NoSuchFileException(path.toString());
+        }
+        return java.nio.file.attribute.FileTime.fromMillis(file.lastModified());
+    }
+
+    public static boolean isSameFile(final Path path, final Path path2) throws IOException {
+        return path.toFile().getCanonicalPath().equals(path2.toFile().getCanonicalPath());
     }
 
     // ---- writing

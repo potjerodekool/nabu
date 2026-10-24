@@ -26,6 +26,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileAttribute;
 import io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ListDirectoryStream;
 import io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ReaderCloser;
+import io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.SimpleFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -231,6 +232,16 @@ public final class FilesSubstitution {
         return java.nio.file.attribute.FileTime.fromMillis(file.lastModified());
     }
 
+    @SuppressWarnings("unchecked")
+    public static <A extends java.nio.file.attribute.BasicFileAttributes> A readAttributes(final Path path,
+            final Class<A> type, final LinkOption... options) throws IOException {
+        final File file = path.toFile();
+        if (!file.exists()) {
+            throw new NoSuchFileException(path.toString());
+        }
+        return (A) new SimpleFileAttributes(file.length(), file.lastModified(), file.isDirectory(), file.isFile());
+    }
+
     public static boolean isSameFile(final Path path, final Path path2) throws IOException {
         return path.toFile().getCanonicalPath().equals(path2.toFile().getCanonicalPath());
     }
@@ -392,7 +403,12 @@ public final class FilesSubstitution {
         try {
             final OutputStream out = new FileOutputStream(to);
             try {
-                in.transferTo(out);
+                // not transferTo: FileInputStream would use a FileChannel
+                final byte[] buffer = new byte[8192];
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, n);
+                }
             } finally {
                 out.close();
             }

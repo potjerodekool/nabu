@@ -356,6 +356,16 @@ class FrontendGapsRunTest {
     }
 
     @Test
+    void varargsConstructor() throws Exception {
+        assertEquals("3 0 1", run("""
+                        return new Many("a", "b", "c").count + " " + new Many().count + " " + new Many("x").count;""",
+                "static class Many {\n"
+                        + "    final int count;\n"
+                        + "    Many(String... parts) { this.count = parts.length; }\n"
+                        + "}"));
+    }
+
+    @Test
     void localClass() throws Exception {
         assertEquals("7", run("""
                         class Adder {

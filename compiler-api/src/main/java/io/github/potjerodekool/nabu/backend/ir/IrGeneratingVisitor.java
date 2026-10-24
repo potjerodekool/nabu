@@ -3429,11 +3429,15 @@ if (argVal != null) args.add(argVal);
         final var argMirrors = newClass.getArguments().size() == (outerPrepended ? args.size() - 1 : args.size())
                 ? newClass.getArguments().stream().map(IrGeneratingVisitor::argumentType).toList()
                 : null;
-        final var declaredParamTypes = resolveDeclaredCtorParamTypes(
+        List<IRType> declaredParamTypes = resolveDeclaredCtorParamTypes(
                 classMirror,
                 outerPrepended ? args.size() - 1 : args.size(),
                 outerPrepended ? paramTypes.subList(1, paramTypes.size()) : paramTypes,
                 argMirrors);
+        if (declaredParamTypes == null) {
+            declaredParamTypes = varArgsConstructorParamTypes(classMirror, newClass.getArguments().size());
+        }
+        declaredParamTypes = packConstructorVarArgs(newClass, args, declaredParamTypes, outerPrepended ? 1 : 0);
         final IRType[] effectiveParamTypes;
         if (declaredParamTypes != null) {
             if (outerPrepended) {
@@ -3468,6 +3472,67 @@ if (argVal != null) args.add(argVal);
                 + " args=" + args.stream().map(a -> String.valueOf(a.type())).toList());
         builder.emitCall(CallKind.SPECIAL, initName, IRType.VOID, Arrays.asList(effectiveParamTypes), args);
         return obj;
+    }
+
+    /**
+     * The erased parameters of a varargs constructor that can take {@code argCount} arguments (JLS 15.12.4.4),
+     * or null. Only looked for when no constructor has exactly that many parameters.
+     */
+    private List<IRType> varArgsConstructorParamTypes(final TypeMirror classMirror, final int argCount) {
+        if (!(classMirror instanceof io.github.potjerodekool.nabu.type.DeclaredType declaredType)
+                || declaredType.asTypeElement() == null) {
+            return null;
+        }
+        for (final var ctor : io.github.potjerodekool.nabu.lang.model.element.ElementFilter.constructorsIn(
+                declaredType.asTypeElement().getEnclosedElements())) {
+            if (ctor.isVarArgs() && ctor.getParameters().size() - 1 <= argCount) {
+                return ctor.getParameters().stream()
+                        .map(p -> TypeMirrorToIRType.map(p.asType()))
+                        .toList();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Bundles the trailing arguments of a constructor call into the array parameter (JLS 15.12.4.4), unless the
+     * last argument already is that array. {@code args} then has one value per declared parameter.
+     *
+     * @return the declared parameter types
+     */
+    private List<IRType> packConstructorVarArgs(final NewClassExpression newClass,
+                                                final List<IRValue> args,
+                                                final List<IRType> declared,
+                                                final int offset) {
+        if (declared == null || declared.isEmpty()
+                || !(declared.getLast() instanceof IRType.Ptr arrayParam)
+                || arrayParam.jvmDescriptor() == null || !arrayParam.jvmDescriptor().startsWith("[")) {
+            return declared;
+        }
+        final int fixed = declared.size() - 1;
+        final int given = args.size() - offset;
+        if (given < fixed) {
+            return declared;
+        }
+        if (given == declared.size()) {
+            final IRValue last = args.getLast();
+            final ExpressionTree lastTree = newClass.getArguments().getLast();
+            if (last instanceof IRValue.ConstNull || isArrayAssignableToVarArgs(lastTree, last, arrayParam)) {
+                return declared;
+            }
+        }
+        final IRType componentType = varArgComponentType(arrayParam);
+        final List<IRValue> elements = new ArrayList<>(args.subList(offset + fixed, args.size()));
+        while (args.size() > offset + fixed) {
+            args.removeLast();
+        }
+        final var array = builder.emitAllocaArray(elements.size(), arrayParam);
+        for (int i = 0; i < elements.size(); i++) {
+            builder.emitArrayStore(array, IRValue.ofI32(i), adaptCallArgument(elements.get(i), componentType),
+                    componentType);
+        }
+        args.add(array);
+        return declared;
     }
 
     static void debug(final String line) {

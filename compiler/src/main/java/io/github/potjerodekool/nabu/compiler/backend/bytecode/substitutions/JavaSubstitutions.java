@@ -49,6 +49,7 @@ public final class JavaSubstitutions {
             Map.entry("java/security/Security$SecPropLoader", SecurityPropertiesSubstitution.class),
             Map.entry("jdk/internal/event/EventHelper", EventHelperSubstitution.class),
             Map.entry("sun/security/provider/SeedGenerator", SeedGeneratorSubstitution.class),
+            Map.entry("java/lang/ProcessImpl", ProcessImplSubstitution.class),
             Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class));
 
     /** JDK classes whose {@code <clinit>} is emptied. */
@@ -60,6 +61,7 @@ public final class JavaSubstitutions {
             "java/util/concurrent/atomic/AtomicReferenceArray",
             "java/util/concurrent/atomic/AtomicIntegerArray",
             "java/util/concurrent/atomic/AtomicLongArray",
+            "java/lang/ProcessImpl",
             "jdk/internal/event/EventHelper");
 
     private JavaSubstitutions() {

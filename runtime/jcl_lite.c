@@ -1488,6 +1488,269 @@ BIND(int64_t, jcl_java_io_FileInputStream_position0, "java.io.FileInputStream_po
     return (int64_t)lseek(fd, 0, SEEK_CUR);
 #endif
 }
+/* --- NativeProcess: child processes (Windows) --------------------------- */
+
+#ifdef _WIN32
+static HANDLE jcl_process_handle(int64_t h) { return (HANDLE)(intptr_t)h; }
+
+/* The pipe end of the parent as a CRT descriptor, or -1. */
+static int64_t jcl_pipe_fd(HANDLE h, int flags) {
+    if (h == NULL) return -1;
+    int fd = _open_osfhandle((intptr_t)h, flags | _O_BINARY | _O_NOINHERIT);
+    if (fd < 0) { CloseHandle(h); return -1; }
+    return fd;
+}
+#endif
+
+BIND(int64_t, jcl_NativeProcess_spawn0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_spawn0",
+     (void *cmd, void *env, void *dir, void *modesArr, void *fdsArr)) {
+    int64_t *fds = (int64_t *)((char *)fdsArr + 8);
+    fds[0] = fds[1] = fds[2] = -1;
+#ifdef _WIN32
+    const int32_t *m = (const int32_t *)((const char *)modesArr + 8);
+    SECURITY_ATTRIBUTES sa = {sizeof sa, NULL, TRUE};
+    HANDLE inR = NULL, inW = NULL, outR = NULL, outW = NULL, errR = NULL, errW = NULL;
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof si);
+    memset(&pi, 0, sizeof pi);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+
+    if (m[0] == 0) {
+        if (!CreatePipe(&inR, &inW, &sa, 0)) goto fail;
+        SetHandleInformation(inW, HANDLE_FLAG_INHERIT, 0);
+        si.hStdInput = inR;
+    } else {
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    }
+    if (m[1] == 0) {
+        if (!CreatePipe(&outR, &outW, &sa, 0)) goto fail;
+        SetHandleInformation(outR, HANDLE_FLAG_INHERIT, 0);
+        si.hStdOutput = outW;
+    } else {
+        si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    }
+    if (m[3] != 0) {
+        /* redirectErrorStream: the error output goes where the standard output goes */
+        si.hStdError = si.hStdOutput;
+    } else if (m[2] == 0) {
+        if (!CreatePipe(&errR, &errW, &sa, 0)) goto fail;
+        SetHandleInformation(errR, HANDLE_FLAG_INHERIT, 0);
+        si.hStdError = errW;
+    } else {
+        si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    }
+
+    wchar_t *wcmd = _wcsdup(jcl_wide(nabu_cstr(cmd)));
+    wchar_t *wdir = dir != NULL ? _wcsdup(jcl_wide(nabu_cstr(dir))) : NULL;
+    wchar_t *block = NULL;
+    if (env != NULL) {
+        int32_t n = jcl_arr_len(env);
+        size_t total = 1;
+        wchar_t **parts = (wchar_t **)calloc((size_t)n + 1, sizeof(wchar_t *));
+        for (int32_t i = 0; i < n; i++) {
+            parts[i] = _wcsdup(jcl_wide(nabu_cstr(((void **)((char *)env + 8))[i])));
+            total += wcslen(parts[i]) + 1;
+        }
+        block = (wchar_t *)calloc(total + 1, sizeof(wchar_t));
+        size_t at = 0;
+        for (int32_t i = 0; i < n; i++) {
+            size_t len = wcslen(parts[i]);
+            memcpy(block + at, parts[i], len * sizeof(wchar_t));
+            at += len + 1;
+            free(parts[i]);
+        }
+        free(parts);
+    }
+    BOOL ok = CreateProcessW(NULL, wcmd, NULL, NULL, TRUE, CREATE_UNICODE_ENVIRONMENT, block, wdir, &si, &pi);
+    DWORD error = ok ? 0 : GetLastError();
+    free(wcmd);
+    free(wdir);
+    free(block);
+    if (!ok) {
+        char reason[160];
+        snprintf(reason, sizeof reason, "Cannot run program \"%s\": error=%lu", nabu_cstr(cmd), (unsigned long)error);
+        if (inR) CloseHandle(inR);
+        if (inW) CloseHandle(inW);
+        if (outR) CloseHandle(outR);
+        if (outW) CloseHandle(outW);
+        if (errR) CloseHandle(errR);
+        if (errW) CloseHandle(errW);
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(reason)));
+        return 0;
+    }
+    /* The child has its ends; the parent keeps the others. */
+    if (inR) CloseHandle(inR);
+    if (outW) CloseHandle(outW);
+    if (errW) CloseHandle(errW);
+    CloseHandle(pi.hThread);
+    fds[0] = jcl_pipe_fd(inW, 0);
+    fds[1] = jcl_pipe_fd(outR, _O_RDONLY);
+    fds[2] = jcl_pipe_fd(errR, _O_RDONLY);
+    return (int64_t)(intptr_t)pi.hProcess;
+fail:
+    if (inR) CloseHandle(inR);
+    if (inW) CloseHandle(inW);
+    if (outR) CloseHandle(outR);
+    if (outW) CloseHandle(outW);
+    if (errR) CloseHandle(errR);
+    if (errW) CloseHandle(errW);
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Cannot create a pipe"));
+    return 0;
+#else
+    (void)cmd; (void)env; (void)dir; (void)modesArr;
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+            "Starting a process is only supported on Windows in a native executable"));
+    return 0;
+#endif
+}
+
+/* true when the process has ended (within millis; negative: wait without limit) */
+BIND(uint8_t, jcl_NativeProcess_wait0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_wait0", (int64_t handle, int64_t millis)) {
+#ifdef _WIN32
+    return WaitForSingleObject(jcl_process_handle(handle), millis < 0 ? INFINITE : (DWORD)millis) == WAIT_OBJECT_0;
+#else
+    (void)handle; (void)millis;
+    return 1;
+#endif
+}
+BIND(int32_t, jcl_NativeProcess_exit0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_exit0", (int64_t handle)) {
+#ifdef _WIN32
+    DWORD code = 0;
+    if (!GetExitCodeProcess(jcl_process_handle(handle), &code)) return -1;
+    return (int32_t)code;
+#else
+    (void)handle;
+    return -1;
+#endif
+}
+BIND(void, jcl_NativeProcess_destroy0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_destroy0", (int64_t handle)) {
+#ifdef _WIN32
+    TerminateProcess(jcl_process_handle(handle), 1);
+#else
+    (void)handle;
+#endif
+}
+BIND(int32_t, jcl_NativeProcess_pid0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_pid0", (int64_t handle)) {
+#ifdef _WIN32
+    return (int32_t)GetProcessId(jcl_process_handle(handle));
+#else
+    (void)handle;
+    return -1;
+#endif
+}
+BIND(int32_t, jcl_NativeProcess_read0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_read0", (int32_t fd, void *b, int32_t off, int32_t len)) {
+    if (b == NULL || off < 0 || len < 0 || off + len > jcl_arr_len(b)) {
+        nabu_throw(jcl_throw("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException", NULL));
+        return -1;
+    }
+#ifdef _WIN32
+    int n = _read(fd, (char *)b + 8 + off, (unsigned int)len);
+#else
+    ssize_t n = read(fd, (char *)b + 8 + off, (size_t)len);
+#endif
+    if (n < 0) {
+        /* a pipe whose write end is closed reports a broken pipe, which is the end of the output */
+        return -1;
+    }
+    return n == 0 ? -1 : (int32_t)n;
+}
+BIND(void, jcl_NativeProcess_write0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_write0", (int32_t fd, void *b, int32_t off, int32_t len)) {
+    if (b == NULL || off < 0 || len < 0 || off + len > jcl_arr_len(b)) {
+        nabu_throw(jcl_throw("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException", NULL));
+        return;
+    }
+    const char *p = (const char *)b + 8 + off;
+    while (len > 0) {
+#ifdef _WIN32
+        int n = _write(fd, p, (unsigned int)len);
+#else
+        ssize_t n = write(fd, p, (size_t)len);
+#endif
+        if (n <= 0) {
+            nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Broken pipe"));
+            return;
+        }
+        p += n;
+        len -= (int32_t)n;
+    }
+}
+BIND(void, jcl_NativeProcess_close0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_close0", (int32_t fd)) {
+#ifdef _WIN32
+    _close(fd);
+#else
+    close(fd);
+#endif
+}
+
+/* --- java.io.RandomAccessFile ------------------------------------------- */
+
+/* The CRT descriptor of a RandomAccessFile (this.fd.fd), as for the streams. */
+BIND(void, jcl_java_io_RandomAccessFile_open0, "java.io.RandomAccessFile_open0", (void *self, void *path, int32_t mode)) {
+    /* RandomAccessFile.O_RDONLY = 1, O_RDWR = 2 */
+    jcl_open_file(self, path, (mode & 2) ? (O_RDWR | O_CREAT) : O_RDONLY);
+}
+BIND(int32_t, jcl_java_io_RandomAccessFile_read0, "java.io.RandomAccessFile_read0", (void *self)) {
+    unsigned char c;
+    int32_t n = jcl_fis_read(self, &c, 1);
+    return n == 1 ? (int32_t)c : -1;
+}
+BIND(int32_t, jcl_java_io_RandomAccessFile_readBytes0, "java.io.RandomAccessFile_readBytes0",
+     (void *self, void *b, int32_t off, int32_t len)) {
+    if (b == NULL) { nabu_throw(jcl_throw("java/lang/NullPointerException", "java/lang/RuntimeException", NULL)); return -1; }
+    if (off < 0 || len < 0 || off + len > jcl_arr_len(b)) {
+        nabu_throw(jcl_throw("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException", NULL));
+        return -1;
+    }
+    return jcl_fis_read(self, (char *)b + 8 + off, len);
+}
+BIND(void, jcl_java_io_RandomAccessFile_write0, "java.io.RandomAccessFile_write0", (void *self, int32_t b)) {
+    const char c = (char)b;
+    jcl_fos_write(self, &c, 1);
+}
+BIND(void, jcl_java_io_RandomAccessFile_writeBytes0, "java.io.RandomAccessFile_writeBytes0",
+     (void *self, void *b, int32_t off, int32_t len)) {
+    if (b == NULL) { nabu_throw(jcl_throw("java/lang/NullPointerException", "java/lang/RuntimeException", NULL)); return; }
+    if (off < 0 || len < 0 || off + len > jcl_arr_len(b)) {
+        nabu_throw(jcl_throw("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException", NULL));
+        return;
+    }
+    jcl_fos_write(self, (const char *)b + 8 + off, (size_t)len);
+}
+BIND(int64_t, jcl_java_io_RandomAccessFile_getFilePointer, "java.io.RandomAccessFile_getFilePointer", (void *self)) {
+    return jcl_java_io_FileInputStream_position0(self);
+}
+BIND(void, jcl_java_io_RandomAccessFile_seek0, "java.io.RandomAccessFile_seek0", (void *self, int64_t pos)) {
+    int32_t fd = jcl_fos_fd(self);
+    if (fd <= 2) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed"));
+        return;
+    }
+#ifdef _WIN32
+    int64_t r = _lseeki64(fd, pos, SEEK_SET);
+#else
+    int64_t r = (int64_t)lseek(fd, (off_t)pos, SEEK_SET);
+#endif
+    if (r < 0) nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Seek failed"));
+}
+BIND(int64_t, jcl_java_io_RandomAccessFile_length0, "java.io.RandomAccessFile_length0", (void *self)) {
+    return jcl_java_io_FileInputStream_length0(self);
+}
+BIND(void, jcl_java_io_RandomAccessFile_setLength0, "java.io.RandomAccessFile_setLength0", (void *self, int64_t len)) {
+    int32_t fd = jcl_fos_fd(self);
+    if (fd <= 2) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed"));
+        return;
+    }
+#ifdef _WIN32
+    int bad = _chsize_s(fd, len) != 0;
+#else
+    int bad = ftruncate(fd, (off_t)len) != 0;
+#endif
+    if (bad) nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "setLength failed"));
+}
+
 BIND(uint8_t, jcl_java_io_FileInputStream_isRegularFile0, "java.io.FileInputStream_isRegularFile0", (void *self, void *fdObj)) {
     int32_t *slot = jcl_fd_slot(fdObj);
     return slot != NULL && *slot > 2;

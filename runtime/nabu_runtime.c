@@ -1349,6 +1349,29 @@ static int nabu_type_assignable(const char *actual, const char *wanted) {
     return 0;
 }
 
+/* A checked cast to a class: obj if it is an instance of the class (or null), else ClassCastException. Only an
+ * object of a compiled class can fail: an object the C runtime made, or a class the program does not know, passes. */
+void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
+    if (obj == NULL || wanted == NULL) return obj;
+    const char *actual = nabu_compiled_type_name(obj);
+    if (actual == NULL) return obj;
+    for (const nabu_type_info *t = ((nabu_object *) obj)->type; t != NULL; t = t->super_type) {
+        if (t == wanted) return obj;
+    }
+    if (nabu_instanceof(obj, wanted->name)) return obj;
+    char message[512];
+    snprintf(message, sizeof message, "class %s cannot be cast to class %s", actual, wanted->name);
+    for (char *p = message; *p; p++) if (*p == '/') *p = '.';
+    void *exception = nabu_new_exception("java/lang/ClassCastException", message);
+    if (exception == NULL) {
+        exception = calloc(1, sizeof(nabu_object) + 2 * sizeof(void *));
+        nabu_init_object_ex(exception, "java/lang/ClassCastException", "java/lang/RuntimeException");
+    }
+    nabu_throw(exception);
+    fprintf(stderr, "nabu: unhandled ClassCastException\n");
+    abort();
+}
+
 /* `obj instanceof T[]`: `wanted` is the JVM name of the array type ("[B", "[Ljava/lang/String;"). An array has
  * no object header; it is recognized by its length, element size and the array type id the backend writes. */
 int nabu_instanceof_array(void *obj, const char *wanted) {

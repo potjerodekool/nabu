@@ -2279,9 +2279,51 @@ public class InstructionEmitter {
         } else if (srcInt && isPointerType(target)) {
             result = intToPointer(src, target);
         } else {
+            if (isPointerType(actual) && isPointerType(target)) {
+                src = checkedClassCast(src, cast.targetType());
+            }
             result = LLVMBuildBitCast(builder, src, target, name);
         }
         storeLocal(cast.result(), result);
+    }
+
+    /**
+     * A reference cast to a class of the program is checked at run time (ClassCastException). Casts to an
+     * interface, to Object, to an array or to a class the program does not contain are not: the runtime cannot
+     * tell for those whether a value is an instance (lambdas, objects made in C).
+     */
+    private LLVMValueRef checkedClassCast(final LLVMValueRef value, final IRType targetType) {
+        if (!(targetType instanceof IRType.Ptr ptr) || ptr.jvmDescriptor() == null
+                || !ptr.jvmDescriptor().startsWith("L") || ptr.jvmDescriptor().startsWith("L[")) {
+            return value;
+        }
+        final String internal = ClassLayouts.fromDescriptor(ptr.jvmDescriptor());
+        if (internal == null || "java/lang/Object".equals(internal)) {
+            return value;
+        }
+        final ClassLayouts.ClassLayout layout = classLayouts.get(internal);
+        if (layout == null || layout.isInterface || layout.typeInfoGlobal == null) {
+            return value;
+        }
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        final LLVMModuleRef castMod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(current));
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final PointerPointer<Pointer> params = new PointerPointer<>(2);
+        params.put(0, ptrType);
+        params.put(1, ptrType);
+        final LLVMTypeRef fnType = LLVMFunctionType(ptrType, params, 2, 0);
+        LLVMValueRef fn = LLVMGetNamedFunction(castMod, "nabu_checkcast_class");
+        if (fn == null || fn.isNull()) {
+            fn = LLVMAddFunction(castMod, "nabu_checkcast_class", fnType);
+            LLVMSetLinkage(fn, LLVMExternalLinkage);
+        }
+        final PointerPointer<Pointer> args = new PointerPointer<>(2);
+        args.put(0, value);
+        args.put(1, layout.typeInfoGlobal);
+        final LLVMValueRef checked = emitCallOrInvoke("nabu_checkcast_class", fnType, fn, args, 2, null);
+        Reference.reachabilityFence(params);
+        Reference.reachabilityFence(args);
+        return checked;
     }
 
     // -------------------------------------------------------

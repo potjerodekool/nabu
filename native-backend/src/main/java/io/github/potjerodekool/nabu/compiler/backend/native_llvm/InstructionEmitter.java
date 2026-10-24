@@ -2288,13 +2288,18 @@ public class InstructionEmitter {
     }
 
     /**
-     * A reference cast to a class of the program is checked at run time (ClassCastException). Casts to an
-     * interface, to Object, to an array or to a class the program does not contain are not: the runtime cannot
-     * tell for those whether a value is an instance (lambdas, objects made in C).
+     * A reference cast to a class, an interface or an array type of the program is checked at run time
+     * (ClassCastException), as far as the runtime can tell: an object that C made, or an array of an unknown
+     * type, passes. Casts to Object or to a class the program does not contain are not checked.
      */
     private LLVMValueRef checkedClassCast(final LLVMValueRef value, final IRType targetType) {
-        if (!(targetType instanceof IRType.Ptr ptr) || ptr.jvmDescriptor() == null
-                || !ptr.jvmDescriptor().startsWith("L") || ptr.jvmDescriptor().startsWith("L[")) {
+        if (!(targetType instanceof IRType.Ptr ptr) || ptr.jvmDescriptor() == null) {
+            return value;
+        }
+        if (ptr.jvmDescriptor().startsWith("[")) {
+            return checkedNameCast(value, ptr.jvmDescriptor());
+        }
+        if (!ptr.jvmDescriptor().startsWith("L") || ptr.jvmDescriptor().startsWith("L[")) {
             return value;
         }
         final String internal = ClassLayouts.fromDescriptor(ptr.jvmDescriptor());
@@ -2302,7 +2307,10 @@ public class InstructionEmitter {
             return value;
         }
         final ClassLayouts.ClassLayout layout = classLayouts.get(internal);
-        if (layout == null || layout.isInterface || layout.typeInfoGlobal == null) {
+        if (layout != null && layout.isInterface) {
+            return checkedNameCast(value, internal);
+        }
+        if (layout == null || layout.typeInfoGlobal == null) {
             return value;
         }
         final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
@@ -2321,6 +2329,29 @@ public class InstructionEmitter {
         args.put(0, value);
         args.put(1, layout.typeInfoGlobal);
         final LLVMValueRef checked = emitCallOrInvoke("nabu_checkcast_class", fnType, fn, args, 2, null);
+        Reference.reachabilityFence(params);
+        Reference.reachabilityFence(args);
+        return checked;
+    }
+
+    /** A cast to an interface (internal name) or an array type (JVM name), checked by name in the runtime. */
+    private LLVMValueRef checkedNameCast(final LLVMValueRef value, final String wanted) {
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        final LLVMModuleRef castMod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(current));
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final PointerPointer<Pointer> params = new PointerPointer<>(2);
+        params.put(0, ptrType);
+        params.put(1, ptrType);
+        final LLVMTypeRef fnType = LLVMFunctionType(ptrType, params, 2, 0);
+        LLVMValueRef fn = LLVMGetNamedFunction(castMod, "nabu_checkcast_name");
+        if (fn == null || fn.isNull()) {
+            fn = LLVMAddFunction(castMod, "nabu_checkcast_name", fnType);
+            LLVMSetLinkage(fn, LLVMExternalLinkage);
+        }
+        final PointerPointer<Pointer> args = new PointerPointer<>(2);
+        args.put(0, value);
+        args.put(1, constants.resolveString(wanted, IRGlobal.Linkage.PRIVATE));
+        final LLVMValueRef checked = emitCallOrInvoke("nabu_checkcast_name", fnType, fn, args, 2, null);
         Reference.reachabilityFence(params);
         Reference.reachabilityFence(args);
         return checked;

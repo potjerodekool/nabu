@@ -154,6 +154,9 @@ void nabu_throw_npe(const char *site);
 /** A checked cast to a class: obj, or ClassCastException when it is an object of a compiled class that is no instance. */
 void *nabu_checkcast_class(void *obj, nabu_type_info *wanted);
 
+/** A checked cast to an interface or an array type, by name: obj, or ClassCastException when the runtime can tell it is no instance. */
+void *nabu_checkcast_name(void *obj, const char *wanted);
+
 /** Whether obj is an array of the type (JVM name, "[B", "[Ljava/lang/String;"); arrays have no object header. */
 int nabu_instanceof_array(void *obj, const char *wanted);
 

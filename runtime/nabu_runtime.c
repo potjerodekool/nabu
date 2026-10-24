@@ -1367,6 +1367,24 @@ static int nabu_type_assignable(const char *actual, const char *wanted) {
     return 0;
 }
 
+int nabu_instanceof_array(void *obj, const char *wanted);
+extern const char *nabu_array_type_name(int32_t id);
+
+/* Throws ClassCastException for an object of class `actual` cast to `wanted` (internal names). */
+static void nabu_throw_cce(const char *actual, const char *wanted) {
+    char message[512];
+    snprintf(message, sizeof message, "class %s cannot be cast to class %s", actual, wanted);
+    for (char *p = message; *p; p++) if (*p == '/') *p = '.';
+    void *exception = nabu_new_exception("java/lang/ClassCastException", message);
+    if (exception == NULL) {
+        exception = calloc(1, sizeof(nabu_object) + 2 * sizeof(void *));
+        nabu_init_object_ex(exception, "java/lang/ClassCastException", "java/lang/RuntimeException");
+    }
+    nabu_throw(exception);
+    fprintf(stderr, "nabu: unhandled ClassCastException\n");
+    abort();
+}
+
 /* A checked cast to a class: obj if it is an instance of the class (or null), else ClassCastException. Only an
  * object of a compiled class can fail: an object the C runtime made, or a class the program does not know, passes. */
 void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
@@ -1377,17 +1395,26 @@ void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
         if (t == wanted) return obj;
     }
     if (nabu_instanceof(obj, wanted->name)) return obj;
-    char message[512];
-    snprintf(message, sizeof message, "class %s cannot be cast to class %s", actual, wanted->name);
-    for (char *p = message; *p; p++) if (*p == '/') *p = '.';
-    void *exception = nabu_new_exception("java/lang/ClassCastException", message);
-    if (exception == NULL) {
-        exception = calloc(1, sizeof(nabu_object) + 2 * sizeof(void *));
-        nabu_init_object_ex(exception, "java/lang/ClassCastException", "java/lang/RuntimeException");
+    nabu_throw_cce(actual, wanted->name);
+}
+
+/* A checked cast to an interface or an array type, by name ("java/lang/Runnable", "[Ljava/lang/String;"). It
+ * only fails for what the runtime can judge: an object of a compiled class, or an array of a known type. */
+void *nabu_checkcast_name(void *obj, const char *wanted) {
+    if (obj == NULL || wanted == NULL) return obj;
+    const char *actual = nabu_compiled_type_name(obj);
+    if (wanted[0] == '[') {
+        if (actual != NULL) nabu_throw_cce(actual, wanted);
+        const int32_t *w = (const int32_t *) obj;
+        int32_t es = w[1] & 0xff;
+        if (w[0] < 0 || !(es == 1 || es == 2 || es == 4 || es == 8)) return obj;
+        const char *array = nabu_array_type_name((int32_t) ((uint32_t) w[1] >> 8));
+        if (array == NULL || nabu_instanceof_array(obj, wanted)) return obj;
+        nabu_throw_cce(array, wanted);
     }
-    nabu_throw(exception);
-    fprintf(stderr, "nabu: unhandled ClassCastException\n");
-    abort();
+    if (actual == NULL || nabu_instanceof(obj, wanted)) return obj;
+    nabu_throw_cce(actual, wanted);
+    return obj;
 }
 
 /* `obj instanceof T[]`: `wanted` is the JVM name of the array type ("[B", "[Ljava/lang/String;"). An array has

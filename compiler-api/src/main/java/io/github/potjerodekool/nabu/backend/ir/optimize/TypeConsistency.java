@@ -178,13 +178,10 @@ public final class TypeConsistency {
 
         // Replace temp usages in all instructions
         for (final var block : function.blocks()) {
-            final var newInstrs = new ArrayList<IRInstruction>();
-            for (final var instr : block.instructions()) {
-                final var newInstr = replaceTempInInstruction(instr, tempName, typeToNewTemp);
-                newInstrs.add(newInstr);
+            final var oldInstrs = new ArrayList<>(block.instructions());
+            for (int i = 0; i < oldInstrs.size(); i++) {
+                block.set(i, replaceTempInInstruction(oldInstrs.get(i), tempName, typeToNewTemp));
             }
-            block.instructions().clear();
-            block.instructions().addAll(newInstrs);
         }
 
         // Add phi-nodes at merge points

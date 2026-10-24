@@ -2176,7 +2176,7 @@ public class InstructionEmitter {
                 return functionEmitter.getHandlerLabel(entry.getKey());
             }
         }
-        return null;
+        return functionEmitter.getHandlerLabelOfBodyBlock(currentBB);
     }
 
     // -------------------------------------------------------

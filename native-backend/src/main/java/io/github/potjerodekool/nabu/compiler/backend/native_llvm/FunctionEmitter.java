@@ -136,6 +136,20 @@ public class FunctionEmitter {
         return tryHandlerMap.get(blockLabel);
     }
 
+    /**
+     * The handler that protects the code of a handler body block ({@code handler.<label>.body}): the one of
+     * the try statement the handler itself sits in, so an exception thrown in a catch or finally body reaches the
+     * enclosing try. Null for any other block.
+     */
+    public String getHandlerLabelOfBodyBlock(final LLVMBasicBlockRef block) {
+        for (final var entry : handlerBodyBlocks.entrySet()) {
+            if (entry.getValue().equals(block)) {
+                return tryHandlerMap.get(entry.getKey());
+            }
+        }
+        return null;
+    }
+
     // -------------------------------------------------------
     // Signatuur declareren (stap 1 — vóór bodies)
     // -------------------------------------------------------

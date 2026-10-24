@@ -3965,13 +3965,17 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
         final var resource = resources.get(index);
         final var declaration = resource.localVariableDeclaration();
-        if (declaration == null) {
-            throw new UnsupportedOperationException(
-                    "try-with-resources on an existing variable is not supported: " + sourceText(resource));
+        final String name;
+        final String text;
+        if (declaration == null || declaration.variableDeclaratorList() == null) {
+            // `try (existing)` (JLS 14.20.3): an existing variable or field is closed; only close() is needed,
+            // so it is kept in a variable of its own.
+            name = "$twrResource" + index;
+            text = "java.lang.AutoCloseable " + name + " = " + sourceText(resource);
+        } else {
+            name = declaration.variableDeclaratorList().variableDeclarator(0).variableDeclaratorId().getText();
+            text = sourceText(declaration);
         }
-        final String name = declaration.variableDeclaratorList().variableDeclarator(0)
-                .variableDeclaratorId().getText();
-        final String text = sourceText(declaration);
         final String primary = "$twrPrimary" + index;
         final String thrown = "$twrThrown" + index;
         final String suppressed = "$twrSuppressed" + index;

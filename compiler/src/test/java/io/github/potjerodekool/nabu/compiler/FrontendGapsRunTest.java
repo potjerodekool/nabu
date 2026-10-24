@@ -267,6 +267,23 @@ class FrontendGapsRunTest {
     }
 
     @Test
+    void tryWithResourcesOnExistingVariable() throws Exception {
+        assertEquals("body closed", run("""
+                        StringBuilder log = new StringBuilder();
+                        Res res = new Res(log);
+                        try (res) {
+                            res.touch();
+                        }
+                        return log.toString();""",
+                "static class Res implements AutoCloseable {\n"
+                        + "    final StringBuilder log;\n"
+                        + "    Res(StringBuilder log) { this.log = log; }\n"
+                        + "    void touch() { log.append(\"body\"); }\n"
+                        + "    public void close() { log.append(\" closed\"); }\n"
+                        + "}"));
+    }
+
+    @Test
     void localClass() throws Exception {
         assertEquals("7", run("""
                         class Adder {

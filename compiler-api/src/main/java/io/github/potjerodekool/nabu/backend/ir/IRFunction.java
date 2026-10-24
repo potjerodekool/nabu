@@ -93,6 +93,16 @@ public class IRFunction {
         blocks.add(block);
     }
 
+    /**
+     * Puts a block at the end of the block order. The native backend protects the blocks between two labels
+     * of a try statement, so code that must lie outside of it is moved behind it.
+     */
+    public void moveBlockToEnd(final IRBasicBlock block) {
+        if (blocks.remove(block)) {
+            blocks.add(block);
+        }
+    }
+
     public IRBasicBlock entryBlock() {
         if (blocks.isEmpty())
             throw new IllegalStateException("Function '" + name + "' has no blocks");

@@ -284,6 +284,78 @@ class FrontendGapsRunTest {
     }
 
     @Test
+    void finallyOnReturn() throws Exception {
+        assertEquals("1 f", run("""
+                        StringBuilder log = new StringBuilder();
+                        int v = m(log);
+                        return v + " " + log;""",
+                "static int m(StringBuilder log) { try { return 1; } finally { log.append(\"f\"); } }"));
+    }
+
+    @Test
+    void finallyOnBreakAndContinue() throws Exception {
+        assertEquals("c0 f0 c1 f1 b2 f2", run("""
+                        StringBuilder log = new StringBuilder();
+                        for (int i = 0; i < 5; i++) {
+                            try {
+                                if (i == 0 || i == 1) { log.append("c" + i + " "); continue; }
+                                log.append("b" + i + " ");
+                                break;
+                            } finally {
+                                log.append("f" + i + (i == 2 ? "" : " "));
+                            }
+                        }
+                        return log.toString();"""));
+    }
+
+    @Test
+    void finallyOnReturnInCatch() throws Exception {
+        assertEquals("r ! 1", run("""
+                        StringBuilder log = new StringBuilder();
+                        int v = m(log);
+                        return log + " " + v;""",
+                "static int m(StringBuilder log) {"
+                        + " try { throw new IllegalStateException(); }"
+                        + " catch (IllegalStateException e) { log.append(\"r \"); return 1; }"
+                        + " finally { log.append(\"!\"); } }"));
+    }
+
+    @Test
+    void finallyAfterThrowInCatch() throws Exception {
+        assertEquals("c f outer", run("""
+                        StringBuilder log = new StringBuilder();
+                        try {
+                            m(log);
+                        } catch (RuntimeException e) {
+                            log.append("outer");
+                        }
+                        return log.toString();""",
+                "static void m(StringBuilder log) {"
+                        + " try { throw new IllegalStateException(); }"
+                        + " catch (IllegalStateException e) { log.append(\"c \"); throw new RuntimeException(\"x\"); }"
+                        + " finally { log.append(\"f \"); } }"));
+    }
+
+    @Test
+    void finallyOnNestedJumps() throws Exception {
+        assertEquals("i1 o1", run("""
+                        StringBuilder log = new StringBuilder();
+                        outer:
+                        for (int i = 0; i < 3; i++) {
+                            try {
+                                try {
+                                    if (i == 0) { break outer; }
+                                } finally {
+                                    log.append("i" + (i + 1) + " ");
+                                }
+                            } finally {
+                                log.append("o" + (i + 1));
+                            }
+                        }
+                        return log.toString();"""));
+    }
+
+    @Test
     void localClass() throws Exception {
         assertEquals("7", run("""
                         class Adder {

@@ -66,6 +66,8 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     // Loop-context stack voor break/continue
     private final Deque<IRBasicBlock> breakTargets = new ArrayDeque<>();
     private final Deque<IRBasicBlock> continueTargets = new ArrayDeque<>();
+    /** The try statements with a finalizer that the code being generated is inside of, innermost first. */
+    private final Deque<FinallyEntry> finallyStack = new ArrayDeque<>();
 
     /**
      * Doelen van {@code yield} binnen een switch-expressie (JLS 15.28.2):
@@ -228,6 +230,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         final var previousPendingFieldInits = new LinkedHashMap<>(pendingFieldInitializers);
         final var previousModuleClass = currentModuleClass;
         final var previousInstanceInitializers = instanceInitializerStatements;
+        final var previousFinallyStack = new ArrayDeque<>(finallyStack);
 
         resetClassState();
         pendingFieldInitializers.clear();
@@ -266,6 +269,8 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         builder = previousBuilder;
         currentModuleClass = previousModuleClass;
         instanceInitializerStatements = previousInstanceInitializers;
+        finallyStack.clear();
+        finallyStack.addAll(previousFinallyStack);
         if (previousPendingFieldInits != null) {
             pendingFieldInitializers.clear();
             pendingFieldInitializers.putAll(previousPendingFieldInits);
@@ -282,6 +287,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         labeledBreakTargets.clear();
         labeledContinueTargets.clear();
         pendingLabels.clear();
+        finallyStack.clear();
         tryCatchRanges.clear();
     }
 
@@ -1578,7 +1584,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 final var downstream = builder.beginBlock("after.terminated");
                 builder.setCurrentBlock(downstream);
             }
-            builder.emitReturn(null);
+            emitReturnThroughFinalizers(null);
         } else {
             IRValue value = acceptTree(expr, builder);
             if (builder.currentBlockTerminated()) {
@@ -1602,9 +1608,99 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             if (builder.currentFunction() != null) {
                 value = unboxIfNeeded(value, builder.currentFunction().returnType);
             }
-            builder.emitReturn(value);
+            emitReturnThroughFinalizers(value);
         }
         return null;
+    }
+
+    /** A try statement with a finalizer, while its body and catch bodies are generated. */
+    private static final class FinallyEntry {
+        final Tree finalizer;
+        /** The break and continue targets that exist at the start of the try: a jump to one of them leaves it. */
+        final Set<IRBasicBlock> outerTargets = Collections.newSetFromMap(new IdentityHashMap<>());
+        /** Per jump target the block that runs the finalizer and then continues the jump. */
+        final Map<IRBasicBlock, IRBasicBlock> jumpStubs = new LinkedHashMap<>();
+        IRBasicBlock returnStub;
+        IRValue returnSlot;
+
+        FinallyEntry(final Tree finalizer) {
+            this.finalizer = finalizer;
+        }
+    }
+
+    private FinallyEntry pushFinallyEntry(final Tree finalizer) {
+        final var entry = new FinallyEntry(finalizer);
+        entry.outerTargets.addAll(breakTargets);
+        entry.outerTargets.addAll(continueTargets);
+        entry.outerTargets.addAll(labeledBreakTargets.values());
+        entry.outerTargets.addAll(labeledContinueTargets.values());
+        finallyStack.push(entry);
+        return entry;
+    }
+
+    /** A block that gets its place at the end of the function, when its code is generated (see emitFinallyStubs). */
+    private IRBasicBlock newDeferredBlock(final String label) {
+        final var current = builder.currentBlock();
+        final var block = builder.beginBlock(label);
+        builder.setCurrentBlock(current);
+        return block;
+    }
+
+    /** break/continue: runs the finalizers of the try statements that the jump leaves (JLS 14.20.2). */
+    private void emitJump(final IRBasicBlock target) {
+        final var entry = finallyStack.peek();
+        if (entry == null || !entry.outerTargets.contains(target)) {
+            builder.emitBranch(target);
+            return;
+        }
+        builder.emitBranch(entry.jumpStubs.computeIfAbsent(target, t -> newDeferredBlock("fin.jump")));
+    }
+
+    private void emitReturnThroughFinalizers(final IRValue value) {
+        final var entry = finallyStack.peek();
+        if (entry == null) {
+            builder.emitReturn(value);
+            return;
+        }
+        if (value != null) {
+            if (entry.returnSlot == null) {
+                entry.returnSlot = builder.emitAlloca("finally.ret", builder.currentFunction().returnType);
+            }
+            builder.emitStore(entry.returnSlot, value);
+        }
+        if (entry.returnStub == null) {
+            entry.returnStub = newDeferredBlock("fin.return");
+        }
+        builder.emitBranch(entry.returnStub);
+    }
+
+    /**
+     * Generates the blocks that break, continue and return jump to: the finalizer, then the rest of the jump.
+     * They go behind the try statement, outside of the blocks that it protects. The entry is popped by now, so
+     * the rest of the jump meets the finalizers of the enclosing try statements.
+     */
+    private void emitFinallyStubs(final FinallyEntry entry) {
+        for (final var jump : entry.jumpStubs.entrySet()) {
+            final var stub = jump.getValue();
+            builder.currentFunction().moveBlockToEnd(stub);
+            builder.setCurrentBlock(stub);
+            scope.pushScope();
+            acceptTree(entry.finalizer, builder);
+            scope.popScope();
+            if (!builder.currentBlockTerminated()) {
+                emitJump(jump.getKey());
+            }
+        }
+        if (entry.returnStub != null) {
+            builder.currentFunction().moveBlockToEnd(entry.returnStub);
+            builder.setCurrentBlock(entry.returnStub);
+            scope.pushScope();
+            acceptTree(entry.finalizer, builder);
+            scope.popScope();
+            if (!builder.currentBlockTerminated()) {
+                emitReturnThroughFinalizers(entry.returnSlot != null ? builder.emitLoad(entry.returnSlot) : null);
+            }
+        }
     }
 
     /**
@@ -4629,7 +4725,7 @@ if (argVal != null) args.add(argVal);
             }
         }
 
-        builder.emitBranch(targetBlock);
+        emitJump(targetBlock);
         return null;
     }
 
@@ -4657,7 +4753,7 @@ if (argVal != null) args.add(argVal);
             }
         }
 
-        builder.emitBranch(targetBlock);
+        emitJump(targetBlock);
         return null;
     }
 
@@ -5369,6 +5465,7 @@ if (argVal != null) args.add(argVal);
         }
 
         // Try body
+        final FinallyEntry finallyEntry = hasFinally ? pushFinallyEntry(tryStatement.getFinalizer()) : null;
         builder.setCurrentBlock(tryStartBlk);
         acceptTree(tryStatement.getBody(), builder);
 
@@ -5388,6 +5485,10 @@ if (argVal != null) args.add(argVal);
         // Catch handlers
         List<CatchTree> catchers = tryStatement.getCatchers();
         final var catchHandlerLabels = new ArrayList<String>();
+        // Behind the catch blocks: where the blocks end that the catch-all of the finalizer protects. The
+        // backends cannot use try.end for it, which lies before the catch blocks.
+        final IRBasicBlock catchesEndBlk = hasFinally && !catchers.isEmpty() ? newDeferredBlock("try.catches.end") : null;
+        final IRBasicBlock catchesJoinBlk = catchesEndBlk != null ? catchesEndBlk : tryEndBlk;
         for (int i = 0; i < catchers.size(); i++) {
             CatchTree catcher = catchers.get(i);
             IRBasicBlock handlerBlk = builder.beginBlock("try.catch." + i);
@@ -5446,10 +5547,19 @@ if (argVal != null) args.add(argVal);
             scope.popScope();
 
             if (!builder.currentBlockTerminated()) {
-                builder.emitBranch(tryEndBlk);
+                builder.emitBranch(catchesJoinBlk);
             }
         }
 
+        if (catchesEndBlk != null) {
+            builder.currentFunction().moveBlockToEnd(catchesEndBlk);
+            builder.setCurrentBlock(catchesEndBlk);
+            builder.emitBranch(tryEndBlk);
+        }
+
+        if (finallyEntry != null) {
+            finallyStack.pop();
+        }
         builder.setCurrentBlock(tryEndBlk);
 
         // Finally: JLS 14.20.2 - de finalizer moet zowel op het normale pad
@@ -5480,7 +5590,7 @@ if (argVal != null) args.add(argVal);
             for (final var catchHandlerLabel : catchHandlerLabels) {
                 finHandlerBlk.add(regionIndex++, new IRInstruction.TryCatchRegion(
                         catchHandlerLabel,
-                        tryEndBlk.label(),
+                        catchesEndBlk.label(),
                         finHandlerBlk.label(),
                         null,
                         builder.currentLocation()
@@ -5520,6 +5630,7 @@ if (argVal != null) args.add(argVal);
                         builder.currentLocation()
                 ));
             }
+            emitFinallyStubs(finallyEntry);
             builder.setCurrentBlock(finNormalEndBlk);
         }
 

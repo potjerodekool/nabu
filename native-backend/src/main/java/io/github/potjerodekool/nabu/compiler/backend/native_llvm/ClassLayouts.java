@@ -1821,6 +1821,24 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         return all.subList(1, all.size());
     }
 
+    /** The function of the interface that declares the slot's method with exactly these parameters, or null. */
+    private IRFunction findOverloadInInterface(final InterfaceSlotSig sig, final String tail, final String wanted) {
+        final IRModule module = modulesByInternalName.get(ownerInternalName(sig.function()));
+        if (module == null) {
+            return null;
+        }
+        IRFunction found = null;
+        for (final IRFunction fn : module.functions()) {
+            if (fn.isConstructor() || Flags.hasFlag(fn.getFlags(), Flags.STATIC)) continue;
+            if (!methodTail(fn.name).equals(tail)
+                    || !FnKeys.fnKey("", explicitParams(fn)).equals(wanted)) continue;
+            if (found == null || found.blocks().isEmpty()) {
+                found = fn;
+            }
+        }
+        return found;
+    }
+
     private LLVMValueRef findInterfaceImplementation(String classInternalName, String interfaceMethod) {
         IRFunction interfaceFn = resolveSlotFunction(interfaceMethod);
         if (interfaceFn == null) return null;
@@ -1850,10 +1868,14 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
                 c = superInternalName(c);
             }
             if (!FnKeys.fnKey("", explicitParams(interfaceFn)).equals(wanted)) {
-                // De gevonden interface-functie is een andere overload: niet
-                // die (verkeerde) implementatie kiezen. De default/stub van
-                // precies deze overload bestaat niet; laat het slot leeg.
-                return null;
+                // The function found by name is another overload (Path.resolve(Path) for resolve(String)). The
+                // overload of the slot has a name with a suffix; look for it in the interface itself.
+                final IRFunction exact = findOverloadInInterface(sig, tail, wanted);
+                if (exact == null) {
+                    // Not that (wrong) implementation: this overload has no default or stub, the slot stays empty.
+                    return null;
+                }
+                interfaceFn = exact;
             }
         }
 

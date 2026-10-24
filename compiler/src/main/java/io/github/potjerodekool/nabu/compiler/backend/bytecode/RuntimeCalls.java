@@ -39,6 +39,8 @@ final class RuntimeCalls {
 
     static final String REFLECT_SUPPORT = RUNTIME_PACKAGE + "ReflectSupport";
 
+    static final String SHUTDOWN_SUPPORT = RUNTIME_PACKAGE + "ShutdownSupport";
+
     private record Redirect(String owner, String name, String desc, boolean isStatic,
                             String targetClass, String target) {
 
@@ -96,7 +98,11 @@ final class RuntimeCalls {
                     "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", false, REFLECT_SUPPORT,
                     "getDeclaredConstructor"),
             new Redirect("java/lang/reflect/Constructor", "newInstance",
-                    "([Ljava/lang/Object;)Ljava/lang/Object;", false, REFLECT_SUPPORT, "newInstance"));
+                    "([Ljava/lang/Object;)Ljava/lang/Object;", false, REFLECT_SUPPORT, "newInstance"),
+            new Redirect("java/lang/Runtime", "addShutdownHook",
+                    "(Ljava/lang/Thread;)V", false, SHUTDOWN_SUPPORT, "addShutdownHook"),
+            new Redirect("java/lang/Runtime", "removeShutdownHook",
+                    "(Ljava/lang/Thread;)Z", false, SHUTDOWN_SUPPORT, "removeShutdownHook"));
 
     private RuntimeCalls() {
     }

@@ -1538,9 +1538,11 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
             "Thread.start: threads are not supported in a native executable");
     nabu_throw(e);
 }
-/* Shutdown hooks do not run: there is no way to start the hook thread. */
-BIND(void, jcl_Runtime_addShutdownHook, "java.lang.Runtime_addShutdownHook", (void *self, void *hook)) { (void)self; (void)hook; }
-BIND(int, jcl_Runtime_removeShutdownHook, "java.lang.Runtime_removeShutdownHook", (void *self, void *hook)) { (void)self; (void)hook; return 0; }
+/* ShutdownSupport.targetOf0(Thread): the Runnable a Thread object was made with, or null. */
+BIND(void *, jcl_ShutdownSupport_targetOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ShutdownSupport_targetOf0", (void *thread)) {
+    s_thread *st = (s_thread *)jcl_state_kind(thread, K_THREAD);
+    return st != NULL ? st->target : NULL;
+}
 
 
 static void *jcl_new_obj(const char *type, void *state) {
@@ -3261,7 +3263,8 @@ BIND(void, jcl_thread_init_src, "java_lang_Thread_init", (void *self, void *a, v
     void *args[2] = {a, b};
     for (int i = 0; i < 2; i++) {
         if (args[i] == NULL) continue;
-        if (!nabu_jcl_is_object(args[i]) || jcl_state_kind(args[i], K_STR) != NULL) name = nabu_cstr(args[i]);
+        if (nabu_is_jstring(args[i]) || (!nabu_jcl_is_object(args[i]) && nabu_compiled_type_name(args[i]) == NULL)
+                || jcl_state_kind(args[i], K_STR) != NULL) name = nabu_cstr(args[i]);
         else st->target = args[i];
     }
     if (name != NULL) {

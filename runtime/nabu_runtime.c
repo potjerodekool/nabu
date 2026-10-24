@@ -862,6 +862,24 @@ void nabu_set_throwable_message_fn(void *fn) {
     nabu_throwable_message_fn = (void *(*)(void *))fn;
 }
 
+/* The shutdown hooks of the program (ShutdownSupport.runHooks), run once when the process exits. */
+static void (*nabu_shutdown_fn)(void) = NULL;
+
+static void nabu_run_shutdown(void) {
+    void (*fn)(void) = nabu_shutdown_fn;
+    nabu_shutdown_fn = NULL;
+    if (fn != NULL) fn();
+}
+
+void nabu_set_shutdown_fn(void *fn) {
+    static int registered = 0;
+    nabu_shutdown_fn = (void (*)(void))fn;
+    if (!registered) {
+        registered = 1;
+        atexit(nabu_run_shutdown);
+    }
+}
+
 /* Throwable.printStackTrace() van het programma; voor een onbehandelde exception. */
 static void (*nabu_throwable_print_fn)(void *) = NULL;
 

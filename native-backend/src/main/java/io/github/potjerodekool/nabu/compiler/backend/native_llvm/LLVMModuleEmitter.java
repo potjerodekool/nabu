@@ -975,6 +975,13 @@ public void setReflectionRegistry(
         LLVMSetLinkage(setPrintFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_set_throwable_print_fn", setPrintFn);
 
+        // --- void nabu_set_shutdown_fn(i8* fn) ---
+        LLVMValueRef setShutdownFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_shutdown_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setShutdownFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_shutdown_fn", setShutdownFn);
+
         // --- void nabu_register_type_infos(i8* table, i32 count) ---
         PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
         regTypesParams.put(0, i8ptr);
@@ -1124,6 +1131,14 @@ public void setReflectionRegistry(
         }
         if (printStackTrace != null) {
             callSetter(builder, "@nabu_set_throwable_print_fn", printStackTrace);
+        }
+        // The shutdown hooks of the program, when it registers any.
+        final String runHooksName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ShutdownSupport_runHooks";
+        final IRFunction runHooksIr = classLayouts.resolveFunction(runHooksName);
+        final LLVMValueRef runHooks = LLVMGetNamedFunction(mod, runHooksName);
+        if (runHooksIr != null && !runHooksIr.blocks().isEmpty() && runHooks != null && !runHooks.isNull()) {
+            callSetter(builder, "@nabu_set_shutdown_fn", runHooks);
         }
         for (int kind = 0; kind < boxFns.length; kind++) {
             if (boxFns[kind] == null) continue;

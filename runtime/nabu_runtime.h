@@ -248,6 +248,9 @@ void nabu_set_throwable_message_fn(void *fn);
 /** Registers the compiled Throwable.printStackTrace() for unhandled exceptions. */
 void nabu_set_throwable_print_fn(void *fn);
 
+/** Registers the program's shutdown hooks runner; it runs when the process exits (main returns, System.exit, an uncaught exception). */
+void nabu_set_shutdown_fn(void *fn);
+
 /**
  * Registreert de type-info van alle gecompileerde klassen (geen interfaces),
  * zodat de runtime een klasse op interne naam kan vinden.

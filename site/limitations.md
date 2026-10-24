@@ -10,12 +10,6 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 - **Java language level.** Java sources are parsed with a Java 20 grammar. Newer language features are not recognized.
 - **Kotlin** support is experimental: only top-level class declarations are handled.
 - The **Java backend** (ClassFile API) needs Java 24 or later to run.
-- **Gaps in the Java front end** that showed up when running JDK-style code (they are not specific to the LLVM backend):
-  - `switch` on a `String`, and the shift operators `>>` and `>>>`, are not supported in sources.
-  - `equals` on a `record` fails: its `equals`, `hashCode` and `toString` are not generated.
-  - A primitive is not boxed when it is assigned to an `Object` variable or put in an array initializer of a wrapper type (`Integer[] a = {1, 2}`), and an `int` argument is not widened for a `long` constructor parameter (`new Random(42)`).
-  - Overload resolution can pick the wrong method (`Files.write(path, list)` chooses the `byte[]` overload).
-  - Lambda parameters of generic calls (`stream.filter(w -> w.length() > 4)`) do not get their type, the variable of a `try (… x = …)` is not visible in its body, and a local class inside a method breaks the scope of the method.
 
 ## LLVM backend
 
@@ -35,7 +29,7 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 ### Run time
 
 - **Threads are not supported.** `new Thread(…)` and the thread-local state of the one thread (`main`) work, so `ThreadLocal`, `DecimalFormat` and `Double.toString` do; `Thread.start()` throws `UnsupportedOperationException`. Executors, `CompletableFuture`, `ForkJoinPool`, `Timer`, parallel streams and virtual threads do not work, and shutdown hooks are accepted but never run.
-- **Casts are not checked**: a wrong `(Type) value` does not throw `ClassCastException`. Array indexes and integer division by zero are checked.
+- **Casts are checked only to classes of the program or the JDK that were compiled**: a wrong `(Integer) object` throws `ClassCastException`, but a cast to an interface or to an array type does not. Array indexes and integer division by zero are checked.
 - **The JDK is only covered as far as it has been tried.** What runs: collections, streams, `String.format`, regex, `java.time` (including `LocalDate.now()`), `BigInteger` and `BigDecimal`, `Random`, `SecureRandom` and `UUID`, `MessageDigest` (MD5, SHA-1, SHA-2), `CRC32`, `Base64`, `Properties`, `URI`, `DecimalFormat`, `SimpleDateFormat` and the common `Files` methods. What does not: serialization (`ObjectOutputStream`), signatures, ciphers and key stores, `Files.walk`, directory streams, file attributes and channels. Other parts of the JDK have not been tried. Only the locale data of the root locale is included, so formatting and display names follow English conventions.
 - **`lib/tzdb.dat`** is copied next to the executable at build time. The time zone database is read from there, so ship the `lib` directory with the executable. The default time zone comes from the `TZ` variable or from the Windows zone (a table of common zones); otherwise it is UTC.
 - **`SecureRandom`** uses the random bytes of the operating system; the algorithm name is not one of the JDK's.

@@ -82,8 +82,8 @@ class PicocliGreetCommandIntegrationTest {
         final var outDir = tempDir.resolve("out");
 
         final var picocliJar = getLocationOfClass(picocli.CommandLine.class);
-        final var codegenJar = System.getProperty("user.home")
-                + "/.m2/repository/info/picocli/picocli-codegen/4.7.6/picocli-codegen-4.7.6.jar";
+        final var codegenJar = getLocationOfClass(
+                picocli.codegen.aot.graalvm.processor.NativeImageConfigGeneratorProcessor.class);
 
         final var rootDirectory = resolveCompilerDirectory();
         final var rootPath = rootDirectory.getAbsolutePath();

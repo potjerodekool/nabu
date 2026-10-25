@@ -107,6 +107,69 @@ class AnonymousClassRunTest {
         assertEquals(42, cls.getMethod("start").invoke(null));
     }
 
+    /** An anonymous class in the body of a try-with-resources statement. */
+    @Test
+    void anonymousClassInTryWithResources() throws Exception {
+        final var cls = compileAndLoad("TryRes", """
+                package mini;
+                import java.util.concurrent.Callable;
+                public class TryRes {
+                    public static int start() throws Exception {
+                        try (java.io.StringReader reader = new java.io.StringReader("x")) {
+                            Callable<Integer> a = new Callable<Integer>() {
+                                public Integer call() { return 6; }
+                            };
+                            Callable<Integer> b = new Callable<Integer>() {
+                                public Integer call() { return 7; }
+                            };
+                            return a.call() * 10 + b.call();
+                        }
+                    }
+                }
+                """);
+        assertEquals(67, cls.getMethod("start").invoke(null));
+    }
+
+    @Test
+    void anonymousClassInPlainBlock() throws Exception {
+        final var cls = compileAndLoad("BlockAnon", """
+                package mini;
+                import java.util.concurrent.Callable;
+                public class BlockAnon {
+                    public static int start() throws Exception {
+                        {
+                            Callable<Integer> a = new Callable<Integer>() {
+                                public Integer call() { return 6; }
+                            };
+                            return a.call();
+                        }
+                    }
+                }
+                """);
+        assertEquals(6, cls.getMethod("start").invoke(null));
+    }
+
+    @Test
+    void anonymousClassInTryCatchFinally() throws Exception {
+        final var cls = compileAndLoad("TryCatchAnon", """
+                package mini;
+                import java.util.concurrent.Callable;
+                public class TryCatchAnon {
+                    public static int start() throws Exception {
+                        Throwable p = null;
+                        try {
+                            Callable<Integer> a = new Callable<Integer>() {
+                                public Integer call() { return 6; }
+                            };
+                            return a.call();
+                        } catch (Throwable t) { p = t; throw t; }
+                        finally { if (p != null) { System.out.println("x"); } }
+                    }
+                }
+                """);
+        assertEquals(6, cls.getMethod("start").invoke(null));
+    }
+
     @Test
     void anonymousClassInStaticMethodCapturesLocal() throws Exception {
         final var cls = compileAndLoad("Statics", """

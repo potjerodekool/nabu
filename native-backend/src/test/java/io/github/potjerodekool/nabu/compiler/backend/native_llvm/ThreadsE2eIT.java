@@ -426,8 +426,7 @@ class ThreadsE2eIT {
 
                 public class Main {
                     public static void main(String[] args) throws Exception {
-                        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-                        {
+                        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
                             Future<Integer> a = executor.submit(new Callable<Integer>() {
                                 public Integer call() {
                                     return 6;
@@ -445,7 +444,6 @@ class ThreadsE2eIT {
                             });
                             System.out.println(a.get() + " " + b.get() + " " + c.get());
                         }
-                        executor.close();
                     }
                 }
                 """));

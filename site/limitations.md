@@ -9,7 +9,6 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 
 - **Java language level.** Java sources are parsed with a Java 20 grammar. Newer language features are not recognized.
 - **Kotlin** support is experimental: only top-level class declarations are handled.
-- **Anonymous classes inside a `try`-with-resources body** (`try (var x = …) { … new Callable<>() {…} … }`) failed to link in one test (`undefined reference to …_init`); declare them before the `try`.
 - The **Java backend** (ClassFile API) needs Java 24 or later to run.
 
 ## LLVM backend

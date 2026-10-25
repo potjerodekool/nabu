@@ -400,6 +400,30 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     }
 
     @Override
+    public R visitTryStatement(final TryStatementTree tryStatement, final P param) {
+        tryStatement.getResources().forEach(resource -> acceptTree(resource, param));
+        if (tryStatement.getBody() != null) {
+            acceptTree(tryStatement.getBody(), param);
+        }
+        tryStatement.getCatchers().forEach(catcher -> acceptTree(catcher, param));
+        if (tryStatement.getFinalizer() != null) {
+            acceptTree(tryStatement.getFinalizer(), param);
+        }
+        return defaultAnswer(tryStatement, param);
+    }
+
+    @Override
+    public R visitCatch(final CatchTree catchTree, final P param) {
+        if (catchTree.getVariable() != null) {
+            acceptTree(catchTree.getVariable(), param);
+        }
+        if (catchTree.getBody() != null) {
+            acceptTree(catchTree.getBody(), param);
+        }
+        return defaultAnswer(catchTree, param);
+    }
+
+    @Override
     public R visitSynchronizedStatement(final SynchronizedStatement synchronizedStatement, final P param) {
         acceptTree(synchronizedStatement.getExpression(), param);
         acceptTree(synchronizedStatement.getBody(), param);

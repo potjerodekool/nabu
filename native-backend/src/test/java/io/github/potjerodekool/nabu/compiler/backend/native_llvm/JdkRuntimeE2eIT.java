@@ -202,6 +202,36 @@ class JdkRuntimeE2eIT {
                         }
                         java.nio.file.Files.delete(channelFile);
                         System.out.println(channels);
+                        java.nio.file.Path walkDir = java.nio.file.Files.createTempDirectory("walk");
+                        java.nio.file.Path walkA = java.nio.file.Files.createFile(walkDir.resolve("a.txt"));
+                        java.nio.file.Path walkSub = java.nio.file.Files.createDirectory(walkDir.resolve("sub"));
+                        java.nio.file.Path walkB = java.nio.file.Files.createFile(walkSub.resolve("b.json"));
+                        java.util.List<String> walked = new java.util.ArrayList<>();
+                        java.nio.file.Files.walkFileTree(walkDir, new java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+                            @Override
+                            public java.nio.file.FileVisitResult visitFile(java.nio.file.Path file,
+                                    java.nio.file.attribute.BasicFileAttributes attrs) {
+                                walked.add(file.getFileName().toString());
+                                return java.nio.file.FileVisitResult.CONTINUE;
+                            }
+                        });
+                        java.util.Collections.sort(walked);
+                        java.nio.file.Files.setLastModifiedTime(walkA, java.nio.file.attribute.FileTime.fromMillis(1000000000000L));
+                        java.nio.file.Files.setAttribute(walkA, "dos:readonly", true);
+                        java.nio.file.attribute.DosFileAttributes dos =
+                                java.nio.file.Files.readAttributes(walkA, java.nio.file.attribute.DosFileAttributes.class);
+                        boolean readOnly = dos.isReadOnly();
+                        java.nio.file.Files.setAttribute(walkA, "dos:readonly", false);
+                        System.out.println(String.join(" ", walked) + " " + java.nio.file.Files.getLastModifiedTime(walkA).toMillis()
+                                + " " + readOnly + " " + java.nio.file.Files.probeContentType(walkA)
+                                + " " + java.nio.file.Files.probeContentType(walkB)
+                                + " " + (java.nio.file.Files.getOwner(walkA).getName().length() > 0)
+                                + " " + walkA.toRealPath().getFileName()
+                                + " " + (java.nio.file.Files.getFileStore(walkA).getTotalSpace() > 0));
+                        java.nio.file.Files.delete(walkA);
+                        java.nio.file.Files.delete(walkB);
+                        java.nio.file.Files.delete(walkSub);
+                        java.nio.file.Files.delete(walkDir);
                     }
 
                     static class Many {
@@ -277,7 +307,7 @@ class JdkRuntimeE2eIT {
         }
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
-        assertEquals("work\n 3.14|42|hi|1,234,567\n[alpha, charlie, delta] 55\n30\nIndex 2 out of bounds for length 1\n/ by zero\n-2147483648\n0\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\na9993e364706816aba3e25717850c26c9cd0d89d\n900150983cd24fb0d6963f7d28e17f72\n36 true\n5799 38616657 30864.19725\n0.3333333333333333 1234567.0 1.2345678E7 1.0E-4 0.33333334 1.4142135623730951\n[one, two] 8\n891568578\n2020-02-29 true 2020-06-01T12:00:00Z\n1,234,567.89\nClassCastException\nf1 caught f2 npe\n4\nab7 i0o0 i1o1 i2o2 i3o3 cfx\nmarker runnable array ok\nchild 0\n42hi 8\n8 true false\n3 0\n13 13 channel 5 5 104\nhook ran\n", output, "exit=" + exit);
+        assertEquals("work\n 3.14|42|hi|1,234,567\n[alpha, charlie, delta] 55\n30\nIndex 2 out of bounds for length 1\n/ by zero\n-2147483648\n0\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\na9993e364706816aba3e25717850c26c9cd0d89d\n900150983cd24fb0d6963f7d28e17f72\n36 true\n5799 38616657 30864.19725\n0.3333333333333333 1234567.0 1.2345678E7 1.0E-4 0.33333334 1.4142135623730951\n[one, two] 8\n891568578\n2020-02-29 true 2020-06-01T12:00:00Z\n1,234,567.89\nClassCastException\nf1 caught f2 npe\n4\nab7 i0o0 i1o1 i2o2 i3o3 cfx\nmarker runnable array ok\nchild 0\n42hi 8\n8 true false\n3 0\n13 13 channel 5 5 104\na.txt b.json 1000000000000 true text/plain application/json true a.txt true\nhook ran\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

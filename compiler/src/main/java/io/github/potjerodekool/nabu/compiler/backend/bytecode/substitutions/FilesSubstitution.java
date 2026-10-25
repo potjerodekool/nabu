@@ -249,7 +249,121 @@ public final class FilesSubstitution {
         if (!file.exists()) {
             throw new NoSuchFileException(path.toString());
         }
-        return (A) new SimpleFileAttributes(file.length(), file.lastModified(), file.isDirectory(), file.isFile());
+        return (A) new SimpleFileAttributes(file.length(), file.lastModified(), file.isDirectory(), file.isFile())
+                .dos(!file.canWrite(), file.isHidden());
+    }
+
+    public static java.nio.file.FileStore getFileStore(final Path path) throws IOException {
+        final File file = path.toFile();
+        if (!file.exists()) {
+            throw new NoSuchFileException(path.toString());
+        }
+        return new io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.SimpleFileStore(file);
+    }
+
+    public static Path setLastModifiedTime(final Path path, final java.nio.file.attribute.FileTime time)
+            throws IOException {
+        final File file = path.toFile();
+        if (!file.exists()) {
+            throw new NoSuchFileException(path.toString());
+        }
+        file.setLastModified(time.toMillis());
+        return path;
+    }
+
+    public static java.nio.file.attribute.UserPrincipal getOwner(final Path path, final LinkOption... options)
+            throws IOException {
+        if (!path.toFile().exists()) {
+            throw new NoSuchFileException(path.toString());
+        }
+        return new io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.SimpleUserPrincipal(
+                System.getProperty("user.name"));
+    }
+
+    /** The attributes of {@code readAttributes(path, "...")}: size, the times, the kinds and the DOS flags. */
+    public static Object getAttribute(final Path path, final String attribute, final LinkOption... options)
+            throws IOException {
+        final File file = path.toFile();
+        if (!file.exists()) {
+            throw new NoSuchFileException(path.toString());
+        }
+        final int colon = attribute.indexOf(':');
+        final String name = colon >= 0 ? attribute.substring(colon + 1) : attribute;
+        if (name.equals("size")) {
+            return Long.valueOf(file.length());
+        } else if (name.equals("lastModifiedTime") || name.equals("lastAccessTime") || name.equals("creationTime")) {
+            return java.nio.file.attribute.FileTime.fromMillis(file.lastModified());
+        } else if (name.equals("isDirectory")) {
+            return Boolean.valueOf(file.isDirectory());
+        } else if (name.equals("isRegularFile")) {
+            return Boolean.valueOf(file.isFile());
+        } else if (name.equals("isSymbolicLink") || name.equals("isOther") || name.equals("archive")
+                || name.equals("system")) {
+            return Boolean.FALSE;
+        } else if (name.equals("readonly")) {
+            return Boolean.valueOf(!file.canWrite());
+        } else if (name.equals("hidden")) {
+            return Boolean.valueOf(file.isHidden());
+        }
+        throw new IllegalArgumentException(name.concat(" not recognized"));
+    }
+
+    public static Path setAttribute(final Path path, final String attribute, final Object value,
+                                    final LinkOption... options) throws IOException {
+        final File file = path.toFile();
+        if (!file.exists()) {
+            throw new NoSuchFileException(path.toString());
+        }
+        final int colon = attribute.indexOf(':');
+        final String name = colon >= 0 ? attribute.substring(colon + 1) : attribute;
+        if (name.equals("lastModifiedTime")) {
+            file.setLastModified(((java.nio.file.attribute.FileTime) value).toMillis());
+        } else if (name.equals("readonly")) {
+            if (((Boolean) value).booleanValue()) {
+                file.setReadOnly();
+            } else {
+                file.setWritable(true);
+            }
+        } else if (!(name.equals("lastAccessTime") || name.equals("creationTime") || name.equals("hidden")
+                || name.equals("archive") || name.equals("system"))) {
+            throw new IllegalArgumentException(name.concat(" not recognized"));
+        }
+        return path;
+    }
+
+    /** The content type from the extension (the JDK asks the registry or a mime.types file). */
+    public static String probeContentType(final Path path) throws IOException {
+        final Path fileName = path.getFileName();
+        if (fileName == null) {
+            return null;
+        }
+        final String name = fileName.toString();
+        final int dot = name.lastIndexOf('.');
+        if (dot < 0) {
+            return null;
+        }
+        final String ext = name.substring(dot + 1).toLowerCase();
+        switch (ext) {
+            case "txt": case "text": case "log": return "text/plain";
+            case "html": case "htm": return "text/html";
+            case "css": return "text/css";
+            case "csv": return "text/csv";
+            case "js": return "text/javascript";
+            case "md": return "text/markdown";
+            case "json": return "application/json";
+            case "xml": return "application/xml";
+            case "pdf": return "application/pdf";
+            case "zip": return "application/zip";
+            case "gz": return "application/gzip";
+            case "jar": return "application/java-archive";
+            case "png": return "image/png";
+            case "jpg": case "jpeg": return "image/jpeg";
+            case "gif": return "image/gif";
+            case "svg": return "image/svg+xml";
+            case "mp3": return "audio/mpeg";
+            case "mp4": return "video/mp4";
+            default: return null;
+        }
     }
 
     public static boolean isSameFile(final Path path, final Path path2) throws IOException {

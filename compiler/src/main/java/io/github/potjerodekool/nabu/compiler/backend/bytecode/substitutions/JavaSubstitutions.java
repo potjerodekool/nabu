@@ -51,6 +51,7 @@ public final class JavaSubstitutions {
             Map.entry("sun/security/provider/SeedGenerator", SeedGeneratorSubstitution.class),
             Map.entry("java/nio/channels/FileChannel", FileChannelSubstitution.class),
             Map.entry("java/lang/ProcessImpl", ProcessImplSubstitution.class),
+            Map.entry("sun/nio/fs/WindowsPath", WindowsPathSubstitution.class),
             Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class));
 
     /** JDK classes whose {@code <clinit>} is emptied. */
@@ -91,7 +92,8 @@ public final class JavaSubstitutions {
                 continue;
             }
             for (final MethodNode replacement : source.methods) {
-                if (replacement.name.equals(method.name) && replacement.desc.equals(method.desc)) {
+                if (replacement.name.equals(method.name) && (replacement.desc.equals(method.desc)
+                        || covariantReturn(replacement, method, target, source))) {
                     redirect(replacement.instructions, source.name, target.name);
                     method.access &= ~Opcodes.ACC_NATIVE;
                     method.instructions = replacement.instructions;
@@ -103,6 +105,22 @@ public final class JavaSubstitutions {
                 }
             }
         }
+    }
+
+    /**
+     * The target method has a covariant return type that the substitution cannot name (a package-private
+     * class, as in {@code WindowsPath.toRealPath}): same name and parameters, object return types, not a bridge.
+     */
+    private static boolean covariantReturn(final MethodNode replacement, final MethodNode method,
+                                           final ClassNode target, final ClassNode source) {
+        final int end = replacement.desc.indexOf(')');
+        if (end != method.desc.indexOf(')')
+                || !replacement.desc.regionMatches(0, method.desc, 0, end + 1)
+                || replacement.desc.charAt(end + 1) != 'L' || method.desc.charAt(end + 1) != 'L'
+                || (method.access & Opcodes.ACC_BRIDGE) != 0) {
+            return false;
+        }
+        return true;
     }
 
     /**

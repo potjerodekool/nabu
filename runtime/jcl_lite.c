@@ -1392,7 +1392,13 @@ BIND(int32_t, jcl_fs_getNameMax0, JCL_FS("getNameMax0"), (void *self, void *path
 BIND(int64_t, jcl_fs_getSpace0, JCL_FS("getSpace0"), (void *self, void *f, int32_t t)) {
 #ifdef _WIN32
     ULARGE_INTEGER freeToCaller, total, freeTotal;
-    if (!GetDiskFreeSpaceExW(jcl_wide(jcl_file_path_of(f)), &freeToCaller, &total, &freeTotal)) return 0;
+    const wchar_t *path = jcl_wide(jcl_file_path_of(f));
+    if (!GetDiskFreeSpaceExW(path, &freeToCaller, &total, &freeTotal)) {
+        /* a file, not a directory: ask for the volume */
+        wchar_t root[4] = { path[0], L':', L'\\', 0 };
+        if (path[0] == 0 || path[1] != L':'
+                || !GetDiskFreeSpaceExW(root, &freeToCaller, &total, &freeTotal)) return 0;
+    }
     return t == 0 ? (int64_t)total.QuadPart : t == 1 ? (int64_t)freeTotal.QuadPart : (int64_t)freeToCaller.QuadPart;
 #else
     return 0;

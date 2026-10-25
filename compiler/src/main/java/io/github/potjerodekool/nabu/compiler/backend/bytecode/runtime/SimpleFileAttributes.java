@@ -1,15 +1,20 @@
 package io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime;
 
-import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.DosFileAttributes;
 import java.nio.file.attribute.FileTime;
 
-/** {@link BasicFileAttributes} of a file, read through {@code java.io.File}; used by the Files substitution. */
-public final class SimpleFileAttributes implements BasicFileAttributes {
+/**
+ * {@link DosFileAttributes} of a file, read through {@code java.io.File}; used by the Files substitution.
+ * Read-only and hidden come from the file; archive and system are never set.
+ */
+public final class SimpleFileAttributes implements DosFileAttributes {
 
     private final long size;
     private final long lastModified;
     private final boolean directory;
     private final boolean regularFile;
+    private boolean readOnly;
+    private boolean hidden;
 
     public SimpleFileAttributes(final long size, final long lastModified, final boolean directory,
                                 final boolean regularFile) {
@@ -62,5 +67,31 @@ public final class SimpleFileAttributes implements BasicFileAttributes {
     @Override
     public Object fileKey() {
         return null;
+    }
+
+    public SimpleFileAttributes dos(final boolean readOnly, final boolean hidden) {
+        this.readOnly = readOnly;
+        this.hidden = hidden;
+        return this;
+    }
+
+    @Override
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    @Override
+    public boolean isHidden() {
+        return hidden;
+    }
+
+    @Override
+    public boolean isArchive() {
+        return false;
+    }
+
+    @Override
+    public boolean isSystem() {
+        return false;
     }
 }

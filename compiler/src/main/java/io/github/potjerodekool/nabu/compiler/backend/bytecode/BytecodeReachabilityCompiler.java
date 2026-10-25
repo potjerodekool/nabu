@@ -425,6 +425,7 @@ public final class BytecodeReachabilityCompiler {
      */
     private final Set<String> instantiated = new HashSet<>();
 
+
     /**
      * Classes that are initialized at run time (JLS 12.4.1): instantiated,
      * a static field accessed, a static method called, or a subclass
@@ -613,6 +614,21 @@ public final class BytecodeReachabilityCompiler {
                 final ClassNode node = loadClassNode(type);
                 return node != null && (node.access & Opcodes.ACC_ANNOTATION) != 0;
             });
+        }
+        // What a source class inherits from a library superclass is not compiled from source
+        // (SimpleFileVisitor.preVisitDirectory when only the interface method is called): the
+        // superclass counts as instantiated.
+        for (final IRModule module : alreadyCompiledModules) {
+            if (module.superType() instanceof IRType.Ptr(IRType pointee, String descriptor)
+                    && descriptor != null && descriptor.startsWith("L") && descriptor.endsWith(";")
+                    && !"Ljava/lang/Object;".equals(descriptor)) {
+                final String superName = descriptor.substring(1, descriptor.length() - 1);
+                if (!alreadyCompiledQualifiedNames.contains(superName.replace('/', '.'))) {
+                    context = "superclass of " + module.name;
+                    ensureShape(superName);
+                    queueInstantiate(superName);
+                }
+            }
         }
         final Map<String, Boolean> sourceCalls = collectSourceCalls(alreadyCompiledModules);
         while (queueSourceCalls(sourceCalls) | queueReflectiveInstantiations()) {

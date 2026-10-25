@@ -20,14 +20,6 @@ public class MyClass {
     ISTORE 1
    L1
    FRAME FULL [MyClass I I I I I] []
-    ICONST_0
-    ISTORE 2
-    ICONST_0
-    ISTORE 3
-    ICONST_0
-    ISTORE 4
-    ICONST_0
-    ISTORE 5
     ILOAD 1
     ISTORE 2
     ILOAD 2
@@ -36,22 +28,6 @@ public class MyClass {
     GOTO L3
    L3
    FRAME FULL [MyClass I I I I I] []
-    ICONST_0
-    ISTORE 2
-    ICONST_0
-    ISTORE 3
-    ICONST_0
-    ISTORE 4
-    ICONST_0
-    ISTORE 5
-    ICONST_0
-    ISTORE 2
-    ICONST_0
-    ISTORE 3
-    ICONST_0
-    ISTORE 4
-    ICONST_0
-    ISTORE 5
     ILOAD 1
     ISTORE 4
     ILOAD 4
@@ -63,14 +39,6 @@ public class MyClass {
     GOTO L1
    L2
    FRAME FULL [MyClass I I I I I] []
-    ICONST_0
-    ISTORE 2
-    ICONST_0
-    ISTORE 3
-    ICONST_0
-    ISTORE 4
-    ICONST_0
-    ISTORE 5
     RETURN
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0

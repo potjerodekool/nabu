@@ -26,23 +26,11 @@ public class MyClass {
    L2
     LINENUMBER 4 L2
    FRAME FULL [MyClass java/lang/Integer java/lang/Integer java/lang/Integer I] []
-    ACONST_NULL
-    ASTORE 2
-    ACONST_NULL
-    ASTORE 3
-    ICONST_0
-    ISTORE 4
     ICONST_1
     IRETURN
    L1
     LINENUMBER 6 L1
    FRAME FULL [MyClass java/lang/Integer java/lang/Integer java/lang/Integer I] []
-    ACONST_NULL
-    ASTORE 2
-    ACONST_NULL
-    ASTORE 3
-    ICONST_0
-    ISTORE 4
     ICONST_0
     IRETURN
    L3

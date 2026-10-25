@@ -420,9 +420,11 @@ public class AsmByteCodeEmitter {
                     // normale voorganger de live-in waarden heeft gezet
                     // ('Expected I, but found .' in de verifier); de handler
                     // krijgt dan bewust defaults (0/null) â€” correcte frames.
-                    emitPrologue(methodVisitor, slots, slotTypes,
-                            paramSlotCount(function, isStatic),
-                            computePrologSkip(prologueSkip, isHandler));
+                    if (block == blocks.getFirst()) {
+                        emitPrologue(methodVisitor, slots, slotTypes,
+                                paramSlotCount(function, isStatic),
+                                computePrologSkip(prologueSkip, isHandler));
+                    }
 
 // Handler-entry: de JVM duwt de exception op de stack;
                     // sla die op in het %exn.<handlerLabel>-slot dat de IR laadt,

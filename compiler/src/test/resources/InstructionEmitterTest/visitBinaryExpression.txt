@@ -49,37 +49,7 @@ public class MyClass {
     ISTORE 4
    L1
     LINENUMBER 7 L1
-   FRAME FULL [MyClass java/util/List java/util/List I I I N I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
-    ICONST_0
-    ISTORE 5
-    ACONST_NULL
-    ASTORE 6
-    ICONST_0
-    ISTORE 7
-    ICONST_0
-    ISTORE 8
-    ICONST_0
-    ISTORE 9
-    ACONST_NULL
-    ASTORE 10
-    ICONST_0
-    ISTORE 11
-    ACONST_NULL
-    ASTORE 12
-    ACONST_NULL
-    ASTORE 13
-    ACONST_NULL
-    ASTORE 14
-    ICONST_0
-    ISTORE 15
-    ICONST_0
-    ISTORE 16
-    ICONST_0
-    ISTORE 17
-    ICONST_0
-    ISTORE 18
-    ICONST_0
-    ISTORE 19
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
     ILOAD 4
     ISTORE 5
     ALOAD 2
@@ -94,37 +64,7 @@ public class MyClass {
    L3
     LINENUMBER 8 L3
     LINENUMBER 9 L3
-   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I N I N N N I I I I I] []
-    ICONST_0
-    ISTORE 5
-    ACONST_NULL
-    ASTORE 6
-    ICONST_0
-    ISTORE 7
-    ICONST_0
-    ISTORE 8
-    ICONST_0
-    ISTORE 9
-    ACONST_NULL
-    ASTORE 10
-    ICONST_0
-    ISTORE 11
-    ACONST_NULL
-    ASTORE 12
-    ACONST_NULL
-    ASTORE 13
-    ACONST_NULL
-    ASTORE 14
-    ICONST_0
-    ISTORE 15
-    ICONST_0
-    ISTORE 16
-    ICONST_0
-    ISTORE 17
-    ICONST_0
-    ISTORE 18
-    ICONST_0
-    ISTORE 19
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
     ILOAD 3
     ISTORE 9
     ALOAD 2
@@ -161,37 +101,7 @@ public class MyClass {
     GOTO L1
    L2
     LINENUMBER 12 L2
-   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I N I N N N I I I I I] []
-    ICONST_0
-    ISTORE 5
-    ACONST_NULL
-    ASTORE 6
-    ICONST_0
-    ISTORE 7
-    ICONST_0
-    ISTORE 8
-    ICONST_0
-    ISTORE 9
-    ACONST_NULL
-    ASTORE 10
-    ICONST_0
-    ISTORE 11
-    ACONST_NULL
-    ASTORE 12
-    ACONST_NULL
-    ASTORE 13
-    ACONST_NULL
-    ASTORE 14
-    ICONST_0
-    ISTORE 15
-    ICONST_0
-    ISTORE 16
-    ICONST_0
-    ISTORE 17
-    ICONST_0
-    ISTORE 18
-    ICONST_0
-    ISTORE 19
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
     ILOAD 3
     ISTORE 19
     ILOAD 19

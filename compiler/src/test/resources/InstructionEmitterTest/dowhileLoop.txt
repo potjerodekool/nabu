@@ -37,22 +37,6 @@ public class MyClass {
     LINENUMBER 7 L1
     LINENUMBER 8 L1
    FRAME FULL [MyClass I I I I I I I I I I I I] []
-    ICONST_0
-    ISTORE 5
-    ICONST_0
-    ISTORE 6
-    ICONST_0
-    ISTORE 7
-    ICONST_0
-    ISTORE 8
-    ICONST_0
-    ISTORE 9
-    ICONST_0
-    ISTORE 10
-    ICONST_0
-    ISTORE 11
-    ICONST_0
-    ISTORE 12
     ILOAD 3
     ISTORE 5
     ILOAD 2
@@ -73,22 +57,6 @@ public class MyClass {
     ISTORE 4
    L2
     LINENUMBER 9 L2
-    ICONST_0
-    ISTORE 5
-    ICONST_0
-    ISTORE 6
-    ICONST_0
-    ISTORE 7
-    ICONST_0
-    ISTORE 8
-    ICONST_0
-    ISTORE 9
-    ICONST_0
-    ISTORE 10
-    ICONST_0
-    ISTORE 11
-    ICONST_0
-    ISTORE 12
     ILOAD 4
     ISTORE 10
     ILOAD 10
@@ -98,22 +66,6 @@ public class MyClass {
    L3
     LINENUMBER 11 L3
    FRAME FULL [MyClass I I I I I I I I I I I I] []
-    ICONST_0
-    ISTORE 5
-    ICONST_0
-    ISTORE 6
-    ICONST_0
-    ISTORE 7
-    ICONST_0
-    ISTORE 8
-    ICONST_0
-    ISTORE 9
-    ICONST_0
-    ISTORE 10
-    ICONST_0
-    ISTORE 11
-    ICONST_0
-    ISTORE 12
     ILOAD 3
     ISTORE 12
     ILOAD 12

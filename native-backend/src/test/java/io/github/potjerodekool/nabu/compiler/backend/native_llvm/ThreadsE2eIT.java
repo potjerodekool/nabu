@@ -122,6 +122,41 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void threadSubclass() throws Exception {
+        assertEquals("""
+                worker running
+                Thread-0 true
+                """, run("""
+                public class Main {
+                    static class Worker extends Thread {
+                        private int value;
+
+                        Worker(String name, int value) {
+                            super(name);
+                            this.value = value;
+                        }
+
+                        Worker(int value) {
+                            this.value = value;
+                        }
+
+                        public void run() {
+                            System.out.println(getName() + " running");
+                        }
+                    }
+
+                    public static void main(String[] args) throws Exception {
+                        Worker named = new Worker("worker", 1);
+                        named.start();
+                        named.join();
+                        Worker plain = new Worker(2);
+                        System.out.println(plain.getName() + " " + (plain.getState() == Thread.State.NEW));
+                    }
+                }
+                """));
+    }
+
+    @Test
     void executorRunsTasks() throws Exception {
         assertEquals("""
                 42
@@ -170,6 +205,18 @@ class ThreadsE2eIT {
         Path exe;
         try (Stream<Path> walk = Files.walk(out)) {
             exe = walk.filter(p -> p.getFileName().toString().endsWith(".exe")).findFirst().orElseThrow();
+        }
+        final String keep = System.getProperty("nabu.keepExe");
+        if (keep != null) {
+            Files.copy(exe, Path.of(keep), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try (Stream<Path> walk = Files.walk(out)) {
+                final Path ll = walk.filter(p -> p.getFileName().toString().endsWith(".ll"))
+                        .max(java.util.Comparator.comparingLong(p -> p.toFile().length())).orElse(null);
+                if (ll != null) {
+                    Files.copy(ll, Path.of(keep.substring(0, keep.length() - ".exe".length()) + ".ll"),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
         }
         final Path log = tempDir.resolve("run.log");
         Process proc = NativeToolchain.run(exe.toAbsolutePath()).redirectErrorStream(true)

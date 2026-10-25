@@ -1149,7 +1149,14 @@ public class InstructionEmitter {
         // eerste parameter); anders blijft het een no-op (de super heeft dan
         // geen native state die hier geïnitialiseerd moet worden).
         if (rawCall.function().endsWith("_super")) {
-            tryEmitSuperConstructor(rawCall);
+            if (!tryEmitSuperConstructor(rawCall) && "java.lang.Thread_super".equals(rawCall.function())) {
+                // super(...) of a subclass of Thread: the C runtime makes the thread state, per number of arguments.
+                final List<IRType> params = new ArrayList<>();
+                params.add(new IRType.Ptr(IRType.I8));
+                params.addAll(rawCall.paramTypes());
+                emitCall(new IRInstruction.Call(CallKind.STATIC, IRType.VOID, params, null,
+                        "java.lang.Thread_init$" + rawCall.paramTypes().size(), rawCall.args(), rawCall.location()));
+            }
             return;
         }
 

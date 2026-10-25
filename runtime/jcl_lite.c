@@ -96,6 +96,13 @@ static void *jcl_state_kind(const void *p, int kind) {
     return NULL;
 }
 
+/* The state of a Thread: in the word behind the header, also for an object of a compiled subclass of Thread. */
+static s_thread *jcl_thread_state(const void *p) {
+    if (p == NULL) return NULL;
+    void *st = nabu_jcl_state((void *)p);
+    return st != NULL && *(int *)st == K_THREAD ? (s_thread *)st : NULL;
+}
+
 static int jcl_eq(const void *a, const void *b) {
     if (a == b) return 1;
     if (a == NULL || b == NULL) return 0;
@@ -1970,7 +1977,7 @@ BIND(void *, jcl_java_lang_System_getProperty_P523beb0aP523beb0a_jstr, "java.lan
 
 /* ShutdownSupport.targetOf0(Thread): the Runnable a Thread object was made with, or null. */
 BIND(void *, jcl_ShutdownSupport_targetOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ShutdownSupport_targetOf0", (void *thread)) {
-    s_thread *st = (s_thread *)jcl_state_kind(thread, K_THREAD);
+    s_thread *st = jcl_thread_state(thread);
     return st != NULL ? st->target : NULL;
 }
 
@@ -3695,8 +3702,8 @@ static __thread void *jcl_cur_thread = NULL;
 static void *jcl_current_thread(void) { return jcl_cur_thread != NULL ? jcl_cur_thread : jcl_main_thread(); }
 
 static s_thread *jcl_thread_of(void *self) {
-    s_thread *st = (s_thread *)jcl_state_kind(self, K_THREAD);
-    if (st == NULL) st = (s_thread *)jcl_state_kind(jcl_current_thread(), K_THREAD);
+    s_thread *st = jcl_thread_state(self);
+    if (st == NULL) st = jcl_thread_state(jcl_current_thread());
     return st;
 }
 
@@ -3877,7 +3884,7 @@ BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int ab
 }
 BIND(void, jcl_Unsafe_unpark, "jdk.internal.misc.Unsafe_unpark", (void *self, void *thread)) {
     (void)self;
-    s_thread *st = thread == NULL ? NULL : (s_thread *)jcl_state_kind(thread, K_THREAD);
+    s_thread *st = thread == NULL ? NULL : jcl_thread_state(thread);
     if (st == NULL) return;
     st->permit = 1;
     nabu_gil_signal();
@@ -3921,7 +3928,7 @@ static void jcl_await_threads(void) {
 }
 
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
-    s_thread *st = (s_thread *)jcl_state_kind(self, K_THREAD);
+    s_thread *st = jcl_thread_state(self);
     if (st == NULL || st->state != 0) jcl_throw_new("java/lang/IllegalThreadStateException", "java/lang/IllegalArgumentException", NULL);
     if (!nabu_threads_active) {
         nabu_threads_active = 1;

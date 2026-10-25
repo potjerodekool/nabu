@@ -957,6 +957,15 @@ for (IRModule m : modules) {
         if (modulesByInternalName.isEmpty()) {
             indexModules(modules);
         }
+        for (IRModule m : modules) {
+            if (extendsRuntimeThread(m) && m.interfaces().stream().noneMatch(
+                    i -> i instanceof IRType.Ptr p && "Ljava/lang/Runnable;".equals(p.jvmDescriptor()))) {
+                // java.lang.Thread is not compiled; a subclass of it still is a Runnable.
+                final List<IRType> interfaces = new ArrayList<>(m.interfaces());
+                interfaces.add(new IRType.Ptr(IRType.I8, "Ljava/lang/Runnable;"));
+                m.interfaces(interfaces);
+            }
+        }
 
         // Topologische volgorde: super eerst (alleen als de super in dezelfde
         // compilatie zit); niet-battene supers worden genegeerd.
@@ -1343,6 +1352,11 @@ for (IRModule m : modules) {
         return -1;
     }
 
+    /** Whether the superclass of the module is {@code java.lang.Thread}, which the C runtime provides. */
+    private static boolean extendsRuntimeThread(final IRModule module) {
+        return module.superType() instanceof IRType.Ptr p && "Ljava/lang/Thread;".equals(p.jvmDescriptor());
+    }
+
     /**
      * Fase A: registreert de struct-layout voor een module (super-velden eerst
      * op dezelfde indices als de super-klasse) en emitteert het nabu_type_info global.
@@ -1361,6 +1375,10 @@ for (IRModule m : modules) {
         if (superLayout != null) {
             superLayout.instanceFieldTypes.forEach(fields::add);
             superInstanceCount = superLayout.instanceFieldTypes.size();
+        } else if (extendsRuntimeThread(module)) {
+            // The C runtime keeps the state of a Thread in the word behind the header (nabu_jcl_set_state).
+            fields.add(LLVMPointerTypeInContext(ctx, 0));
+            superInstanceCount = 1;
         }
 
         int counter = 0;        // telt ALLE (eigen) velden (mimic computeFieldIndex)

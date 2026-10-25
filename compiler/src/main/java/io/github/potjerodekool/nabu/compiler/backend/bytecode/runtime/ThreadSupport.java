@@ -19,7 +19,7 @@ public final class ThreadSupport {
                     runnable.run();
                 }
             } else {
-                thread.run();
+                ((Runnable) thread).run();
             }
         } catch (final Throwable t) {
             System.err.print("Exception in thread \"");

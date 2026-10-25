@@ -456,6 +456,22 @@ void nabu_monitorenter(void *obj);
  */
 void nabu_monitorexit(void *obj);
 
+/*
+ * Threads run one at a time under a global lock (see nabu_runtime.c). Until the first Thread.start
+ * nabu_threads_active is 0 and the functions below do nothing.
+ */
+extern volatile int nabu_threads_active;
+int nabu_current_thread_id(void);
+void nabu_set_current_thread_id(int id);
+void nabu_gil_acquire(void);
+void nabu_gil_release(void);
+void nabu_gil_yield(void);
+void nabu_gil_signal(void);
+/** Gives up the lock until nabu_gil_signal or the timeout (ms, negative: none); 1 when the time passed. */
+int nabu_gil_wait(int64_t timeout_ms);
+/** Registers the program's ThreadSupport.runThread(Thread), which a new thread runs. */
+void nabu_set_thread_run_fn(void *fn);
+
 /* Aangeroepen door de stub van een JDK-functie zonder implementatie (native,
  * signature-polymorf): meldt het symbool en breekt het programma af. */
 void nabu_unresolved(const char *symbol);

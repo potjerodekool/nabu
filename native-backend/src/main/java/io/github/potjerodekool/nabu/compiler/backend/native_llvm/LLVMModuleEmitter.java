@@ -128,7 +128,7 @@ public void setReflectionRegistry(
                                     CallTargets.normalize(raw));
                             if (call.function() != null
                                 && !call.function().endsWith("_super")
-                                && !call.function().endsWith("_init")
+                                && !CallTargets.isInit(call.function())
                                 // Per parameterlijst kijken, niet per naam: de
                                 // overloads (bv. de zeven println-varianten)
                                 // delen de IR-functienaam.
@@ -982,6 +982,13 @@ public void setReflectionRegistry(
         LLVMSetLinkage(setShutdownFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_set_shutdown_fn", setShutdownFn);
 
+        // --- void nabu_set_thread_run_fn(i8* fn) ---
+        LLVMValueRef setThreadRunFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_thread_run_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setThreadRunFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_thread_run_fn", setThreadRunFn);
+
         // --- void nabu_register_type_infos(i8* table, i32 count) ---
         PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
         regTypesParams.put(0, i8ptr);
@@ -1139,6 +1146,14 @@ public void setReflectionRegistry(
         final LLVMValueRef runHooks = LLVMGetNamedFunction(mod, runHooksName);
         if (runHooksIr != null && !runHooksIr.blocks().isEmpty() && runHooks != null && !runHooks.isNull()) {
             callSetter(builder, "@nabu_set_shutdown_fn", runHooks);
+        }
+        // The body of a started thread (Thread.start in the C runtime calls it).
+        final String runThreadName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_runThread";
+        final IRFunction runThreadIr = classLayouts.resolveFunction(runThreadName);
+        final LLVMValueRef runThread = LLVMGetNamedFunction(mod, runThreadName);
+        if (runThreadIr != null && !runThreadIr.blocks().isEmpty() && runThread != null && !runThread.isNull()) {
+            callSetter(builder, "@nabu_set_thread_run_fn", runThread);
         }
         for (int kind = 0; kind < boxFns.length; kind++) {
             if (boxFns[kind] == null) continue;

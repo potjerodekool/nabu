@@ -2054,7 +2054,7 @@ public class InstructionEmitter {
      */
     private boolean isConstructorCall(IRInstruction.Call call) {
         return call.callKind() == CallKind.SPECIAL
-                && call.function().endsWith("_init");
+                && CallTargets.isInit(call.function());
     }
 
     /**

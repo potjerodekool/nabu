@@ -126,7 +126,10 @@ public final class BytecodeReachabilityCompiler {
     private static final List<MethodRef> RUNTIME_ROOTS = List.of(
             new MethodRef(BOOTSTRAP_CLASS, "init", "()V", false),
             // For an exception nobody catches (nabu_throw prints it).
-            new MethodRef("java/lang/Throwable", "printStackTrace", "()V", false));
+            new MethodRef("java/lang/Throwable", "printStackTrace", "()V", false),
+            // The body of a started thread: the C runtime calls it (nabu_set_thread_run_fn).
+            new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
+                    "runThread", "(Ljava/lang/Thread;)V", false));
 
     /**
      * Klassen die de JDK alleen reflectief instantieert

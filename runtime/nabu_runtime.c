@@ -17,10 +17,11 @@
 #include <math.h>
 #include <stdint.h>
 
+#include <pthread.h>
+#include <time.h>
 #ifdef _WIN32
 #include <windows.h>
 #else
-#include <pthread.h>
 #include <stdatomic.h>
 #endif
 
@@ -1911,41 +1912,115 @@ char *nabu_object_to_string(void *obj) {
     return result != NULL ? (char *) result : nabu_object_to_string(NULL);
 }
 
+/*
+ * Threads. Compiled code and the runtime are not thread safe, so threads run one at a time: a global lock (the
+ * GIL) is held by the running thread and handed over only where a thread blocks (sleep, join, wait, park, a
+ * contended monitor, yield) or ends. A thread that spins on a variable without calling one of those never gives
+ * the others a turn. The lock is a ticket lock, so waiting threads run in the order they asked. Until the first
+ * Thread.start nothing is locked and these functions do next to nothing.
+ */
+static pthread_mutex_t nabu_gil_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t nabu_gil_turn = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t nabu_gil_event = PTHREAD_COND_INITIALIZER;
+static unsigned long nabu_gil_next = 0;
+static unsigned long nabu_gil_serving = 0;
+static unsigned long nabu_gil_events = 0;
+volatile int nabu_threads_active = 0;
+
+/* The id of the running thread, in the header of the object whose monitor it holds. The main thread is 1. */
+static __thread int nabu_thread_id = 1;
+
+int nabu_current_thread_id(void) { return nabu_thread_id; }
+void nabu_set_current_thread_id(int id) { nabu_thread_id = id; }
+
+/* Waits for the turn, with the mutex held. */
+static void nabu_gil_take_turn(void) {
+    unsigned long ticket = nabu_gil_next++;
+    while (nabu_gil_serving != ticket) {
+        pthread_cond_wait(&nabu_gil_turn, &nabu_gil_mutex);
+    }
+}
+
+void nabu_gil_acquire(void) {
+    pthread_mutex_lock(&nabu_gil_mutex);
+    nabu_gil_take_turn();
+    pthread_mutex_unlock(&nabu_gil_mutex);
+}
+
+void nabu_gil_release(void) {
+    pthread_mutex_lock(&nabu_gil_mutex);
+    nabu_gil_serving++;
+    pthread_cond_broadcast(&nabu_gil_turn);
+    pthread_mutex_unlock(&nabu_gil_mutex);
+}
+
+/* Lets the other threads run, and waits for the next turn. */
+void nabu_gil_yield(void) {
+    if (!nabu_threads_active) return;
+    pthread_mutex_lock(&nabu_gil_mutex);
+    nabu_gil_serving++;
+    pthread_cond_broadcast(&nabu_gil_turn);
+    nabu_gil_take_turn();
+    pthread_mutex_unlock(&nabu_gil_mutex);
+}
+
+/* Wakes the threads in nabu_gil_wait: something they may be waiting for has changed. */
+void nabu_gil_signal(void) {
+    if (!nabu_threads_active) return;
+    pthread_mutex_lock(&nabu_gil_mutex);
+    nabu_gil_events++;
+    pthread_cond_broadcast(&nabu_gil_event);
+    pthread_mutex_unlock(&nabu_gil_mutex);
+}
+
+/*
+ * Gives up the lock until nabu_gil_signal is called or the time (milliseconds, negative: no limit) has passed,
+ * then waits for the turn. Returns 1 when the time passed. A signal can be for another waiter, so callers check
+ * what they wait for and call again. The signal cannot be missed: the signalling thread holds the lock, and this
+ * thread reads the counter before it gives the lock up.
+ */
+int nabu_gil_wait(int64_t timeout_ms) {
+    if (!nabu_threads_active) return 1;
+    struct timespec deadline;
+    if (timeout_ms >= 0) {
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += (time_t)(timeout_ms / 1000);
+        deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
+    }
+    int timed_out = 0;
+    pthread_mutex_lock(&nabu_gil_mutex);
+    unsigned long seen = nabu_gil_events;
+    nabu_gil_serving++;
+    pthread_cond_broadcast(&nabu_gil_turn);
+    while (nabu_gil_events == seen && !timed_out) {
+        if (timeout_ms < 0) {
+            pthread_cond_wait(&nabu_gil_event, &nabu_gil_mutex);
+        } else if (pthread_cond_timedwait(&nabu_gil_event, &nabu_gil_mutex, &deadline) != 0) {
+            timed_out = 1;
+        }
+    }
+    nabu_gil_take_turn();
+    pthread_mutex_unlock(&nabu_gil_mutex);
+    return timed_out;
+}
+
 /* -------------------------------------------------------
- * Monitor (synchronized)
+ * Monitor (synchronized): guarded by the GIL
  * ------------------------------------------------------- */
 
-#ifdef _WIN32
-
-/* Windows: CRITICAL_SECTION per object (lazy geÃ¯nitialiseerd) */
-static CRITICAL_SECTION monitor_cs;
-static int monitor_cs_init = 0;
-
-static void ensure_monitor_init(void) {
-    if (!monitor_cs_init) {
-        InitializeCriticalSection(&monitor_cs);
-        monitor_cs_init = 1;
-    }
-}
-
 void nabu_monitorenter(void *obj) {
     if (obj == NULL) {
         fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
     }
-    ensure_monitor_init();
     nabu_object *header = (nabu_object *)obj;
-
-    /* Eenvoudige spinlock via de monitor_count */
-    EnterCriticalSection(&monitor_cs);
-    while (header->monitor_count > 0 && header->thread_id != (int)GetCurrentThreadId()) {
-        LeaveCriticalSection(&monitor_cs);
-        /* busy wait â€” in productie: use proper condition variable */
-        EnterCriticalSection(&monitor_cs);
+    const int me = nabu_thread_id;
+    while (header->monitor_count > 0 && header->thread_id != me) {
+        nabu_gil_wait(-1);
     }
     header->monitor_count++;
-    header->thread_id = (int)GetCurrentThreadId();
-    LeaveCriticalSection(&monitor_cs);
+    header->thread_id = me;
 }
 
 void nabu_monitorexit(void *obj) {
@@ -1953,58 +2028,13 @@ void nabu_monitorexit(void *obj) {
         fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
     }
-    ensure_monitor_init();
     nabu_object *header = (nabu_object *)obj;
-
-    EnterCriticalSection(&monitor_cs);
     header->monitor_count--;
     if (header->monitor_count == 0) {
         header->thread_id = 0;
+        nabu_gil_signal();
     }
-    LeaveCriticalSection(&monitor_cs);
 }
-
-#else
-
-/* POSIX: pthread_mutex_t per object (lazy geÃ¯nitialiseerd via spinlock) */
-static pthread_mutex_t global_monitor_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-void nabu_monitorenter(void *obj) {
-    if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized on null object\n");
-        abort();
-    }
-
-    nabu_object *header = (nabu_object *)obj;
-
-    pthread_mutex_lock(&global_monitor_mutex);
-    while (header->monitor_count > 0 && header->thread_id != (int)pthread_self()) {
-        pthread_mutex_unlock(&global_monitor_mutex);
-        /* busy wait â€” in productie: gebruik condition variables */
-        pthread_mutex_lock(&global_monitor_mutex);
-    }
-    header->monitor_count++;
-    header->thread_id = (int)pthread_self();
-    pthread_mutex_unlock(&global_monitor_mutex);
-}
-
-void nabu_monitorexit(void *obj) {
-    if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized on null object\n");
-        abort();
-    }
-
-    nabu_object *header = (nabu_object *)obj;
-
-    pthread_mutex_lock(&global_monitor_mutex);
-    header->monitor_count--;
-    if (header->monitor_count == 0) {
-        header->thread_id = 0;
-    }
-    pthread_mutex_unlock(&global_monitor_mutex);
-}
-
-#endif
 
 void nabu_unresolved(const char *symbol) {
     fprintf(stderr, "nabu: call to a JDK function without an implementation: %s\n",

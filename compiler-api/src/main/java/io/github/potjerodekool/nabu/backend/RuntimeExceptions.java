@@ -26,6 +26,9 @@ public final class RuntimeExceptions {
             "java/lang/NoSuchMethodException",
             "java/lang/NoSuchFieldException",
             "java/lang/NegativeArraySizeException",
+            "java/lang/InterruptedException",
+            "java/lang/IllegalMonitorStateException",
+            "java/lang/IllegalThreadStateException",
             "java/io/IOException",
             "java/io/FileNotFoundException");
 

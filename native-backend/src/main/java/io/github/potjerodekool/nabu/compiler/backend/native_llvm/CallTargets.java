@@ -26,6 +26,17 @@ import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 final class CallTargets {
 
     private static final String OBJECT_CLONE = "java.lang.Object_clone";
+    private static final String THREAD_INIT = "java.lang.Thread_init";
+    private static final String THREAD_INIT_SOURCE = "java_lang_Thread_init";
+
+    /** A constructor call: {@code <Owner>_init}, or {@code <Owner>_init$<n>} for a constructor the runtime binds per arity. */
+    static boolean isInit(final String function) {
+        if (function.endsWith("_init")) {
+            return true;
+        }
+        final int dollar = function.lastIndexOf("_init$");
+        return dollar >= 0 && function.substring(dollar + "_init$".length()).chars().allMatch(Character::isDigit);
+    }
 
     private CallTargets() {
     }
@@ -38,6 +49,12 @@ final class CallTargets {
      */
     static IRInstruction.Call normalize(final IRInstruction.Call call) {
         final String fn = call.function();
+        if (THREAD_INIT.equals(fn) || THREAD_INIT_SOURCE.equals(fn)) {
+            // The C runtime cannot tell how many arguments a constructor was called with.
+            return new IRInstruction.Call(
+                    call.callKind(), call.returnType(), call.paramTypes(), call.result(),
+                    THREAD_INIT + "$" + call.paramTypes().size(), call.args(), call.location());
+        }
         if (fn == null || OBJECT_CLONE.equals(fn) || !fn.endsWith("_clone")) {
             return call;
         }

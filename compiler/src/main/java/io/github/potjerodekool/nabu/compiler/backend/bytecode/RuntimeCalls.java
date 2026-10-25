@@ -41,6 +41,8 @@ final class RuntimeCalls {
 
     static final String SHUTDOWN_SUPPORT = RUNTIME_PACKAGE + "ShutdownSupport";
 
+    static final String THREAD_SUPPORT = RUNTIME_PACKAGE + "ThreadSupport";
+
     static final String LOGGER_SUPPORT = RUNTIME_PACKAGE + "LoggerSupport";
 
     private record Redirect(String owner, String name, String desc, boolean isStatic,
@@ -105,6 +107,12 @@ final class RuntimeCalls {
                     "(Ljava/lang/Thread;)V", false, SHUTDOWN_SUPPORT, "addShutdownHook"),
             new Redirect("java/lang/Runtime", "removeShutdownHook",
                     "(Ljava/lang/Thread;)Z", false, SHUTDOWN_SUPPORT, "removeShutdownHook"),
+            new Redirect("java/lang/Object", "wait", "()V", false, THREAD_SUPPORT, "waitOn"),
+            new Redirect("java/lang/Object", "wait", "(J)V", false, THREAD_SUPPORT, "waitOn"),
+            new Redirect("java/lang/Object", "wait", "(JI)V", false, THREAD_SUPPORT, "waitOn"),
+            new Redirect("java/lang/Thread", "join", "()V", false, THREAD_SUPPORT, "join"),
+            new Redirect("java/lang/Thread", "join", "(J)V", false, THREAD_SUPPORT, "join"),
+            new Redirect("java/lang/Thread", "getState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT, "getState"),
             new Redirect("java/lang/System", "getLogger",
                     "(Ljava/lang/String;)Ljava/lang/System$Logger;", true, LOGGER_SUPPORT, "getLogger"));
 

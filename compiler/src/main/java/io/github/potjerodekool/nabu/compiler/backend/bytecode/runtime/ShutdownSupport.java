@@ -20,7 +20,7 @@ public final class ShutdownSupport {
     }
 
     /** The Runnable a Thread object was made with, or null. */
-    private static native Object targetOf0(Thread thread);
+    static native Object targetOf0(Thread thread);
 
     public static void addShutdownHook(final Runtime runtime, final Thread hook) {
         if (hook == null) {

@@ -1217,7 +1217,7 @@ for (IRModule m : modules) {
      */
     public IRInstruction.Call canonicalize(final IRInstruction.Call call) {
         final String fn = call.function();
-        if (fn == null || fn.endsWith("_init") || fn.endsWith("_clinit")
+        if (fn == null || CallTargets.isInit(fn) || fn.endsWith("_clinit")
                 || fn.endsWith("_super")) {
             return call;
         }

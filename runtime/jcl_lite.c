@@ -1488,6 +1488,172 @@ BIND(int64_t, jcl_java_io_FileInputStream_position0, "java.io.FileInputStream_po
     return (int64_t)lseek(fd, 0, SEEK_CUR);
 #endif
 }
+/* --- sun.nio.ch.FileDispatcherImpl: FileChannel on a file ----------------
+ * The channel works on the CRT descriptor in the FileDescriptor, like the streams. IOStatus values: EOF -1,
+ * UNSUPPORTED_CASE -6 (the JDK then takes another way). */
+
+static int jcl_chan_fd(void *fdObj) {
+    int32_t *slot = jcl_fd_slot(fdObj);
+    return slot != NULL ? *slot : -1;
+}
+static void jcl_chan_error(const char *what) {
+    char reason[96];
+    snprintf(reason, sizeof reason, "%s failed (%s)", what, strerror(errno));
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(reason)));
+}
+#ifdef _WIN32
+#define JCL_READ(fd, buf, n) _read((fd), (buf), (unsigned int)(n))
+#define JCL_WRITE(fd, buf, n) _write((fd), (buf), (unsigned int)(n))
+#define JCL_SEEK(fd, off, whence) _lseeki64((fd), (off), (whence))
+#else
+#define JCL_READ(fd, buf, n) read((fd), (buf), (size_t)(n))
+#define JCL_WRITE(fd, buf, n) write((fd), (buf), (size_t)(n))
+#define JCL_SEEK(fd, off, whence) lseek((fd), (off_t)(off), (whence))
+#endif
+
+BIND(int32_t, jcl_FileDispatcherImpl_read0, "sun.nio.ch.FileDispatcherImpl_read0", (void *fdObj, int64_t address, int32_t len)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    int n = (int)JCL_READ(fd, (void *)(intptr_t)address, len);
+    if (n < 0) { jcl_chan_error("Read"); return -1; }
+    return n == 0 && len > 0 ? -1 : n;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_pread0, "sun.nio.ch.FileDispatcherImpl_pread0",
+     (void *fdObj, int64_t address, int32_t len, int64_t position)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    int64_t saved = JCL_SEEK(fd, 0, SEEK_CUR);
+    if (JCL_SEEK(fd, position, SEEK_SET) < 0) { jcl_chan_error("Seek"); return -1; }
+    int n = (int)JCL_READ(fd, (void *)(intptr_t)address, len);
+    JCL_SEEK(fd, saved, SEEK_SET);
+    if (n < 0) { jcl_chan_error("Read"); return -1; }
+    return n == 0 && len > 0 ? -1 : n;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_write0, "sun.nio.ch.FileDispatcherImpl_write0",
+     (void *fdObj, int64_t address, int32_t len, uint8_t append)) {
+    (void)append;
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    int n = (int)JCL_WRITE(fd, (const void *)(intptr_t)address, len);
+    if (n < 0) { jcl_chan_error("Write"); return -1; }
+    return n;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_pwrite0, "sun.nio.ch.FileDispatcherImpl_pwrite0",
+     (void *fdObj, int64_t address, int32_t len, int64_t position)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    int64_t saved = JCL_SEEK(fd, 0, SEEK_CUR);
+    if (JCL_SEEK(fd, position, SEEK_SET) < 0) { jcl_chan_error("Seek"); return -1; }
+    int n = (int)JCL_WRITE(fd, (const void *)(intptr_t)address, len);
+    JCL_SEEK(fd, saved, SEEK_SET);
+    if (n < 0) { jcl_chan_error("Write"); return -1; }
+    return n;
+}
+BIND(int64_t, jcl_FileDispatcherImpl_readv0, "sun.nio.ch.FileDispatcherImpl_readv0", (void *fdObj, int64_t address, int32_t len)) {
+    (void)fdObj; (void)address; (void)len;
+    return -6;
+}
+BIND(int64_t, jcl_FileDispatcherImpl_writev0, "sun.nio.ch.FileDispatcherImpl_writev0",
+     (void *fdObj, int64_t address, int32_t len, uint8_t append)) {
+    (void)fdObj; (void)address; (void)len; (void)append;
+    return -6;
+}
+/* offset -1: the current position; otherwise set it. Returns the position. */
+BIND(int64_t, jcl_FileDispatcherImpl_seek0, "sun.nio.ch.FileDispatcherImpl_seek0", (void *fdObj, int64_t offset)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    int64_t r = offset < 0 ? JCL_SEEK(fd, 0, SEEK_CUR) : JCL_SEEK(fd, offset, SEEK_SET);
+    if (r < 0) { jcl_chan_error("Seek"); return -1; }
+    return r;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_force0, "sun.nio.ch.FileDispatcherImpl_force0", (void *fdObj, uint8_t metaData)) {
+    (void)metaData;
+    int fd = jcl_chan_fd(fdObj);
+#ifdef _WIN32
+    if (fd >= 0) _commit(fd);
+#else
+    if (fd >= 0) fsync(fd);
+#endif
+    return 0;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_truncate0, "sun.nio.ch.FileDispatcherImpl_truncate0", (void *fdObj, int64_t size)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+#ifdef _WIN32
+    int bad = _chsize_s(fd, size) != 0;
+#else
+    int bad = ftruncate(fd, (off_t)size) != 0;
+#endif
+    if (bad) { jcl_chan_error("Truncate"); return -1; }
+    return 0;
+}
+BIND(int64_t, jcl_FileDispatcherImpl_size0, "sun.nio.ch.FileDispatcherImpl_size0", (void *fdObj)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+#ifdef _WIN32
+    int64_t n = _filelengthi64(fd);
+#else
+    struct stat st;
+    int64_t n = fstat(fd, &st) == 0 ? (int64_t)st.st_size : -1;
+#endif
+    if (n < 0) { jcl_chan_error("Size"); return -1; }
+    return n;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_available0, "sun.nio.ch.FileDispatcherImpl_available0", (void *fdObj)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) return 0;
+    int64_t pos = JCL_SEEK(fd, 0, SEEK_CUR);
+#ifdef _WIN32
+    int64_t size = _filelengthi64(fd);
+#else
+    struct stat st;
+    int64_t size = fstat(fd, &st) == 0 ? (int64_t)st.st_size : 0;
+#endif
+    int64_t left = size - pos;
+    return left < 0 ? 0 : left > 0x7fffffff ? 0x7fffffff : (int32_t)left;
+}
+BIND(uint8_t, jcl_FileDispatcherImpl_isOther0, "sun.nio.ch.FileDispatcherImpl_isOther0", (void *fdObj)) { (void)fdObj; return 0; }
+/* No file locks between processes: the lock is always granted (0 = LOCKED). */
+BIND(int32_t, jcl_FileDispatcherImpl_lock0, "sun.nio.ch.FileDispatcherImpl_lock0",
+     (void *fdObj, uint8_t blocking, int64_t pos, int64_t size, uint8_t shared)) {
+    (void)fdObj; (void)blocking; (void)pos; (void)size; (void)shared;
+    return 0;
+}
+BIND(void, jcl_FileDispatcherImpl_release0, "sun.nio.ch.FileDispatcherImpl_release0", (void *fdObj, int64_t pos, int64_t size)) {
+    (void)fdObj; (void)pos; (void)size;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_maxDirectTransferSize0, "sun.nio.ch.FileDispatcherImpl_maxDirectTransferSize0", (void)) {
+    return 0x7fffffff;
+}
+BIND(int64_t, jcl_FileDispatcherImpl_transferTo0, "sun.nio.ch.FileDispatcherImpl_transferTo0",
+     (void *src, int64_t position, int64_t count, void *dst, uint8_t append)) {
+    (void)src; (void)position; (void)count; (void)dst; (void)append;
+    return -6; /* UNSUPPORTED_CASE: the JDK copies through a buffer */
+}
+BIND(int64_t, jcl_FileDispatcherImpl_allocationGranularity0, "sun.nio.ch.FileDispatcherImpl_allocationGranularity0", (void)) {
+    return 65536;
+}
+BIND(int64_t, jcl_FileDispatcherImpl_map0, "sun.nio.ch.FileDispatcherImpl_map0",
+     (void *fdObj, int32_t prot, int64_t position, int64_t length, uint8_t isSync)) {
+    (void)fdObj; (void)prot; (void)position; (void)length; (void)isSync;
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+            "Memory-mapped files are not supported in a native executable"));
+    return 0;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_unmap0, "sun.nio.ch.FileDispatcherImpl_unmap0", (int64_t address, int64_t length)) {
+    (void)address; (void)length;
+    return 0;
+}
+BIND(int64_t, jcl_FileDispatcherImpl_duplicateHandle, "sun.nio.ch.FileDispatcherImpl_duplicateHandle", (int64_t handle)) {
+    return handle;
+}
+BIND(int32_t, jcl_FileDispatcherImpl_setDirect0, "sun.nio.ch.FileDispatcherImpl_setDirect0", (void *fdObj, void *buf)) {
+    (void)fdObj; (void)buf;
+    return -1;
+}
+BIND(int32_t, jcl_IOUtil_iovMax, "sun.nio.ch.IOUtil_iovMax", (void)) { return 16; }
+BIND(int64_t, jcl_IOUtil_writevMax, "sun.nio.ch.IOUtil_writevMax", (void)) { return 0x7fffffffLL; }
+
 /* --- NativeProcess: child processes (Windows) --------------------------- */
 
 #ifdef _WIN32

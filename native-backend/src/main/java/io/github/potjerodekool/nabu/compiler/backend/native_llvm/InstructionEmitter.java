@@ -2628,6 +2628,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     // gelijknamige global zou kunnen kiezen.
                     final String plain = n.name().startsWith("@")
                             ? n.name().substring(1) : n.name();
+                    // The field of the named class itself comes first: a class and its superclass can
+                    // both declare a field with the same name (Buffer and MappedByteBuffer: SCOPED_MEMORY_ACCESS).
+                    v = globalValueMap.get("@" + plain);
                     String inherited = classLayouts.superCallTarget(plain);
                     while (v == null && inherited != null) {
                         v = globalValueMap.get("@" + inherited);

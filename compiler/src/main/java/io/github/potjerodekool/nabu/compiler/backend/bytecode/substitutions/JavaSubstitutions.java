@@ -49,6 +49,7 @@ public final class JavaSubstitutions {
             Map.entry("java/security/Security$SecPropLoader", SecurityPropertiesSubstitution.class),
             Map.entry("jdk/internal/event/EventHelper", EventHelperSubstitution.class),
             Map.entry("sun/security/provider/SeedGenerator", SeedGeneratorSubstitution.class),
+            Map.entry("java/nio/channels/FileChannel", FileChannelSubstitution.class),
             Map.entry("java/lang/ProcessImpl", ProcessImplSubstitution.class),
             Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class));
 
@@ -68,6 +69,10 @@ public final class JavaSubstitutions {
     }
 
     public static void apply(final ClassNode target) {
+        if ("jdk/internal/misc/UnsafeConstants".equals(target.name)) {
+            setUnsafeConstants(target);
+            return;
+        }
         final Class<?> substitution = SUBSTITUTIONS.get(target.name);
         if (substitution == null) {
             return;
@@ -95,6 +100,29 @@ public final class JavaSubstitutions {
                     method.maxStack = replacement.maxStack;
                     method.maxLocals = replacement.maxLocals;
                     break;
+                }
+            }
+        }
+    }
+
+    /**
+     * The JVM sets the fields of {@code UnsafeConstants} when it starts; the class initializer only has
+     * placeholders (0). A zero address size makes {@code Unsafe.allocateMemory} round every size to 0, which
+     * breaks direct buffers. The address size and page size of the target are set here (64-bit, 4 KiB pages).
+     */
+    private static void setUnsafeConstants(final ClassNode target) {
+        for (final MethodNode method : target.methods) {
+            if (!"<clinit>".equals(method.name)) {
+                continue;
+            }
+            for (final AbstractInsnNode insn : method.instructions.toArray()) {
+                if (insn instanceof FieldInsnNode field && field.getOpcode() == Opcodes.PUTSTATIC
+                        && insn.getPrevious() != null && insn.getPrevious().getOpcode() == Opcodes.ICONST_0) {
+                    if ("ADDRESS_SIZE0".equals(field.name)) {
+                        method.instructions.set(insn.getPrevious(), new org.objectweb.asm.tree.IntInsnNode(Opcodes.BIPUSH, 8));
+                    } else if ("PAGE_SIZE".equals(field.name)) {
+                        method.instructions.set(insn.getPrevious(), new org.objectweb.asm.tree.IntInsnNode(Opcodes.SIPUSH, 4096));
+                    }
                 }
             }
         }

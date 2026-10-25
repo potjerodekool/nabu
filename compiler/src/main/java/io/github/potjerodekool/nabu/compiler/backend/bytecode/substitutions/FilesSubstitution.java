@@ -232,6 +232,16 @@ public final class FilesSubstitution {
         return java.nio.file.attribute.FileTime.fromMillis(file.lastModified());
     }
 
+    public static java.nio.channels.SeekableByteChannel newByteChannel(final Path path, final OpenOption... options)
+            throws IOException {
+        return io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ChannelSupport.open(path, options);
+    }
+
+    public static java.nio.channels.SeekableByteChannel newByteChannel(final Path path,
+            final java.util.Set<? extends OpenOption> options, final FileAttribute<?>... attrs) throws IOException {
+        return io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ChannelSupport.open(path, options);
+    }
+
     @SuppressWarnings("unchecked")
     public static <A extends java.nio.file.attribute.BasicFileAttributes> A readAttributes(final Path path,
             final Class<A> type, final LinkOption... options) throws IOException {

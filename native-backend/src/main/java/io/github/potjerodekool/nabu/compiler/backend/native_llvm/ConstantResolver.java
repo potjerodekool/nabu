@@ -222,6 +222,8 @@ public class ConstantResolver {
 
         // byte[]: i32 lengte op offset 0, i32 elementgrootte (1) op offset 4,
         // de data op offset 8 (zie storeArrayElemSize in InstructionEmitter).
+        // The upper 24 bits of the element-size word are the array type id; "[B" is always id 1
+        // (InstructionEmitter.RUNTIME_ARRAY_TYPES), so the array of a literal is a byte[] for getClass().
         final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
         final LLVMTypeRef i8 = LLVMInt8TypeInContext(ctx);
         final LLVMValueRef[] byteValues = new LLVMValueRef[bytes.length];
@@ -232,7 +234,7 @@ public class ConstantResolver {
                 new PointerPointer<>(byteValues), bytes.length);
         final LLVMValueRef arrayConst = LLVMConstStructInContext(ctx,
                 new PointerPointer<>(new LLVMValueRef[]{
-                        LLVMConstInt(i32, bytes.length, 0), LLVMConstInt(i32, 1, 0), data}),
+                        LLVMConstInt(i32, bytes.length, 0), LLVMConstInt(i32, 1 | (1 << 8), 0), data}),
                 3, 0);
         final LLVMValueRef arrayGlobal = LLVMAddGlobal(mod, LLVMTypeOf(arrayConst),
                 new BytePointer(".jstr.bytes." + suffix));

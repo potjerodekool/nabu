@@ -233,6 +233,42 @@ class JdkRuntimeE2eIT {
                         java.nio.file.Files.delete(walkSub);
                         java.nio.file.Files.delete(walkDir);
                         crypto();
+                        concurrent();
+                    }
+
+                    static void concurrent() throws Exception {
+                        java.util.concurrent.ConcurrentLinkedQueue<String> queue = new java.util.concurrent.ConcurrentLinkedQueue<>();
+                        queue.offer("a");
+                        queue.add("b");
+                        queue.add("c");
+                        String first = queue.poll();
+                        queue.remove("b");
+                        java.util.concurrent.ConcurrentLinkedDeque<Integer> deque = new java.util.concurrent.ConcurrentLinkedDeque<>();
+                        deque.addFirst(1);
+                        deque.addLast(2);
+                        deque.push(0);
+                        deque.pollLast();
+                        java.util.concurrent.ConcurrentSkipListMap<String, Integer> sorted =
+                                new java.util.concurrent.ConcurrentSkipListMap<>();
+                        sorted.put("b", 2);
+                        sorted.put("a", 1);
+                        sorted.put("c", 3);
+                        sorted.remove("b");
+                        java.util.concurrent.atomic.AtomicBoolean flag = new java.util.concurrent.atomic.AtomicBoolean();
+                        boolean swapped = flag.compareAndSet(false, true);
+                        java.util.concurrent.atomic.LongAdder adder = new java.util.concurrent.atomic.LongAdder();
+                        adder.add(4);
+                        java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
+                        generator.initialize(1024);
+                        java.security.KeyPair pair = generator.generateKeyPair();
+                        java.security.Signature signature = java.security.Signature.getInstance("SHA256withRSA");
+                        signature.initSign(pair.getPrivate());
+                        signature.update("x".getBytes());
+                        byte[] signed = signature.sign();
+                        signature.initVerify(pair.getPublic());
+                        signature.update("x".getBytes());
+                        System.out.println(first + queue.peek() + queue.size() + " " + deque + " " + sorted + " " + swapped + flag.get()
+                                + " " + adder.sum() + " " + signed.length + " " + signature.verify(signed));
                     }
 
                     static void crypto() throws Exception {
@@ -257,7 +293,7 @@ class JdkRuntimeE2eIT {
                         generator.init(128);
                         System.out.println(hmac + " " + hex.formatHex(encrypted) + " " + decrypted + " " + hex.formatHex(sealed) + " "
                                 + opened + " " + hex.formatHex(derived) + " " + generator.generateKey().getEncoded().length
-                                + " " + Class.forName("java.util.List").isInterface());
+                                + " " + Class.forName("java.util.List").getName());
                     }
 
                     static class Many {
@@ -333,7 +369,7 @@ class JdkRuntimeE2eIT {
         }
         String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         int exit = proc.exitValue();
-        assertEquals("work\n 3.14|42|hi|1,234,567\n[alpha, charlie, delta] 55\n30\nIndex 2 out of bounds for length 1\n/ by zero\n-2147483648\n0\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\na9993e364706816aba3e25717850c26c9cd0d89d\n900150983cd24fb0d6963f7d28e17f72\n36 true\n5799 38616657 30864.19725\n0.3333333333333333 1234567.0 1.2345678E7 1.0E-4 0.33333334 1.4142135623730951\n[one, two] 8\n891568578\n2020-02-29 true 2020-06-01T12:00:00Z\n1,234,567.89\nClassCastException\nf1 caught f2 npe\n4\nab7 i0o0 i1o1 i2o2 i3o3 cfx\nmarker runnable array ok\nchild 0\n42hi 8\n8 true false\n3 0\n13 13 channel 5 5 104\na.txt b.json 1000000000000 true text/plain application/json true a.txt true\n5031fe3d989c6d1537a013fa6e739da23463fdaec3b70137d828e36ace221bd0 7489adda96bb9c30fb4932e07731571a hello world 6bedb6a20ffc05f3475d29034caa1cc8fa3628c39f hello f8cffa25bbacb89251a7dd602940e06c 16 true\nhook ran\n", output, "exit=" + exit);
+        assertEquals("work\n 3.14|42|hi|1,234,567\n[alpha, charlie, delta] 55\n30\nIndex 2 out of bounds for length 1\n/ by zero\n-2147483648\n0\nba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\na9993e364706816aba3e25717850c26c9cd0d89d\n900150983cd24fb0d6963f7d28e17f72\n36 true\n5799 38616657 30864.19725\n0.3333333333333333 1234567.0 1.2345678E7 1.0E-4 0.33333334 1.4142135623730951\n[one, two] 8\n891568578\n2020-02-29 true 2020-06-01T12:00:00Z\n1,234,567.89\nClassCastException\nf1 caught f2 npe\n4\nab7 i0o0 i1o1 i2o2 i3o3 cfx\nmarker runnable array ok\nchild 0\n42hi 8\n8 true false\n3 0\n13 13 channel 5 5 104\na.txt b.json 1000000000000 true text/plain application/json true a.txt true\n5031fe3d989c6d1537a013fa6e739da23463fdaec3b70137d828e36ace221bd0 7489adda96bb9c30fb4932e07731571a hello world 6bedb6a20ffc05f3475d29034caa1cc8fa3628c39f hello f8cffa25bbacb89251a7dd602940e06c 16 java.util.List\nac1 [0, 1] {a=1, c=3} truetrue 4 128 true\nhook ran\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

@@ -210,13 +210,15 @@ public final class BytecodeReachabilityCompiler {
      *       (bv. locale-data in JRELocaleProviderAdapter).</li>
      * </ul>
      */
-    private static ClassNode substitute(final ClassNode classNode) {
+    private static ClassNode substitute(final ClassNode classNode,
+                                        final java.util.function.Function<String, ClassNode> loader) {
         if (classNode == null) {
             return null;
         }
         RuntimeCalls.rewrite(classNode);
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         ByteArrayViewRewriter.rewrite(classNode);
+        FieldVarHandleRewriter.rewrite(classNode, loader);
         if ("java/util/ServiceLoader".equals(classNode.name)) {
             for (final MethodNode m : classNode.methods) {
                 if ("newLookupIterator".equals(m.name) && "()Ljava/util/Iterator;".equals(m.desc)) {
@@ -1396,7 +1398,12 @@ public final class BytecodeReachabilityCompiler {
                         : generatedClasses.containsKey(name) ? generatedClasses.get(name)
                         : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? EmbeddedResources.runtimeClass(name)
                         : AnnotationAccessors.CLASS.equals(name) ? AnnotationAccessors.build()
-                        : withAnnotationAccessors(substitute(classLoader.load(name))));
+                                                : withAnnotationAccessors(loadSubstituted(name)));
+    }
+
+    /** A class from the class path with the substitutions applied; not cached (the rewriters may load nest members). */
+    private ClassNode loadSubstituted(final String name) {
+        return substitute(classLoader.load(name), this::loadSubstituted);
     }
 
     /** Runtime-zichtbare annotaties, voor de reflectie-metadata (zie {@link IRAnnotation}). */

@@ -2092,6 +2092,11 @@ BIND(void *, jcl_java_lang_Class_forName, "java.lang.Class_forName", (void *name
     return jcl_class(internal);
 }
 BIND(void *, jcl_java_lang_Class_forName_s, "java.lang.Class_forName$P523beb0a", (void *name)) { return jcl_java_lang_Class_forName(name); }
+/* Class.forName(String, boolean, ClassLoader): there is one class loader; initialization is lazy anyway. */
+BIND(void *, jcl_java_lang_Class_forName_3, "java.lang.Class_forName$P523beb0aZP2f7ad930", (void *name, uint8_t init, void *loader)) {
+    (void)init; (void)loader;
+    return jcl_java_lang_Class_forName(name);
+}
 /* Class.forName(Module, String): als forName(String), maar null i.p.v.
  * ClassNotFoundException voor een onbekende klasse (JDK-contract). */
 BIND(void *, jcl_java_lang_Class_forName_module, "java.lang.Class_forName$Pb8e700fP523beb0a", (void *module, void *name)) {

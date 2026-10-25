@@ -51,6 +51,10 @@ class InstructionEmitterTest extends BackendTest {
         assertBytecodeSnapshot("InstructionEmitterTest/forLoop.txt", expected, actual);
     }
 
+    // Snapshot outdated: the current IR emitter expands for-each with
+    // explicit temps/null-init locals (functionally correct and covered by
+    // the FrontendGaps run tests); the stored snapshot still reflects an
+    // older, cleaner emitter shape.
     @Disabled
     @Test
     void visitForEachStatement() {
@@ -74,11 +78,8 @@ class InstructionEmitterTest extends BackendTest {
         assertEquals(expected, actual);
     }
 
-    /**
-     * TODO
-     *  pos++ can be optimized with the IINC instruction.
-     * TODO fix {{@link io.github.potjerodekool.nabu.util.Elements#overrides(ExecutableElement, ExecutableElement, TypeElement)}}
-     **/
+    // TODO pos++ can be optimized with the IINC instruction.
+    // TODO fix Elements#overrides(ExecutableElement, ExecutableElement, TypeElement).
     @Test
     void whileLoop() {
         CompilationUnit compilationUnit = parse(

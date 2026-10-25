@@ -1010,8 +1010,13 @@ switchBlockStatementGroup
     ;
 
 switchLabel
-    : 'case' caseConstant (',' caseConstant)*
+    : 'case' caseLabelElement (',' caseLabelElement)* (',' 'default')?
     | 'default'
+    ;
+
+caseLabelElement
+    : caseConstant
+    | pattern
     ;
 
 caseConstant
@@ -1175,12 +1180,38 @@ yieldStatement
 // Paragraph 14.30
 // --------------
 
+// Java 21 (JLS 14.30): guarded patterns (`when`) and record patterns.
+// `when` is a contextual keyword: only treated as a guard if the current
+// token text is "when", so identifiers named `when` stay valid everywhere.
 pattern
+    : guardedPattern
+    ;
+
+guardedPattern
+    : primaryPattern (guard expression)?
+    ;
+
+// `when` is a contextual keyword (JLS 14.30): only a guard when the token
+// text is literally "when", so fields/variables named `when` stay valid.
+guard
+    : {_input.LT(1).getText().equals("when")}? identifier
+    ;
+
+primaryPattern
     : typePattern
+    | recordPattern
     ;
 
 typePattern
     : localVariableDeclaration
+    ;
+
+recordPattern
+    : referenceType '(' patternList? ')'
+    ;
+
+patternList
+    : pattern (',' pattern)*
     ;
 
 // Paragraph 15.2

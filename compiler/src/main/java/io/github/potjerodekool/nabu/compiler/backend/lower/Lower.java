@@ -27,6 +27,16 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionT
 import io.github.potjerodekool.nabu.tree.statement.*;
 import io.github.potjerodekool.nabu.tree.CaseLabel;
 import io.github.potjerodekool.nabu.tree.ConstantCaseLabel;
+import io.github.potjerodekool.nabu.tree.DefaultCaseLabel;
+import io.github.potjerodekool.nabu.tree.Pattern;
+import io.github.potjerodekool.nabu.tree.PatternCaseLabel;
+import io.github.potjerodekool.nabu.tree.RecordPattern;
+import io.github.potjerodekool.nabu.tree.TypePattern;
+import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.InstanceOfExpression;
+import io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree;
+import io.github.potjerodekool.nabu.tree.statement.IfStatementTree;
+import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.tree.statement.builder.VariableDeclaratorTreeBuilder;
 import io.github.potjerodekool.nabu.type.ArrayType;
 import io.github.potjerodekool.nabu.type.TypeKind;
@@ -657,8 +667,17 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     }
 
     @Override
+    public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression,
+                                          final LowerScope scope) {
+        if (instanceOfExpression.getTypeExpression() instanceof RecordPattern) {
+            throw new IllegalStateException("record patterns in instanceof are not yet supported");
+        }
+        return super.visitInstanceOfExpression(instanceOfExpression, scope);
+    }
+
+    @Override
     public Tree visitSwitchStatement(final SwitchStatement switchStatement,
-                                     final LowerScope scope) {
+                                      final LowerScope scope) {
         var selector = (ExpressionTree) acceptTree(switchStatement.getSelector(), scope);
 
         final var selectorType = selector.getSymbol() != null
@@ -669,6 +688,14 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                     .map(caseStatement -> (CaseStatement) acceptTree(caseStatement, scope))
                     .toList();
             return switchStatement.builder().selector(selector).cases(plainCases).build();
+        }
+
+        final boolean isPatternSwitch = switchStatement.getCases().stream()
+                .flatMap(caseStatement -> caseStatement.getLabels().stream())
+                .anyMatch(label -> label instanceof PatternCaseLabel
+                        || isNullConstantLabel(label));
+        if (isPatternSwitch) {
+            return lowerPatternSwitchStatement(switchStatement, scope, selector);
         }
 
         if (types.isBoxType(selectorType)) {
@@ -691,49 +718,6 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
         return switchStatement.builder()
                 .selector(selector)
-                .cases(cases)
-                .build();
-    }
-
-    @Override
-    public Tree visitSwitchExpression(final SwitchExpressionTree switchExpression,
-                                      final LowerScope scope) {
-        var selector = (ExpressionTree) acceptTree(switchExpression.getSelector(), scope);
-
-        final var selectorType = selector.getSymbol() != null
-                ? selector.getSymbol().asType()
-                : compilerContext.getTreeUtils().typeOf(selector);
-
-        final TypeElement enumElement = selectorType != null
-                && selectorType.isReferenceType()
-                && selectorType.asElement() instanceof TypeElement typeElement
-                && typeElement.getKind() == ElementKind.ENUM
-                ? typeElement
-                : null;
-
-        if (enumElement != null) {
-            selector = enumOrdinalSelector(selector, enumElement);
-        } else if (selectorType != null && types.isBoxType(selectorType)) {
-            final var primitiveType = types.unboxedType(selectorType);
-            selector = primitiveType.accept(boxer, selector);
-        }
-
-        final List<String> enumConstants = enumElement != null
-                ? ElementFilter.enumValuesIn(enumElement.getEnclosedElements()).stream()
-                .map(Element::getSimpleName)
-                .toList()
-                : List.of();
-
-        final var loweredSelector = selector;
-        final var cases = switchExpression.getCases().stream()
-                .map(caseStatement -> (CaseStatement) acceptTree(caseStatement, scope))
-                .map(caseStatement -> enumConstants.isEmpty()
-                        ? caseStatement
-                        : toOrdinalCase(caseStatement, enumConstants))
-                .toList();
-
-        return switchExpression.builder()
-                .selector(loweredSelector)
                 .cases(cases)
                 .build();
     }
@@ -826,6 +810,382 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 .orElseThrow(() -> new IllegalStateException("Failed to resolve ordinal method"));
 
         return (ExecutableType) ordinalMethod.asType();
+    }
+
+    private static final int PATTERN_DEFAULT_ORDINAL = -1;
+
+    private boolean isNullConstantLabel(final CaseLabel label) {
+        if (label instanceof ConstantCaseLabel constantCaseLabel) {
+            final var expression = constantCaseLabel.getExpression();
+            if (expression instanceof LiteralExpressionTree literalExpressionTree) {
+                return literalExpressionTree.getLiteralKind() == LiteralExpressionTree.Kind.NULL
+                        || literalExpressionTree.getLiteral() == null;
+            }
+        }
+        return false;
+    }
+
+    private ExpressionTree castExpressionTree(final ExpressionTree value,
+                                              final TypeMirror type,
+                                              final int lineNumber,
+                                              final int columnNumber) {
+        final var cast = TreeMaker.castExpressionTree(createIdentifierFromType(type), value, lineNumber, columnNumber);
+        cast.setType(type);
+        return cast;
+    }
+
+    private Tree lowerPatternSwitchStatement(final SwitchStatement switchStatement,
+                                             final LowerScope scope,
+                                             final ExpressionTree originalSelector) {
+        if (switchStatement instanceof SwitchExpressionTree) {
+            throw new IllegalStateException("pattern switch expression not yet supported");
+        }
+
+        // Lower case bodies first (labels may be visited but pattern labels become unknown)
+        final List<CaseStatement> loweredCases = switchStatement.getCases().stream()
+                .map(caseStatement -> (CaseStatement) acceptTree(caseStatement, scope))
+                .toList();
+
+        final int lineNumber = switchStatement.getLineNumber();
+        final int columnNumber = switchStatement.getColumnNumber();
+        final List<StatementTree> statements = new ArrayList<>();
+
+        // $match index
+        final var idxName = "$match";
+        final var idxSymbol = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.LOCAL_VARIABLE)
+                .simpleName(idxName)
+                .type(types.getPrimitiveType(TypeKind.INT))
+                .build();
+        final var idxIdentifierName = IdentifierTree.create(idxName);
+        idxIdentifierName.setSymbol(idxSymbol);
+        final var intType = types.getPrimitiveType(TypeKind.INT);
+        final var idxLiteral = TreeMaker.literalExpressionTree(PATTERN_DEFAULT_ORDINAL, lineNumber, columnNumber);
+        idxLiteral.setType(intType);
+        final var idxTypeTree = TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.INT, lineNumber, columnNumber);
+        idxTypeTree.setType(intType);
+        final var idxDecl = TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(), idxTypeTree, idxIdentifierName, null, idxLiteral, lineNumber, columnNumber);
+        statements.add(idxDecl);
+
+        // Collect all binding decls and entry list
+        final List<StatementTree> bindingDecls = new ArrayList<>();
+        final List<Entry> entries = new ArrayList<>();
+
+        // entries built per label in case order
+        for (final var caseStatement : loweredCases) {
+            for (final var label : caseStatement.getLabels()) {
+                if (label instanceof DefaultCaseLabel) {
+                    // $match already holds PATTERN_DEFAULT_ORDINAL when
+                    // nothing matched, so default needs no dispatch entry.
+                    continue;
+                } else if (label instanceof ConstantCaseLabel constantCaseLabel && isNullConstantLabel(label)) {
+                    final var cond = TreeMaker.binaryExpressionTree(originalSelector,
+                            Tag.EQ,
+                            TreeMaker.literalExpressionTree(null, lineNumber, columnNumber),
+                            lineNumber,
+                            columnNumber);
+                    final List<StatementTree> thenStmts = new ArrayList<>();
+                    thenStmts.add(assignIdx(idxIdentifierName, entries.size(), lineNumber, columnNumber));
+                    entries.add(new Entry(cond, thenStmts, EntryKind.NULL, null));
+                } else if (label instanceof PatternCaseLabel patternCaseLabel) {
+                    final var thenStmts = new ArrayList<StatementTree>();
+                    final var pattern = patternCaseLabel.getPattern();
+                    if (pattern instanceof TypePattern typePattern) {
+                        final var declarator = typePattern.getVariableDeclarator();
+                        if (declarator == null || declarator.getVariableType() == null || declarator.getVariableType().getType() == null) {
+                            throw new IllegalStateException("pattern type not resolved");
+                        }
+                        final var bindingType = declarator.getVariableType().getType();
+                        if (bindingType instanceof PrimitiveType) {
+                            throw new IllegalStateException("primitive pattern bindings are not yet supported in pattern switch");
+                        }
+                        final var clonedDecl = declarator.builder()
+                                .value(defaultInitializer(bindingType, lineNumber, columnNumber))
+                                .build();
+                        bindingDecls.add(clonedDecl);
+                        final var bindingSymbol = declarator.getName().getSymbol();
+                        final var bindingIdent = IdentifierTree.create(declarator.getName().getName());
+                        if (bindingSymbol != null) {
+                            bindingIdent.setSymbol(bindingSymbol);
+                        }
+                        final var cast = castExpressionTree(originalSelector, bindingType, lineNumber, columnNumber);
+                        cast.setType(bindingType);
+                        thenStmts.add(TreeMaker.expressionStatement(TreeMaker.assignmentExpression(bindingIdent, cast, lineNumber, columnNumber), lineNumber, columnNumber));
+                        final ExpressionTree cond = TreeMaker.instanceOfExpression(originalSelector,
+                                createIdentifierFromType(bindingType),
+                                lineNumber,
+                                columnNumber);
+                        final var guard = patternCaseLabel.getWhen();
+                        final var matchAssignment = assignIdx(idxIdentifierName, entries.size(), lineNumber, columnNumber);
+                        if (guard != null) {
+                            final var guardAccepted = (ExpressionTree) acceptTree(guard, scope);
+                            thenStmts.add(TreeMaker.ifStatementTree(guardAccepted,
+                                    TreeMaker.blockStatement(List.of(matchAssignment), lineNumber, columnNumber),
+                                    null,
+                                    lineNumber,
+                                    columnNumber));
+                        } else {
+                            thenStmts.add(matchAssignment);
+                        }
+                        entries.add(new Entry(cond, thenStmts, EntryKind.PATTERN, null));
+                    } else if (pattern instanceof RecordPattern recordPattern) {
+                        final TypeMirror recordType = recordPattern.getRecordType().getType() != null
+                                ? recordPattern.getRecordType().getType()
+                                : (recordPattern.getRecordType() instanceof IdentifierTree it && it.getType() != null ? it.getType() : null);
+                        if (recordType == null) {
+                            throw new IllegalStateException("record pattern type not resolved");
+                        }
+                        // De ontvanger van de accessor-aanroepen heeft het
+                        // statische type van de selector (Object): cast naar
+                        // het recordtype, anders faalt de verifier op
+                        // INVOKEVIRTUAL met een mismatchende receiver.
+                        final var recordReceiver = castExpressionTree(originalSelector, recordType, lineNumber, columnNumber);
+                        recordReceiver.setType(recordType);
+                        final var declsAndAssigns = buildRecordBindings(recordPattern, recordReceiver, scope, lineNumber, columnNumber);
+                        bindingDecls.addAll(declsAndAssigns.decls);
+                        final var thenStmtsRec = new ArrayList<StatementTree>(declsAndAssigns.assigns);
+                        ExpressionTree condRec = TreeMaker.instanceOfExpression(originalSelector,
+                                createIdentifierFromType(recordType),
+                                lineNumber,
+                                columnNumber);
+                        final var guard = patternCaseLabel.getWhen();
+                        final var matchAssignmentRec = assignIdx(idxIdentifierName, entries.size(), lineNumber, columnNumber);
+                        if (guard != null) {
+                            final var guardAccepted = (ExpressionTree) acceptTree(guard, scope);
+                            thenStmtsRec.add(TreeMaker.ifStatementTree(guardAccepted,
+                                    TreeMaker.blockStatement(List.of(matchAssignmentRec), lineNumber, columnNumber),
+                                    null,
+                                    lineNumber,
+                                    columnNumber));
+                        } else {
+                            thenStmtsRec.add(matchAssignmentRec);
+                        }
+                        entries.add(new Entry(condRec, thenStmtsRec, EntryKind.PATTERN, null));
+                    } else {
+                        throw new IllegalStateException("unsupported pattern in switch");
+                    }
+                } else {
+                    throw new IllegalStateException("constant labels are not allowed in a pattern switch");
+                }
+            }
+        }
+
+        statements.addAll(bindingDecls);
+
+        // Flat sequential dispatch: elk label krijgt zijn eigen
+        // if-statement, bewaakt door `$match == PATTERN_DEFAULT_ORDINAL`.
+        // Een gefaalde when-guard valt zo door naar het volgende label
+        // in plaats van naar default te springen.
+        for (final var entry : entries) {
+            final var notYetMatched = matchNotYetSet(idxIdentifierName, lineNumber, columnNumber);
+            final var cond = TreeMaker.binaryExpressionTree(
+                    notYetMatched,
+                    Tag.AND,
+                    entry.condition,
+                    lineNumber,
+                    columnNumber);
+            statements.add(TreeMaker.ifStatementTree(
+                    cond,
+                    TreeMaker.blockStatement(entry.thenStmts, lineNumber, columnNumber),
+                    null,
+                    lineNumber,
+                    columnNumber));
+        }
+
+        // Rewrite cases to use ordinals
+        final List<CaseStatement> rewrittenCases = new ArrayList<>();
+        int entryIndex = 0;
+        for (final var caseStatement : loweredCases) {
+            final List<CaseLabel> newLabels = new ArrayList<>();
+            for (final var label : caseStatement.getLabels()) {
+                if (label instanceof DefaultCaseLabel) {
+                    // Default verbruikt geen entry: $match is al -1.
+                    final var lit = TreeMaker.literalExpressionTree(PATTERN_DEFAULT_ORDINAL, lineNumber, columnNumber);
+                    lit.setType(intType);
+                    newLabels.add(ConstantCaseLabel.create(lit, lineNumber, columnNumber));
+                } else if (isNullConstantLabel(label)) {
+                    final var lit = TreeMaker.literalExpressionTree(entryIndex, lineNumber, columnNumber);
+                    lit.setType(intType);
+                    newLabels.add(ConstantCaseLabel.create(lit, lineNumber, columnNumber));
+                    entryIndex++;
+                } else if (label instanceof PatternCaseLabel) {
+                    final var lit = TreeMaker.literalExpressionTree(entryIndex, lineNumber, columnNumber);
+                    lit.setType(intType);
+                    newLabels.add(ConstantCaseLabel.create(lit, lineNumber, columnNumber));
+                    entryIndex++;
+                }
+            }
+            rewrittenCases.add(CaseStatement.create(caseStatement.getCaseKind(), newLabels, caseStatement.getBody(), caseStatement.getLineNumber(), caseStatement.getColumnNumber()));
+        }
+
+        final var idxSelector = IdentifierTree.create(idxName);
+        idxSelector.setSymbol(idxSymbol);
+        final var newSwitch = switchStatement.builder().selector(idxSelector).cases(rewrittenCases).build();
+        statements.add(newSwitch);
+        return TreeMaker.blockStatement(statements, lineNumber, columnNumber);
+    }
+
+    private ExpressionStatementTree assignIdx(final IdentifierTree idxIdentifierName,
+                                              final int ord,
+                                              final int lineNumber,
+                                              final int columnNumber) {
+        final var lit = TreeMaker.literalExpressionTree(ord, lineNumber, columnNumber);
+        lit.setType(types.getPrimitiveType(TypeKind.INT));
+        return TreeMaker.expressionStatement(TreeMaker.assignmentExpression(idxIdentifierName, lit, lineNumber, columnNumber), lineNumber, columnNumber);
+    }
+
+    private ExpressionTree matchNotYetSet(final IdentifierTree idxIdentifierName,
+                                         final int lineNumber,
+                                         final int columnNumber) {
+        final var minusOne = TreeMaker.literalExpressionTree(PATTERN_DEFAULT_ORDINAL, lineNumber, columnNumber);
+        minusOne.setType(types.getPrimitiveType(TypeKind.INT));
+        return TreeMaker.binaryExpressionTree(idxIdentifierName,
+                Tag.EQ,
+                minusOne,
+                lineNumber,
+                columnNumber);
+    }
+
+    private ExpressionTree defaultInitializer(final TypeMirror type,
+                                              final int lineNumber,
+                                              final int columnNumber) {
+        final Object value;
+        if (type instanceof PrimitiveType primitiveType) {
+            value = switch (primitiveType.getKind()) {
+                case BOOLEAN -> Boolean.FALSE;
+                case LONG -> 0L;
+                case FLOAT -> 0f;
+                case DOUBLE -> 0d;
+                case CHAR -> '\0';
+                default -> 0;
+            };
+        } else {
+            value = null;
+        }
+        final var lit = TreeMaker.literalExpressionTree(value, lineNumber, columnNumber);
+        lit.setType(type);
+        return lit;
+    }
+
+    private RecordBindings buildRecordBindings(final RecordPattern recordPattern,
+                                               final ExpressionTree currentReceiver,
+                                               final LowerScope scope,
+                                               final int lineNumber,
+                                               final int columnNumber) {
+        final List<StatementTree> decls = new ArrayList<>();
+        final List<StatementTree> assigns = new ArrayList<>();
+        final TypeMirror recordTypeMirror = recordPattern.getRecordType().getType();
+        final TypeElement recordElement = recordTypeMirror instanceof DeclaredType declaredType ? declaredType.asTypeElement() : null;
+        if (recordElement == null) {
+            throw new IllegalStateException("record pattern record type not resolved");
+        }
+        // Recordcomponenten worden in de symboltable gemodelleerd als
+        // VariableSymbol met kind RECORD_COMPONENT (niet als
+        // RecordComponentElement), dus filter op kind en cast naar
+        // VariableElement.
+        final var components = ElementFilter.elements(recordElement,
+                element -> element.getKind() == ElementKind.RECORD_COMPONENT,
+                VariableElement.class);
+        final var patternsList = recordPattern.getPatterns();
+        if (patternsList.size() != components.size()) {
+            throw new IllegalStateException("record pattern does not match");
+        }
+        for (int i = 0; i < components.size(); i++) {
+            final var comp = components.get(i);
+            final var compPattern = patternsList.get(i);
+            final var accessorName = comp.getSimpleName().toString();
+            // accessor method
+            final var accessor = ElementFilter.methodsIn(recordElement.getEnclosedElements()).stream()
+                    .filter(m -> m.getSimpleName().contentEquals(accessorName))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("record accessor not found: " + accessorName));
+            final DeclaredType recordDt = recordTypeMirror instanceof DeclaredType dt ? dt : null;
+            final var accessorType = recordDt != null
+                    ? (ExecutableType) types.asMemberOf(recordDt, accessor)
+                    : (ExecutableType) accessor.asType();
+            final var methodInvoke = TreeMaker.methodInvocationTree(new CFieldAccessExpressionTree(currentReceiver, IdentifierTree.create(accessorName)), List.of(), List.of(), lineNumber, columnNumber);
+            methodInvoke.getMethodSelector().setType(recordTypeMirror instanceof DeclaredType ? ((DeclaredType) recordTypeMirror).asElement().asType() : recordTypeMirror);
+            methodInvoke.setMethodType(accessorType);
+            methodInvoke.setType(accessorType.getReturnType());
+            try {
+                final var resolved = methodResolver.resolveMethod(methodInvoke, scope);
+                resolved.ifPresent(rm -> {
+                    methodInvoke.getMethodSelector().setType(rm.getOwner().asType());
+                    methodInvoke.setMethodType(rm);
+                    methodInvoke.setType(rm.getReturnType());
+                });
+            } catch (Exception ignored) {
+            }
+            if (compPattern instanceof TypePattern typePatternComp) {
+                final var declarator = typePatternComp.getVariableDeclarator();
+                if (declarator == null) {
+                    throw new IllegalStateException("component pattern missing declarator");
+                }
+                final var bindingType = declarator.getVariableType() != null ? declarator.getVariableType().getType() : accessorType.getReturnType();
+                if (bindingType instanceof PrimitiveType) {
+                    // ok
+                }
+                final var initType = bindingType != null ? bindingType : accessorType.getReturnType();
+                final var clonedDecl = declarator.builder()
+                        .value(defaultInitializer(initType, lineNumber, columnNumber))
+                        .build();
+                decls.add(clonedDecl);
+                final var bindingSymbol = declarator.getName().getSymbol();
+                final var bindingIdent = IdentifierTree.create(declarator.getName().getName());
+                if (bindingSymbol != null) {
+                    bindingIdent.setSymbol(bindingSymbol);
+                }
+                ExpressionTree val = methodInvoke;
+                if (bindingType != null && accessorType.getReturnType() != null && !types.isSameType(bindingType, accessorType.getReturnType())) {
+                    val = castExpressionTree(methodInvoke, bindingType, lineNumber, columnNumber);
+                    val.setType(bindingType);
+                }
+                assigns.add(TreeMaker.expressionStatement(TreeMaker.assignmentExpression(bindingIdent, val, lineNumber, columnNumber), lineNumber, columnNumber));
+            } else if (compPattern instanceof RecordPattern nestedRecord) {
+                final var nestedType = nestedRecord.getRecordType().getType();
+                final var nestedRecvName = "$p" + varCounter++;
+                final var nestedSymbol = new VariableSymbolBuilderImpl().kind(ElementKind.LOCAL_VARIABLE).simpleName(nestedRecvName).type(nestedType).build();
+                final var nestedId = IdentifierTree.create(nestedRecvName);
+                nestedId.setSymbol(nestedSymbol);
+                final var nestedTypeTree = createIdentifierFromType(nestedType != null ? nestedType : types.getObjectType());
+                nestedTypeTree.setType(nestedType != null ? nestedType : types.getObjectType());
+                final var nestedDecl = TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(), nestedTypeTree, nestedId, null,
+                        defaultInitializer(nestedType != null ? nestedType : types.getObjectType(), lineNumber, columnNumber), lineNumber, columnNumber);
+                decls.add(nestedDecl);
+                ExpressionTree recvVal = methodInvoke;
+                if (nestedType != null) {
+                    recvVal = castExpressionTree(methodInvoke, nestedType, lineNumber, columnNumber);
+                    recvVal.setType(nestedType);
+                }
+                assigns.add(TreeMaker.expressionStatement(TreeMaker.assignmentExpression(nestedId, recvVal, lineNumber, columnNumber), lineNumber, columnNumber));
+                final var nested = buildRecordBindings(nestedRecord, nestedId, scope, lineNumber, columnNumber);
+                decls.addAll(nested.decls);
+                assigns.addAll(nested.assigns);
+            }
+        }
+        return new RecordBindings(decls, assigns);
+    }
+
+    private enum EntryKind { PATTERN, NULL, DEFAULT }
+    private static class Entry {
+        ExpressionTree condition;
+        List<StatementTree> thenStmts;
+        EntryKind kind;
+        Object extra;
+        Entry(ExpressionTree condition, List<StatementTree> thenStmts, EntryKind kind, Object extra) {
+            this.condition = condition;
+            this.thenStmts = thenStmts;
+            this.kind = kind;
+            this.extra = extra;
+        }
+    }
+    private static class RecordBindings {
+        List<StatementTree> decls;
+        List<StatementTree> assigns;
+        RecordBindings(List<StatementTree> decls, List<StatementTree> assigns) {
+            this.decls = decls;
+            this.assigns = assigns;
+        }
     }
 
     @Override

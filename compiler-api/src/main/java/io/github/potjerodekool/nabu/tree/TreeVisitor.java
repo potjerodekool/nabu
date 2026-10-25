@@ -798,6 +798,18 @@ public interface TreeVisitor<R, P> {
         return visitUnknown(typePattern, param);
     }
 
+    /**
+     * Visit record pattern (JLS 14.30.2).
+     *
+     * @param recordPattern A record pattern.
+     * @param param A parameter.
+     * @return Returns a result.
+     */
+    default R visitRecordPattern(RecordPattern recordPattern,
+                                 P param) {
+        return visitUnknown(recordPattern, param);
+    }
+
     R visitParenthesizedExpression(ParenthesizedExpression parenthesizedExpression, P param);
 
 }

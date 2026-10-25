@@ -74,6 +74,7 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
             case CatchTree catchTree -> visitCatch(catchTree, param);
             case ModuleDeclaration moduleDeclaration -> visitModuleDeclaration(moduleDeclaration, param);
             case TypePattern typePattern -> visitTypePattern(typePattern, param);
+            case RecordPattern recordPattern -> visitRecordPattern(recordPattern, param);
             case RequiresTree requiresTree -> visitRequires(requiresTree, param);
             case ExportsTree expressionTree -> visitExports(expressionTree, param);
             case OpensTree opensTree -> visitOpens(opensTree, param);
@@ -417,6 +418,16 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
     @Override
     public R visitDefaultCaseLabel(final DefaultCaseLabel defaultCaseLabel, final P param) {
         return defaultAnswer(defaultCaseLabel, param);
+    }
+
+    @Override
+    public R visitRecordPattern(final RecordPattern recordPattern, final P param) {
+        if (recordPattern.getRecordType() != null) {
+            acceptTree(recordPattern.getRecordType(), param);
+        }
+        recordPattern.getPatterns().forEach(pattern ->
+                acceptTree(pattern, param));
+        return defaultAnswer(recordPattern, param);
     }
 
     @Override

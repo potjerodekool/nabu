@@ -1085,7 +1085,37 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
+    public Object visitGuardedPattern(final Java20Parser.GuardedPatternContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitGuard(final Java20Parser.GuardContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitPrimaryPattern(final Java20Parser.PrimaryPatternContext ctx) {
+        return null;
+    }
+
+    @Override
     public Object visitTypePattern(final Java20Parser.TypePatternContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitRecordPattern(final Java20Parser.RecordPatternContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitPatternList(final Java20Parser.PatternListContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitCaseLabelElement(final Java20Parser.CaseLabelElementContext ctx) {
         return null;
     }
 

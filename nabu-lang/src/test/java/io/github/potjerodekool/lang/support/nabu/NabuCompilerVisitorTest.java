@@ -1,7 +1,6 @@
 package io.github.potjerodekool.lang.support.nabu;
 
 import org.antlr.v4.runtime.tree.ParseTree;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -133,8 +132,6 @@ class NabuCompilerVisitorTest {
                 """, NabuParser::normalClassDeclaration);
     }
 
-    @Disabled()
-    //FIX ME
     @Test
     void pNNA() {
         parseAndAssert(".new SomeClass<String>(1, 2, 3){}", NabuParser::pNNA,
@@ -548,8 +545,6 @@ class NabuCompilerVisitorTest {
                 @RequestMapping(value = {"/test"})""", NabuParser::annotation);
     }
 
-    @Disabled()
-    //FIX ME
     @Test
     void visitM() {
         parseAndAssert("""

@@ -16,7 +16,6 @@ import io.github.potjerodekool.nabu.tree.expression.FieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CMethodInvocationTree;
 import io.github.potjerodekool.nabu.type.*;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -359,10 +358,8 @@ class BackendIrTest {
         }
 
         @Test
-        @Disabled
-        void compoundAssignmentOpMulThrows() {
-            assertThrows(UnsupportedOperationException.class,
-                    () -> TagToIROp.compoundAssignmentOp(Tag.MUL_ASSIGN));
+        void compoundAssignmentOpMul() {
+            assertSame(IRInstruction.BinaryOp.Op.MUL, TagToIROp.compoundAssignmentOp(Tag.MUL_ASSIGN));
         }
 
         @Test

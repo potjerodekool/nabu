@@ -2041,18 +2041,54 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         final var typeExpression = instanceOfExpression.getTypeExpression();
 
         if (typeExpression instanceof TypePattern typePattern) {
-            final var variableDeclarator = typePattern.getVariableDeclarator();
-            acceptTree(variableDeclarator.getVariableType(), scope);
-            variableDeclarator.setType(variableDeclarator.getVariableType().getType());
-
-            final var symbol = phaseUtils.createVariable(variableDeclarator);
-            variableDeclarator.getName().setSymbol(symbol);
-            scope.define(symbol);
+            bindTypePattern(typePattern, scope);
+        } else if (typeExpression instanceof RecordPattern recordPattern) {
+            acceptTree(recordPattern, scope);
         } else {
             acceptTree(typeExpression, scope);
         }
 
         return null;
+    }
+
+    @Override
+    public Object visitTypePattern(final TypePattern typePattern, final Scope scope) {
+        bindTypePattern(typePattern, scope);
+        return defaultAnswer(typePattern, scope);
+    }
+
+    private void bindTypePattern(final TypePattern typePattern, final Scope scope) {
+        final var variableDeclarator = typePattern.getVariableDeclarator();
+
+        if (variableDeclarator == null) {
+            return;
+        }
+
+        acceptTree(variableDeclarator.getVariableType(), scope);
+        variableDeclarator.setType(variableDeclarator.getVariableType().getType());
+
+        final var symbol = phaseUtils.createVariable(variableDeclarator);
+        variableDeclarator.getName().setSymbol(symbol);
+        scope.define(symbol);
+    }
+
+    @Override
+    public Object visitRecordPattern(final RecordPattern recordPattern, final Scope scope) {
+        acceptTree(recordPattern.getRecordType(), scope);
+        recordPattern.getPatterns().forEach(pattern -> acceptTree(pattern, scope));
+        return defaultAnswer(recordPattern, scope);
+    }
+
+    @Override
+    public Object visitPatternCaseLabel(final PatternCaseLabel patternCaseLabel, final Scope scope) {
+        acceptTree(patternCaseLabel.getPattern(), scope);
+
+        final var guard = patternCaseLabel.getWhen();
+        if (guard != null) {
+            acceptTree(guard, scope);
+        }
+
+        return defaultAnswer(patternCaseLabel, scope);
     }
 
     @Override

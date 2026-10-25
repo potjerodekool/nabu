@@ -22,6 +22,7 @@ import io.github.potjerodekool.nabu.tree.expression.impl.CArrayTypeTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CDimension;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.impl.CTypePattern;
+import io.github.potjerodekool.nabu.tree.impl.CRecordPattern;
 import io.github.potjerodekool.nabu.tree.impl.CCatchTree;
 import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
 import io.github.potjerodekool.nabu.tree.statement.StatementTree;
@@ -950,14 +951,31 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     private List<CaseLabel> switchLabels(final Java20Parser.SwitchLabelContext ctx) {
         final List<CaseLabel> labels = new ArrayList<>();
-        if (ctx.caseConstant().isEmpty()) {
+        if (ctx.caseLabelElement().isEmpty()) {
             labels.add(DefaultCaseLabel.create(ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
             return labels;
         }
-        for (final var constant : ctx.caseConstant()) {
-            labels.add(ConstantCaseLabel.create(
-                    (ExpressionTree) constant.conditionalExpression().accept(this),
-                    constant.getStart().getLine(), constant.getStart().getCharPositionInLine()));
+        for (final var element : ctx.caseLabelElement()) {
+            if (element.caseConstant() != null) {
+                final var constant = element.caseConstant();
+                labels.add(ConstantCaseLabel.create(
+                        (ExpressionTree) constant.conditionalExpression().accept(this),
+                        constant.getStart().getLine(), constant.getStart().getCharPositionInLine()));
+            } else {
+                final var guardedPattern = element.pattern().guardedPattern();
+                final var pattern = (Pattern) guardedPattern.primaryPattern().accept(this);
+                final Java20Parser.ExpressionContext guardContext = guardedPattern.expression();
+                final ExpressionTree when = guardContext != null
+                        ? (ExpressionTree) guardContext.accept(this)
+                        : null;
+                labels.add(PatternCaseLabel.create(pattern, when,
+                        element.getStart().getLine(), element.getStart().getCharPositionInLine()));
+            }
+        }
+        // `case null, default` (JLS 14.11.1): de trailing default
+        // gedraagt zich als een gewoon default-label.
+        if (ctx.DEFAULT() != null) {
+            labels.add(DefaultCaseLabel.create(ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
         }
         return labels;
     }
@@ -3019,6 +3037,35 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         } else {
             return result;
         }
+    }
+
+    @Override
+    public Object visitPattern(final Java20Parser.PatternContext ctx) {
+        return ctx.guardedPattern().accept(this);
+    }
+
+    @Override
+    public Object visitPrimaryPattern(final Java20Parser.PrimaryPatternContext ctx) {
+        if (ctx.typePattern() != null) {
+            return ctx.typePattern().accept(this);
+        }
+        return ctx.recordPattern().accept(this);
+    }
+
+    @Override
+    public Object visitRecordPattern(final Java20Parser.RecordPatternContext ctx) {
+        final var recordType = (ExpressionTree) ctx.referenceType().accept(this);
+        final List<Pattern> patterns = new ArrayList<>();
+        for (final var pattern : ctx.patternList().pattern()) {
+            patterns.add((Pattern) pattern.accept(this));
+        }
+
+        return new CRecordPattern(
+                recordType,
+                patterns,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
     }
 
     @Override

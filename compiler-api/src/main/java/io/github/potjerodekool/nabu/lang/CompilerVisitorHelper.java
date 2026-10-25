@@ -21,9 +21,10 @@ public final class CompilerVisitorHelper {
     }
 
     public static MemberReference createMemberReference(final List<IdentifierTree> typeArguments,
-                                                        final IdentifierTree identifier,
-                                                        final ParserRuleContext ctx) {
+                                                         final IdentifierTree identifier,
+                                                         final ParserRuleContext ctx) {
         final IdentifierTree expression;
+        final String name;
         final MemberReference.ReferenceKind mode;
 
         if (Constants.NEW.equals(identifier.getName())) {
@@ -32,14 +33,21 @@ public final class CompilerVisitorHelper {
                     identifier.getLineNumber(),
                     identifier.getColumnNumber()
             );
+            name = Constants.INIT;
             mode = MemberReference.ReferenceKind.NEW;
         } else {
-            expression = identifier;
+            // In de pNNA-regel is de identifier de referentie-naam (`::<T>get`),
+            // niet de omsluitende expressie: de naam moet als name en niet als
+            // expression overgenomen worden, anders print de terugronde
+            // `name::<...>` in plaats van `::<...>name`.
+            expression = null;
+            name = identifier.getName();
             mode = MemberReference.ReferenceKind.INVOKE;
         }
 
 
         return new MemberReferenceBuilder()
+                .name(name)
                 .typeArguments(typeArguments)
                 .expression(expression)
                 .mode(mode)

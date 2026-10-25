@@ -939,7 +939,11 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitMemberReference(final MemberReference memberReference,
                                        final Object param) {
-        acceptTree(memberReference.getExpression(), param);
+        final var expression = memberReference.getExpression();
+
+        if (expression != null) {
+            acceptTree(expression, param);
+        }
         write("::");
 
         if (!memberReference.getTypeArguments().isEmpty()) {
@@ -950,7 +954,7 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
 
         if (memberReference.getMode() == MemberReference.ReferenceKind.NEW) {
             write("new");
-        } else {
+        } else if (memberReference.getName() != null) {
             write(memberReference.getName());
         }
 
@@ -1157,6 +1161,10 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
     @Override
     public Object visitPatternCaseLabel(final PatternCaseLabel patternCaseLabel, final Object param) {
         acceptTree(patternCaseLabel.getPattern(), param);
+        if (patternCaseLabel.getWhen() != null) {
+            write(" when ");
+            acceptTree(patternCaseLabel.getWhen(), param);
+        }
         return null;
     }
 
@@ -1166,6 +1174,15 @@ public class TreePrinter extends AbstractTreeVisitor<Object, Object> {
         acceptTree(variableDeclarator.getVariableType(), param);
         write(" ");
         acceptTree(variableDeclarator.getName(), param);
+        return null;
+    }
+
+    @Override
+    public Object visitRecordPattern(final RecordPattern recordPattern, final Object param) {
+        acceptTree(recordPattern.getRecordType(), param);
+        write("(");
+        writeList(recordPattern.getPatterns(), param, ", ");
+        write(")");
         return null;
     }
 

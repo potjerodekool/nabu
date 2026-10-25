@@ -3745,7 +3745,12 @@ BIND(void, jcl_thread_init_5, "java.lang.Thread_init$5", (void *self, void *a, v
 /* ---------------------------------------------------------------
  * Threads: real native threads that run one at a time (nabu_gil_*), switching where a thread blocks.
  * --------------------------------------------------------------- */
+#ifdef NABU_GC_BOEHM
 extern int GC_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg);
+#define JCL_PTHREAD_CREATE GC_pthread_create
+#else
+#define JCL_PTHREAD_CREATE pthread_create
+#endif
 
 static void (*jcl_thread_run_fn)(void *) = NULL;
 void nabu_set_thread_run_fn(void *fn) { jcl_thread_run_fn = (void (*)(void *))fn; }
@@ -3955,7 +3960,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_attr_setstacksize(&attr, (size_t)16 << 20);
     pthread_t handle;
-    int rc = GC_pthread_create(&handle, &attr, jcl_thread_main, st);
+    int rc = JCL_PTHREAD_CREATE(&handle, &attr, jcl_thread_main, st);
     pthread_attr_destroy(&attr);
     if (rc != 0) {
         st->state = 2;

@@ -27,8 +27,8 @@ jobs:
     
     - name: Build project
       run: |
-        mvn clean compile -pl compiler,compiler-test -am
+        mvn -B clean install -DskipTests -pl compiler,compiler-test -am
     
     - name: Run tests
       run: |
-        mvn test -pl compiler-test -Dtest="*Test" 
+        mvn -B test -pl compiler

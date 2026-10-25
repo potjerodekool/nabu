@@ -6,47 +6,203 @@ public class MyClass {
 
   // access flags 0x1
   public whileLoop(Ljava/util/List;)I
-    // parameter  list
+    // parameter final  list
    L0
+    LINENUMBER 4 L0
     LINENUMBER 5 L0
     LINENUMBER 6 L0
     ICONST_0
-    ISTORE 2
+    ISTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ICONST_0
+    ISTORE 7
+    ICONST_0
+    ISTORE 8
+    ICONST_0
+    ISTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ICONST_0
+    ISTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ICONST_0
+    ISTORE 15
+    ICONST_0
+    ISTORE 16
+    ICONST_0
+    ISTORE 17
+    ICONST_0
+    ISTORE 18
+    ICONST_0
+    ISTORE 19
+    ALOAD 1
+    ASTORE 2
     ICONST_0
     ISTORE 3
+    ICONST_0
+    ISTORE 4
    L1
     LINENUMBER 7 L1
-   FRAME FULL [MyClass java/util/List I I] []
-    ILOAD 3
-    ALOAD 1
+   FRAME FULL [MyClass java/util/List java/util/List I I I N I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
+    ICONST_0
+    ISTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ICONST_0
+    ISTORE 7
+    ICONST_0
+    ISTORE 8
+    ICONST_0
+    ISTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ICONST_0
+    ISTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ICONST_0
+    ISTORE 15
+    ICONST_0
+    ISTORE 16
+    ICONST_0
+    ISTORE 17
+    ICONST_0
+    ISTORE 18
+    ICONST_0
+    ISTORE 19
+    ILOAD 4
+    ISTORE 5
+    ALOAD 2
+    ASTORE 6
+    ALOAD 6
     INVOKEINTERFACE java/util/List.size ()I (itf)
+    ISTORE 7
+    ILOAD 5
+    ILOAD 7
     IF_ICMPGE L2
+    GOTO L3
    L3
     LINENUMBER 8 L3
     LINENUMBER 9 L3
-    ILOAD 2
-    ALOAD 1
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I N I N N N I I I I I] []
+    ICONST_0
+    ISTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ICONST_0
+    ISTORE 7
+    ICONST_0
+    ISTORE 8
+    ICONST_0
+    ISTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ICONST_0
+    ISTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ICONST_0
+    ISTORE 15
+    ICONST_0
+    ISTORE 16
+    ICONST_0
+    ISTORE 17
+    ICONST_0
+    ISTORE 18
+    ICONST_0
+    ISTORE 19
     ILOAD 3
+    ISTORE 9
+    ALOAD 2
+    ASTORE 10
+    ILOAD 4
+    ISTORE 11
+    ALOAD 10
+    ILOAD 11
     INVOKEINTERFACE java/util/List.get (I)Ljava/lang/Object; (itf)
+    ASTORE 12
+    ALOAD 12
     CHECKCAST java/lang/Integer
+    ASTORE 13
+    ALOAD 13
+    CHECKCAST java/lang/Integer
+    ASTORE 14
+    ALOAD 14
     INVOKEVIRTUAL java/lang/Integer.intValue ()I
+    ISTORE 15
+    ILOAD 9
+    ILOAD 15
     IADD
-    ISTORE 2
-    ILOAD 3
+    ISTORE 16
+    ILOAD 16
+    ISTORE 3
+    ILOAD 4
+    ISTORE 17
+    ILOAD 17
     ICONST_1
     IADD
-    ISTORE 3
+    ISTORE 18
+    ILOAD 18
+    ISTORE 4
     GOTO L1
    L2
     LINENUMBER 12 L2
-   FRAME FULL [MyClass java/util/List I I] []
-    ILOAD 2
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I N I N N N I I I I I] []
+    ICONST_0
+    ISTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ICONST_0
+    ISTORE 7
+    ICONST_0
+    ISTORE 8
+    ICONST_0
+    ISTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ICONST_0
+    ISTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ICONST_0
+    ISTORE 15
+    ICONST_0
+    ISTORE 16
+    ICONST_0
+    ISTORE 17
+    ICONST_0
+    ISTORE 18
+    ICONST_0
+    ISTORE 19
+    ILOAD 3
+    ISTORE 19
+    ILOAD 19
     IRETURN
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0
     LOCALVARIABLE list Ljava/util/List; L0 L4 1
-    MAXSTACK = 3
-    MAXLOCALS = 4
+    LOCALVARIABLE result I L0 L4 3
+    LOCALVARIABLE pos I L0 L4 4
+    MAXSTACK = 2
+    MAXLOCALS = 20
 
   // access flags 0x1
   public <init>()V

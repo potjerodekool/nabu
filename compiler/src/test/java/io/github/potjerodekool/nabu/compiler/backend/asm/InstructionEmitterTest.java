@@ -51,11 +51,6 @@ class InstructionEmitterTest extends BackendTest {
         assertBytecodeSnapshot("InstructionEmitterTest/forLoop.txt", expected, actual);
     }
 
-    // Snapshot outdated: the current IR emitter expands for-each with
-    // explicit temps/null-init locals (functionally correct and covered by
-    // the FrontendGaps run tests); the stored snapshot still reflects an
-    // older, cleaner emitter shape.
-    @Disabled
     @Test
     void visitForEachStatement() {
         CompilationUnit compilationUnit = parse(
@@ -75,7 +70,7 @@ class InstructionEmitterTest extends BackendTest {
 
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/forEachLoop.txt");
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/forEachLoop.txt", expected, actual);
     }
 
     // TODO pos++ can be optimized with the IINC instruction.
@@ -238,7 +233,6 @@ class InstructionEmitterTest extends BackendTest {
         assertBytecodeSnapshot("InstructionEmitterTest/setValue.txt", expected, actual);
     }
 
-    @Disabled
     @Test
     void visitBinaryExpression() {
         final var fileObject = new InMemoryFileObject("", "Myclass.java");
@@ -269,7 +263,7 @@ class InstructionEmitterTest extends BackendTest {
         final var actual = compile(compilationUnit);
         final var expected = loadResource("InstructionEmitterTest/visitBinaryExpression.txt");
 
-        assertEquals(expected, actual);
+        assertBytecodeSnapshot("InstructionEmitterTest/visitBinaryExpression.txt", expected, actual);
     }
 
     @Test
@@ -437,7 +431,6 @@ class InstructionEmitterTest extends BackendTest {
         assertTrue(actual.contains("LAND"));
     }
 
-    @Disabled
     @Test
     void objectEquality() {
         final var fileObject = new InMemoryFileObject("", "Myclass.java");

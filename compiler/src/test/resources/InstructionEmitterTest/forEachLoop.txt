@@ -6,36 +6,196 @@ public class MyClass {
 
   // access flags 0x1
   public forEachLoop(Ljava/util/List;)V
-    // parameter  list
+    // parameter final  list
    L0
+    LINENUMBER 2 L0
     LINENUMBER 3 L0
-    ALOAD 1
-    INVOKEINTERFACE java/util/List.iterator ()Ljava/util/Iterator; (itf)
+    ACONST_NULL
     ASTORE 2
-   L1
-    LINENUMBER 65535 L1
-   FRAME FULL [MyClass java/util/List java/util/Iterator] []
+    ACONST_NULL
+    ASTORE 4
+    ACONST_NULL
+    ASTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ACONST_NULL
+    ASTORE 7
+    ICONST_0
+    ISTORE 8
+    ACONST_NULL
+    ASTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ACONST_NULL
+    ASTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ACONST_NULL
+    ASTORE 15
+    ALOAD 1
+    ASTORE 2
     ALOAD 2
-    INVOKEINTERFACE java/util/Iterator.hasNext ()Z (itf)
-    IFNE L2
-   L3
-    LINENUMBER 4 L3
-    ALOAD 2
-    INVOKEINTERFACE java/util/Iterator.next ()Ljava/lang/Object; (itf)
-    CHECKCAST java/lang/String
+    ASTORE 4
+    ALOAD 4
+    INVOKEINTERFACE java/util/List.iterator ()Ljava/util/Iterator; (itf)
+    ASTORE 5
+    ALOAD 5
+    CHECKCAST java/util/Iterator
+    ASTORE 6
+    ALOAD 6
     ASTORE 3
-    GETSTATIC java/lang/System.out : Ljava/io/PrintStream;
+   L1
+   FRAME FULL [MyClass java/util/List java/util/List java/util/Iterator java/util/List java/util/Iterator java/util/Iterator N I N N N N N N N] []
+    ACONST_NULL
+    ASTORE 2
+    ACONST_NULL
+    ASTORE 4
+    ACONST_NULL
+    ASTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ACONST_NULL
+    ASTORE 7
+    ICONST_0
+    ISTORE 8
+    ACONST_NULL
+    ASTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ACONST_NULL
+    ASTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ACONST_NULL
+    ASTORE 15
     ALOAD 3
-    INVOKEVIRTUAL java/io/PrintStream.println (Ljava/lang/String;)V
-    GOTO L1
+    ASTORE 7
+    ALOAD 7
+    INVOKEINTERFACE java/util/Iterator.hasNext ()Z (itf)
+    ISTORE 8
+    ILOAD 8
+    IFNE L2
+    GOTO L3
    L2
-   FRAME FULL [MyClass java/util/List java/util/Iterator] []
+    LINENUMBER 4 L2
+   FRAME FULL [MyClass java/util/List N java/util/Iterator N N N java/util/Iterator I N N N N N N N] []
+    ACONST_NULL
+    ASTORE 2
+    ACONST_NULL
+    ASTORE 4
+    ACONST_NULL
+    ASTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ACONST_NULL
+    ASTORE 7
+    ICONST_0
+    ISTORE 8
+    ACONST_NULL
+    ASTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ACONST_NULL
+    ASTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ACONST_NULL
+    ASTORE 15
+    ALOAD 3
+    ASTORE 10
+    ALOAD 10
+    INVOKEINTERFACE java/util/Iterator.next ()Ljava/lang/Object; (itf)
+    ASTORE 11
+    ALOAD 11
+    CHECKCAST java/lang/String
+    ASTORE 12
+    ALOAD 12
+    CHECKCAST java/lang/String
+    ASTORE 13
+    ALOAD 13
+    ASTORE 9
+    GETSTATIC java/lang/System.out : Ljava/io/PrintStream;
+    ASTORE 14
+    ALOAD 9
+    ASTORE 15
+    ALOAD 14
+    ALOAD 15
+    INVOKEVIRTUAL java/io/PrintStream.println (Ljava/lang/String;)V
+    ACONST_NULL
+    ASTORE 2
+    ACONST_NULL
+    ASTORE 4
+    ACONST_NULL
+    ASTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ACONST_NULL
+    ASTORE 7
+    ICONST_0
+    ISTORE 8
+    ACONST_NULL
+    ASTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ACONST_NULL
+    ASTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ACONST_NULL
+    ASTORE 15
+    GOTO L1
+   L3
+   FRAME FULL [MyClass java/util/List N java/util/Iterator N N N java/util/Iterator I N N N N N N N] []
+    ACONST_NULL
+    ASTORE 2
+    ACONST_NULL
+    ASTORE 4
+    ACONST_NULL
+    ASTORE 5
+    ACONST_NULL
+    ASTORE 6
+    ACONST_NULL
+    ASTORE 7
+    ICONST_0
+    ISTORE 8
+    ACONST_NULL
+    ASTORE 9
+    ACONST_NULL
+    ASTORE 10
+    ACONST_NULL
+    ASTORE 11
+    ACONST_NULL
+    ASTORE 12
+    ACONST_NULL
+    ASTORE 13
+    ACONST_NULL
+    ASTORE 14
+    ACONST_NULL
+    ASTORE 15
     RETURN
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0
     LOCALVARIABLE list Ljava/util/List; L0 L4 1
+    LOCALVARIABLE $p0 Ljava/util/Iterator; L0 L4 3
+    LOCALVARIABLE s Ljava/lang/String; L0 L4 9
     MAXSTACK = 2
-    MAXLOCALS = 4
+    MAXLOCALS = 16
 
   // access flags 0x1
   public <init>()V

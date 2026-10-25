@@ -216,6 +216,7 @@ public final class BytecodeReachabilityCompiler {
         }
         RuntimeCalls.rewrite(classNode);
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
+        ByteArrayViewRewriter.rewrite(classNode);
         if ("java/util/ServiceLoader".equals(classNode.name)) {
             for (final MethodNode m : classNode.methods) {
                 if ("newLookupIterator".equals(m.name) && "()Ljava/util/Iterator;".equals(m.desc)) {
@@ -348,7 +349,10 @@ public final class BytecodeReachabilityCompiler {
             // Registering a file descriptor with the Cleaner starts the
             // cleaner thread machinery; a native program closes its files
             // with close() (an unclosed descriptor is not closed by the GC).
-            "java/io/FileCleanable", Set.of("register", "unregister"));
+            "java/io/FileCleanable", Set.of("register", "unregister"),
+            // A Cleaner (the common one, from CleanerFactory) starts a daemon thread that runs the cleaning
+            // actions of unreachable objects; there are no threads, so nothing is cleaned.
+            "jdk/internal/ref/CleanerImpl", Set.of("start"));
 
     private static void throwUnsupported(final org.objectweb.asm.tree.InsnList insns, final String what) {
         insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, "java/lang/UnsupportedOperationException"));

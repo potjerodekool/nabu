@@ -999,7 +999,7 @@ for (IRModule m : modules) {
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         final List<LLVMValueRef> infos = new ArrayList<>();
         for (ClassLayout layout : byInternalName.values()) {
-            if (!layout.isInterface && layout.typeInfoGlobal != null) {
+            if (layout.typeInfoGlobal != null) {
                 infos.add(layout.typeInfoGlobal);
             }
         }

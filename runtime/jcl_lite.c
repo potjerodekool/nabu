@@ -3579,6 +3579,14 @@ BIND(int64_t, jcl_Unsafe_objectFieldOffset1, "jdk.internal.misc.Unsafe_objectFie
     (void)self;
     const char *cls_name = jcl_unsafe_class_name(cls);
     const char *field = nabu_cstr(name);
+    /* java.lang.Thread is not compiled: its Unsafe-reached fields (ThreadLocalRandom's seed and probes) live in
+     * the room behind the thread object. */
+    if (strcmp(cls_name, "java.lang.Thread") == 0 || strcmp(cls_name, "java/lang/Thread") == 0) {
+        if (strcmp(field, "threadLocalRandomSeed") == 0) return 56;
+        if (strcmp(field, "threadLocalRandomProbe") == 0) return 64;
+        if (strcmp(field, "threadLocalRandomSecondarySeed") == 0) return 68;
+        return 72;
+    }
     /* Eerst de veldtabel van de gecompileerde klasse (en haar supers): dekt
      * elke uit bytecode gecompileerde JDK-klasse, bv. ConcurrentHashMap's
      * SIZECTL. De reflectie-registry kent alleen reflect-config-klassen. */
@@ -3677,7 +3685,11 @@ static void *jcl_new_thread(const char *name, void *target) {
     st->target = target;
     st->priority = 5;
     st->id = next_id++;
-    return jcl_new_obj("java/lang/Thread", st);
+    /* Room behind the object for the fields the JDK reaches with Unsafe (see JCL_THREAD_FIELD). */
+    void *obj = jcl_alloc(48 + 8 + 64);
+    nabu_init_object(obj, "java/lang/Thread");
+    nabu_jcl_set_state(obj, st);
+    return obj;
 }
 
 static void *jcl_main_thread(void) {

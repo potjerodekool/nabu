@@ -79,7 +79,15 @@ final class FieldVarHandleRewriter {
             String helper = helpers.get(key);
             if (helper == null) {
                 helper = "$vh$" + site.handleLoad().name + "$" + site.call().name + "$" + helpers.size();
-                final MethodNode generated = generate(helper, site.call(), site.handle());
+                if (isRuntimeObject(site.handle())) {
+                    final String state = stateField(site.handle());
+                    if (classNode.fields.stream().noneMatch(f -> f.name.equals(state))) {
+                        classNode.fields.add(new org.objectweb.asm.tree.FieldNode(
+                                Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                                state, site.handle().desc(), null, null));
+                    }
+                }
+                final MethodNode generated = generate(helper, classNode.name, site.call(), site.handle());
                 if (generated == null) {
                     continue;
                 }
@@ -227,7 +235,8 @@ final class FieldVarHandleRewriter {
     }
 
     /** The synthetic static method for one operation on one handle, or null when the operation is not covered. */
-    private static MethodNode generate(final String name, final MethodInsnNode call, final Handle handle) {
+    private static MethodNode generate(final String name, final String hostClass, final MethodInsnNode call,
+                                       final Handle handle) {
         final Type[] args = Type.getArgumentTypes(call.desc);
         final Type result = Type.getReturnType(call.desc);
         final Type field = Type.getType(handle.desc());
@@ -248,23 +257,23 @@ final class FieldVarHandleRewriter {
             return null;
         }
         if (op.startsWith("get") && !op.startsWith("getAnd") && args.length == 1) {
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
-            code.add(new FieldInsnNode(Opcodes.GETFIELD, handle.owner(), handle.name(), handle.desc()));
+            loadReceiver(code, slot[0], handle, hostClass);
+            code.add(getField(handle, hostClass));
             code.add(new InsnNode(result.getOpcode(Opcodes.IRETURN)));
         } else if (op.startsWith("set") && args.length == 2) {
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
+            loadReceiver(code, slot[0], handle, hostClass);
             code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
-            code.add(new FieldInsnNode(Opcodes.PUTFIELD, handle.owner(), handle.name(), handle.desc()));
+            code.add(putField(handle, hostClass));
             code.add(new InsnNode(Opcodes.RETURN));
         } else if ((op.startsWith("compareAndSet") || op.startsWith("weakCompareAndSet")) && args.length == 3) {
             final LabelNode differs = new LabelNode();
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
-            code.add(new FieldInsnNode(Opcodes.GETFIELD, handle.owner(), handle.name(), handle.desc()));
+            loadReceiver(code, slot[0], handle, hostClass);
+            code.add(getField(handle, hostClass));
             code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
             jumpIfDifferent(code, field, differs);
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
+            loadReceiver(code, slot[0], handle, hostClass);
             code.add(new VarInsnNode(args[2].getOpcode(Opcodes.ILOAD), slot[2]));
-            code.add(new FieldInsnNode(Opcodes.PUTFIELD, handle.owner(), handle.name(), handle.desc()));
+            code.add(putField(handle, hostClass));
             code.add(new InsnNode(Opcodes.ICONST_1));
             code.add(new InsnNode(Opcodes.IRETURN));
             code.add(differs);
@@ -272,15 +281,15 @@ final class FieldVarHandleRewriter {
             code.add(new InsnNode(Opcodes.IRETURN));
         } else if (op.startsWith("compareAndExchange") && args.length == 3) {
             final LabelNode differs = new LabelNode();
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
-            code.add(new FieldInsnNode(Opcodes.GETFIELD, handle.owner(), handle.name(), handle.desc()));
+            loadReceiver(code, slot[0], handle, hostClass);
+            code.add(getField(handle, hostClass));
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ISTORE), temp));
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
             code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
             jumpIfDifferent(code, field, differs);
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
+            loadReceiver(code, slot[0], handle, hostClass);
             code.add(new VarInsnNode(args[2].getOpcode(Opcodes.ILOAD), slot[2]));
-            code.add(new FieldInsnNode(Opcodes.PUTFIELD, handle.owner(), handle.name(), handle.desc()));
+            code.add(putField(handle, hostClass));
             code.add(differs);
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
             code.add(new InsnNode(result.getOpcode(Opcodes.IRETURN)));
@@ -289,10 +298,10 @@ final class FieldVarHandleRewriter {
             if (add && field.getSort() != Type.INT && field.getSort() != Type.LONG) {
                 return null;
             }
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
-            code.add(new FieldInsnNode(Opcodes.GETFIELD, handle.owner(), handle.name(), handle.desc()));
+            loadReceiver(code, slot[0], handle, hostClass);
+            code.add(getField(handle, hostClass));
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ISTORE), temp));
-            code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
+            loadReceiver(code, slot[0], handle, hostClass);
             if (add) {
                 code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
                 code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
@@ -300,7 +309,7 @@ final class FieldVarHandleRewriter {
             } else {
                 code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
             }
-            code.add(new FieldInsnNode(Opcodes.PUTFIELD, handle.owner(), handle.name(), handle.desc()));
+            code.add(putField(handle, hostClass));
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
             code.add(new InsnNode(result.getOpcode(Opcodes.IRETURN)));
         } else {
@@ -309,6 +318,37 @@ final class FieldVarHandleRewriter {
         method.maxLocals = temp + 2;
         method.maxStack = 6;
         return method;
+    }
+
+    /**
+     * The objects of these classes are made by the C runtime, which keeps their state in its own structure: the
+     * compiled field offsets are outside the object. Their fields become static fields of the class that uses the
+     * handle (one thread: the one current thread).
+     */
+    private static boolean isRuntimeObject(final Handle handle) {
+        return "java/lang/Thread".equals(handle.owner());
+    }
+
+    private static String stateField(final Handle handle) {
+        return "$vhstate$" + handle.name();
+    }
+
+    private static void loadReceiver(final InsnList code, final int slot, final Handle handle, final String host) {
+        if (!isRuntimeObject(handle)) {
+            code.add(new VarInsnNode(Opcodes.ALOAD, slot));
+        }
+    }
+
+    private static FieldInsnNode getField(final Handle handle, final String host) {
+        return isRuntimeObject(handle)
+                ? new FieldInsnNode(Opcodes.GETSTATIC, host, stateField(handle), handle.desc())
+                : new FieldInsnNode(Opcodes.GETFIELD, handle.owner(), handle.name(), handle.desc());
+    }
+
+    private static FieldInsnNode putField(final Handle handle, final String host) {
+        return isRuntimeObject(handle)
+                ? new FieldInsnNode(Opcodes.PUTSTATIC, host, stateField(handle), handle.desc())
+                : new FieldInsnNode(Opcodes.PUTFIELD, handle.owner(), handle.name(), handle.desc());
     }
 
     /** Stack: two values of the field's type; jumps to {@code differs} when they are not equal. */

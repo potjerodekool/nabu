@@ -10,8 +10,11 @@ public final class ThreadSupport {
     private ThreadSupport() {
     }
 
+    private static final java.util.ArrayList<Thread> live = new java.util.ArrayList<>();
+
     /** Runs the thread: its {@code run} method, or the Runnable it was made with. An exception that escapes is reported. */
     public static void runThread(final Thread thread) {
+        live.add(thread);
         try {
             if (thread.getClass() == Thread.class) {
                 final Object target = ShutdownSupport.targetOf0(thread);
@@ -22,11 +25,52 @@ public final class ThreadSupport {
                 ((Runnable) thread).run();
             }
         } catch (final Throwable t) {
-            System.err.print("Exception in thread \"");
-            System.err.print(thread.getName());
-            System.err.print("\" ");
-            t.printStackTrace();
+            dispatchUncaught(thread, t);
+        } finally {
+            // By reference: equals on a Thread object does not dispatch to anything useful here.
+            for (int i = 0; i < live.size(); i++) {
+                if (live.get(i) == thread) {
+                    live.remove(i);
+                    break;
+                }
+            }
         }
+    }
+
+    private static native Thread mainThread0();
+
+    /** The threads that are running: the main thread and the started threads that have not ended. */
+    public static Thread[] liveThreads() {
+        final Thread[] threads = new Thread[live.size() + 1];
+        threads[0] = mainThread0();
+        for (int i = 0; i < live.size(); i++) {
+            threads[i + 1] = live.get(i);
+        }
+        return threads;
+    }
+
+    private static native Object handlerOf0(Thread thread);
+
+    /** The handler of the thread, else its group (which passes it on to the default handler or prints it). */
+    private static void dispatchUncaught(final Thread thread, final Throwable t) {
+        Thread.UncaughtExceptionHandler handler = (Thread.UncaughtExceptionHandler) handlerOf0(thread);
+        if (handler == null) {
+            handler = getThreadGroup(thread);
+        }
+        try {
+            handler.uncaughtException(thread, t);
+        } catch (final Throwable ignored) {
+            // The JVM ignores what a handler throws.
+        }
+    }
+
+    /** Thread.getUncaughtExceptionHandler(): none once the thread has ended, else its handler or its group. */
+    public static Thread.UncaughtExceptionHandler getUncaughtExceptionHandler(final Thread thread) {
+        if (getState(thread) == Thread.State.TERMINATED) {
+            return null;
+        }
+        final Thread.UncaughtExceptionHandler handler = (Thread.UncaughtExceptionHandler) handlerOf0(thread);
+        return handler != null ? handler : getThreadGroup(thread);
     }
 
     /** Object.wait(long) of the C runtime. */
@@ -88,19 +132,78 @@ public final class ThreadSupport {
         return !thread.isAlive();
     }
 
+    private static ThreadGroup systemGroup;
+
     private static ThreadGroup mainGroup;
 
-    private static boolean creatingMainGroup;
+    private static ThreadGroup virtualGroup;
 
-    /** The group of every thread: "main", without a parent. It is made when first asked for. */
-    public static ThreadGroup getThreadGroup(final Thread thread) {
-        if (mainGroup == null && !creatingMainGroup) {
-            creatingMainGroup = true;
-            // The constructor asks for the current group, which is null now: this one becomes the root.
-            mainGroup = new ThreadGroup("main");
-            creatingMainGroup = false;
+    private static final java.util.ArrayList<ThreadGroup> groups = new java.util.ArrayList<>();
+
+    /** The group a thread was made in, or null for the main group. */
+    private static native Object groupOf0(Thread thread);
+
+    private static void makeRootGroups() {
+        if (mainGroup == null) {
+            systemGroup = new ThreadGroup(null, "system");
+            mainGroup = new ThreadGroup(systemGroup, "main");
         }
-        return mainGroup;
+    }
+
+    /** Thread.getThreadGroup(): the group of a thread, null once it has ended. A virtual thread is in "VirtualThreads". */
+    public static ThreadGroup getThreadGroup(final Thread thread) {
+        makeRootGroups();
+        if (getState(thread) == Thread.State.TERMINATED) {
+            return null;
+        }
+        if (thread.isVirtual()) {
+            if (virtualGroup == null) {
+                virtualGroup = new ThreadGroup(systemGroup, "VirtualThreads");
+            }
+            return virtualGroup;
+        }
+        final Object group = groupOf0(thread);
+        return group == null ? mainGroup : (ThreadGroup) group;
+    }
+
+    /** Called by the constructor of every ThreadGroup. */
+    public static void addGroup(final ThreadGroup group) {
+        groups.add(group);
+    }
+
+    public static int countThreads(final ThreadGroup group) {
+        return enumerateThreads(group, null, true);
+    }
+
+    /** Fills the list (when given) with the running threads of the group; returns how many it has (copied). */
+    public static int enumerateThreads(final ThreadGroup group, final Thread[] list, final boolean recurse) {
+        int n = 0;
+        for (final Thread thread : liveThreads()) {
+            final ThreadGroup g = getThreadGroup(thread);
+            if (g != null && (recurse ? group.parentOf(g) : g == group)) {
+                if (list == null) {
+                    n++;
+                } else if (n < list.length) {
+                    list[n++] = thread;
+                }
+            }
+        }
+        return n;
+    }
+
+    /** Fills the list (when given) with the groups below the group; returns how many it has (copied). */
+    public static int enumerateGroups(final ThreadGroup group, final ThreadGroup[] list, final boolean recurse) {
+        int n = 0;
+        for (final ThreadGroup g : groups) {
+            if (g != group && (recurse ? group.parentOf(g) : g.getParent() == group)) {
+                if (list == null) {
+                    n++;
+                } else if (n < list.length) {
+                    list[n++] = g;
+                }
+            }
+        }
+        return n;
     }
 
     /** 0 new, 1 started, 2 terminated. */

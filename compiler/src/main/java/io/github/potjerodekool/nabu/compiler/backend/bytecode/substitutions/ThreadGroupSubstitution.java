@@ -1,10 +1,12 @@
 package io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions;
 
+import io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport;
+
 /**
- * {@code ThreadGroup(ThreadGroup, String)} that accepts a null parent: the group of the main thread is made without
- * a parent group (the JVM has a "system" group above it, which a native executable does not have). Without a parent
- * the maximum priority is 10. The group is not registered with its parent, so {@code activeGroupCount} and
- * {@code enumerate(ThreadGroup[])} do not list it.
+ * {@code ThreadGroup(ThreadGroup, String)} that accepts a null parent: the "system" group at the top of the tree has
+ * none. Without a parent the maximum priority is 10. The group is not registered with its parent but with
+ * {@link ThreadSupport}, which lists the groups and the running threads for {@code activeCount},
+ * {@code activeGroupCount} and {@code enumerate}.
  */
 public final class ThreadGroupSubstitution {
 
@@ -21,5 +23,30 @@ public final class ThreadGroupSubstitution {
         this.name = name;
         this.maxPriority = parent != null ? parent.getMaxPriority() : Thread.MAX_PRIORITY;
         this.daemon = parent != null && parent.isDaemon();
+        ThreadSupport.addGroup((ThreadGroup) (Object) this);
+    }
+
+    public int activeCount() {
+        return ThreadSupport.countThreads((ThreadGroup) (Object) this);
+    }
+
+    public int enumerate(final Thread[] list) {
+        return ThreadSupport.enumerateThreads((ThreadGroup) (Object) this, list, true);
+    }
+
+    public int enumerate(final Thread[] list, final boolean recurse) {
+        return ThreadSupport.enumerateThreads((ThreadGroup) (Object) this, list, recurse);
+    }
+
+    public int activeGroupCount() {
+        return ThreadSupport.enumerateGroups((ThreadGroup) (Object) this, null, true);
+    }
+
+    public int enumerate(final ThreadGroup[] list) {
+        return ThreadSupport.enumerateGroups((ThreadGroup) (Object) this, list, true);
+    }
+
+    public int enumerate(final ThreadGroup[] list, final boolean recurse) {
+        return ThreadSupport.enumerateGroups((ThreadGroup) (Object) this, list, recurse);
     }
 }

@@ -116,6 +116,14 @@ final class RuntimeCalls {
             new Redirect("java/lang/Thread", "getThreadGroup", "()Ljava/lang/ThreadGroup;", false, THREAD_SUPPORT,
                     "getThreadGroup"),
             new Redirect("java/lang/Thread", "getState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT, "getState"),
+            new Redirect("java/lang/Thread", "getUncaughtExceptionHandler",
+                    "()Ljava/lang/Thread$UncaughtExceptionHandler;", false, THREAD_SUPPORT, "getUncaughtExceptionHandler"),
+            new Redirect("java/lang/Thread", "ofVirtual", "()Ljava/lang/Thread$Builder$OfVirtual;", true,
+                    ThreadBridge.CLASS, "ofVirtual"),
+            new Redirect("java/lang/Thread", "ofPlatform", "()Ljava/lang/Thread$Builder$OfPlatform;", true,
+                    ThreadBridge.CLASS, "ofPlatform"),
+            new Redirect("java/lang/Thread", "startVirtualThread", "(Ljava/lang/Runnable;)Ljava/lang/Thread;", true,
+                    ThreadBridge.CLASS, "startVirtualThread"),
             new Redirect("java/lang/System", "getLogger",
                     "(Ljava/lang/String;)Ljava/lang/System$Logger;", true, LOGGER_SUPPORT, "getLogger"));
 

@@ -1176,7 +1176,7 @@ public class InstructionEmitter {
                 params.add(new IRType.Ptr(IRType.I8));
                 params.addAll(rawCall.paramTypes());
                 emitCall(new IRInstruction.Call(CallKind.STATIC, IRType.VOID, params, null,
-                        "java.lang.Thread_init$" + rawCall.paramTypes().size(), rawCall.args(), rawCall.location()));
+                        "java.lang.Thread_init$" + CallTargets.threadInitSuffix(rawCall.paramTypes()), rawCall.args(), rawCall.location()));
             }
             return;
         }

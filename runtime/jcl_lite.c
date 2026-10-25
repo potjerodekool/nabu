@@ -57,7 +57,8 @@ typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 /* A java.lang.Thread. state: 0 new, 1 started, 2 terminated. Threads run one at a time (see nabu_gil_*). */
 typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
                  int daemon; int priority; int64_t id;
-                 int state; int interrupted; int permit; void *self; } s_thread;
+                 int state; int interrupted; int permit; void *self;
+                 void *group; void *handler; int is_virtual; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -3711,21 +3712,20 @@ static s_thread *jcl_thread_of(void *self) {
     return st;
 }
 
-/* new Thread(...): the arguments are told apart by what they are, a String is the name and the first other
- * object (after a ThreadGroup in front of three or more) the Runnable. The backend calls Thread_init$<n>. */
-static void jcl_thread_construct(void *self, int n, void **args) {
+/* new Thread(...): the arguments are told apart by what they are: a ThreadGroup is the group, a String the name
+ * and the first other object the Runnable. The backend calls Thread_init$<n>. A thread without a group gets the
+ * group of the thread that makes it (NULL is the main group, see ThreadSupport.getThreadGroup). */
+static s_thread *jcl_thread_new_state(void) {
     s_thread *st = (s_thread *)jcl_alloc(sizeof(s_thread));
     static int64_t next_id = 2;
     st->kind = K_THREAD;
     st->priority = 5;
     st->id = next_id++;
-    const char *name = NULL;
-    for (int i = n >= 3 ? 1 : 0; i < n && i < 3; i++) {
-        if (args[i] == NULL) continue;
-        if (nabu_is_jstring(args[i]) || (!nabu_jcl_is_object(args[i]) && nabu_compiled_type_name(args[i]) == NULL)
-                || jcl_state_kind(args[i], K_STR) != NULL) name = nabu_cstr(args[i]);
-        else if (st->target == NULL) st->target = args[i];
-    }
+    st->group = jcl_thread_state(jcl_current_thread())->group;
+    return st;
+}
+
+static void jcl_thread_name(s_thread *st, const char *name) {
     if (name != NULL) {
         st->name = jcl_dup(name);
     } else {
@@ -3734,6 +3734,19 @@ static void jcl_thread_construct(void *self, int n, void **args) {
         snprintf(generated, sizeof generated, "Thread-%d", generated_count++);
         st->name = jcl_dup(generated);
     }
+}
+
+static void jcl_thread_construct(void *self, int n, void **args) {
+    s_thread *st = jcl_thread_new_state();
+    const char *name = NULL;
+    for (int i = 0; i < n && i < 3; i++) {
+        if (args[i] == NULL) continue;
+        if (nabu_compiled_type_name(args[i]) != NULL && nabu_instanceof(args[i], "java/lang/ThreadGroup")) st->group = args[i];
+        else if (nabu_is_jstring(args[i]) || (!nabu_jcl_is_object(args[i]) && nabu_compiled_type_name(args[i]) == NULL)
+                || jcl_state_kind(args[i], K_STR) != NULL) name = nabu_cstr(args[i]);
+        else if (st->target == NULL) st->target = args[i];
+    }
+    jcl_thread_name(st, name);
     nabu_jcl_set_state(self, st);
 }
 BIND(void, jcl_thread_init_0, "java.lang.Thread_init$0", (void *self)) { jcl_thread_construct(self, 0, NULL); }
@@ -3742,6 +3755,21 @@ BIND(void, jcl_thread_init_2, "java.lang.Thread_init$2", (void *self, void *a, v
 BIND(void, jcl_thread_init_3, "java.lang.Thread_init$3", (void *self, void *a, void *b, void *c)) { void *args[3] = {a, b, c}; jcl_thread_construct(self, 3, args); }
 BIND(void, jcl_thread_init_4, "java.lang.Thread_init$4", (void *self, void *a, void *b, void *c, int64_t d)) { void *args[3] = {a, b, c}; (void)d; jcl_thread_construct(self, 4, args); }
 BIND(void, jcl_thread_init_5, "java.lang.Thread_init$5", (void *self, void *a, void *b, void *c, int64_t d, int e)) { void *args[3] = {a, b, c}; (void)d; (void)e; jcl_thread_construct(self, 5, args); }
+/* Thread(ThreadGroup, String, int characteristics, Runnable, long stackSize, AccessControlContext) of the builders */
+BIND(void, jcl_thread_init_6, "java.lang.Thread_init$6", (void *self, void *group, void *name, int characteristics, void *task, int64_t stack, void *acc)) {
+    (void)characteristics; (void)stack; (void)acc;
+    void *args[3] = {group, name, task};
+    jcl_thread_construct(self, 3, args);
+}
+/* Thread(String, int characteristics, boolean bound): a virtual thread, which here is bound to a native thread */
+BIND(void, jcl_thread_init_vt, "java.lang.Thread_init$vt", (void *self, void *name, int characteristics, int bound)) {
+    (void)characteristics; (void)bound;
+    s_thread *st = jcl_thread_new_state();
+    st->name = jcl_dup(name != NULL ? nabu_cstr(name) : "");
+    st->daemon = 1;
+    st->is_virtual = 1;
+    nabu_jcl_set_state(self, st);
+}
 /* ---------------------------------------------------------------
  * Threads: real native threads that run one at a time (nabu_gil_*), switching where a thread blocks.
  * --------------------------------------------------------------- */
@@ -3976,7 +4004,7 @@ BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritab
 BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { (void)self; return NULL; }
 BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { (void)self; (void)map; }
 BIND(void *, jcl_Thread_currentCarrierThread, "java.lang.Thread_currentCarrierThread", (void)) { return jcl_current_thread(); }
-BIND(void *, jcl_Thread_getThreadGroup, "java.lang.Thread_getThreadGroup", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_Thread_getThreadGroup, "java.lang.Thread_getThreadGroup", (void *self)) { return jcl_thread_of(self)->group; }
 BIND(void, jcl_Thread_blockedOn, "java.lang.Thread_blockedOn", (void *self, void *interruptible)) { (void)self; (void)interruptible; }
 BIND(void, jcl_Thread_setDaemon, "java.lang.Thread_setDaemon", (void *self, int on)) { jcl_thread_of(self)->daemon = on; }
 BIND(int, jcl_Thread_isDaemon, "java.lang.Thread_isDaemon", (void *self)) { return jcl_thread_of(self)->daemon; }
@@ -3985,16 +4013,22 @@ BIND(int64_t, jcl_Thread_getId, "java.lang.Thread_getId", (void *self)) { return
 BIND(void, jcl_Thread_setPriority, "java.lang.Thread_setPriority", (void *self, int p)) { jcl_thread_of(self)->priority = p; }
 BIND(void, jcl_Thread_setName, "java.lang.Thread_setName", (void *self, void *name)) { jcl_thread_of(self)->name = jcl_dup(nabu_cstr(name)); }
 BIND(void, jcl_Thread_setContextClassLoader, "java.lang.Thread_setContextClassLoader", (void *self, void *loader)) { (void)self; (void)loader; }
-BIND(void, jcl_Thread_setUncaughtExceptionHandler, "java.lang.Thread_setUncaughtExceptionHandler", (void *self, void *handler)) { (void)self; (void)handler; }
+BIND(void, jcl_Thread_setUncaughtExceptionHandler, "java.lang.Thread_setUncaughtExceptionHandler", (void *self, void *handler)) { jcl_thread_of(self)->handler = handler; }
 BIND(void *, jcl_Thread_currentThread, "java.lang.Thread_currentThread", (void)) { return jcl_current_thread(); }
 BIND(void *, jcl_VirtualThread_currentThread, "java.lang.VirtualThread_currentThread", (void)) { return jcl_current_thread(); }
-BIND(int, jcl_Thread_isVirtual, "java.lang.Thread_isVirtual", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_Thread_isVirtual, "java.lang.Thread_isVirtual", (void *self)) { return jcl_thread_of(self)->is_virtual; }
 BIND(int64_t, jcl_Thread_threadId, "java.lang.Thread_threadId", (void *self)) { return jcl_thread_of(self)->id; }
 BIND(void *, jcl_Thread_getName, "java.lang.Thread_getName", (void *self)) { return nabu_jstring_new(jcl_thread_of(self)->name); }
 BIND(int, jcl_Thread_holdsLock, "java.lang.Thread_holdsLock", (void *obj)) { (void)obj; return 1; }
 BIND(void *, jcl_Thread_getContextClassLoader, "java.lang.Thread_getContextClassLoader", (void *self)) { (void)self; return NULL; }
-BIND(void *, jcl_Thread_getUncaughtExceptionHandler, "java.lang.Thread_getUncaughtExceptionHandler", (void *self)) { (void)self; return NULL; }
-BIND(void *, jcl_Thread_getDefaultUncaughtExceptionHandler, "java.lang.Thread_getDefaultUncaughtExceptionHandler", (void)) { return NULL; }
+BIND(void *, jcl_Thread_getUncaughtExceptionHandler, "java.lang.Thread_getUncaughtExceptionHandler", (void *self)) { return jcl_thread_of(self)->handler; }
+BIND(int, jcl_ContinuationSupport_isSupported0, "jdk.internal.vm.ContinuationSupport_isSupported0", (void)) { return 0; }
+static void *jcl_default_handler = NULL;
+BIND(void *, jcl_Thread_getDefaultUncaughtExceptionHandler, "java.lang.Thread_getDefaultUncaughtExceptionHandler", (void)) { return jcl_default_handler; }
+BIND(void, jcl_Thread_setDefaultUncaughtExceptionHandler, "java.lang.Thread_setDefaultUncaughtExceptionHandler", (void *handler)) { jcl_default_handler = handler; }
+BIND(void *, jcl_ThreadSupport_handlerOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_handlerOf0", (void *thread)) { return jcl_thread_of(thread)->handler; }
+BIND(void *, jcl_ThreadSupport_groupOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_groupOf0", (void *thread)) { return jcl_thread_of(thread)->group; }
+BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_mainThread0", (void)) { return jcl_main_thread(); }
 
 static void *jcl_the_runtime(void) {
     static void *runtime = NULL;

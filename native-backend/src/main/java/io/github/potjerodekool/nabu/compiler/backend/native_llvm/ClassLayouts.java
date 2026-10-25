@@ -1141,6 +1141,11 @@ for (IRModule m : modules) {
                 String n = normalizeInternalName(m.name);
                 if (placed.contains(n)) continue;
                 String sup = superInternalName(n);
+                if (sup == null && extendsRuntimeThread(m) && modulesByInternalName.containsKey("java/lang/Object")
+                        && !placed.contains("java/lang/Object")) {
+                    // Its vtable continues after the slots of Object (see buildVtable).
+                    continue;
+                }
                 if (sup == null
                         || !modulesByInternalName.containsKey(sup)
                         || placed.contains(sup)) {
@@ -1535,6 +1540,13 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
 
         String superName = superInternalName(layout.internalName);
         ClassLayout superLayout = superName != null ? byInternalName.get(superName) : null;
+        final IRModule vtableModule = modulesByInternalName.get(layout.internalName);
+        if ((superLayout == null || superLayout.vtableOrder.isEmpty()) && vtableModule != null
+                && extendsRuntimeThread(vtableModule)) {
+            // Thread is provided by the C runtime and has no layout; its objects have the vtable of Object,
+            // so a subclass continues after the slots of Object (equals, hashCode, toString ...).
+            superLayout = byInternalName.get("java/lang/Object");
+        }
 
         // slot-order + bijbehorende functiepointer. De functie, niet de naam:
         // overloads delen de IR-functienaam, dus een vtable die per slot alleen

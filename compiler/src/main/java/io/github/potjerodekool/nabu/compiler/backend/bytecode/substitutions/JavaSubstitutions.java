@@ -53,7 +53,8 @@ public final class JavaSubstitutions {
             Map.entry("java/lang/ProcessImpl", ProcessImplSubstitution.class),
             Map.entry("sun/nio/fs/WindowsPath", WindowsPathSubstitution.class),
             Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class),
-            Map.entry("java/lang/ThreadGroup", ThreadGroupSubstitution.class));
+            Map.entry("java/lang/ThreadGroup", ThreadGroupSubstitution.class),
+            Map.entry("java/lang/ThreadBuilders$BoundVirtualThread", BoundVirtualThreadSubstitution.class));
 
     /** JDK classes whose constructors are substituted as well (same descriptor). */
     private static final Set<String> SUBSTITUTED_CONSTRUCTORS = Set.of("java/lang/ThreadGroup");

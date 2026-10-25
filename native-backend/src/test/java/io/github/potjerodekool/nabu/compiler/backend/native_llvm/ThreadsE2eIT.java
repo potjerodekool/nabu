@@ -297,6 +297,162 @@ class ThreadsE2eIT {
                 """));
     }
 
+    @Test
+    void uncaughtExceptionHandlers() throws Exception {
+        assertEquals("""
+                get true
+                own t1 boom
+                default t2 bang
+                after null
+                """, run("""
+                import java.lang.Thread.UncaughtExceptionHandler;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        Thread t1 = new Thread(new Runnable() {
+                            public void run() {
+                                throw new IllegalStateException("boom");
+                            }
+                        }, "t1");
+                        t1.setUncaughtExceptionHandler(new UncaughtExceptionHandler() {
+                            public void uncaughtException(Thread t, Throwable e) {
+                                System.out.println("own " + t.getName() + " " + e.getMessage());
+                            }
+                        });
+                        System.out.println(t1.getUncaughtExceptionHandler() != null ? "get true" : "get false");
+                        t1.start();
+                        t1.join();
+                        Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler() {
+                            public void uncaughtException(Thread t, Throwable e) {
+                                System.out.println("default " + t.getName() + " " + e.getMessage());
+                            }
+                        });
+                        Thread t2 = new Thread(new Runnable() {
+                            public void run() {
+                                throw new IllegalStateException("bang");
+                            }
+                        }, "t2");
+                        t2.start();
+                        t2.join();
+                        System.out.println("after " + t1.getUncaughtExceptionHandler());
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void threadGroupTree() throws Exception {
+        assertEquals("""
+                main system
+                worker group workers
+                parent main
+                active 2
+                groups 1
+                ended null
+                """, run("""
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        ThreadGroup main = Thread.currentThread().getThreadGroup();
+                        System.out.println(main.getName() + " " + main.getParent().getName());
+                        ThreadGroup workers = new ThreadGroup(main, "workers");
+                        final Object lock = new Object();
+                        Thread t = new Thread(workers, new Runnable() {
+                            public void run() {
+                                synchronized (lock) {
+                                    try {
+                                        lock.wait();
+                                    } catch (InterruptedException e) {
+                                    }
+                                }
+                            }
+                        }, "worker");
+                        t.start();
+                        Thread.sleep(50);
+                        System.out.println(t.getName() + " group " + t.getThreadGroup().getName());
+                        System.out.println("parent " + workers.getParent().getName());
+                        System.out.println("active " + main.activeCount() + (workers.activeCount() == 1 ? "" : " wrong"));
+                        System.out.println("groups " + main.activeGroupCount());
+                        t.interrupt();
+                        t.join();
+                        System.out.println("ended " + t.getThreadGroup());
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void virtualThreads() throws Exception {
+        assertEquals("""
+                virtual true daemon true
+                name v1
+                hello from v1
+                started 6
+                """, run("""
+                import java.util.concurrent.atomic.AtomicInteger;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        Thread v = Thread.ofVirtual().name("v1").unstarted(new Runnable() {
+                            public void run() {
+                                System.out.println("hello from " + Thread.currentThread().getName());
+                            }
+                        });
+                        System.out.println("virtual " + v.isVirtual() + " daemon " + v.isDaemon());
+                        System.out.println("name " + v.getName());
+                        v.start();
+                        v.join();
+                        final AtomicInteger count = new AtomicInteger();
+                        Thread[] threads = new Thread[6];
+                        for (int i = 0; i < threads.length; i++) {
+                            threads[i] = Thread.startVirtualThread(new Runnable() {
+                                public void run() {
+                                    count.incrementAndGet();
+                                }
+                            });
+                        }
+                        for (Thread t : threads) {
+                            t.join();
+                        }
+                        System.out.println("started " + count.get());
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void virtualThreadExecutor() throws Exception {
+        assertEquals("""
+                6 7 8
+                """, run("""
+                import java.util.concurrent.*;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+                        {
+                            Future<Integer> a = executor.submit(new Callable<Integer>() {
+                                public Integer call() {
+                                    return 6;
+                                }
+                            });
+                            Future<Integer> b = executor.submit(new Callable<Integer>() {
+                                public Integer call() {
+                                    return 7;
+                                }
+                            });
+                            Future<Integer> c = executor.submit(new Callable<Integer>() {
+                                public Integer call() {
+                                    return 8;
+                                }
+                            });
+                            System.out.println(a.get() + " " + b.get() + " " + c.get());
+                        }
+                        executor.close();
+                    }
+                }
+                """));
+    }
+
     private String run(final String mainSource) throws Exception {
         NativeToolchain.assumeGcc();
         var root = new File(".").getAbsoluteFile();

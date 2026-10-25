@@ -28,6 +28,21 @@ final class CallTargets {
     private static final String OBJECT_CLONE = "java.lang.Object_clone";
     private static final String THREAD_INIT = "java.lang.Thread_init";
     private static final String THREAD_INIT_SOURCE = "java_lang_Thread_init";
+    private static final String VIRTUAL_THREAD_INIT = "vt";
+
+    /**
+     * The suffix of the runtime binding of a Thread constructor: the number of arguments, or {@code vt} for the
+     * package-private {@code Thread(String, int, boolean)} of virtual threads, which has three arguments too.
+     */
+    static String threadInitSuffix(final java.util.List<IRType> params) {
+        final int n = params.size();
+        if (n >= 3 && params.get(n - 3) instanceof IRType.Ptr
+                && params.get(n - 2) instanceof IRType.Int i && i.bits() == 32
+                && (params.get(n - 1) instanceof IRType.Bool || params.get(n - 1) instanceof IRType.Int)) {
+            return VIRTUAL_THREAD_INIT;
+        }
+        return String.valueOf(n);
+    }
 
     /** A constructor call: {@code <Owner>_init}, or {@code <Owner>_init$<n>} for a constructor the runtime binds per arity. */
     static boolean isInit(final String function) {
@@ -35,7 +50,11 @@ final class CallTargets {
             return true;
         }
         final int dollar = function.lastIndexOf("_init$");
-        return dollar >= 0 && function.substring(dollar + "_init$".length()).chars().allMatch(Character::isDigit);
+        if (dollar < 0) {
+            return false;
+        }
+        final String suffix = function.substring(dollar + "_init$".length());
+        return VIRTUAL_THREAD_INIT.equals(suffix) || suffix.chars().allMatch(Character::isDigit);
     }
 
     private CallTargets() {
@@ -53,7 +72,7 @@ final class CallTargets {
             // The C runtime cannot tell how many arguments a constructor was called with.
             return new IRInstruction.Call(
                     call.callKind(), call.returnType(), call.paramTypes(), call.result(),
-                    THREAD_INIT + "$" + call.paramTypes().size(), call.args(), call.location());
+                    THREAD_INIT + "$" + threadInitSuffix(call.paramTypes()), call.args(), call.location());
         }
         if (fn == null || OBJECT_CLONE.equals(fn) || !fn.endsWith("_clone")) {
             return call;

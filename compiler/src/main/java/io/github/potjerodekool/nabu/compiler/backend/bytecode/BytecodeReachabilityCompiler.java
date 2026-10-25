@@ -1398,6 +1398,7 @@ public final class BytecodeReachabilityCompiler {
     private ClassNode loadClassNode(final String internalName) {
         return loadedClassNodes.computeIfAbsent(internalName,
                 name -> BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
+                        : ThreadBridge.CLASS.equals(name) ? ThreadBridge.build()
                         : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build(applicationResources)
                         : generatedClasses.containsKey(name) ? generatedClasses.get(name)
                         : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? EmbeddedResources.runtimeClass(name)

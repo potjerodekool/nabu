@@ -305,8 +305,6 @@ class ThreadsE2eIT {
                 default t2 bang
                 after null
                 """, run("""
-                import java.lang.Thread.UncaughtExceptionHandler;
-
                 public class Main {
                     public static void main(String[] args) throws Exception {
                         Thread t1 = new Thread(new Runnable() {
@@ -314,7 +312,7 @@ class ThreadsE2eIT {
                                 throw new IllegalStateException("boom");
                             }
                         }, "t1");
-                        t1.setUncaughtExceptionHandler(new UncaughtExceptionHandler() {
+                        t1.setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
                             public void uncaughtException(Thread t, Throwable e) {
                                 System.out.println("own " + t.getName() + " " + e.getMessage());
                             }
@@ -322,7 +320,7 @@ class ThreadsE2eIT {
                         System.out.println(t1.getUncaughtExceptionHandler() != null ? "get true" : "get false");
                         t1.start();
                         t1.join();
-                        Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler() {
+                        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
                             public void uncaughtException(Thread t, Throwable e) {
                                 System.out.println("default " + t.getName() + " " + e.getMessage());
                             }

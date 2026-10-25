@@ -86,6 +86,27 @@ class AnonymousClassRunTest {
         assertEquals(113, cls.getMethod("start").invoke(null));
     }
 
+    /** An anonymous class of a qualified nested JDK interface: {@code new Thread.UncaughtExceptionHandler() {..}}. */
+    @Test
+    void anonymousClassOfQualifiedNestedInterface() throws Exception {
+        final var cls = compileAndLoad("Nested", """
+                package mini;
+                public class Nested {
+                    public static int start() {
+                        final int[] seen = new int[1];
+                        java.util.Map.Entry<String, String> e = null;
+                        Thread.State st = null;
+                        Thread.UncaughtExceptionHandler h = new Thread.UncaughtExceptionHandler() {
+                            public void uncaughtException(Thread t, Throwable e) { seen[0] = 42; }
+                        };
+                        h.uncaughtException(null, null);
+                        return seen[0];
+                    }
+                }
+                """);
+        assertEquals(42, cls.getMethod("start").invoke(null));
+    }
+
     @Test
     void anonymousClassInStaticMethodCapturesLocal() throws Exception {
         final var cls = compileAndLoad("Statics", """

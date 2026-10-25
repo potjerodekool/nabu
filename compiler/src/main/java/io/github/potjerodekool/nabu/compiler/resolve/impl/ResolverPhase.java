@@ -1519,7 +1519,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     && !(nestedClass instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ErrorSymbol)
                     && nestedClass instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol nestedClassSymbol
                     && (nestedClassSymbol.getClassFile() != null || nestedClassSymbol.getSourceFile() != null)
-                    && nestedClass.getKind().isClass()) {
+                    && (nestedClass.getKind().isClass() || nestedClass.getKind().isInterface())) {
                 fieldAccessExpression.getField().setSymbol(nestedClass);
                 fieldAccessExpression.setType(nestedClass.asType());
                 return defaultAnswer(fieldAccessExpression, scope);

@@ -1054,13 +1054,14 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
 
         final var regions = new java.util.LinkedHashSet<IRInstruction.TryCatchRegion>();
         final var handlerLabels = new java.util.HashSet<String>();
-        final var tryStartLabels = new java.util.HashSet<String>();
+        final var handlersByTryStart = new HashMap<String, Set<String>>();
         for (final var block : blocks) {
             for (final var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.TryCatchRegion region) {
                     regions.add(region);
                     handlerLabels.add(region.handlerLabel());
-                    tryStartLabels.add(region.tryStartLabel());
+                    handlersByTryStart.computeIfAbsent(region.tryStartLabel(), k -> new java.util.LinkedHashSet<>())
+                            .add(region.handlerLabel());
                 }
             }
         }
@@ -1076,7 +1077,7 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
             final var protectedSet = protectedCache.computeIfAbsent(
                     region.tryStartLabel(),
                     s -> computeProtected(
-                            blocks, labelToBlock, s, region.tryEndLabel(), handlerLabels, tryStartLabels));
+                            blocks, labelToBlock, s, region.tryEndLabel(), handlerLabels, handlersByTryStart));
             if (protectedSet.isEmpty()) {
                 System.err.println("[TRY-CATCH-SKIP] no protected blocks: "
                         + "start=" + region.tryStartLabel() + " handler=" + region.handlerLabel());
@@ -1169,15 +1170,17 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
 
     /**
      * Bereikt de set beschermde blokken van een try-bereik: alle blokken die
-     * bereikbaar zijn vanuit de try-start, exclusief handler-blokken, het
-     * try-end-blok zelf en andere try-starts (geneste tries).
+     * bereikbaar zijn vanuit de try-start, exclusief handler-blokken en het
+     * try-end-blok zelf. Een geneste try ligt in het bereik: de handlers van
+     * een geneste try (alleen bereikbaar via een exception) horen er ook bij,
+     * want een exception in zo'n catch-body moet de buitenste try bereiken.
      */
     private static Set<String> computeProtected(final List<IRBasicBlock> blocks,
                                                 final Map<String, IRBasicBlock> labelToBlock,
                                                 final String tryStartLabel,
                                                 final String tryEndLabel,
                                                 final Set<String> handlerLabels,
-                                                final Set<String> tryStartLabels) {
+                                                final Map<String, Set<String>> handlersByTryStart) {
         final var order = new HashMap<String, Integer>();
         for (int i = 0; i < blocks.size(); i++) {
             order.put(blocks.get(i).label(), i);
@@ -1185,6 +1188,7 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
 
         final var result = new java.util.LinkedHashSet<String>();
         final var work = new java.util.ArrayDeque<String>();
+        final var nested = new java.util.HashSet<String>();
         work.add(tryStartLabel);
 
         while (!work.isEmpty()) {
@@ -1201,13 +1205,17 @@ private static void emitPrologue(final MethodVisitor methodVisitor,
             }
             // Eigen-handler skipt niet: de catch-all-regio's die per catch-body
             // genererenden worden, starten op dat catch-handler-label zelf.
-            if (handlerLabels.contains(label) && !label.equals(tryStartLabel)) {
-                continue;
-            }
-            if (tryStartLabels.contains(label) && !label.equals(tryStartLabel)) {
+            if (handlerLabels.contains(label) && !label.equals(tryStartLabel) && !nested.contains(label)) {
                 continue;
             }
             result.add(label);
+            if (!label.equals(tryStartLabel)) {
+                final var nestedHandlers = handlersByTryStart.get(label);
+                if (nestedHandlers != null) {
+                    nested.addAll(nestedHandlers);
+                    work.addAll(nestedHandlers);
+                }
+            }
 
             if (block.getTerminator() instanceof IRInstruction.Branch branch) {
                 if (!branch.targetLabel().equals(tryEndLabel)) {

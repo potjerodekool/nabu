@@ -356,6 +356,27 @@ class FrontendGapsRunTest {
     }
 
     @Test
+    void nestedTryInsideTry() throws Exception {
+        assertEquals("outer:a outer:b outer:c ok", run("""
+                        StringBuilder log = new StringBuilder();
+                        for (int i = 0; i < 4; i++) {
+                            try {
+                                try {
+                                    if (i == 0) { throw new IllegalStateException("a"); }
+                                    if (i == 1) { throw new IllegalArgumentException("x"); }
+                                } catch (IllegalArgumentException e) {
+                                    if (i == 1) { throw new IllegalStateException("b"); }
+                                }
+                                if (i == 2) { throw new IllegalStateException("c"); }
+                                log.append("ok");
+                            } catch (IllegalStateException e) {
+                                log.append("outer:" + e.getMessage() + " ");
+                            }
+                        }
+                        return log.toString().trim();"""));
+    }
+
+    @Test
     void varargsConstructor() throws Exception {
         assertEquals("3 0 1", run("""
                         return new Many("a", "b", "c").count + " " + new Many().count + " " + new Many("x").count;""",

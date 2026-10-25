@@ -770,6 +770,12 @@ public void setReflectionRegistry(
         LLVMSetLinkage(monitorExitFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_monitorexit", monitorExitFn);
 
+        // --- void nabu_spin_hint(i8* address): a volatile load; lets another thread run when it is a spin ---
+        LLVMValueRef spinHintFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_spin_hint"), monitorFnType);
+        LLVMSetLinkage(spinHintFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_spin_hint", spinHintFn);
+
         // --- String-concat (altijd nodig) ---
         // i8* nabu_concat(i8* a, i8* b)
         PointerPointer<Pointer> concatParams = new PointerPointer<>(2);

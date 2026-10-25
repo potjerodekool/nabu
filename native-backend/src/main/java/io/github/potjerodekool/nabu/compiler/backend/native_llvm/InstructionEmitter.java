@@ -1011,6 +1011,7 @@ public class InstructionEmitter {
             LLVMTypeRef pointee = types.map(objectFieldPointeeType(target));
             LLVMValueRef val = LLVMBuildLoad2(builder, pointee, llvmPtr,
                     new BytePointer(nameOf(load.result())));
+            markVolatileLoad(val, (IRValue.Named) ((IRValue.Values) target).values().getLast(), llvmPtr);
             storeLocal(load.result(), val);
             return;
         }
@@ -1047,6 +1048,7 @@ public class InstructionEmitter {
             }
             LLVMValueRef val = LLVMBuildLoad2(builder, valueType, global,
                     new BytePointer(nameOf(load.result())));
+            markVolatileLoad(val, namedStatic, global);
             storeLocal(load.result(), val);
             return;
         }
@@ -1085,6 +1087,25 @@ public class InstructionEmitter {
                 loadType, llvmPtr,
                 new BytePointer(nameOf(load.result())));
         storeLocal(load.result(), val);
+    }
+
+    /**
+     * A load of a volatile field must not be hoisted out of a loop, and a thread that spins on it must let
+     * the others run: threads run one at a time (see nabu_gil_*), so the runtime is told about each such read.
+     */
+    private void markVolatileLoad(final LLVMValueRef load, final IRValue.Named field, final LLVMValueRef address) {
+        if (field.ownerType() == null || !classLayouts.isVolatileField(field.ownerType(), field.name())) {
+            return;
+        }
+        LLVMSetVolatile(load, 1);
+        final LLVMValueRef hint = globalValueMap.get("@nabu_spin_hint");
+        if (hint == null) {
+            return;
+        }
+        final PointerPointer<Pointer> args = new PointerPointer<>(1);
+        args.put(0, address);
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(hint), hint, args, 1, "");
+        Reference.reachabilityFence(args);
     }
 
     private void emitStore(IRInstruction.Store store) {

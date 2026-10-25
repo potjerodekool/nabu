@@ -467,6 +467,8 @@ void nabu_gil_acquire(void);
 void nabu_gil_release(void);
 void nabu_gil_yield(void);
 void nabu_gil_signal(void);
+/** A volatile read at the address: after many reads of one address in a row the thread lets the others run. */
+void nabu_spin_hint(const void *address);
 /** Gives up the lock until nabu_gil_signal or the timeout (ms, negative: none); 1 when the time passed. */
 int nabu_gil_wait(int64_t timeout_ms);
 /** Registers the program's ThreadSupport.runThread(Thread), which a new thread runs. */

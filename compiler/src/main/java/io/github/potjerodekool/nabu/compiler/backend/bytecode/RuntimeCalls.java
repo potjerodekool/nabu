@@ -112,6 +112,9 @@ final class RuntimeCalls {
             new Redirect("java/lang/Object", "wait", "(JI)V", false, THREAD_SUPPORT, "waitOn"),
             new Redirect("java/lang/Thread", "join", "()V", false, THREAD_SUPPORT, "join"),
             new Redirect("java/lang/Thread", "join", "(J)V", false, THREAD_SUPPORT, "join"),
+            new Redirect("java/lang/Thread", "join", "(Ljava/time/Duration;)Z", false, THREAD_SUPPORT, "join"),
+            new Redirect("java/lang/Thread", "getThreadGroup", "()Ljava/lang/ThreadGroup;", false, THREAD_SUPPORT,
+                    "getThreadGroup"),
             new Redirect("java/lang/Thread", "getState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT, "getState"),
             new Redirect("java/lang/System", "getLogger",
                     "(Ljava/lang/String;)Ljava/lang/System$Logger;", true, LOGGER_SUPPORT, "getLogger"));
@@ -183,12 +186,36 @@ final class RuntimeCalls {
         return null;
     }
 
+    /**
+     * Whether the parameters of a call in the IR are those of the descriptor: the same number, and a long where
+     * the descriptor has a long and an object where it has an object, so that {@code join(long)} does not take
+     * {@code join(Duration)}.
+     */
+    private static boolean sameParameterKinds(final List<IRType> paramTypes, final Type[] arguments) {
+        if (paramTypes.size() != arguments.length) {
+            return false;
+        }
+        for (int i = 0; i < arguments.length; i++) {
+            final int sort = arguments[i].getSort();
+            if (sort == Type.LONG && !(paramTypes.get(i) instanceof IRType.Int integer && integer.bits() == 64)) {
+                return false;
+            }
+            if (sort == Type.OBJECT && !(paramTypes.get(i) instanceof IRType.Ptr)) {
+                return false;
+            }
+            if (sort == Type.INT && paramTypes.get(i) instanceof IRType.Ptr) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static Redirect find(final IRInstruction.Call call) {
         for (final Redirect redirect : REDIRECTS) {
             final boolean isStatic = call.callKind() == CallKind.STATIC;
             if (isStatic == redirect.isStatic()
                     && call.function().equals(redirect.owner().replace('/', '.') + "_" + redirect.name())
-                    && call.paramTypes().size() == Type.getArgumentTypes(redirect.desc()).length) {
+                    && sameParameterKinds(call.paramTypes(), Type.getArgumentTypes(redirect.desc()))) {
                 return redirect;
             }
         }

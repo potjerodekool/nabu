@@ -2005,6 +2005,24 @@ int nabu_gil_wait(int64_t timeout_ms) {
     return timed_out;
 }
 
+/*
+ * A read of a volatile field. A thread that reads the same one over and over is waiting for another thread to
+ * change it, and only gets a turn when it gives its own up.
+ */
+static __thread const void *nabu_spin_address = NULL;
+static __thread unsigned nabu_spin_count = 0;
+
+void nabu_spin_hint(const void *address) {
+    if (!nabu_threads_active) return;
+    if (address != nabu_spin_address) {
+        nabu_spin_address = address;
+        nabu_spin_count = 0;
+    } else if (++nabu_spin_count >= 200) {
+        nabu_spin_count = 0;
+        nabu_gil_yield();
+    }
+}
+
 /* -------------------------------------------------------
  * Monitor (synchronized): guarded by the GIL
  * ------------------------------------------------------- */

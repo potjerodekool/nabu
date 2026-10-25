@@ -52,7 +52,11 @@ public final class JavaSubstitutions {
             Map.entry("java/nio/channels/FileChannel", FileChannelSubstitution.class),
             Map.entry("java/lang/ProcessImpl", ProcessImplSubstitution.class),
             Map.entry("sun/nio/fs/WindowsPath", WindowsPathSubstitution.class),
-            Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class));
+            Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class),
+            Map.entry("java/lang/ThreadGroup", ThreadGroupSubstitution.class));
+
+    /** JDK classes whose constructors are substituted as well (same descriptor). */
+    private static final Set<String> SUBSTITUTED_CONSTRUCTORS = Set.of("java/lang/ThreadGroup");
 
     /** JDK classes whose {@code <clinit>} is emptied. */
     private static final Set<String> EMPTY_CLINIT = Set.of(
@@ -88,7 +92,8 @@ public final class JavaSubstitutions {
                 method.localVariables = null;
                 continue;
             }
-            if (method.name.startsWith("<")) {
+            if (method.name.startsWith("<")
+                    && !("<init>".equals(method.name) && SUBSTITUTED_CONSTRUCTORS.contains(target.name))) {
                 continue;
             }
             for (final MethodNode replacement : source.methods) {

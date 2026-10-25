@@ -30,6 +30,7 @@ class ThreadsE2eIT {
                 main main
                 child Thread-0
                 joined false
+                join true
                 got 42
                 interrupted false
                 count 4000
@@ -51,6 +52,7 @@ class ThreadsE2eIT {
                         t.start();
                         t.join();
                         System.out.println("joined " + t.isAlive());
+                        System.out.println("join " + t.join(java.time.Duration.ofMillis(10)));
                         Thread consumer = new Thread(new Runnable() {
                             public void run() {
                                 synchronized (lock) {
@@ -151,6 +153,121 @@ class ThreadsE2eIT {
                         named.join();
                         Worker plain = new Worker(2);
                         System.out.println(plain.getName() + " " + (plain.getState() == Thread.State.NEW));
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void completableFutureRunsAsync() throws Exception {
+        assertEquals("""
+                42
+                done
+                """, run("""
+                import java.util.concurrent.*;
+                import java.util.function.*;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        CompletableFuture<Integer> future = CompletableFuture.supplyAsync(new Supplier<Integer>() {
+                            public Integer get() {
+                                return 20;
+                            }
+                        }).thenApply(new Function<Integer, Integer>() {
+                            public Integer apply(Integer value) {
+                                return value + 22;
+                            }
+                        });
+                        System.out.println(future.get());
+                        CompletableFuture<Void> last = CompletableFuture.runAsync(new Runnable() {
+                            public void run() {
+                                System.out.println("done");
+                            }
+                        });
+                        last.get();
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void forkJoinPoolAndParallelStream() throws Exception {
+        assertEquals("""
+                5050
+                5050
+                """, run("""
+                import java.util.concurrent.*;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        ForkJoinPool pool = new ForkJoinPool(2);
+                        Future<Integer> future = pool.submit(new Callable<Integer>() {
+                            public Integer call() {
+                                return 5050;
+                            }
+                        });
+                        System.out.println(future.get());
+                        pool.shutdown();
+                        System.out.println(java.util.stream.IntStream.rangeClosed(1, 100).parallel().sum());
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void timerRunsTask() throws Exception {
+        assertEquals("""
+                tick
+                end
+                """, run("""
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        java.util.Timer timer = new java.util.Timer();
+                        timer.schedule(new java.util.TimerTask() {
+                            public void run() {
+                                System.out.println("tick");
+                            }
+                        }, 50);
+                        Thread.sleep(300);
+                        timer.cancel();
+                        System.out.println("end");
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void spinningThreadsLetOthersRun() throws Exception {
+        assertEquals("""
+                saw ready
+                interrupt seen
+                """, run("""
+                public class Main {
+                    static volatile boolean ready;
+
+                    public static void main(String[] args) throws Exception {
+                        Thread watcher = new Thread(new Runnable() {
+                            public void run() {
+                                while (!ready) {
+                                }
+                                System.out.println("saw ready");
+                            }
+                        });
+                        watcher.start();
+                        Thread.sleep(50);
+                        ready = true;
+                        watcher.join();
+                        Thread looper = new Thread(new Runnable() {
+                            public void run() {
+                                while (!Thread.currentThread().isInterrupted()) {
+                                }
+                                System.out.println("interrupt seen");
+                            }
+                        });
+                        looper.start();
+                        Thread.sleep(50);
+                        looper.interrupt();
+                        looper.join();
                     }
                 }
                 """));

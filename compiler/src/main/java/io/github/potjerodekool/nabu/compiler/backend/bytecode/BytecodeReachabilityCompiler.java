@@ -833,7 +833,8 @@ public final class BytecodeReachabilityCompiler {
                     continue;
                 }
                 String name = function.substring(split + 1);
-                if ("init".equals(name)) {
+                if ("init".equals(name) || "super".equals(name)) {
+                    // super(...) of a source class that extends a library class calls its constructor.
                     name = "<init>";
                 } else if ("clinit".equals(name)) {
                     name = "<clinit>";

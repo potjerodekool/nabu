@@ -785,10 +785,14 @@ BIND(void, jcl_java_lang_System_arraycopy, "java.lang.System_arraycopy", (void *
     memmove((char *)dst + 8 + (size_t)dstPos * es, (const char *)src + 8 + (size_t)srcPos * es, (size_t)len * es);
 }
 BIND(int64_t, jcl_java_lang_System_currentTimeMillis, "java.lang.System_currentTimeMillis", (void)) {
-    return (int64_t)(time(NULL) * 1000);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 BIND(int64_t, jcl_java_lang_System_nanoTime, "java.lang.System_nanoTime", (void)) {
-    return (int64_t)clock() * (1000000000LL / CLOCKS_PER_SEC);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 BIND(void, jcl_java_lang_System_exit, "java.lang.System_exit", (int32_t code)) { fflush(NULL); jcl_exiting = 1; exit(code); }
 static void * jcl_java_lang_System_getenv (void *name) {
@@ -3899,13 +3903,21 @@ BIND(int, jcl_Thread_interrupted, "java.lang.Thread_interrupted", (void)) {
     cur->interrupted = 0;
     return was;
 }
-BIND(int, jcl_Thread_isInterrupted, "java.lang.Thread_isInterrupted", (void *self)) { return jcl_thread_of(self)->interrupted; }
+BIND(int, jcl_Thread_isInterrupted, "java.lang.Thread_isInterrupted", (void *self)) {
+    s_thread *st = jcl_thread_of(self);
+    nabu_spin_hint(&st->interrupted);
+    return st->interrupted;
+}
 BIND(void, jcl_Thread_clearInterrupt, "java.lang.Thread_clearInterrupt", (void *self)) { jcl_thread_of(self)->interrupted = 0; }
 BIND(void, jcl_Thread_interrupt, "java.lang.Thread_interrupt", (void *self)) {
     jcl_thread_of(self)->interrupted = 1;
     nabu_gil_signal();
 }
-BIND(int, jcl_java_lang_Thread_isAlive, "java.lang.Thread_isAlive", (void *self)) { return jcl_thread_of(self)->state == 1; }
+BIND(int, jcl_java_lang_Thread_isAlive, "java.lang.Thread_isAlive", (void *self)) {
+    s_thread *st = jcl_thread_of(self);
+    nabu_spin_hint(&st->state);
+    return st->state == 1;
+}
 
 /* The body of a native thread: take the turn, run Thread.run through the program's ThreadSupport, tell the joiners. */
 static void *jcl_thread_main(void *arg) {
@@ -4101,6 +4113,10 @@ BIND(int, jcl_PhantomReference_refersTo0, "java.lang.ref.PhantomReference_refers
     return slot != NULL && *slot == obj;
 }
 BIND(void, jcl_Reference_clear0, "java.lang.ref.Reference_clear0", (void *self)) {
+    void **slot = jcl_referent_slot(self);
+    if (slot != NULL) *slot = NULL;
+}
+BIND(void, jcl_PhantomReference_clear0, "java.lang.ref.PhantomReference_clear0", (void *self)) {
     void **slot = jcl_referent_slot(self);
     if (slot != NULL) *slot = NULL;
 }

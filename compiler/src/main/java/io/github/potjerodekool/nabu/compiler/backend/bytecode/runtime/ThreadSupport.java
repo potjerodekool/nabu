@@ -79,6 +79,30 @@ public final class ThreadSupport {
         }
     }
 
+    /** Thread.join(Duration): whether the thread has ended. */
+    public static boolean join(final Thread thread, final java.time.Duration duration) throws InterruptedException {
+        final long millis = duration.toMillis();
+        if (millis > 0L || duration.getNano() > 0) {
+            join(thread, millis > 0L ? millis : 1L);
+        }
+        return !thread.isAlive();
+    }
+
+    private static ThreadGroup mainGroup;
+
+    private static boolean creatingMainGroup;
+
+    /** The group of every thread: "main", without a parent. It is made when first asked for. */
+    public static ThreadGroup getThreadGroup(final Thread thread) {
+        if (mainGroup == null && !creatingMainGroup) {
+            creatingMainGroup = true;
+            // The constructor asks for the current group, which is null now: this one becomes the root.
+            mainGroup = new ThreadGroup("main");
+            creatingMainGroup = false;
+        }
+        return mainGroup;
+    }
+
     /** 0 new, 1 started, 2 terminated. */
     private static native int stateOf0(Thread thread);
 

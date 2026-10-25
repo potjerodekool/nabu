@@ -1264,6 +1264,14 @@ for (IRModule m : modules) {
             if (declaresMember(sup, member, profile)) return sup.replace('/', '.') + "_" + member;
             classes.add(sup);
         }
+        // Een geërfde methode van java.lang.Thread, die de C-runtime levert.
+        if (!OBJECT_MEMBERS.contains(member.replaceAll("\\$.*", ""))
+                && classes.stream().anyMatch(c -> {
+                    final IRModule m = modulesByInternalName.get(c);
+                    return m != null && extendsRuntimeThread(m);
+                })) {
+            return "java.lang.Thread_" + member;
+        }
         final java.util.ArrayDeque<String> pending = new java.util.ArrayDeque<>(classes);
         final Set<String> seen = new HashSet<>(classes);
         while (!pending.isEmpty()) {
@@ -1350,6 +1358,29 @@ for (IRModule m : modules) {
             }
         }
         return -1;
+    }
+
+    private static final Set<String> OBJECT_MEMBERS = Set.of(
+            "equals", "hashCode", "toString", "getClass", "clone", "finalize", "notify", "notifyAll", "wait");
+
+    /** Whether the field, declared in the owner or in one of its superclasses, is volatile. */
+    public boolean isVolatileField(final IRType ownerType, final String field) {
+        final ClassLayout layout = getFor(ownerType);
+        if (layout == null) {
+            return false;
+        }
+        for (String name = layout.internalName; name != null; name = superInternalName(name)) {
+            final IRModule module = moduleOf(name);
+            if (module == null) {
+                continue;
+            }
+            for (final IRField irField : module.fields()) {
+                if (irField.name().equals(field)) {
+                    return Flags.hasFlag(irField.flags(), Flags.VOLATILE);
+                }
+            }
+        }
+        return false;
     }
 
     /** Whether the superclass of the module is {@code java.lang.Thread}, which the C runtime provides. */

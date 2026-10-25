@@ -2636,6 +2636,14 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                         v = globalValueMap.get("@" + inherited);
                         inherited = classLayouts.superCallTarget(inherited);
                     }
+                    if (v == null) {
+                        for (final String viaInterface : classLayouts.interfaceMemberTargets(plain)) {
+                            v = globalValueMap.get("@" + viaInterface);
+                            if (v != null) {
+                                break;
+                            }
+                        }
+                    }
                 }
                 if (v == null) {
                     // A fully qualified name (`java.lang.System_out`), also
@@ -2745,6 +2753,15 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     owner = classLayouts.ownerInternalName(plain);
                 }
                 emitClassInit(owner);
+                // A field inherited from an interface (AESCrypt.AES_KEYSIZES from AESConstants): initializing
+                // the class does not initialize that interface, reading its field does.
+                final String declaringName = LLVMGetValueName(asGlobalVar).getString();
+                if (declaringName != null && !declaringName.isEmpty() && !declaringName.equals(plain)) {
+                    final String declaring = classLayouts.ownerInternalName(declaringName);
+                    if (declaring != null && !declaring.equals(owner)) {
+                        emitClassInit(declaring);
+                    }
+                }
             }
         }
         return global;

@@ -148,6 +148,28 @@ public final class BytecodeReachabilityCompiler {
                     "sun/security/provider/SHA5$SHA512_224", "sun/security/provider/SHA5$SHA512_256",
                     "sun/security/provider/SHA3$SHA224", "sun/security/provider/SHA3$SHA256",
                     "sun/security/provider/SHA3$SHA384", "sun/security/provider/SHA3$SHA512"),
+            // The common algorithms of the SunJCE and SunRsaSign providers (Provider$Service.newInstance);
+            // only reached when the program uses javax.crypto, so other programs do not carry them.
+            "javax/crypto/JceSecurity", List.of(
+                    "com/sun/crypto/provider/HmacMD5", "com/sun/crypto/provider/HmacSHA1",
+                    "com/sun/crypto/provider/HmacCore$HmacSHA224", "com/sun/crypto/provider/HmacCore$HmacSHA256",
+                    "com/sun/crypto/provider/HmacCore$HmacSHA384", "com/sun/crypto/provider/HmacCore$HmacSHA512",
+                    "com/sun/crypto/provider/AESCipher$General", "com/sun/crypto/provider/GaloisCounterMode$AESGCM",
+                    "com/sun/crypto/provider/AESParameters", "sun/security/util/GCMParameters",
+                    "com/sun/crypto/provider/AESKeyGenerator", "com/sun/crypto/provider/HmacMD5KeyGenerator",
+                    "com/sun/crypto/provider/HmacSHA1KeyGenerator",
+                    "com/sun/crypto/provider/KeyGeneratorCore$HmacKG$SHA224",
+                    "com/sun/crypto/provider/KeyGeneratorCore$HmacKG$SHA256",
+                    "com/sun/crypto/provider/KeyGeneratorCore$HmacKG$SHA384",
+                    "com/sun/crypto/provider/KeyGeneratorCore$HmacKG$SHA512",
+                    "com/sun/crypto/provider/PBKDF2Core$HmacSHA1", "com/sun/crypto/provider/PBKDF2Core$HmacSHA224",
+                    "com/sun/crypto/provider/PBKDF2Core$HmacSHA256", "com/sun/crypto/provider/PBKDF2Core$HmacSHA384",
+                    "com/sun/crypto/provider/PBKDF2Core$HmacSHA512"),
+            "java/security/KeyPairGenerator", List.of(
+                    "sun/security/rsa/RSAKeyPairGenerator$Legacy", "sun/security/rsa/RSAKeyFactory$Legacy"),
+            "java/security/Signature", List.of(
+                    "sun/security/rsa/RSASignature$SHA1withRSA", "sun/security/rsa/RSASignature$SHA256withRSA",
+                    "sun/security/rsa/RSASignature$SHA384withRSA", "sun/security/rsa/RSASignature$SHA512withRSA"),
             "sun/util/locale/provider/LocaleProviderAdapter", List.of(
                     "sun/util/locale/provider/JRELocaleProviderAdapter",
                     "sun/util/locale/provider/FallbackLocaleProviderAdapter"),
@@ -222,6 +244,49 @@ public final class BytecodeReachabilityCompiler {
                         m.instructions.set(insn,
                                 new org.objectweb.asm.tree.IntInsnNode(Opcodes.NEWARRAY, Opcodes.T_BYTE));
                     }
+                }
+            }
+        }
+        if ("javax/crypto/JceSecurity".equals(classNode.name)) {
+            // The jurisdiction policy files are read from java.home and the providers are verified as
+            // signed jars. A native program has neither: the policy is unrestricted and every provider
+            // may be used.
+            for (final MethodNode m : classNode.methods) {
+                if ("<clinit>".equals(m.name)) {
+                    // The placeholder URL of providers without a code base: http has no handler here.
+                    for (final var insn : m.instructions.toArray()) {
+                        if (insn instanceof org.objectweb.asm.tree.LdcInsnNode ldc
+                                && "http://null.oracle.com/".equals(ldc.cst)) {
+                            ldc.cst = "file:///null";
+                        }
+                    }
+                }
+                if ("setupJurisdictionPolicies".equals(m.name)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, "javax/crypto/CryptoPermissions"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.DUP));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESPECIAL,
+                                "javax/crypto/CryptoPermissions", "<init>", "()V", false));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.PUTSTATIC,
+                                "javax/crypto/JceSecurity", "defaultPolicy", "Ljavax/crypto/CryptoPermissions;"));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC,
+                                "javax/crypto/JceSecurity", "defaultPolicy", "Ljavax/crypto/CryptoPermissions;"));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC,
+                                "javax/crypto/CryptoAllPermission", "INSTANCE", "Ljavax/crypto/CryptoAllPermission;"));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                                "javax/crypto/CryptoPermissions", "add", "(Ljava/security/Permission;)V", false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+                    });
+                } else if ("canUseProvider".equals(m.name)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_1));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                    });
+                } else if ("getVerificationResult".equals(m.name)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
                 }
             }
         }
@@ -766,6 +831,11 @@ public final class BytecodeReachabilityCompiler {
                 }
                 if (sourceQueued.add(owner + "#" + name)) {
                     queueMethod(new MethodRef(owner, name, null, entry.getValue()));
+                    if ("<init>".equals(name)) {
+                        // A constructor and a method called init share the function name
+                        // (Cipher.init, KeyGenerator.init, Mac.init).
+                        queueMethod(new MethodRef(owner, "init", null, entry.getValue()));
+                    }
                     // Source can also read the class's static fields, which
                     // this scan does not see; initialize it on any call.
                     queueInit(owner);
@@ -1421,13 +1491,43 @@ public final class BytecodeReachabilityCompiler {
         queueActiveUses(methodNode);
     }
 
+    /**
+     * The class or interface that declares the field as field resolution finds it (JVMS 5.4.3.2): the class
+     * itself, then its superinterfaces, then its superclass. A static field can be inherited from an interface
+     * constant ({@code AESCrypt.AES_KEYSIZES}); reading it initializes that interface, not the class.
+     */
+    private String declaringClassOfField(final String internalName, final String name) {
+        final ClassNode node = loadClassNode(internalName);
+        if (node == null) {
+            return null;
+        }
+        for (final var field : node.fields) {
+            if (field.name.equals(name)) {
+                return internalName;
+            }
+        }
+        for (final String itf : node.interfaces) {
+            final String found = declaringClassOfField(itf, name);
+            if (found != null) {
+                return found;
+            }
+        }
+        return node.superName != null ? declaringClassOfField(node.superName, name) : null;
+    }
+
     /** Instantiations and initializations (JLS 12.4.1) in a lowered method. */
     private void queueActiveUses(final MethodNode methodNode) {
         for (final var insn : methodNode.instructions) {
             switch (insn.getOpcode()) {
                 case Opcodes.NEW -> queueInstantiate(((org.objectweb.asm.tree.TypeInsnNode) insn).desc);
-                case Opcodes.GETSTATIC, Opcodes.PUTSTATIC ->
-                        queueInit(((org.objectweb.asm.tree.FieldInsnNode) insn).owner);
+                case Opcodes.GETSTATIC, Opcodes.PUTSTATIC -> {
+                    final var field = (org.objectweb.asm.tree.FieldInsnNode) insn;
+                    queueInit(field.owner);
+                    final String declaring = declaringClassOfField(field.owner, field.name);
+                    if (declaring != null && !declaring.equals(field.owner)) {
+                        queueInit(declaring);
+                    }
+                }
                 case Opcodes.INVOKESTATIC -> {
                     final String owner = ((org.objectweb.asm.tree.MethodInsnNode) insn).owner;
                     if (!owner.startsWith("[")) {

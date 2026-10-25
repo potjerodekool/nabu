@@ -1189,6 +1189,22 @@ for (IRModule m : modules) {
     }
 
     /**
+     * The same member on each interface the owner of {@code target} implements (also through its
+     * superclasses): a static field can be inherited from an interface constant
+     * ({@code AESCrypt.AES_KEYSIZES} comes from {@code AESConstants}).
+     */
+    public List<String> interfaceMemberTargets(final String target) {
+        final int idx = ownerSplit(target);
+        if (idx < 0) return List.of();
+        final String owner = normalizeInternalName(target.substring(0, idx));
+        final List<String> out = new ArrayList<>();
+        for (final String itf : implementedInterfacesWithSupers(owner)) {
+            out.add(itf.replace('/', '.') + target.substring(idx));
+        }
+        return out;
+    }
+
+    /**
      * Herschrijft een call naar een GEËRFD lid op de klasse of interface die
      * het lid daadwerkelijk declareert: bytecode (en de source-frontend) mag
      * als eigenaar het statische type van de receiver noemen

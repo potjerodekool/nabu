@@ -191,6 +191,28 @@ public final class ThreadSupport {
         return n;
     }
 
+    private static int seed = 0x9E3779B9;
+
+    /** A pseudo-random number for the cache slots of ScopedValue (xorshift). */
+    public static int secondarySeed() {
+        int x = seed;
+        x ^= x << 13;
+        x ^= x >>> 17;
+        x ^= x << 5;
+        seed = x;
+        return x;
+    }
+
+    /** ThreadGroup.interrupt(): interrupts the running threads of the group and of its subgroups. */
+    public static void interruptGroup(final ThreadGroup group) {
+        for (final Thread thread : liveThreads()) {
+            final ThreadGroup g = getThreadGroup(thread);
+            if (g != null && group.parentOf(g)) {
+                thread.interrupt();
+            }
+        }
+    }
+
     /** Fills the list (when given) with the groups below the group; returns how many it has (copied). */
     public static int enumerateGroups(final ThreadGroup group, final ThreadGroup[] list, final boolean recurse) {
         int n = 0;

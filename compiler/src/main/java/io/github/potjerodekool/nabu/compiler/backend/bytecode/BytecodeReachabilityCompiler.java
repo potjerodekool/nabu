@@ -237,6 +237,25 @@ public final class BytecodeReachabilityCompiler {
             substituteVarHandleCas(classNode, "casPair", "pair",
                     "Ljava/util/concurrent/atomic/AtomicMarkableReference$Pair;");
         }
+        if ("java/lang/ScopedValue$Cache".equals(classNode.name)) {
+            // The slot of a cache entry comes from the secondary seed of ThreadLocalRandom, reached through
+            // SharedSecrets, which ThreadLocalRandom's class initializer fills in. That class is not
+            // otherwise part of the program: take the seed from the runtime.
+            for (final MethodNode m : classNode.methods) {
+                for (final var insn : m.instructions.toArray()) {
+                    if (insn instanceof org.objectweb.asm.tree.MethodInsnNode call) {
+                        if ("jdk/internal/access/SharedSecrets".equals(call.owner)
+                                && "getJavaUtilConcurrentTLRAccess".equals(call.name)) {
+                            m.instructions.set(insn, new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        } else if ("nextSecondaryThreadLocalRandomSeed".equals(call.name)) {
+                            m.instructions.insertBefore(insn, new org.objectweb.asm.tree.InsnNode(Opcodes.POP));
+                            m.instructions.set(insn, new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
+                                    RuntimeCalls.RUNTIME_PACKAGE + "ThreadSupport", "secondarySeed", "()I", false));
+                        }
+                    }
+                }
+            }
+        }
         if ("java/util/concurrent/ThreadLocalRandom".equals(classNode.name)) {
             // With -Djava.util.secureRandomSeed=true the seed comes from
             // SecureRandom.getSeed, which drags in the whole security-provider

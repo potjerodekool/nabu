@@ -449,6 +449,108 @@ class ThreadsE2eIT {
                 """));
     }
 
+    @Test
+    void scopedValues() throws Exception {
+        assertEquals("""
+                outside false
+                inside alice
+                nested bob
+                back alice
+                call carol!
+                after false none
+                virtual false
+                """, run("""
+                public class Main {
+                    static final ScopedValue<String> USER = ScopedValue.newInstance();
+
+                    public static void main(String[] args) throws Exception {
+                        System.out.println("outside " + USER.isBound());
+                        ScopedValue.where(USER, "alice").run(new Runnable() {
+                            public void run() {
+                                System.out.println("inside " + USER.get());
+                                ScopedValue.where(USER, "bob").run(new Runnable() {
+                                    public void run() {
+                                        System.out.println("nested " + USER.get());
+                                    }
+                                });
+                                System.out.println("back " + USER.get());
+                            }
+                        });
+                        String r = ScopedValue.where(USER, "carol").call(new ScopedValue.CallableOp<String, RuntimeException>() {
+                            public String call() {
+                                return USER.get() + "!";
+                            }
+                        });
+                        System.out.println("call " + r);
+                        System.out.println("after " + USER.isBound() + " " + USER.orElse("none"));
+                        Thread v = Thread.ofVirtual().unstarted(new Runnable() {
+                            public void run() {
+                                System.out.println("virtual " + USER.isBound());
+                            }
+                        });
+                        v.start();
+                        v.join();
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void threadGroupInterruptAndPriority() throws Exception {
+        assertEquals("""
+                active 2 groups 1
+                interrupted true true
+                destroyed false daemon false maxpri 10
+                sub maxpri 3
+                java.lang.ThreadGroup[name=g,maxpri=3]
+                true false
+                done
+                """, run("""
+                public class Main {
+                    static volatile boolean tInterrupted;
+                    static volatile boolean uInterrupted;
+
+                    public static void main(String[] args) throws Exception {
+                        ThreadGroup g = new ThreadGroup("g");
+                        ThreadGroup sub = new ThreadGroup(g, "sub");
+                        Thread t = new Thread(g, new Runnable() {
+                            public void run() {
+                                try {
+                                    Thread.sleep(5000);
+                                } catch (InterruptedException e) {
+                                    tInterrupted = true;
+                                }
+                            }
+                        }, "t");
+                        Thread u = new Thread(sub, new Runnable() {
+                            public void run() {
+                                try {
+                                    Thread.sleep(5000);
+                                } catch (InterruptedException e) {
+                                    uInterrupted = true;
+                                }
+                            }
+                        }, "u");
+                        t.start();
+                        u.start();
+                        Thread.sleep(100);
+                        System.out.println("active " + g.activeCount() + " groups " + g.activeGroupCount());
+                        g.interrupt();
+                        t.join();
+                        u.join();
+                        System.out.println("interrupted " + tInterrupted + " " + uInterrupted);
+                        System.out.println("destroyed " + g.isDestroyed() + " daemon " + g.isDaemon() + " maxpri " + g.getMaxPriority());
+                        g.setMaxPriority(3);
+                        System.out.println("sub maxpri " + sub.getMaxPriority());
+                        System.out.println(g);
+                        System.out.println(g.parentOf(sub) + " " + sub.parentOf(g));
+                        g.destroy();
+                        System.out.println("done");
+                    }
+                }
+                """));
+    }
+
     private String run(final String mainSource) throws Exception {
         NativeToolchain.assumeGcc();
         var root = new File(".").getAbsoluteFile();

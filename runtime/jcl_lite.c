@@ -58,7 +58,7 @@ typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
                  int daemon; int priority; int64_t id;
                  int state; int interrupted; int permit; void *self;
-                 void *group; void *handler; int is_virtual; } s_thread;
+                 void *group; void *handler; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -4003,6 +4003,16 @@ BIND(void *, jcl_Thread_inheritableThreadLocals, "java.lang.Thread_inheritableTh
 BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritableThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->inheritableThreadLocals = map; }
 BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { (void)self; return NULL; }
 BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { (void)self; (void)map; }
+/* Scoped values (ScopedValue): the bindings and the cache of the running thread. A thread starts without bindings
+ * (NULL); findScopedValueBindings, which the JVM answers by walking the stack, then also gives NULL: no bindings. */
+BIND(void *, jcl_Thread_scopedValueBindings, "java.lang.Thread_scopedValueBindings", (void)) { return jcl_thread_of(jcl_current_thread())->sv_bindings; }
+BIND(void, jcl_Thread_setScopedValueBindings, "java.lang.Thread_setScopedValueBindings", (void *bindings)) { jcl_thread_of(jcl_current_thread())->sv_bindings = bindings; }
+BIND(void *, jcl_Thread_findScopedValueBindings, "java.lang.Thread_findScopedValueBindings", (void)) { return NULL; }
+BIND(void *, jcl_Thread_scopedValueCache, "java.lang.Thread_scopedValueCache", (void)) { return jcl_thread_of(jcl_current_thread())->sv_cache; }
+BIND(void, jcl_Thread_setScopedValueCache, "java.lang.Thread_setScopedValueCache", (void *cache)) { jcl_thread_of(jcl_current_thread())->sv_cache = cache; }
+BIND(void *, jcl_Thread_headStackableScopes, "java.lang.Thread_headStackableScopes", (void *self)) { return jcl_thread_of(self)->sv_scope; }
+BIND(void, jcl_Thread_setHeadStackableScope, "java.lang.Thread_setHeadStackableScope", (void *scope)) { jcl_thread_of(jcl_current_thread())->sv_scope = scope; }
+BIND(void, jcl_Thread_ensureMaterializedForStackWalk, "java.lang.Thread_ensureMaterializedForStackWalk", (void *o)) { (void)o; }
 BIND(void *, jcl_Thread_currentCarrierThread, "java.lang.Thread_currentCarrierThread", (void)) { return jcl_current_thread(); }
 BIND(void *, jcl_Thread_getThreadGroup, "java.lang.Thread_getThreadGroup", (void *self)) { return jcl_thread_of(self)->group; }
 BIND(void, jcl_Thread_blockedOn, "java.lang.Thread_blockedOn", (void *self, void *interruptible)) { (void)self; (void)interruptible; }

@@ -49,4 +49,20 @@ public final class ThreadGroupSubstitution {
     public int enumerate(final ThreadGroup[] list, final boolean recurse) {
         return ThreadSupport.enumerateGroups((ThreadGroup) (Object) this, list, recurse);
     }
+
+    public final void interrupt() {
+        ThreadSupport.interruptGroup((ThreadGroup) (Object) this);
+    }
+
+    public final void setMaxPriority(final int pri) {
+        if (pri >= Thread.MIN_PRIORITY && pri <= Thread.MAX_PRIORITY) {
+            maxPriority = parent != null ? Math.min(pri, parent.getMaxPriority()) : pri;
+            final ThreadGroup self = (ThreadGroup) (Object) this;
+            final ThreadGroup[] children = new ThreadGroup[ThreadSupport.enumerateGroups(self, null, false)];
+            ThreadSupport.enumerateGroups(self, children, false);
+            for (final ThreadGroup child : children) {
+                child.setMaxPriority(pri);
+            }
+        }
+    }
 }

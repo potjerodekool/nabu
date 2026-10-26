@@ -147,7 +147,9 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
                 List.of(integerClass.asType()), List.of()
         );
 
-        final var lambda = new CLambdaExpressionTree(List.of(), null, -1, -1);
+        // forEach(Consumer): a lambda with one parameter (JLS 15.12.2.1 looks at the number of parameters).
+        final var lambda = new CLambdaExpressionTree(
+                List.of(io.github.potjerodekool.nabu.tree.TreeMaker.identifier("x", -1, -1)), null, -1, -1);
         lambda.setType(new UndetVarType(methodType));
 
         var results = resolver.getPotentiallyApplicableMethods(

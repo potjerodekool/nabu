@@ -1746,6 +1746,8 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             newClassExpression.setType(newClassExpression.getName().getType());
         }
 
+        resolveLambdaArgumentsOfConstructor(newClassExpression, scope);
+
         final var classDeclaration = newClassExpression.getClassDeclaration();
 
         if (classDeclaration != null) {
@@ -1773,6 +1775,37 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         }
 
         return newClassExpression;
+    }
+
+    /**
+     * A lambda or method reference in the arguments of {@code new Thread(() -> ...)} gets the type of the
+     * parameter of the constructor that is called, as the arguments of a method call do.
+     */
+    private void resolveLambdaArgumentsOfConstructor(final NewClassExpression newClassExpression,
+                                                     final Scope scope) {
+        final var arguments = newClassExpression.getArguments();
+        if (arguments.stream().noneMatch(argument -> argument instanceof LambdaExpressionTree
+                || argument instanceof MemberReference)
+                || !(newClassExpression.getType() instanceof DeclaredType constructed)) {
+            return;
+        }
+        final var constructor = methodResolver.resolveConstructor(constructed, arguments);
+        if (constructor.isEmpty()) {
+            return;
+        }
+        final var parameterTypes = constructor.get().getParameterTypes();
+        for (var i = 0; i < arguments.size() && i < parameterTypes.size(); i++) {
+            final var parameterType = parameterTypes.get(i);
+            if (arguments.get(i) instanceof LambdaExpressionTree lambdaExpression) {
+                postResolve(lambdaExpression, parameterType, scope);
+            } else if (arguments.get(i) instanceof MemberReference memberReference) {
+                final var lambda = memberReferenceToLambda(memberReference, parameterType);
+                if (lambda != null) {
+                    arguments.set(i, lambda);
+                    postResolve(lambda, parameterType, scope);
+                }
+            }
+        }
     }
 
     @Override

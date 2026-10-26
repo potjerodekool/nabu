@@ -210,6 +210,12 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         var returnType = lambdaExpression.getLambdaMethodType() != null
                 ? lambdaExpression.getLambdaMethodType().getReturnType()
                 : lambdaClass.findFunctionalMethod().getReturnType();
+        if (returnType instanceof io.github.potjerodekool.nabu.type.WildcardType wildcard) {
+            // Function<? super T, ? extends U>.apply returns the upper bound of the wildcard.
+            returnType = wildcard.isExtendsBound()
+                    ? wildcard.getExtendsBound()
+                    : lambdaClass.findFunctionalMethod().getReturnType();
+        }
         if (returnType instanceof io.github.potjerodekool.nabu.type.TypeVariable typeVariable) {
             returnType = typeVariable.getUpperBound();
         }

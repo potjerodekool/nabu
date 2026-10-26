@@ -16,7 +16,14 @@ import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
 import io.github.potjerodekool.nabu.resolve.scope.Scope;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.TypeEnter;
 import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.tree.AbstractTreeVisitor;
+import io.github.potjerodekool.nabu.tree.Tag;
+import io.github.potjerodekool.nabu.tree.Tree;
 import io.github.potjerodekool.nabu.tree.TreeUtils;
+import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
+import io.github.potjerodekool.nabu.tree.statement.BlockStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.ExpressionStatementTree;
+import io.github.potjerodekool.nabu.tree.statement.ReturnStatementTree;
 import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.type.*;
 import io.github.potjerodekool.nabu.util.Elements;
@@ -83,6 +90,19 @@ public class CompleteMethodResolver implements MethodResolver {
         resolvedMethod.ifPresent(methodInvocation::setMethodType);
 
         return resolvedMethod;
+    }
+
+    @Override
+    public Optional<ExecutableType> resolveConstructor(final DeclaredType type,
+                                                       final List<ExpressionTree> arguments) {
+        // The same path as this(...): a call of one of the constructors of the class.
+        final var call = io.github.potjerodekool.nabu.tree.TreeMaker.methodInvocationTree(
+                io.github.potjerodekool.nabu.tree.TreeMaker.identifier(Constants.THIS, 0, 0),
+                List.of(),
+                arguments,
+                0,
+                0);
+        return Optional.ofNullable(resolveMethod(call, type, null, true));
     }
 
     private Pair<String, ExpressionTree> resolveMethodNameAndSelected(final ExpressionTree expression) {
@@ -1152,7 +1172,7 @@ public class CompleteMethodResolver implements MethodResolver {
                 final var argument = arguments.get(index);
                 final var argumentType = resolveType(argument);
 
-                if (!isPotentiallyCompatible(argumentType, parameterTypes.get(index))) {
+                if (!isPotentiallyCompatible(argument, argumentType, parameterTypes.get(index))) {
                     return false;
                 }
             }
@@ -1162,8 +1182,8 @@ public class CompleteMethodResolver implements MethodResolver {
                 final var argument = arguments.get(i);
                 final var argumentType = resolveType(argument);
 
-                if (!isPotentiallyCompatible(argumentType, varargType) &&
-                        !isPotentiallyCompatible(argumentType, parameterTypes.get(fixedParamCount))) {
+                if (!isPotentiallyCompatible(argument, argumentType, varargType) &&
+                        !isPotentiallyCompatible(argument, argumentType, parameterTypes.get(fixedParamCount))) {
                     return false;
                 }
             }
@@ -1178,12 +1198,84 @@ public class CompleteMethodResolver implements MethodResolver {
                 final var argument = arguments.get(i);
                 final var argumentType = resolveType(argument);
 
-                if (!isPotentiallyCompatible(argumentType, parameterTypes.get(i))) {
+                if (!isPotentiallyCompatible(argument, argumentType, parameterTypes.get(i))) {
                     return false;
                 }
             }
 
             return true;
+        }
+    }
+
+    /**
+     * JLS 15.12.2.1: a lambda is potentially compatible with a functional interface when it has as many
+     * parameters as the function type and its body fits the return of the function type: a void one needs a
+     * statement expression or a block without {@code return value;}, another one an expression or a block
+     * that returns a value ({@code schedule(() -> 42, ...)} is the Callable, not the Runnable).
+     */
+    private boolean isPotentiallyCompatible(final ExpressionTree argument,
+                                            final TypeMirror sourceType,
+                                            final TypeMirror targetType) {
+        if (argument instanceof LambdaExpressionTree lambda
+                && targetType instanceof DeclaredType declared
+                && declared.asTypeElement() != null
+                && declared.asTypeElement().getKind().isInterface()) {
+            final var functional = declared.asTypeElement().findFunctionalMethod();
+            if (functional != null) {
+                if (functional.getParameters().size() != lambda.getVariables().size()) {
+                    return false;
+                }
+                final var returnsVoid = functional.getReturnType() != null
+                        && functional.getReturnType().getKind() == TypeKind.VOID;
+                if (lambda.getBody() == null) {
+                    return isPotentiallyCompatible(sourceType, targetType);
+                }
+                if (lambda.getBody() instanceof BlockStatementTree block) {
+                    final var returnsValue = new ReturnsValue();
+                    returnsValue.acceptTree(block, null);
+                    if (returnsVoid == returnsValue.found) {
+                        return false;
+                    }
+                } else if (returnsVoid && !isStatementExpression(lambda.getBody())) {
+                    return false;
+                }
+            }
+        }
+        return isPotentiallyCompatible(sourceType, targetType);
+    }
+
+    private static boolean isStatementExpression(final Tree body) {
+        return body instanceof MethodInvocationTree
+                || body instanceof AssignmentExpressionTree
+                || body instanceof NewClassExpression
+                || body instanceof UnaryExpressionTree unary && isIncrementOrDecrement(unary.getTag())
+                || body instanceof ExpressionStatementTree;
+    }
+
+    private static boolean isIncrementOrDecrement(final Tag tag) {
+        return tag == Tag.POST_INC || tag == Tag.POST_DEC || tag == Tag.PRE_INC || tag == Tag.PRE_DEC;
+    }
+
+    /** Whether a lambda block has a {@code return value;} (not looking into lambdas and classes inside it). */
+    private static final class ReturnsValue extends AbstractTreeVisitor<Object, Object> {
+        private boolean found;
+
+        @Override
+        public Object visitReturnStatement(final ReturnStatementTree returnStatement, final Object param) {
+            if (returnStatement.getExpression() != null) {
+                found = true;
+            }
+            return null;
+        }
+
+        @Override
+        public Object visitLambdaExpression(final LambdaExpressionTree lambda, final Object param) {
+            return null;
+        }
+
+        @Override
+        public Object visitClass(final ClassDeclaration classDeclaration, final Object param) {
+            return null;
         }
     }
 
@@ -1291,6 +1383,10 @@ public class CompleteMethodResolver implements MethodResolver {
             collectInferences(paramTypes.get(i), argTypes.get(i), methodInferenceMap, methodTypeVars);
         }
 
+        for (int i = 0; i < Math.min(paramTypes.size(), arguments.size()); i++) {
+            inferFromLambdaBody(paramTypes.get(i), arguments.get(i), methodInferenceMap, methodTypeVars);
+        }
+
         final var allInferenceMap = new java.util.HashMap<String, TypeMirror>();
         allInferenceMap.putAll(argInferenceMap);
         allInferenceMap.putAll(methodInferenceMap);
@@ -1314,6 +1410,51 @@ public class CompleteMethodResolver implements MethodResolver {
                 newParamTypes,
                 newThrownTypes
         );
+    }
+
+    /**
+     * A type variable of the method that is the return type of the function type of the parameter
+     * ({@code <U> supplyAsync(Supplier<U>)}) takes the type of the body of a lambda argument that is an
+     * expression ({@code () -> 20} gives Integer).
+     */
+    private void inferFromLambdaBody(final TypeMirror paramType,
+                                     final ExpressionTree argument,
+                                     final java.util.HashMap<String, TypeMirror> inferenceMap,
+                                     final java.util.List<? extends TypeVariable> methodTypeVars) {
+        if (!(argument instanceof LambdaExpressionTree lambda)
+                || !(paramType instanceof DeclaredType declared)
+                || declared.asTypeElement() == null
+                || !(lambda.getBody() instanceof ExpressionTree body)) {
+            return;
+        }
+        final var functional = declared.asTypeElement().findFunctionalMethod();
+        if (functional == null || !(functional.getReturnType() instanceof TypeVariable returnVariable)) {
+            return;
+        }
+        // The function type returns a type variable of the interface: the type argument at its place.
+        final var interfaceVariables = declared.asTypeElement().getTypeParameters();
+        TypeMirror returned = null;
+        for (int i = 0; i < interfaceVariables.size() && i < declared.getTypeArguments().size(); i++) {
+            if (interfaceVariables.get(i).getSimpleName().equals(returnVariable.asElement().getSimpleName())) {
+                returned = declared.getTypeArguments().get(i);
+            }
+        }
+        if (returned instanceof WildcardType wildcard && wildcard.isExtendsBound()) {
+            returned = wildcard.getExtendsBound();
+        }
+        if (returned == null) {
+            return;
+        }
+        var bodyType = resolveType(body);
+        if (bodyType == null || bodyType.isError() || bodyType instanceof TypeVariable
+                || bodyType.getKind() == TypeKind.VOID || bodyType.getKind() == TypeKind.NONE
+                || bodyType.getKind() == TypeKind.NULL || bodyType instanceof CUnknownType) {
+            return;
+        }
+        if (bodyType instanceof PrimitiveType primitive) {
+            bodyType = types.boxedClass(primitive).asType();
+        }
+        collectInferences(returned, bodyType, inferenceMap, methodTypeVars);
     }
 
     private void collectArgumentInferences(final TypeMirror paramType,
@@ -1362,12 +1503,17 @@ public class CompleteMethodResolver implements MethodResolver {
                     inferenceMap.putIfAbsent(paramTv.asElement().getSimpleName(), argType);
                 }
             }
+        } else if (paramType instanceof WildcardType wt && wt.getBound() != null
+                && !(argType instanceof WildcardType)) {
+            // ? extends U / ? super T against a type: the bound against the type.
+            collectInferences(wt.getBound(), argType, inferenceMap, methodTypeVars);
         } else if (paramType instanceof DeclaredType paramDeclared
                 && argType instanceof DeclaredType argDeclared) {
-            if (paramDeclared.asTypeElement().getQualifiedName()
-                    .equals(argDeclared.asTypeElement().getQualifiedName())) {
+            // The argument may be a subtype of the parameter type: UnaryOperator<String> for Function<T, U>.
+            final var matching = asSuper(argDeclared, paramDeclared.asTypeElement());
+            if (matching != null) {
                 final var paramArgs = paramDeclared.getTypeArguments();
-                final var argArgs = argDeclared.getTypeArguments();
+                final var argArgs = matching.getTypeArguments();
                 for (int i = 0; i < Math.min(paramArgs.size(), argArgs.size()); i++) {
                     collectInferences(paramArgs.get(i), argArgs.get(i), inferenceMap, methodTypeVars);
                 }
@@ -1375,11 +1521,38 @@ public class CompleteMethodResolver implements MethodResolver {
         }
     }
 
+    /** The supertype of {@code type} that is an instance of {@code target} (type itself included), or null. */
+    private DeclaredType asSuper(final DeclaredType type, final TypeElement target) {
+        if (type.asTypeElement() == null || target == null) {
+            return null;
+        }
+        if (type.asTypeElement().getQualifiedName().equals(target.getQualifiedName())) {
+            return type;
+        }
+        for (final var supertype : types.directSupertypes(type)) {
+            if (supertype instanceof DeclaredType declared) {
+                final var found = asSuper(declared, target);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
     private TypeMirror substituteTypeVariables(final TypeMirror type,
                                                final java.util.Map<String, TypeMirror> map) {
         if (type instanceof TypeVariable tv) {
             final var replacement = map.get(tv.asElement().getSimpleName());
             return replacement != null ? replacement : type;
+        } else if (type instanceof WildcardType wildcard) {
+            if (wildcard.isExtendsBound()) {
+                return types.getWildcardType(substituteTypeVariables(wildcard.getExtendsBound(), map), null);
+            }
+            if (wildcard.isSuperBound()) {
+                return types.getWildcardType(null, substituteTypeVariables(wildcard.getSuperBound(), map));
+            }
+            return type;
         } else if (type instanceof DeclaredType declaredType) {
             final var typeArgs = declaredType.getTypeArguments();
             if (typeArgs.isEmpty()) {

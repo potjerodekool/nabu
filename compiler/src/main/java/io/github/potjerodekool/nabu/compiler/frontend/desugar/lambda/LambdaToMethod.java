@@ -368,6 +368,15 @@ public class LambdaToMethod extends AbstractTreeVisitor<Object, LambdaScope> {
         return null;
     }
 
+    /** `got[0] = x` in a lambda uses `got`: the array has to be captured. */
+    @Override
+    public Object visitArrayAccess(final io.github.potjerodekool.nabu.tree.expression.ArrayAccessExpressionTree arrayAccess,
+                                   final LambdaScope scope) {
+        acceptTree(arrayAccess.getExpression(), scope);
+        acceptTree(arrayAccess.getIndex(), scope);
+        return null;
+    }
+
     private ExpressionTree createTypeExpression(final TypeMirror typeMirror) {
         final var creator = new TypeExpressionCreator();
         return typeMirror.accept(creator, null);

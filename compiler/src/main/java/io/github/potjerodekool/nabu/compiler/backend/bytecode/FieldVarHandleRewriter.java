@@ -30,13 +30,19 @@ import java.util.Map;
  * {@code MethodHandles.lookup().findVarHandle(...)} and are invoked signature-polymorphically. A native program
  * has one thread, so every access is a plain field access: the {@code VarHandle} calls on an instance field become
  * calls of synthetic static methods in the same class, which read and write the field directly
- * (compare-and-set is "compare, then set"). Handles of static fields and of array elements are left alone.
+ * (compare-and-set is "compare, then set"); handles of array elements ({@code arrayElementVarHandle}) likewise.
+ * Handles of static fields are left alone.
  */
 final class FieldVarHandleRewriter {
 
-    /** The field a handle stands for. */
+    /** The field a handle stands for, or for an array handle ({@link #ARRAY}) the descriptor of its elements. */
     private record Handle(String owner, String name, String desc) {
+        boolean isArray() {
+            return ARRAY.equals(owner);
+        }
     }
+
+    private static final String ARRAY = "[]";
 
     private record Site(MethodNode method, MethodInsnNode call, FieldInsnNode handleLoad, Handle handle) {
     }
@@ -118,6 +124,9 @@ final class FieldVarHandleRewriter {
                 } else if (insn instanceof MethodInsnNode call && "java/lang/invoke/MethodHandles".equals(call.owner)
                         && "lookup".equals(call.name)) {
                     method.instructions.set(insn, new InsnNode(Opcodes.ACONST_NULL));
+                } else if (insn instanceof MethodInsnNode call && isArrayHandle(call)) {
+                    method.instructions.insertBefore(insn, new InsnNode(Opcodes.POP));
+                    method.instructions.set(insn, new InsnNode(Opcodes.ACONST_NULL));
                 }
             }
             method.maxStack = Math.max(method.maxStack, 4);
@@ -131,6 +140,16 @@ final class FieldVarHandleRewriter {
     private static void findHandles(final String className, final MethodNode clinit,
                                     final Map<String, Handle> handles) {
         for (final AbstractInsnNode insn : clinit.instructions.toArray()) {
+            if (insn instanceof MethodInsnNode arrayCall && isArrayHandle(arrayCall)) {
+                final AbstractInsnNode arrayType = constant(previous(arrayCall));
+                final AbstractInsnNode arrayStore = nextReal(arrayCall);
+                if (arrayType instanceof LdcInsnNode ldc && ldc.cst instanceof Type type
+                        && type.getSort() == Type.ARRAY
+                        && arrayStore instanceof FieldInsnNode store && store.getOpcode() == Opcodes.PUTSTATIC) {
+                    handles.put(store.name, new Handle(ARRAY, "", type.getDescriptor().substring(1)));
+                }
+                continue;
+            }
             if (!(insn instanceof MethodInsnNode call) || !"findVarHandle".equals(call.name)
                     || !("java/lang/invoke/MethodHandles$Lookup".equals(call.owner) || isMhUtil(call))) {
                 continue;
@@ -157,6 +176,10 @@ final class FieldVarHandleRewriter {
                 handles.put(store.name, new Handle(ownerType.getInternalName(), fieldName, fieldType.getDescriptor()));
             }
         }
+    }
+
+    private static boolean isArrayHandle(final MethodInsnNode call) {
+        return "java/lang/invoke/MethodHandles".equals(call.owner) && "arrayElementVarHandle".equals(call.name);
     }
 
     private static boolean isMhUtil(final MethodInsnNode call) {
@@ -192,6 +215,14 @@ final class FieldVarHandleRewriter {
             }
         }
         return insn;
+    }
+
+    private static AbstractInsnNode nextReal(final AbstractInsnNode insn) {
+        AbstractInsnNode next = insn.getNext();
+        while (next != null && next.getOpcode() < 0) {
+            next = next.getNext();
+        }
+        return next;
     }
 
     private static AbstractInsnNode previous(final AbstractInsnNode insn) {
@@ -259,6 +290,8 @@ final class FieldVarHandleRewriter {
         final Type result = Type.getReturnType(call.desc);
         final Type field = Type.getType(handle.desc());
         final String op = call.name;
+        // an array handle takes the array and the index before the values
+        final int lead = handle.isArray() ? 1 : 0;
         final MethodNode method = new MethodNode(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                 name, "(Ljava/lang/Object;" + call.desc.substring(1), null, null);
         final InsnList code = method.instructions;
@@ -271,47 +304,47 @@ final class FieldVarHandleRewriter {
         final int temp = next;
         final boolean compareKind = field.getSort() <= Type.INT || field.getSort() == Type.LONG
                 || field.getSort() >= Type.ARRAY;
-        if (!compareKind || args.length == 0) {
+        if (!compareKind || args.length <= lead) {
             return null;
         }
-        if (op.startsWith("get") && !op.startsWith("getAnd") && args.length == 1) {
+        if (op.startsWith("get") && !op.startsWith("getAnd") && args.length == 1 + lead) {
             loadReceiver(code, slot[0], handle, hostClass);
             code.add(getField(handle, hostClass));
             code.add(new InsnNode(result.getOpcode(Opcodes.IRETURN)));
-        } else if (op.startsWith("set") && args.length == 2) {
+        } else if (op.startsWith("set") && args.length == 2 + lead) {
             loadReceiver(code, slot[0], handle, hostClass);
-            code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
+            code.add(new VarInsnNode(args[1 + lead].getOpcode(Opcodes.ILOAD), slot[1 + lead]));
             code.add(putField(handle, hostClass));
             code.add(new InsnNode(Opcodes.RETURN));
-        } else if ((op.startsWith("compareAndSet") || op.startsWith("weakCompareAndSet")) && args.length == 3) {
+        } else if ((op.startsWith("compareAndSet") || op.startsWith("weakCompareAndSet")) && args.length == 3 + lead) {
             final LabelNode differs = new LabelNode();
             loadReceiver(code, slot[0], handle, hostClass);
             code.add(getField(handle, hostClass));
-            code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
+            code.add(new VarInsnNode(args[1 + lead].getOpcode(Opcodes.ILOAD), slot[1 + lead]));
             jumpIfDifferent(code, field, differs);
             loadReceiver(code, slot[0], handle, hostClass);
-            code.add(new VarInsnNode(args[2].getOpcode(Opcodes.ILOAD), slot[2]));
+            code.add(new VarInsnNode(args[2 + lead].getOpcode(Opcodes.ILOAD), slot[2 + lead]));
             code.add(putField(handle, hostClass));
             code.add(new InsnNode(Opcodes.ICONST_1));
             code.add(new InsnNode(Opcodes.IRETURN));
             code.add(differs);
             code.add(new InsnNode(Opcodes.ICONST_0));
             code.add(new InsnNode(Opcodes.IRETURN));
-        } else if (op.startsWith("compareAndExchange") && args.length == 3) {
+        } else if (op.startsWith("compareAndExchange") && args.length == 3 + lead) {
             final LabelNode differs = new LabelNode();
             loadReceiver(code, slot[0], handle, hostClass);
             code.add(getField(handle, hostClass));
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ISTORE), temp));
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
-            code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
+            code.add(new VarInsnNode(args[1 + lead].getOpcode(Opcodes.ILOAD), slot[1 + lead]));
             jumpIfDifferent(code, field, differs);
             loadReceiver(code, slot[0], handle, hostClass);
-            code.add(new VarInsnNode(args[2].getOpcode(Opcodes.ILOAD), slot[2]));
+            code.add(new VarInsnNode(args[2 + lead].getOpcode(Opcodes.ILOAD), slot[2 + lead]));
             code.add(putField(handle, hostClass));
             code.add(differs);
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
             code.add(new InsnNode(result.getOpcode(Opcodes.IRETURN)));
-        } else if ((op.startsWith("getAndSet") || op.startsWith("getAndAdd")) && args.length == 2) {
+        } else if ((op.startsWith("getAndSet") || op.startsWith("getAndAdd")) && args.length == 2 + lead) {
             final boolean add = op.startsWith("getAndAdd");
             if (add && field.getSort() != Type.INT && field.getSort() != Type.LONG) {
                 return null;
@@ -322,10 +355,10 @@ final class FieldVarHandleRewriter {
             loadReceiver(code, slot[0], handle, hostClass);
             if (add) {
                 code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
-                code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
+                code.add(new VarInsnNode(args[1 + lead].getOpcode(Opcodes.ILOAD), slot[1 + lead]));
                 code.add(new InsnNode(field.getOpcode(Opcodes.IADD)));
             } else {
-                code.add(new VarInsnNode(args[1].getOpcode(Opcodes.ILOAD), slot[1]));
+                code.add(new VarInsnNode(args[1 + lead].getOpcode(Opcodes.ILOAD), slot[1 + lead]));
             }
             code.add(putField(handle, hostClass));
             code.add(new VarInsnNode(field.getOpcode(Opcodes.ILOAD), temp));
@@ -352,18 +385,27 @@ final class FieldVarHandleRewriter {
     }
 
     private static void loadReceiver(final InsnList code, final int slot, final Handle handle, final String host) {
-        if (!isRuntimeObject(handle)) {
+        if (handle.isArray()) {
+            code.add(new VarInsnNode(Opcodes.ALOAD, slot));
+            code.add(new VarInsnNode(Opcodes.ILOAD, slot + 1));
+        } else if (!isRuntimeObject(handle)) {
             code.add(new VarInsnNode(Opcodes.ALOAD, slot));
         }
     }
 
-    private static FieldInsnNode getField(final Handle handle, final String host) {
+    private static AbstractInsnNode getField(final Handle handle, final String host) {
+        if (handle.isArray()) {
+            return new InsnNode(Type.getType(handle.desc()).getOpcode(Opcodes.IALOAD));
+        }
         return isRuntimeObject(handle)
                 ? new FieldInsnNode(Opcodes.GETSTATIC, host, stateField(handle), handle.desc())
                 : new FieldInsnNode(Opcodes.GETFIELD, handle.owner(), handle.name(), handle.desc());
     }
 
-    private static FieldInsnNode putField(final Handle handle, final String host) {
+    private static AbstractInsnNode putField(final Handle handle, final String host) {
+        if (handle.isArray()) {
+            return new InsnNode(Type.getType(handle.desc()).getOpcode(Opcodes.IASTORE));
+        }
         return isRuntimeObject(handle)
                 ? new FieldInsnNode(Opcodes.PUTSTATIC, host, stateField(handle), handle.desc())
                 : new FieldInsnNode(Opcodes.PUTFIELD, handle.owner(), handle.name(), handle.desc());

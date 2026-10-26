@@ -125,6 +125,28 @@ class GenericInferenceRunTest {
     }
 
     @Test
+    void lambdaAssigningAnArrayElementInTry() throws Exception {
+        final var cls = compileAndLoad("ArrayStore", """
+                package mini;
+                public class ArrayStore {
+                    public static String start() throws Exception {
+                        final String[] got = new String[1];
+                        Thread e = new Thread(() -> {
+                            try {
+                                got[0] = String.valueOf(Integer.parseInt("12"));
+                            } catch (NumberFormatException ex) {
+                            }
+                        });
+                        e.start();
+                        e.join();
+                        return got[0];
+                    }
+                }
+                """);
+        assertEquals("12", cls.getMethod("start").invoke(null));
+    }
+
+    @Test
     void scheduleWithLambda() throws Exception {
         final var cls = compileAndLoad("Scheduled", """
                 package mini;

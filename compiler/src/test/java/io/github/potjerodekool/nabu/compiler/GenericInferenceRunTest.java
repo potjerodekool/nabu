@@ -147,6 +147,31 @@ class GenericInferenceRunTest {
     }
 
     @Test
+    void catchOfANestedTypeThroughItsOuterClass() throws Exception {
+        final var cls = compileAndLoad("NestedCatch", """
+                package mini;
+                public class NestedCatch {
+                    static class Scope {
+                        static class FailedException extends RuntimeException {
+                            FailedException(String message) {
+                                super(message);
+                            }
+                        }
+                    }
+
+                    public static String start() throws Exception {
+                        try {
+                            throw new Scope.FailedException("x");
+                        } catch (Scope.FailedException e) {
+                            return "caught " + e.getMessage();
+                        }
+                    }
+                }
+                """);
+        assertEquals("caught x", cls.getMethod("start").invoke(null));
+    }
+
+    @Test
     void scheduleWithLambda() throws Exception {
         final var cls = compileAndLoad("Scheduled", """
                 package mini;

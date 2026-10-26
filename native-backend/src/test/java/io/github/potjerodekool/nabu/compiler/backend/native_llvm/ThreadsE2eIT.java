@@ -605,6 +605,242 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void locksAndSynchronizers() throws Exception {
+        assertEquals("""
+                lock 2000
+                latch 0
+                semaphore 3
+                barrier 3
+                readwrite 5
+                """, run("""
+                import java.util.concurrent.CountDownLatch;
+                import java.util.concurrent.CyclicBarrier;
+                import java.util.concurrent.Semaphore;
+                import java.util.concurrent.atomic.AtomicInteger;
+                import java.util.concurrent.locks.ReentrantLock;
+                import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+                public class Main {
+                    static int counter;
+
+                    public static void main(String[] args) throws Exception {
+                        final ReentrantLock lock = new ReentrantLock();
+                        Thread[] threads = new Thread[2];
+                        for (int t = 0; t < threads.length; t++) {
+                            threads[t] = new Thread(new Runnable() {
+                                public void run() {
+                                    for (int i = 0; i < 1000; i++) {
+                                        lock.lock();
+                                        try {
+                                            counter++;
+                                        } finally {
+                                            lock.unlock();
+                                        }
+                                    }
+                                }
+                            });
+                            threads[t].start();
+                        }
+                        for (Thread t : threads) {
+                            t.join();
+                        }
+                        System.out.println("lock " + counter);
+
+                        final CountDownLatch latch = new CountDownLatch(3);
+                        for (int i = 0; i < 3; i++) {
+                            new Thread(new Runnable() {
+                                public void run() {
+                                    latch.countDown();
+                                }
+                            }).start();
+                        }
+                        latch.await();
+                        System.out.println("latch " + latch.getCount());
+
+                        final Semaphore semaphore = new Semaphore(0);
+                        for (int i = 0; i < 3; i++) {
+                            new Thread(new Runnable() {
+                                public void run() {
+                                    semaphore.release();
+                                }
+                            }).start();
+                        }
+                        semaphore.acquire(3);
+                        System.out.println("semaphore 3");
+
+                        final CyclicBarrier barrier = new CyclicBarrier(3);
+                        final AtomicInteger passed = new AtomicInteger();
+                        Thread[] b = new Thread[2];
+                        for (int i = 0; i < 2; i++) {
+                            b[i] = new Thread(new Runnable() {
+                                public void run() {
+                                    try {
+                                        barrier.await();
+                                        passed.incrementAndGet();
+                                    } catch (Exception e) {
+                                    }
+                                }
+                            });
+                            b[i].start();
+                        }
+                        barrier.await();
+                        for (Thread t : b) {
+                            t.join();
+                        }
+                        System.out.println("barrier " + (passed.get() + 1));
+
+                        final ReentrantReadWriteLock rw = new ReentrantReadWriteLock();
+                        rw.writeLock().lock();
+                        counter = 5;
+                        rw.writeLock().unlock();
+                        rw.readLock().lock();
+                        System.out.println("readwrite " + counter);
+                        rw.readLock().unlock();
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void blockingQueues() throws Exception {
+        assertEquals("""
+                sum 4950
+                sync 7
+                priority 1 2 3
+                """, run("""
+                import java.util.concurrent.ArrayBlockingQueue;
+                import java.util.concurrent.PriorityBlockingQueue;
+                import java.util.concurrent.SynchronousQueue;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        final ArrayBlockingQueue<Integer> queue = new ArrayBlockingQueue<Integer>(4);
+                        Thread producer = new Thread(new Runnable() {
+                            public void run() {
+                                try {
+                                    for (int i = 0; i < 100; i++) {
+                                        queue.put(i);
+                                    }
+                                    queue.put(-1);
+                                } catch (InterruptedException e) {
+                                }
+                            }
+                        });
+                        producer.start();
+                        int sum = 0;
+                        while (true) {
+                            int v = queue.take();
+                            if (v < 0) {
+                                break;
+                            }
+                            sum += v;
+                        }
+                        System.out.println("sum " + sum);
+
+                        final SynchronousQueue<Integer> sync = new SynchronousQueue<Integer>();
+                        new Thread(new Runnable() {
+                            public void run() {
+                                try {
+                                    sync.put(7);
+                                } catch (InterruptedException e) {
+                                }
+                            }
+                        }).start();
+                        System.out.println("sync " + sync.take());
+
+                        PriorityBlockingQueue<Integer> pq = new PriorityBlockingQueue<Integer>();
+                        pq.add(3);
+                        pq.add(1);
+                        pq.add(2);
+                        int first = pq.take();
+                        int second = pq.take();
+                        int third = pq.take();
+                        System.out.println("priority " + first + " " + second + " " + third);
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void scheduledExecutorAndCompletableFuture() throws Exception {
+        assertEquals("""
+                scheduled 42
+                fixed rate ran
+                chain 21
+                all 3
+                timeout true
+                """, run("""
+                import java.util.concurrent.Callable;
+                import java.util.concurrent.CompletableFuture;
+                import java.util.concurrent.ExecutionException;
+                import java.util.concurrent.Executors;
+                import java.util.concurrent.ScheduledExecutorService;
+                import java.util.concurrent.ScheduledFuture;
+                import java.util.concurrent.TimeUnit;
+                import java.util.concurrent.TimeoutException;
+                import java.util.concurrent.atomic.AtomicInteger;
+                import java.util.function.Function;
+                import java.util.function.Supplier;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        ScheduledExecutorService ses = Executors.newScheduledThreadPool(2);
+                        ScheduledFuture<Integer> f = ses.schedule(new Callable<Integer>() {
+                            public Integer call() {
+                                return 42;
+                            }
+                        }, 50, TimeUnit.MILLISECONDS);
+                        System.out.println("scheduled " + f.get());
+                        final AtomicInteger runs = new AtomicInteger();
+                        ScheduledFuture<?> repeating = ses.scheduleAtFixedRate(new Runnable() {
+                            public void run() {
+                                runs.incrementAndGet();
+                            }
+                        }, 0, 20, TimeUnit.MILLISECONDS);
+                        while (runs.get() < 3) {
+                            Thread.sleep(10);
+                        }
+                        repeating.cancel(false);
+                        System.out.println("fixed rate ran");
+                        ses.shutdown();
+                        ses.awaitTermination(5, TimeUnit.SECONDS);
+
+                        CompletableFuture<Integer> first = CompletableFuture.supplyAsync(new Supplier<Integer>() {
+                            public Integer get() {
+                                return 20;
+                            }
+                        });
+                        CompletableFuture<Integer> chain = first.thenApply(new Function<Integer, Integer>() {
+                            public Integer apply(Integer x) {
+                                return x + 1;
+                            }
+                        });
+                        System.out.println("chain " + chain.get());
+                        CompletableFuture<Integer> a = CompletableFuture.supplyAsync(new Supplier<Integer>() {
+                            public Integer get() {
+                                return 1;
+                            }
+                        });
+                        CompletableFuture<Integer> b = CompletableFuture.supplyAsync(new Supplier<Integer>() {
+                            public Integer get() {
+                                return 2;
+                            }
+                        });
+                        CompletableFuture.allOf(a, b).get();
+                        System.out.println("all " + (a.get() + b.get()));
+                        CompletableFuture<Integer> slow = new CompletableFuture<Integer>();
+                        slow.orTimeout(100, TimeUnit.MILLISECONDS);
+                        try {
+                            slow.get();
+                        } catch (ExecutionException e) {
+                            System.out.println("timeout " + (e.getCause() instanceof TimeoutException));
+                        }
+                    }
+                }
+                """));
+    }
+
+    @Test
     void virtualThreads() throws Exception {
         assertEquals("""
                 virtual true daemon true

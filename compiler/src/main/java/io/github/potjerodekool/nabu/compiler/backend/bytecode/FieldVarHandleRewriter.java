@@ -137,10 +137,11 @@ final class FieldVarHandleRewriter {
             }
             final boolean implicitOwner = isMhUtil(call)
                     && call.desc.startsWith("(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;");
-            final AbstractInsnNode typeInsn = previous(call);
-            final AbstractInsnNode name = typeInsn == null ? null : previous(typeInsn);
+            final AbstractInsnNode typeLoad = previous(call);
+            final AbstractInsnNode typeInsn = constant(typeLoad);
+            final AbstractInsnNode name = typeLoad == null ? null : previous(typeLoad);
             final AbstractInsnNode owner = implicitOwner ? new LdcInsnNode(Type.getObjectType(className))
-                    : name == null ? null : previous(name);
+                    : name == null ? null : constant(previous(name));
             // int.class is GETSTATIC Integer.TYPE
             final AbstractInsnNode type = typeInsn instanceof FieldInsnNode primitive
                     && "TYPE".equals(primitive.name) && primitive.getOpcode() == Opcodes.GETSTATIC
@@ -174,6 +175,23 @@ final class FieldVarHandleRewriter {
             case "java/lang/Double" -> Type.DOUBLE_TYPE;
             default -> Type.VOID_TYPE;
         };
+    }
+
+    /**
+     * The constant a load stands for: the instruction itself, or for the load of a local variable the constant
+     * stored in it just before ({@code Class<?> ltq = LinkedTransferQueue.class, tn = DualNode.class;}).
+     */
+    private static AbstractInsnNode constant(final AbstractInsnNode insn) {
+        if (insn instanceof VarInsnNode load && load.getOpcode() == Opcodes.ALOAD) {
+            for (AbstractInsnNode store = load.getPrevious(); store != null; store = store.getPrevious()) {
+                if (store instanceof VarInsnNode candidate && candidate.getOpcode() == Opcodes.ASTORE
+                        && candidate.var == load.var) {
+                    final AbstractInsnNode value = previous(candidate);
+                    return value instanceof LdcInsnNode ? value : insn;
+                }
+            }
+        }
+        return insn;
     }
 
     private static AbstractInsnNode previous(final AbstractInsnNode insn) {

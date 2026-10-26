@@ -3426,6 +3426,27 @@ BIND(void *, jcl_java_lang_reflect_Field_getDeclaredAnnotations, "java.lang.refl
 BIND(void *, jcl_java_lang_reflect_Field_getAnnotations, "java.lang.reflect.Field_getAnnotations", (void *self)) {
     return jcl_java_lang_reflect_Field_getDeclaredAnnotations(self);
 }
+/* Names of the thread groups, told by ThreadGroup's constructor; the groups stay reachable from ThreadSupport, so
+ * the pointers stay valid. A thread without a group is in the main group; a thread that has ended has none in the JDK
+ * but its group is kept here. */
+static struct { void *group; char *name; } jcl_group_names[256];
+static int jcl_group_name_count = 0;
+
+static const char *jcl_group_name(void *group) {
+    for (int i = 0; i < jcl_group_name_count; i++) {
+        if (jcl_group_names[i].group == group) return jcl_group_names[i].name;
+    }
+    return "main";
+}
+
+BIND(void, jcl_ThreadSupport_nameGroup0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_nameGroup0", (void *group, void *name)) {
+    if (jcl_group_name_count < 256) {
+        jcl_group_names[jcl_group_name_count].group = group;
+        jcl_group_names[jcl_group_name_count].name = jcl_dup(jcl_str(name));
+        jcl_group_name_count++;
+    }
+}
+
 /* toString of the objects this runtime makes (Method, Field, Class, ...).
  * They carry a copy of java.lang.Object's vtable (nabu_set_library_vtable)
  * whose toString slot is this function: a virtual toString() or "" + obj
@@ -3452,6 +3473,13 @@ static void *jcl_library_tostring(void *self) {
     }
     if (jcl_is_executable(self)) {
         return jcl_java_lang_reflect_Method_toString_jstr(self);
+    }
+    s_thread *thread = jcl_thread_state(self);
+    if (thread != NULL) {
+        char text[512];
+        snprintf(text, sizeof text, "Thread[#%lld,%s,%d,%s]", (long long)thread->id,
+                 thread->name != NULL ? thread->name : "", thread->priority, jcl_group_name(thread->group));
+        return nabu_jstring_new(text);
     }
     return jcl_object_tostring != NULL ? jcl_object_tostring(self) : NULL;
 }

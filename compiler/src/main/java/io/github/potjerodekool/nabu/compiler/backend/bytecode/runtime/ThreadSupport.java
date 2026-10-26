@@ -167,8 +167,11 @@ public final class ThreadSupport {
     }
 
     /** Called by the constructor of every ThreadGroup. */
+    private static native void nameGroup0(Object group, String name);
+
     public static void addGroup(final ThreadGroup group) {
         groups.add(group);
+        nameGroup0(group, group.getName());
     }
 
     public static int countThreads(final ThreadGroup group) {
@@ -226,6 +229,26 @@ public final class ThreadSupport {
             }
         }
         return n;
+    }
+
+    /** ThreadGroup.list(): the group, its threads and its subgroups, indented by four spaces per level. */
+    public static void listGroup(final ThreadGroup group, final int indent) {
+        final String pad = " ".repeat(indent);
+        System.out.println(pad + group);
+        final Thread[] threads = new Thread[enumerateThreads(group, null, false)];
+        enumerateThreads(group, threads, false);
+        for (final Thread thread : threads) {
+            if (thread != null) {
+                System.out.println(pad + "    " + thread);
+            }
+        }
+        final ThreadGroup[] children = new ThreadGroup[enumerateGroups(group, null, false)];
+        enumerateGroups(group, children, false);
+        for (final ThreadGroup child : children) {
+            if (child != null) {
+                listGroup(child, indent + 4);
+            }
+        }
     }
 
     /** 0 new, 1 started, 2 terminated. */

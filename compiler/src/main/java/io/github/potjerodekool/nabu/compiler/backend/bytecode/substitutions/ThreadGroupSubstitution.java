@@ -50,6 +50,10 @@ public final class ThreadGroupSubstitution {
         return ThreadSupport.enumerateGroups((ThreadGroup) (Object) this, list, recurse);
     }
 
+    public void list() {
+        ThreadSupport.listGroup((ThreadGroup) (Object) this, 0);
+    }
+
     public final void interrupt() {
         ThreadSupport.interruptGroup((ThreadGroup) (Object) this);
     }

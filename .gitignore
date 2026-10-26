@@ -40,6 +40,7 @@ build/
 /compiler/output/
 /compiler/test-out/
 /compiler/src/main/antlr4/gen/
+/compiler/src/main/antlr4/java/gen/
 /.idea/
 /compiler/gen/
 /nabu-lang/gen/

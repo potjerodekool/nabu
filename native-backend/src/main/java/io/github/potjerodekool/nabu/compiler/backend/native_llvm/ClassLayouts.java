@@ -1388,6 +1388,9 @@ for (IRModule m : modules) {
         return false;
     }
 
+    /** Words of a Thread object from the state word on (offset 40) to the first field of a subclass (offset 128). */
+    private static final int THREAD_ROOM_WORDS = 11;
+
     /** Whether the superclass of the module is {@code java.lang.Thread}, which the C runtime provides. */
     private static boolean extendsRuntimeThread(final IRModule module) {
         return module.superType() instanceof IRType.Ptr p && "Ljava/lang/Thread;".equals(p.jvmDescriptor());
@@ -1413,7 +1416,10 @@ for (IRModule m : modules) {
             superInstanceCount = superLayout.instanceFieldTypes.size();
         } else if (extendsRuntimeThread(module)) {
             // The C runtime keeps the state of a Thread in the word behind the header (nabu_jcl_set_state).
-            fields.add(LLVMPointerTypeInContext(ctx, 0));
+            // Behind that word it keeps the fields the JDK reaches with Unsafe (ThreadLocalRandom's seed and
+            // probes, offsets 56 to 72, see jcl_Unsafe_objectFieldOffset1): the fields of the subclass
+            // start after them, or ForkJoinPool's DelayScheduler finds a random seed in its own fields.
+            fields.add(LLVMArrayType(LLVMPointerTypeInContext(ctx, 0), THREAD_ROOM_WORDS));
             superInstanceCount = 1;
         }
 

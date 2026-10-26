@@ -34,6 +34,53 @@ public final class ThreadSupport {
                     break;
                 }
             }
+            final Object container = containerOf0(thread);
+            if (container != null) {
+                containerRemove0(container, thread);
+            }
+        }
+    }
+
+    private static native void setContainer0(Thread thread, Object container);
+
+    private static native Object containerOf0(Thread thread);
+
+    private static native void inheritBindings0(Thread thread);
+
+    // The three bodies below are replaced when the program is compiled (BytecodeReachabilityCompiler): they call
+    // jdk.internal.vm.ThreadContainer, which cannot be named in this source.
+
+    /** container.add(thread): the container counts the thread (a StructuredTaskScope waits for its threads). */
+    private static void containerAdd0(final Object container, final Thread thread) {
+    }
+
+    /** container.remove(thread): the thread has ended. */
+    private static void containerRemove0(final Object container, final Thread thread) {
+    }
+
+    /** Whether the threads of the container inherit the scoped values of the thread that started them. */
+    private static boolean containerInherits0(final Object container) {
+        return false;
+    }
+
+    /** Thread.start(ThreadContainer): starts the thread as a member of the container. */
+    public static void startInContainer(final Thread thread, final Object container) {
+        if (getState(thread) != Thread.State.NEW || containerOf0(thread) != null) {
+            throw new IllegalThreadStateException();
+        }
+        setContainer0(thread, container);
+        containerAdd0(container, thread);
+        boolean started = false;
+        try {
+            if (containerInherits0(container)) {
+                inheritBindings0(thread);
+            }
+            thread.start();
+            started = true;
+        } finally {
+            if (!started) {
+                containerRemove0(container, thread);
+            }
         }
     }
 

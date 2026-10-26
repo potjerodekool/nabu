@@ -45,10 +45,19 @@ final class RuntimeCalls {
 
     static final String LOGGER_SUPPORT = RUNTIME_PACKAGE + "LoggerSupport";
 
+    /** {@code explicitDesc}: the descriptor of the target when it differs from the call's (a JDK-internal parameter type). */
     private record Redirect(String owner, String name, String desc, boolean isStatic,
-                            String targetClass, String target) {
+                            String targetClass, String target, String explicitDesc) {
+
+        Redirect(final String owner, final String name, final String desc, final boolean isStatic,
+                 final String targetClass, final String target) {
+            this(owner, name, desc, isStatic, targetClass, target, null);
+        }
 
         String targetDesc() {
+            if (explicitDesc != null) {
+                return explicitDesc;
+            }
             return isStatic ? desc : "(L" + owner + ";" + desc.substring(1);
         }
     }
@@ -118,6 +127,8 @@ final class RuntimeCalls {
             new Redirect("java/lang/Thread", "getState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT, "getState"),
             new Redirect("java/lang/Thread", "getUncaughtExceptionHandler",
                     "()Ljava/lang/Thread$UncaughtExceptionHandler;", false, THREAD_SUPPORT, "getUncaughtExceptionHandler"),
+            new Redirect("java/lang/Thread", "start", "(Ljdk/internal/vm/ThreadContainer;)V", false, THREAD_SUPPORT,
+                    "startInContainer", "(Ljava/lang/Thread;Ljava/lang/Object;)V"),
             new Redirect("java/lang/Thread", "ofVirtual", "()Ljava/lang/Thread$Builder$OfVirtual;", true,
                     ThreadBridge.CLASS, "ofVirtual"),
             new Redirect("java/lang/Thread", "ofPlatform", "()Ljava/lang/Thread$Builder$OfPlatform;", true,

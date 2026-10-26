@@ -62,7 +62,7 @@ typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
                  int daemon; int priority; int64_t id;
                  int state; int interrupted; int permit; void *self;
-                 void *group; void *handler; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope; } s_thread;
+                 void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -4037,6 +4037,11 @@ BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingTh
 BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { (void)self; (void)map; }
 /* Scoped values (ScopedValue): the bindings and the cache of the running thread. A thread starts without bindings
  * (NULL); findScopedValueBindings, which the JVM answers by walking the stack, then also gives NULL: no bindings. */
+BIND(void *, jcl_Thread_threadContainer, "java.lang.Thread_threadContainer", (void *self)) { return jcl_thread_of(self)->container; }
+BIND(void, jcl_Thread_setThreadContainer, "java.lang.Thread_setThreadContainer", (void *self, void *container)) { jcl_thread_of(self)->container = container; }
+BIND(void, jcl_ThreadSupport_setContainer0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_setContainer0", (void *thread, void *container)) { jcl_thread_of(thread)->container = container; }
+BIND(void *, jcl_ThreadSupport_containerOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_containerOf0", (void *thread)) { return jcl_thread_of(thread)->container; }
+BIND(void, jcl_ThreadSupport_inheritBindings0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_inheritBindings0", (void *thread)) { jcl_thread_of(thread)->sv_bindings = jcl_thread_of(jcl_current_thread())->sv_bindings; }
 BIND(void *, jcl_Thread_scopedValueBindings, "java.lang.Thread_scopedValueBindings", (void)) { return jcl_thread_of(jcl_current_thread())->sv_bindings; }
 BIND(void, jcl_Thread_setScopedValueBindings, "java.lang.Thread_setScopedValueBindings", (void *bindings)) { jcl_thread_of(jcl_current_thread())->sv_bindings = bindings; }
 BIND(void *, jcl_Thread_findScopedValueBindings, "java.lang.Thread_findScopedValueBindings", (void)) { return NULL; }

@@ -411,6 +411,79 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void structuredTaskScope() throws Exception {
+        assertEquals("""
+                30 12
+                """, run("""
+                import java.util.concurrent.Callable;
+                import java.util.concurrent.StructuredTaskScope;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+                            StructuredTaskScope.Subtask<Integer> a = scope.fork(new Callable<Integer>() {
+                                public Integer call() {
+                                    return 30;
+                                }
+                            });
+                            StructuredTaskScope.Subtask<Integer> b = scope.fork(new Callable<Integer>() {
+                                public Integer call() {
+                                    return 12;
+                                }
+                            });
+                            scope.join();
+                            System.out.println(a.get() + " " + b.get());
+                        }
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void structuredTaskScopeFailureAndScopedValue() throws Exception {
+        assertEquals("""
+                inherited alice
+                failed java.lang.IllegalStateException: boom
+                """, run("""
+                import java.util.concurrent.Callable;
+                import java.util.concurrent.StructuredTaskScope;
+
+                public class Main {
+                    static final ScopedValue<String> USER = ScopedValue.newInstance();
+
+                    public static void main(String[] args) throws Exception {
+                        ScopedValue.where(USER, "alice").run(new Runnable() {
+                            public void run() {
+                                try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+                                    StructuredTaskScope.Subtask<String> a = scope.fork(new Callable<String>() {
+                                        public String call() {
+                                            return "inherited " + USER.get();
+                                        }
+                                    });
+                                    scope.join();
+                                    System.out.println(a.get());
+                                } catch (Exception e) {
+                                    System.out.println("error " + e);
+                                }
+                            }
+                        });
+                        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+                            StructuredTaskScope.Subtask<String> f = scope.fork(new Callable<String>() {
+                                public String call() {
+                                    throw new IllegalStateException("boom");
+                                }
+                            });
+                            scope.join();
+                            System.out.println("not reached");
+                        } catch (RuntimeException e) {
+                            System.out.println("failed " + e.getCause());
+                        }
+                    }
+                }
+                """));
+    }
+
+    @Test
     void virtualThreads() throws Exception {
         assertEquals("""
                 virtual true daemon true

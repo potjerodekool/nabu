@@ -1420,9 +1420,58 @@ public final class BytecodeReachabilityCompiler {
                         : ThreadBridge.CLASS.equals(name) ? ThreadBridge.build()
                         : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build(applicationResources)
                         : generatedClasses.containsKey(name) ? generatedClasses.get(name)
-                        : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? EmbeddedResources.runtimeClass(name)
+                        : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? patchRuntimeClass(EmbeddedResources.runtimeClass(name))
                         : AnnotationAccessors.CLASS.equals(name) ? AnnotationAccessors.build()
                                                 : withAnnotationAccessors(loadSubstituted(name)));
+    }
+
+    /**
+     * The classes of the runtime package are not substituted; {@code ThreadSupport} calls
+     * {@code jdk.internal.vm.ThreadContainer}, which its source cannot name, so those calls are put in here.
+     */
+    private static ClassNode patchRuntimeClass(final ClassNode classNode) {
+        if (classNode == null || !(RuntimeCalls.RUNTIME_PACKAGE + "ThreadSupport").equals(classNode.name)) {
+            return classNode;
+        }
+        final String container = "jdk/internal/vm/ThreadContainer";
+        for (final MethodNode m : classNode.methods) {
+            final String call = switch (m.name) {
+                case "containerAdd0" -> "add";
+                case "containerRemove0" -> "remove";
+                default -> null;
+            };
+            if (call != null) {
+                replaceBody(m, insns -> {
+                    insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                    insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.CHECKCAST, container));
+                    insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                    insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKEVIRTUAL, container, call,
+                            "(Ljava/lang/Thread;)V", false));
+                    insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+                });
+            } else if ("containerInherits0".equals(m.name)) {
+                replaceBody(m, insns -> {
+                    final var no = new org.objectweb.asm.tree.LabelNode();
+                    insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                    insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.CHECKCAST, container));
+                    insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKEVIRTUAL, container, "owner",
+                            "()Ljava/lang/Thread;", false));
+                    insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IFNULL, no));
+                    insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                    insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.CHECKCAST, container));
+                    insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKEVIRTUAL, container,
+                            "scopedValueBindings", "()Ljdk/internal/vm/ScopedValueContainer$BindingsSnapshot;",
+                            false));
+                    insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IFNULL, no));
+                    insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_1));
+                    insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                    insns.add(no);
+                    insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_0));
+                    insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                });
+            }
+        }
+        return classNode;
     }
 
     /** A class from the class path with the substitutions applied; not cached (the rewriters may load nest members). */

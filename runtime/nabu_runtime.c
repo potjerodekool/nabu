@@ -952,43 +952,22 @@ void *nabu_catch(void *unwind_exc) {
  * bereikte. Zie nabu_runtime.h.
  */
 void nabu_resume(void *unwind_exc) {
-    struct _Unwind_Exception *ue = (struct _Unwind_Exception *)unwind_exc;
-
-#if defined(_WIN32)
-    /* Windows x64 gebruikt SEH, niet het ene Itanium-DWARF-unwind-model. Zodra
-     * de SEH-handler van deze frame eenmaal is gevestigd (nabu_seh_personality
-     * gaf HANDLER_FOUND en RtlUnwindEx sprong naar het landingspad), spoelt
-     * _Unwind_Resume terug naar datzelfde landingspad â€” de persoonlijkheid wordt
-     * niet opnieuw geraadpleegd, dus de type-check in code loopt weer nabu_resume
-     * aan: een oneindige lus (empirisch: nabu_catch/nabu_resume-beurten met
-     * dezelfde unwind-pointer, 100% CPU).
+    /* unwind_exc is the Nabu exception object itself, not an _Unwind_Exception: the backend
+     * (FunctionEmitter.emitLandingPadChain) already took it out of the wrapper with nabu_catch()
+     * before it calls nabu_resume. Handing it to _Unwind_Resume made the unwinder read the
+     * object's fields as unwinder state: private_1 (offset 16, the itable of a class that
+     * implements an interface) is the stop function of a forced unwind, so a rethrown
+     * RuntimeException jumped into read-only data.
      *
-     * Een verse _Unwind_RaiseException vanaf het landingspad-IP begint een
-     * nieuwe zoektocht bÃ³ven deze frame: het landingspad zelf ligt buiten alle
-     * call-site-ranges van het LSDA (het is gÃ©Ã©n beschermde regio), dus de
-     * persoonlijkheid vervolgt de unwind. Omringende handlers (callers, en
-     * meestal ook omringende try-regio's in dezelfde functie, afhankelijk van
-     * de blokvolgorde) worden gevonden; is er geen, dan keert nabu_throw terug
-     * en aborteren we netjes ("onbehandelde exception") i.p.v. te hangen.
+     * A fresh raise from the landing pad starts a new search above this frame instead. The
+     * landing pad lies outside every call-site range of the LSDA (it is not a protected region),
+     * so the personality continues the unwind and the surrounding handlers are found. On Windows
+     * this is also needed: once the SEH handler of a frame has been established, _Unwind_Resume
+     * returns to the same landing pad (an endless loop at 100% CPU). Without a handler,
+     * nabu_throw returns and the program ends cleanly with "unhandled exception".
      */
-    /* unwind_exc is hier GEEN nabu_unwind_exception-wrapper meer: de backend
-     * (FunctionEmitter.emitLandingPadChain) heeft 'm al door nabu_catch()
-     * gehaald voordat hij nabu_resume aanroept, dus dit IS al het kale
-     * nabu-object. 'm hier opnieuw als wrapper casten en ->nabu_object
-     * uitlezen (de oude code) leest een willekeurig geheugenoffset binnen
-     * dat object (of erna) en gaf dat als "nieuwe" exception aan nabu_throw
-     * mee — vandaar een compleet willekeurig/ongeldig object bij een
-     * doorgegeven (niet-gevangen) exception. Gewoon doorgeven dus. */
-    (void)ue;
     nabu_throw(unwind_exc);
-    abort(); /* nabu_throw keert alleen terug zonder handler */
-#else
-    _Unwind_Resume(ue);
-    /* _Unwind_Resume keert alleen terug wanneer er nergens in de stack een
-       handler is; dan is de exception onbehandeld. */
-    fprintf(stderr, "nabu: unhandled exception (resume without handler)\n");
-    abort();
-#endif
+    abort(); /* nabu_throw only returns when there is no handler */
 }
 
 int nabu_can_catch(void *obj, const char *type_name) {

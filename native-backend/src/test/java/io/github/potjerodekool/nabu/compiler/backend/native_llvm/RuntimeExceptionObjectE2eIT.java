@@ -70,7 +70,8 @@ class RuntimeExceptionObjectE2eIT {
         try (Stream<Path> walk = Files.walk(out)) {
             exe = walk.filter(NativeToolchain::isExecutableOutput).findFirst().orElseThrow();
         }
-        assertEquals("Main.exe", exe.getFileName().toString());
+        assertEquals(System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? "Main.exe" : "Main", exe.getFileName().toString());
         final String keep = System.getProperty("nabu.keepExe");
         if (keep != null) {
             Files.copy(exe, Path.of(keep), java.nio.file.StandardCopyOption.REPLACE_EXISTING);

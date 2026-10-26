@@ -187,6 +187,17 @@ class ReflectionMethodsE2eIT {
         try (Stream<Path> walk = Files.walk(out)) {
             exe = walk.filter(NativeToolchain::isExecutableOutput).findFirst().orElseThrow();
         }
+        final String keep = System.getProperty("nabu.keepExe");
+        if (keep != null) {
+            Files.copy(exe, Path.of(keep), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try (Stream<Path> walk = Files.walk(out)) {
+                final Path ll = walk.filter(p -> p.getFileName().toString().endsWith(".ll"))
+                        .max(java.util.Comparator.comparingLong(p -> p.toFile().length())).orElse(null);
+                if (ll != null) {
+                    Files.copy(ll, Path.of(keep.substring(0, keep.length() - ".exe".length()) + ".ll"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
         final Path log = tempDir.resolve("run.log");
         final Process proc = NativeToolchain.run(exe.toAbsolutePath()).redirectErrorStream(true)
                 .redirectOutput(log.toFile()).start();

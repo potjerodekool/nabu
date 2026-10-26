@@ -44,13 +44,18 @@ final class NativeToolchain {
     }
 
     /**
-     * Whether a file in the output directory is the linked executable: {@code <name>.exe} on Windows, a file
-     * without an extension that can be executed on Linux and macOS.
+     * Whether a file in the output directory is the linked executable: {@code <name>.exe} on Windows, a regular
+     * file that can be executed on Linux and macOS (named after the main class, so {@code app.Main} for a class
+     * in a package: the name can contain dots).
      */
     static boolean isExecutableOutput(final Path file) {
         final var name = file.getFileName().toString();
-        return Files.isRegularFile(file)
-                && (name.endsWith(".exe") || (!name.contains(".") && Files.isExecutable(file)));
+        if (!Files.isRegularFile(file)) {
+            return false;
+        }
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? name.endsWith(".exe")
+                : Files.isExecutable(file);
     }
 
     /**

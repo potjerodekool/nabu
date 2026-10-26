@@ -723,6 +723,21 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        // The interfaces of a source class: an interface that declares no method itself
+        // (UnaryOperator) is never called, yet its superinterfaces (Function.apply) decide which
+        // itable slots the class fills.
+        for (final IRModule module : alreadyCompiledModules) {
+            for (final IRType itf : module.interfaces()) {
+                if (itf instanceof IRType.Ptr(IRType pointee, String descriptor)
+                        && descriptor != null && descriptor.startsWith("L") && descriptor.endsWith(";")) {
+                    final String itfName = descriptor.substring(1, descriptor.length() - 1);
+                    if (!alreadyCompiledQualifiedNames.contains(itfName.replace('/', '.'))) {
+                        context = "interface of " + module.name;
+                        ensureShape(itfName);
+                    }
+                }
+            }
+        }
         final Map<String, Boolean> sourceCalls = collectSourceCalls(alreadyCompiledModules);
         while (queueSourceCalls(sourceCalls) | queueReflectiveInstantiations()) {
             drainWorklists();

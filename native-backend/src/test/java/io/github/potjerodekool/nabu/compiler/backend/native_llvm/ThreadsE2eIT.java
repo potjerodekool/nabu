@@ -484,6 +484,92 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void structuredTaskScopeAnySuccessful() throws Exception {
+        assertEquals("""
+                any 7
+                """, run("""
+                import java.time.Duration;
+                import java.util.concurrent.Callable;
+                import java.util.concurrent.StructuredTaskScope;
+                import java.util.function.UnaryOperator;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        try (StructuredTaskScope<Integer, Integer> scope =
+                                     StructuredTaskScope.open(StructuredTaskScope.Joiner.<Integer>anySuccessfulResultOrThrow())) {
+                            scope.fork(new Callable<Integer>() {
+                                public Integer call() throws Exception {
+                                    Thread.sleep(10000);
+                                    return 1;
+                                }
+                            });
+                            scope.fork(new Callable<Integer>() {
+                                public Integer call() {
+                                    return 7;
+                                }
+                            });
+                            System.out.println("any " + scope.join());
+                        }
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void structuredTaskScopeAllSuccessful() throws Exception {
+        assertEquals("""
+                all 3
+                """, run("""
+                import java.time.Duration;
+                import java.util.concurrent.Callable;
+                import java.util.concurrent.StructuredTaskScope;
+                import java.util.function.UnaryOperator;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        try (StructuredTaskScope<Integer, java.util.stream.Stream<StructuredTaskScope.Subtask<Integer>>> scope =
+                                     StructuredTaskScope.open(StructuredTaskScope.Joiner.<Integer>allSuccessfulOrThrow())) {
+                            for (int i = 0; i < 3; i++) {
+                                scope.fork(new Callable<Integer>() {
+                                    public Integer call() {
+                                        return 1;
+                                    }
+                                });
+                            }
+                            System.out.println("all " + scope.join().count());
+                        }
+                    }
+                }
+                """));
+    }
+
+    /** UnaryOperator declares no method: its itable slots come from Function, which has to count as implemented. */
+    @Test
+    void anonymousClassOfInterfaceWithoutOwnMethods() throws Exception {
+        assertEquals("""
+                a!
+                b!
+                """, run("""
+                import java.util.function.Function;
+                import java.util.function.UnaryOperator;
+
+                public class Main {
+                    public static void main(String[] args) throws Exception {
+                        UnaryOperator<String> op = new UnaryOperator<String>() {
+                            public String apply(String s) {
+                                return s + "!";
+                            }
+                        };
+                        Function<String, String> f = op;
+                        System.out.println(f.apply("a"));
+                        String mapped = java.util.Optional.of("b").map(op).get();
+                        System.out.println(mapped);
+                    }
+                }
+                """));
+    }
+
+    @Test
     void virtualThreads() throws Exception {
         assertEquals("""
                 virtual true daemon true

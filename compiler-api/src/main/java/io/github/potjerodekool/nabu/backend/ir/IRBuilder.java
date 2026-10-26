@@ -17,6 +17,10 @@ public class IRBuilder {
     private int tempCounter = 0;
     private int stringCounter = 0;
 
+    /** The type of the first alloca of each name in the function, to tell two variables of one name apart. */
+    private final Map<String, IRType> allocaTypes = new HashMap<>();
+    private int allocaRenames = 0;
+
     private SourceLocation currentLocation = SourceLocation.UNKNOWN;
 
     // Scoped symboltabel: naam → IRValue (pointer na Alloca, of global ptr)
@@ -138,6 +142,8 @@ public class IRBuilder {
         currentFunction = new IRFunction(name, returnType, params, currentLocation, flags, isConstructor);
         module.addFunction(currentFunction);
         tempCounter = 0;
+        allocaTypes.clear();
+        allocaRenames = 0;
 
         if (!(Flags.hasFlag(flags, Flags.ABSTRACT) || Flags.hasFlag(flags, Flags.NATIVE))) {
             currentBlock = beginBlock("entry");
@@ -267,7 +273,11 @@ public class IRBuilder {
     }
 
     public IRValue emitAlloca(String name, IRType type) {
-        var ptr = new IRValue.Temp("%" + name + ".ptr", new IRType.Ptr(type));
+        // Variables of one name in sibling scopes (legal in Java) of another type must not share a slot name: the
+        // SSA construction keys on it. Same-typed ones keep the plain name, as before.
+        final IRType first = allocaTypes.putIfAbsent(name, type);
+        final String slotName = first != null && !first.equals(type) ? name + "." + (++allocaRenames) : name;
+        var ptr = new IRValue.Temp("%" + slotName + ".ptr", new IRType.Ptr(type));
         emit(new IRInstruction.Alloca(ptr, type, currentLocation));
         define(name, ptr);
         return ptr;

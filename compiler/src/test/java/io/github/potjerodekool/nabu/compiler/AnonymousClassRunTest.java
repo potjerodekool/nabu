@@ -130,6 +130,31 @@ class AnonymousClassRunTest {
         assertEquals(67, cls.getMethod("start").invoke(null));
     }
 
+    /** Two loops one after the other whose variables have the same name but another type. */
+    @Test
+    void loopVariablesWithTheSameNameAndAnotherType() throws Exception {
+        final var cls = compileAndLoad("SameName", """
+                package mini;
+                public class SameName {
+                    public static int start() {
+                        int sum = 0;
+                        Object[] items = new Object[2];
+                        for (int t = 0; t < items.length; t++) {
+                            items[t] = "x";
+                            sum += t;
+                        }
+                        for (Object t : items) {
+                            if (t != null) {
+                                sum += 10;
+                            }
+                        }
+                        return sum;
+                    }
+                }
+                """);
+        assertEquals(21, cls.getMethod("start").invoke(null));
+    }
+
     @Test
     void anonymousClassInPlainBlock() throws Exception {
         final var cls = compileAndLoad("BlockAnon", """

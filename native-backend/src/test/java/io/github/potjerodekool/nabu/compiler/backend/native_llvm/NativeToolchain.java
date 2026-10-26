@@ -44,6 +44,16 @@ final class NativeToolchain {
     }
 
     /**
+     * Whether a file in the output directory is the linked executable: {@code <name>.exe} on Windows, a file
+     * without an extension that can be executed on Linux and macOS.
+     */
+    static boolean isExecutableOutput(final Path file) {
+        final var name = file.getFileName().toString();
+        return Files.isRegularFile(file)
+                && (name.endsWith(".exe") || (!name.contains(".") && Files.isExecutable(file)));
+    }
+
+    /**
      * ProcessBuilder om een gelinkte exe te draaien, met de map van de
      * toolchain op de PATH zodat de runtime-DLL's (libgcc_s_seh-1.dll en
      * vrienden) gevonden worden.

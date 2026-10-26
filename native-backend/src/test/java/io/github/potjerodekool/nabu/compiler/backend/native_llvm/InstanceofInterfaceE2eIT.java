@@ -112,7 +112,7 @@ class InstanceofInterfaceE2eIT {
 
         Path exe;
         try (Stream<Path> walk = Files.walk(out)) {
-            exe = walk.filter(p -> p.getFileName().toString().endsWith(".exe"))
+            exe = walk.filter(NativeToolchain::isExecutableOutput)
                     .findFirst()
                     .orElse(null);
         }

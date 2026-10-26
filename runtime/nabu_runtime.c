@@ -10,6 +10,9 @@
  *   clang -shared -fPIC -o libnabu_runtime.dylib nabu_runtime.c         (macOS)
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "nabu_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -844,10 +847,10 @@ const char *nabu_frame_name(uintptr_t addr) {
     Dl_info info;
     return dladdr((void *) addr, &info) != 0 ? info.dli_sname : NULL;
 }
-/* Line tables and data symbols are only read on Windows. */
+/* Line tables are only read on Windows. A data symbol is found through the dynamic symbol table, which the link
+   command fills with -rdynamic (this is also what gives dladdr above the names of the functions). */
 void *nabu_data_symbol(const char *name) {
-    (void) name;
-    return NULL;
+    return dlsym(RTLD_DEFAULT, name);
 }
 int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
     (void) addr; (void) scope; (void) file;
@@ -1210,6 +1213,16 @@ nabu_seh_personality(PEXCEPTION_RECORD msexc, void *frame,
 }
 #endif
 
+#ifndef _WIN32
+/* Linux and macOS: the unwinder calls the personality directly (no SEH wrapper in between). The name is the one
+   the backend puts on every function with a landing pad. */
+_Unwind_Reason_Code
+nabu_seh_personality(int version, _Unwind_Action actions, _Unwind_Exception_Class exception_class,
+                     struct _Unwind_Exception *ue_header, struct _Unwind_Context *context) {
+    return nabu_itanium_personality(version, actions, exception_class, ue_header, context);
+}
+#endif
+
 #else
 /* -------------------------------------------------------
  * Zonder GCC/Clang-ABI
@@ -1318,6 +1331,17 @@ const char *nabu_compiled_type_name(const void *p) {
     if (t < image_lo || t >= image_hi) return NULL;
     const char *name = ((const nabu_type_info *) t)->name;
     if (name < image_lo || name >= image_hi) return NULL;
+    return name;
+#elif defined(__linux__)
+    /* Same idea as on Windows: the first word of a compiled object points to its type info, which is part of
+       the executable's own data (between __executable_start and end). */
+    extern const char __executable_start;
+    extern const char end;
+    if (p == NULL) return NULL;
+    const char *t = ((const char *const *) p)[0];
+    if (t < &__executable_start || t >= &end) return NULL;
+    const char *name = ((const nabu_type_info *) t)->name;
+    if (name < &__executable_start || name >= &end) return NULL;
     return name;
 #else
     (void) p;

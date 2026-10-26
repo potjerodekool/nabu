@@ -80,7 +80,7 @@ class ArrayClassE2eIT {
         assertEquals(0, compiler.compile(options), String.join("\n", diagnostics));
         Path exe;
         try (Stream<Path> walk = Files.walk(out)) {
-            exe = walk.filter(p -> p.getFileName().toString().endsWith(".exe")).findFirst().orElseThrow();
+            exe = walk.filter(NativeToolchain::isExecutableOutput).findFirst().orElseThrow();
         }
         final String keep = System.getProperty("nabu.keepExe");
         if (keep != null) {

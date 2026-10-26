@@ -1,3 +1,6 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "nabu_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +18,7 @@
 #include <sys/stat.h>
 #else
 #include <unistd.h>
+#include <fcntl.h>
 #endif
 
 #ifdef NABU_GC_BOEHM
@@ -1177,15 +1181,15 @@ BIND(int32_t, jcl_fs_getBooleanAttributes0, JCL_FS("getBooleanAttributes0"), (vo
 }
 
 /* access: FileSystem.ACCESS_READ 4, ACCESS_WRITE 2, ACCESS_EXECUTE 1. */
-BIND(uint8_t, jcl_fs_checkAccess0, JCL_FS("checkAccess0"), (void *self, void *f, int32_t access)) {
+BIND(uint8_t, jcl_fs_checkAccess0, JCL_FS("checkAccess0"), (void *self, void *f, int32_t access_mode)) {
     const char *path = jcl_file_path_of(f);
 #ifdef _WIN32
     DWORD a = GetFileAttributesW(jcl_wide(path));
     if (a == INVALID_FILE_ATTRIBUTES) return 0;
-    if ((access & 2) && (a & FILE_ATTRIBUTE_READONLY) && !(a & FILE_ATTRIBUTE_DIRECTORY)) return 0;
+    if ((access_mode & 2) && (a & FILE_ATTRIBUTE_READONLY) && !(a & FILE_ATTRIBUTE_DIRECTORY)) return 0;
     return 1;
 #else
-    int mode = ((access & 4) ? R_OK : 0) | ((access & 2) ? W_OK : 0) | ((access & 1) ? X_OK : 0);
+    int mode = ((access_mode & 4) ? R_OK : 0) | ((access_mode & 2) ? W_OK : 0) | ((access_mode & 1) ? X_OK : 0);
     return access(path, mode) == 0;
 #endif
 }

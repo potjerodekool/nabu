@@ -88,13 +88,16 @@ public class Linker {
             objects.forEach(o -> cmd.add(o.toString()));
             addRuntimeSources(cmd, gcStrategy);
             addGcLibraries(cmd, gcStrategy);
+            cmd.add("-lm");
         } else {
             cmd.add("gcc");
             cmd.add("-g");
+            cmd.add("-rdynamic");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
             addRuntimeSources(cmd, gcStrategy);
             addGcLibraries(cmd, gcStrategy);
+            cmd.add("-lm");
         }
         return cmd;
     }

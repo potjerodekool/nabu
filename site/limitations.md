@@ -23,7 +23,8 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 ### Platforms
 
 - **Windows x64 with MinGW-w64** is the only verified platform.
-- **Linux and macOS** are supported by the code but have not been tested.
+- **Linux** (Ubuntu on WSL2, gcc and `libgc-dev`, built with `-Djavacpp.platform=linux-x86_64`) runs the thread tests (`ThreadsE2eIT`); the rest of the test suite has not been run there. Stack traces have no file and line numbers on Linux (only function names).
+- **macOS** is supported by the code but has not been tested.
 - **MSVC** is not supported: the exception handling needs DWARF/LSDA unwind data, which the MSVC runtime does not provide.
 
 ### Run time

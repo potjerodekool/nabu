@@ -139,7 +139,7 @@ class ResourcesE2eIT {
         assertEquals(0, compiler.compile(options), String.join("\n", diagnostics));
         final Path exe;
         try (Stream<Path> walk = Files.walk(out)) {
-            exe = walk.filter(p -> p.getFileName().toString().endsWith(".exe")).findFirst().orElseThrow();
+            exe = walk.filter(NativeToolchain::isExecutableOutput).findFirst().orElseThrow();
         }
         final Path log = tempDir.resolve("run.log");
         final Process proc = NativeToolchain.run(exe.toAbsolutePath()).redirectErrorStream(true)

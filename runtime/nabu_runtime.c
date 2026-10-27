@@ -2040,19 +2040,6 @@ static unsigned long nabu_gil_events = 0;
 volatile int nabu_threads_active = 0;
 volatile int nabu_parallel = 0;
 volatile int nabu_monitor_waiters = 0;
-/* Threads inside nabu_gil_wait_since (parallel mode): a signal only has to wake someone when this is not 0. */
-static volatile int nabu_waiters = 0;
-
-/* In parallel mode a wait polls: no signal can be missed, a woken thread is just a little late. */
-static void nabu_poll_pause(void) {
-#ifdef _WIN32
-    Sleep(1);
-#else
-    struct timespec ts = { 0, 1000000L };
-    nanosleep(&ts, NULL);
-#endif
-}
-
 /* Where the running thread tells what it waits for, see nabu_wait_mark. */
 static __thread volatile int *nabu_wait_slot = NULL;
 
@@ -2143,18 +2130,8 @@ void nabu_gil_yield(void) {
 
 /* Wakes the threads in nabu_gil_wait: something they may be waiting for has changed. */
 void nabu_gil_signal(void) {
-    if (!nabu_threads_active) return;
-    if (nabu_parallel) {
-        /* The counter first, then the look at the waiters: a thread that is about to wait counts itself first and
-         * then looks at the counter, so one of the two sees the other. */
-        __atomic_add_fetch(&nabu_gil_events, 1, __ATOMIC_SEQ_CST);
-        if (__atomic_load_n(&nabu_waiters, __ATOMIC_SEQ_CST) > 0) {
-            pthread_mutex_lock(&nabu_gil_mutex);
-            pthread_cond_broadcast(&nabu_gil_event);
-            pthread_mutex_unlock(&nabu_gil_mutex);
-        }
-        return;
-    }
+    /* in parallel mode every wake-up is aimed at a thread (nabu_waiter_wake, nabu_keyq_wake) */
+    if (!nabu_threads_active || nabu_parallel) return;
     pthread_mutex_lock(&nabu_gil_mutex);
     nabu_gil_events++;
     pthread_cond_broadcast(&nabu_gil_event);
@@ -2164,9 +2141,6 @@ void nabu_gil_signal(void) {
 unsigned long nabu_gil_ticket(void) {
     return __atomic_load_n(&nabu_gil_events, __ATOMIC_SEQ_CST);
 }
-
-/* A wait of at most this long at a time, whatever the caller asks: a safety net, a wake-up is never missed. */
-#define NABU_WAIT_SPAN_MS 50
 
 struct nabu_waiter {
     pthread_mutex_t mutex;
@@ -2317,28 +2291,6 @@ void nabu_keyq_wake(const void *key) {
     pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
 }
 
-int nabu_gil_wait_since(unsigned long ticket, int64_t timeout_ms) {
-    if (!nabu_threads_active) return 1;
-    if (!nabu_parallel) return nabu_gil_wait(timeout_ms);
-    if (timeout_ms == 0) return 1;
-    const int bounded = timeout_ms > 0 && timeout_ms <= NABU_WAIT_SPAN_MS;
-    const int64_t span = bounded ? timeout_ms : NABU_WAIT_SPAN_MS;
-    struct timespec deadline;
-    clock_gettime(CLOCK_REALTIME, &deadline);
-    deadline.tv_sec += (time_t)(span / 1000);
-    deadline.tv_nsec += (long)(span % 1000) * 1000000L;
-    if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
-    int timed_out = 0;
-    pthread_mutex_lock(&nabu_gil_mutex);
-    __atomic_add_fetch(&nabu_waiters, 1, __ATOMIC_SEQ_CST);
-    while (__atomic_load_n(&nabu_gil_events, __ATOMIC_SEQ_CST) == ticket && !timed_out) {
-        if (pthread_cond_timedwait(&nabu_gil_event, &nabu_gil_mutex, &deadline) != 0) timed_out = 1;
-    }
-    __atomic_sub_fetch(&nabu_waiters, 1, __ATOMIC_SEQ_CST);
-    pthread_mutex_unlock(&nabu_gil_mutex);
-    return timed_out && bounded;
-}
-
 /*
  * Gives up the lock until nabu_gil_signal is called or the time (milliseconds, negative: no limit) has passed,
  * then waits for the turn. Returns 1 when the time passed. A signal can be for another waiter, so callers check
@@ -2347,11 +2299,6 @@ int nabu_gil_wait_since(unsigned long ticket, int64_t timeout_ms) {
  */
 int nabu_gil_wait(int64_t timeout_ms) {
     if (!nabu_threads_active) return 1;
-    if (nabu_parallel) {
-        if (timeout_ms == 0) return 1;
-        nabu_poll_pause();
-        return timeout_ms >= 0 && timeout_ms <= 1;
-    }
     struct timespec deadline;
     if (timeout_ms >= 0) {
         clock_gettime(CLOCK_REALTIME, &deadline);

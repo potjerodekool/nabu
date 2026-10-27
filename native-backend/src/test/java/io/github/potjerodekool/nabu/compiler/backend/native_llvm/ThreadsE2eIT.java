@@ -196,6 +196,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void processWaitFor() throws Exception {
+        assertEquals(expected("processWaitFor"), output("processWaitFor"));
+    }
+
+    @Test
     void parallelSpeed() throws Exception {
         assertEquals(expected("parallelSpeed"), output("parallelSpeed"));
     }

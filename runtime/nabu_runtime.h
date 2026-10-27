@@ -473,15 +473,8 @@ void nabu_gil_signal(void);
 void nabu_spin_hint(const void *address);
 /** Gives up the lock until nabu_gil_signal or the timeout (ms, negative: none); 1 when the time passed. */
 int nabu_gil_wait(int64_t timeout_ms);
-/**
- * Waiting without missing a wake-up when the threads run in parallel: read the ticket, THEN check what you wait
- * for, and wait with that ticket. A nabu_gil_signal after the ticket was read wakes the wait at once, also when
- * it came before the wait began. Returns 1 when the time (milliseconds, negative: none) passed.
- *
- *     for (;;) { unsigned long t = nabu_gil_ticket(); if (done()) break; nabu_gil_wait_since(t, left); }
- */
+/** The wake-up counter of the global lock mode (NABU_GIL=1): the ticket of a waiter there, see nabu_waiter_ticket. */
 unsigned long nabu_gil_ticket(void);
-int nabu_gil_wait_since(unsigned long ticket, int64_t timeout_ms);
 /** The number of threads that wait for a monitor: the one that leaves a monitor signals only when there are some. */
 extern volatile int nabu_monitor_waiters;
 

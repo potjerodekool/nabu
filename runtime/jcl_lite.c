@@ -21,6 +21,11 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <poll.h>
+#include <sys/syscall.h>
+#ifndef SYS_pidfd_open
+#define SYS_pidfd_open 434
+#endif
 #endif
 
 #ifdef NABU_GC_BOEHM
@@ -2099,25 +2104,82 @@ fail:
 }
 
 #ifndef _WIN32
-/* The children that have been waited for: a process can only be reaped once, wait0 and exit0 both need the status. */
+/* The children that have been waited for: a process can only be reaped once, wait0 and exit0 both need the status.
+ * Threads run in parallel: the table and the reaping are guarded by one lock, and a thread that waits for a child
+ * does so without reaping it (waitid with WNOWAIT), so two threads can wait for the same child. */
+static int64_t jcl_now_ms(void);
 typedef struct { int32_t pid; int status; } jcl_child_status;
 static jcl_child_status jcl_children[256];
 static int jcl_child_next = 0;
+static pthread_mutex_t jcl_children_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* 1 when the child has ended and its status is kept; reaps it when it has ended and nobody did yet. */
+static int jcl_child_collect(pid_t pid) {
+    int ended = 0;
+    pthread_mutex_lock(&jcl_children_lock);
+    for (int i = 0; i < 256 && !ended; i++) if (jcl_children[i].pid == pid) ended = 1;
+    if (!ended) {
+        int status = 0;
+        pid_t r;
+        do { r = waitpid(pid, &status, WNOHANG); } while (r < 0 && errno == EINTR);
+        if (r != 0) {
+            jcl_children[jcl_child_next].pid = (int32_t)pid;
+            jcl_children[jcl_child_next].status = r < 0 ? 0 : status;
+            jcl_child_next = (jcl_child_next + 1) % 256;
+            ended = 1;
+        }
+    }
+    pthread_mutex_unlock(&jcl_children_lock);
+    return ended;
+}
+
+/* Waits until the child has ended, without reaping it. */
+static void jcl_child_await(pid_t pid) {
+    siginfo_t info;
+    int released = jcl_blocking_begin();
+    while (waitid(P_PID, (id_t)pid, &info, WEXITED | WNOWAIT) < 0 && errno == EINTR) { }
+    jcl_blocking_end(released);
+}
+
+/* Waits for the child at most millis milliseconds; 1 when it has ended. */
+static int jcl_child_await_timed(pid_t pid, int64_t millis) {
+#if defined(__linux__)
+    /* A process file descriptor becomes readable when the process ends: a real wait with a timeout. */
+    long fd = syscall(SYS_pidfd_open, pid, 0);
+    if (fd >= 0) {
+        struct pollfd pfd = { (int)fd, POLLIN, 0 };
+        const int64_t until = jcl_now_ms() + millis;
+        int released = jcl_blocking_begin();
+        for (;;) {
+            int64_t left = until - jcl_now_ms();
+            if (left < 0) left = 0;
+            int r = poll(&pfd, 1, (int)(left > 2000000000 ? 2000000000 : left));
+            if (r >= 0 || errno != EINTR) break;
+        }
+        jcl_blocking_end(released);
+        close((int)fd);
+        return jcl_child_collect(pid);
+    }
+#endif
+    /* No process descriptors (macOS, an old kernel): look now and then, for a little longer each time. */
+    const int64_t until = jcl_now_ms() + millis;
+    int64_t pause = 1;
+    for (;;) {
+        if (jcl_child_collect(pid)) return 1;
+        int64_t left = until - jcl_now_ms();
+        if (left <= 0) return 0;
+        int released = jcl_blocking_begin();
+        jcl_sleep_ms(pause < left ? pause : left);
+        jcl_blocking_end(released);
+        if (pause < 20) pause *= 2;
+    }
+}
 
 /* 1 when the child has ended (its status is kept), 0 when it still runs. block: wait for it. */
 static int jcl_child_reap(int64_t handle, int block) {
     pid_t pid = (pid_t)handle;
-    for (int i = 0; i < 256; i++) if (jcl_children[i].pid == pid) return 1;
-    int status = 0;
-    pid_t r;
-    int released = block ? jcl_blocking_begin() : 0;
-    do { r = waitpid(pid, &status, block ? 0 : WNOHANG); } while (r < 0 && errno == EINTR);
-    jcl_blocking_end(released);
-    if (r == 0) return 0;
-    jcl_children[jcl_child_next].pid = (int32_t)pid;
-    jcl_children[jcl_child_next].status = r < 0 ? 0 : status;
-    jcl_child_next = (jcl_child_next + 1) % 256;
-    return 1;
+    if (block) jcl_child_await(pid);
+    return jcl_child_collect(pid);
 }
 #endif
 
@@ -2127,13 +2189,8 @@ BIND(uint8_t, jcl_NativeProcess_wait0, "io.github.potjerodekool.nabu.compiler.ba
     return WaitForSingleObject(jcl_process_handle(handle), millis < 0 ? INFINITE : (DWORD)millis) == WAIT_OBJECT_0;
 #else
     if (millis < 0) return (uint8_t)jcl_child_reap(handle, 1);
-    for (int64_t waited = 0;; waited += 2) {
-        if (jcl_child_reap(handle, 0)) return 1;
-        if (waited >= millis) return 0;
-        int released = jcl_blocking_begin();
-        jcl_sleep_ms(2);
-        jcl_blocking_end(released);
-    }
+    if (jcl_child_collect((pid_t)handle)) return 1;
+    return (uint8_t)jcl_child_await_timed((pid_t)handle, millis);
 #endif
 }
 BIND(int32_t, jcl_NativeProcess_exit0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_exit0", (int64_t handle)) {

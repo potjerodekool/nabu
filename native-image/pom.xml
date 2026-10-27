@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.potjerodekool</groupId>
+        <artifactId>nabu-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>nabu-native-image</artifactId>
+    <name>${project.groupId}:${project.artifactId}</name>
+    <description>The nabu-native-image command: compiles a Java program from jars to a native executable</description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <failsafe.version>3.5.3</failsafe.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>compiler-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-compiler</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-lang</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The LLVM backend (a plugin: plugin.xml on the class path) with the LLVM libraries of its platform. -->
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>native-backend</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${failsafe.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

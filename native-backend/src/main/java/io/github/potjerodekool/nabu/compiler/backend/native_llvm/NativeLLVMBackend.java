@@ -79,7 +79,7 @@ public class NativeLLVMBackend implements Backend {
     public void compile(List<IRModule> modules,
                         CompileOptions opts,
                         Path outputObj) throws CompileException {
-        final IRModule mainModule = ensureMainEntry(modules);
+        final IRModule mainModule = ensureMainEntry(modules, opts.mainClass());
         loadNativeImageConfigs(outputObj, opts.classPath());
 
         // Triple zoveel mogelijk één keer bepalen: expliciet (opties) of
@@ -91,7 +91,8 @@ public class NativeLLVMBackend implements Backend {
 
         // Named after the class with the main method (as GraalVM's
         // native-image does), not after whichever class came first.
-        Path outFile = resolveOutputFile(mainModule != null ? mainModule : modules.getFirst(), outputObj);
+        Path outFile = resolveOutputFile(mainModule != null ? mainModule : modules.getFirst(), outputObj,
+                opts.imageName());
         List<Path> objectFiles = compileToObject(modules, opts, outFile, triple, true);
 
         // Alleen linken als er een main-functie aanwezig is
@@ -154,10 +155,14 @@ public class NativeLLVMBackend implements Backend {
     }
 
     /** @return the module with the entry method, or null */
-    private IRModule ensureMainEntry(List<IRModule> modules) {
+    private IRModule ensureMainEntry(List<IRModule> modules, String mainClass) {
         for (IRModule m : modules) {
             boolean hasEntry = m.functions().stream()
                     .anyMatch(f -> !f.isExternal() && f.name.endsWith("_main"));
+            // with a main class given, only that class has the entry
+            if (hasEntry && mainClass != null && !mainClass.replace('/', '.').equals(m.name.replace('/', '.'))) {
+                continue;
+            }
             if (hasEntry) {
                 ensureMainEntry(m);
                 return m;
@@ -553,12 +558,13 @@ public class NativeLLVMBackend implements Backend {
      * aangemaakt op basis van de module-naam. Een expliciet bestandspad
      * (zoals in tests) wordt ongewijzigd gebruikt.
      */
-    private static Path resolveOutputFile(IRModule module, Path output) {
+    private static Path resolveOutputFile(IRModule module, Path output, String imageName) {
+        final String baseName = imageName != null ? imageName : module.name;
         if (output == null) {
-            return Path.of(module.name + ".o");
+            return Path.of(baseName + ".o");
         }
         if (Files.isDirectory(output)) {
-            return output.resolve(module.name + ".o");
+            return output.resolve(baseName + ".o");
         }
         if (Files.exists(output)) {
             return output;
@@ -568,7 +574,7 @@ public class NativeLLVMBackend implements Backend {
         final var name = output.getFileName() != null
                 ? output.getFileName().toString() : "";
         if (name.isEmpty() || name.indexOf('.') < 0) {
-            return output.resolve(module.name + ".o");
+            return output.resolve(baseName + ".o");
         }
         return output;
     }

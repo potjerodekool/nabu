@@ -93,6 +93,7 @@
         <module>nabu-client</module>
         <module>java-backend</module>
         <module>native-backend</module>
+        <module>native-image</module>
         <module>tools</module>
     </modules>
 

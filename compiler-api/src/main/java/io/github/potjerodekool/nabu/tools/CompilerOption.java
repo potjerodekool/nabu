@@ -18,6 +18,10 @@ public record CompilerOption(String optionName) {
     public static final CompilerOption OPT = new CompilerOption("--opt");
     public static final CompilerOption INCREMENTAL = new CompilerOption("--incremental");
     public static final CompilerOption BYTECODE_JDK_HOME = new CompilerOption("--bytecode-jdk-home");
+    /** The class with the {@code main} method of a program that comes from jars (a name with dots). */
+    public static final CompilerOption MAIN_CLASS = new CompilerOption("--main-class");
+    /** The name of the executable, without extension. */
+    public static final CompilerOption IMAGE_NAME = new CompilerOption("--image-name");
 
     public static final List<CompilerOption> COMPILER_OPTIONS = List.of(
             SOURCE_PATH,
@@ -33,7 +37,9 @@ public record CompilerOption(String optionName) {
             GC,
             OPT,
             INCREMENTAL,
-            BYTECODE_JDK_HOME
+            BYTECODE_JDK_HOME,
+            MAIN_CLASS,
+            IMAGE_NAME
     );
 
     public static final List<CompilerOption> INCREMENTAL_FINGERPRINT_OPTIONS = List.of(
@@ -48,7 +54,9 @@ public record CompilerOption(String optionName) {
             ANNOTATION_PROCESSOR_MODULE_PATH,
             BACKEND,
             GC,
-            OPT
+            OPT,
+            MAIN_CLASS,
+            IMAGE_NAME
     );
 
     @Override

@@ -152,7 +152,9 @@ public class NabuCompiler implements Compiler {
                     gcStrategy,
                     targetVersion,
                     classPath
-            );
+            ).withEntry(
+                    compilerOptions.getOption(CompilerOption.MAIN_CLASS).filter(s -> !s.isBlank()).orElse(null),
+                    compilerOptions.getOption(CompilerOption.IMAGE_NAME).filter(s -> !s.isBlank()).orElse(null));
             final var allModules = new ArrayList<io.github.potjerodekool.nabu.backend.ir.IRModule>();
 
             final long irGenStart = System.nanoTime();
@@ -224,6 +226,12 @@ public class NabuCompiler implements Compiler {
                 for (final var bundleClass : bundleClasses) {
                     reflectionRoots.add(new io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig
                             .ReflectEntry(bundleClass, true, false, false, false, List.of(), List.of()));
+                }
+
+                // The class with main of a program that comes from jars is a root, as if its configuration named it.
+                if (compileOptions.mainClass() != null) {
+                    reflectionRoots.add(new io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig
+                            .ReflectEntry(compileOptions.mainClass(), false, false, true, false, List.of(), List.of()));
                 }
 
                 final var jdkHomeOverride = compilerOptions.getOption(CompilerOption.BYTECODE_JDK_HOME)

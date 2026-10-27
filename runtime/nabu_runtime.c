@@ -2162,6 +2162,10 @@ nabu_waiter *nabu_waiter_self(void) {
     return nabu_self_waiter;
 }
 
+static nabu_wake_hook_fn nabu_wake_hook = NULL;
+
+void nabu_set_wake_hook(nabu_wake_hook_fn hook) { nabu_wake_hook = hook; }
+
 unsigned long nabu_waiter_ticket(nabu_waiter *waiter) {
     return nabu_parallel ? __atomic_load_n(&waiter->seq, __ATOMIC_SEQ_CST) : nabu_gil_ticket();
 }
@@ -2171,7 +2175,11 @@ unsigned long nabu_waiter_ticket(nabu_waiter *waiter) {
 
 int nabu_waiter_wait(nabu_waiter *waiter, unsigned long ticket, int64_t timeout_ms) {
     if (!nabu_threads_active) return 1;
-    if (!nabu_parallel) return nabu_gil_wait(timeout_ms);
+    if (!nabu_parallel) {
+        const int timed_out = nabu_gil_wait(timeout_ms);
+        if (nabu_wake_hook != NULL) nabu_wake_hook();
+        return timed_out;
+    }
     if (timeout_ms == 0) return 1;
     const int bounded = timeout_ms > 0 && timeout_ms <= NABU_WAITER_SPAN_MS;
     const int64_t span = bounded ? timeout_ms : NABU_WAITER_SPAN_MS;
@@ -2189,6 +2197,7 @@ int nabu_waiter_wait(nabu_waiter *waiter, unsigned long ticket, int64_t timeout_
     }
     __atomic_store_n(&waiter->sleeping, 0, __ATOMIC_SEQ_CST);
     pthread_mutex_unlock(&waiter->mutex);
+    if (nabu_wake_hook != NULL) nabu_wake_hook();
     return timed_out && bounded;
 }
 
@@ -2337,6 +2346,7 @@ void nabu_spin_hint(const void *address) {
         nabu_spin_count = 0;
     } else if (++nabu_spin_count >= 200) {
         nabu_spin_count = 0;
+        if (nabu_wake_hook != NULL) nabu_wake_hook();
         nabu_gil_yield();
     }
 }

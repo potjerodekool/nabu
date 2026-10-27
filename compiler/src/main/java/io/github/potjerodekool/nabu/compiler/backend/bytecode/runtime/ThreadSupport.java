@@ -116,12 +116,33 @@ public final class ThreadSupport {
         }
     }
 
-    /** Thread.getAllStackTraces: the running threads, each with an empty trace (the stack of another thread is not walked). */
+    /** The return addresses of the frames of another thread, or null (it did not answer, or it does not run). */
+    private static native long[] stackTrace0(Thread thread);
+
+    /**
+     * Thread.getStackTrace. The calling thread walks its own stack. Another thread gives its stack when it waits
+     * (sleep, join, wait, park, a monitor) or spins on a volatile field; a thread that runs compiled code without
+     * ever doing one of those does not answer within 200 ms, and its trace is empty, as the trace of a thread that
+     * has not started or has ended.
+     */
+    public static StackTraceElement[] getStackTrace(final Thread thread) {
+        if (thread == Thread.currentThread()) {
+            final StackTraceElement[] own = new Throwable().getStackTrace();
+            if (own.length > 0 && own[0].getClassName().endsWith("ThreadSupport")) {
+                own[0] = new StackTraceElement("java.lang.Thread", "getStackTrace", "Thread.java", -1);
+            }
+            return own;
+        }
+        final long[] frames = stackTrace0(thread);
+        return frames == null ? new StackTraceElement[0] : StackTraceSupport.elements(frames);
+    }
+
+    /** Thread.getAllStackTraces: the running threads, each with its stack trace (see getStackTrace). */
     public static java.util.Map<Thread, StackTraceElement[]> getAllStackTraces() {
         final java.util.HashMap<Thread, StackTraceElement[]> traces = new java.util.HashMap<>();
         final Thread[] threads = liveThreads();
         for (int i = 0; i < threads.length; i++) {
-            traces.put(threads[i], new StackTraceElement[0]);
+            traces.put(threads[i], getStackTrace(threads[i]));
         }
         return traces;
     }

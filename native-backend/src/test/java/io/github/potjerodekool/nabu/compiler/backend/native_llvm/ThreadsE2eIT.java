@@ -201,6 +201,16 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void threadStackTraces() throws Exception {
+        assertEquals(expected("threadStackTraces"), output("threadStackTraces"));
+    }
+
+    @Test
+    void sharedRuntimeObjects() throws Exception {
+        assertEquals(expected("sharedRuntimeObjects"), output("sharedRuntimeObjects"));
+    }
+
+    @Test
     void parallelSpeed() throws Exception {
         assertEquals(expected("parallelSpeed"), output("parallelSpeed"));
     }

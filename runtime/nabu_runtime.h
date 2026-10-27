@@ -497,6 +497,12 @@ void nabu_keyq_remove(const void *key, nabu_waiter *waiter);
 void nabu_keyq_wake(const void *key);
 /** Wakes the first waiter of the key (the one that waits longest): for a monitor, which one thread can take. */
 void nabu_keyq_wake_one(const void *key);
+/**
+ * A function that runs on a thread when it comes out of a wait (nabu_waiter_wait) and now and then when it spins
+ * on a volatile field: a thread that is asked for its stack trace gives it there, where it is not busy.
+ */
+typedef void (*nabu_wake_hook_fn)(void);
+void nabu_set_wake_hook(nabu_wake_hook_fn hook);
 /* Where the running thread tells what it waits for (Thread.getState): 0 runs, 1 timed waiting, 2 waiting, 3 blocked. */
 void nabu_set_wait_slot(volatile int *slot);
 /**

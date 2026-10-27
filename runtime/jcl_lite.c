@@ -70,7 +70,9 @@ typedef struct { int kind; char *name; void *target; void *threadLocals; void *i
                  int daemon; int priority; int64_t id;
                  int state; int interrupted; int permit; void *self; volatile int wait_state; void *inherit_from;
                  void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope;
-                 nabu_waiter *waiter; } s_thread;
+                 nabu_waiter *waiter;
+                 volatile int cap_request; volatile int cap_done; int cap_count; uintptr_t cap_frames[128];
+                 nabu_waiter *cap_requester; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -3817,18 +3819,24 @@ static struct { void *group; char *name; } jcl_group_names[256];
 static int jcl_group_name_count = 0;
 
 static const char *jcl_group_name(void *group) {
+    const char *found = "main";
+    nabu_rt_lock();
     for (int i = 0; i < jcl_group_name_count; i++) {
-        if (jcl_group_names[i].group == group) return jcl_group_names[i].name;
+        if (jcl_group_names[i].group == group) { found = jcl_group_names[i].name; break; }
     }
-    return "main";
+    nabu_rt_unlock();
+    return found;
 }
 
 BIND(void, jcl_ThreadSupport_nameGroup0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_nameGroup0", (void *group, void *name)) {
+    char *copy = jcl_dup(jcl_str(name));
+    nabu_rt_lock();
     if (jcl_group_name_count < 256) {
         jcl_group_names[jcl_group_name_count].group = group;
-        jcl_group_names[jcl_group_name_count].name = jcl_dup(jcl_str(name));
+        jcl_group_names[jcl_group_name_count].name = copy;
         jcl_group_name_count++;
     }
+    nabu_rt_unlock();
 }
 
 /* toString of the objects this runtime makes (Method, Field, Class, ...).
@@ -4446,6 +4454,84 @@ static void jcl_await_threads(void) {
     nabu_keyq_remove((const void *) &jcl_live_threads, waiter);
 }
 
+/* The stack trace of another thread, asked cooperatively: the thread that wants it sets a request and wakes the
+ * thread, and the thread gives its own stack where it is not busy (the wake hook of the waiters). A thread that
+ * runs compiled code without ever waiting does not answer: its trace is empty. */
+static pthread_mutex_t jcl_capture_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void jcl_capture_hook(void) {
+    s_thread *st = jcl_thread_state(jcl_current_thread());
+    if (st == NULL || !__atomic_load_n(&st->cap_request, __ATOMIC_SEQ_CST)) return;
+    uintptr_t frames[128];
+    int n = nabu_capture_frames(frames, 128);
+    /* the frames of the runtime itself (this hook, the wait) are not part of the trace */
+    int first = 0;
+    while (first < n) {
+        const char *name = nabu_frame_name(frames[first]);
+        if (name == NULL || strncmp(name, "nabu_", 5) == 0 || strncmp(name, "jcl_", 4) == 0) first++; else break;
+    }
+    st->cap_count = n - first;
+    memcpy(st->cap_frames, frames + first, (size_t)(n - first) * sizeof(uintptr_t));
+    __atomic_store_n(&st->cap_request, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&st->cap_done, 1, __ATOMIC_SEQ_CST);
+    nabu_waiter_wake(st->cap_requester);
+}
+
+/* ThreadSupport.stackTrace0(Thread): the return addresses of the frames of a running thread, or null. */
+BIND(void *, jcl_ThreadSupport_stackTrace0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_stackTrace0",
+     (void *thread)) {
+    s_thread *st = jcl_thread_state(thread);
+    if (st == NULL || st->state != 1 || !nabu_threads_active) return NULL;
+    nabu_waiter *self = nabu_waiter_self();
+    int found = 0;
+    uintptr_t frames[128];
+    int n = 0;
+    pthread_mutex_lock(&jcl_capture_lock);
+    st->cap_done = 0;
+    st->cap_requester = self;
+    __atomic_store_n(&st->cap_request, 1, __ATOMIC_SEQ_CST);
+    nabu_waiter_wake(__atomic_load_n(&st->waiter, __ATOMIC_SEQ_CST));
+    const int64_t until = jcl_now_ms() + 200;
+    for (;;) {
+        const unsigned long ticket = nabu_waiter_ticket(self);
+        if (__atomic_load_n(&st->cap_done, __ATOMIC_SEQ_CST)) { found = 1; break; }
+        const int64_t left = until - jcl_now_ms();
+        if (left <= 0) break;
+        nabu_waiter_wait(self, ticket, left);
+    }
+    __atomic_store_n(&st->cap_request, 0, __ATOMIC_SEQ_CST);
+    if (found) {
+        n = st->cap_count;
+        memcpy(frames, st->cap_frames, (size_t)n * sizeof(uintptr_t));
+    }
+    pthread_mutex_unlock(&jcl_capture_lock);
+    if (!found) return NULL;
+    void *arr = jcl_alloc(8 + (size_t)n * sizeof(int64_t));
+    ((int32_t *)arr)[0] = n;
+    ((int32_t *)arr)[1] = 8;
+    nabu_array_tag(arr, "[J");
+    for (int i = 0; i < n; i++) ((int64_t *)((char *)arr + 8))[i] = (int64_t)frames[i];
+    return arr;
+}
+
+#if defined(_WIN32) && defined(NABU_GC_BOEHM)
+/* On Windows a thread made by pthread_create gets its whole stack committed at once. A thread made by CreateThread
+ * with STACK_SIZE_PARAM_IS_A_RESERVATION only reserves the address space and commits the pages it touches, so a
+ * big stack costs nothing until it is used. The collector is told about the thread by hand. */
+extern void GC_allow_register_threads(void);
+extern int GC_register_my_thread(const struct GC_stack_base *base);
+extern int GC_unregister_my_thread(void);
+
+static DWORD WINAPI jcl_windows_thread_main(LPVOID arg) {
+    struct GC_stack_base base;
+    GC_get_stack_base(&base);
+    GC_register_my_thread(&base);
+    jcl_thread_main(arg);
+    GC_unregister_my_thread();
+    return 0;
+}
+#endif
+
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     s_thread *st = jcl_thread_state(self);
     if (st == NULL || st->state != 0) jcl_throw_new("java/lang/IllegalThreadStateException", "java/lang/IllegalArgumentException", NULL);
@@ -4454,6 +4540,10 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
         const char *gil = getenv("NABU_GIL");
         nabu_parallel = !(gil != NULL && gil[0] == '1');
         nabu_threads_active = 1;
+        nabu_set_wake_hook(jcl_capture_hook);
+#if defined(_WIN32) && defined(NABU_GC_BOEHM)
+        GC_allow_register_threads();
+#endif
         nabu_gil_acquire();
         nabu_set_wait_slot(&jcl_thread_of(jcl_current_thread())->wait_state);
         jcl_thread_of(jcl_current_thread())->waiter = nabu_waiter_self();
@@ -4462,15 +4552,21 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     st->state = 1;
     st->self = self;
     if (!st->daemon) __atomic_fetch_add(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
+    /* A virtual thread is meant to be one of very many: a smaller stack than a platform thread. */
+    const size_t stack_size = st->is_virtual ? (size_t)4 << 20 : (size_t)16 << 20;
+#if defined(_WIN32) && defined(NABU_GC_BOEHM)
+    HANDLE created = CreateThread(NULL, stack_size, jcl_windows_thread_main, st, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+    int rc = created != NULL ? 0 : -1;
+    if (created != NULL) CloseHandle(created);
+#else
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    /* On Windows the stack of a thread is committed at once, so 16 MB per thread is 16 GB for a thousand threads.
-     * A virtual thread is meant to be one of very many and gets a small stack. */
-    pthread_attr_setstacksize(&attr, st->is_virtual ? (size_t)1 << 20 : (size_t)16 << 20);
+    pthread_attr_setstacksize(&attr, stack_size);
     pthread_t handle;
     int rc = JCL_PTHREAD_CREATE(&handle, &attr, jcl_thread_main, st);
     pthread_attr_destroy(&attr);
+#endif
     if (rc != 0) {
         st->state = 2;
         if (!st->daemon) __atomic_fetch_sub(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
@@ -4687,15 +4783,20 @@ BIND(void, jcl_RandomSupport_fill0, "io.github.potjerodekool.nabu.compiler.backe
 
 /* java.util.zip.CRC32 natives (the JDK uses zlib). */
 static uint32_t jcl_crc_table[256];
-static int jcl_crc_ready = 0;
+static volatile int jcl_crc_ready = 0;
 static uint32_t jcl_crc_update(uint32_t crc, const unsigned char *data, int32_t len) {
-    if (!jcl_crc_ready) {
-        for (uint32_t n = 0; n < 256; n++) {
-            uint32_t c = n;
-            for (int k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            jcl_crc_table[n] = c;
+    /* Built once; a thread that sees the flag sees the whole table (release and acquire). */
+    if (!__atomic_load_n(&jcl_crc_ready, __ATOMIC_ACQUIRE)) {
+        nabu_rt_lock();
+        if (!jcl_crc_ready) {
+            for (uint32_t n = 0; n < 256; n++) {
+                uint32_t c = n;
+                for (int k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                jcl_crc_table[n] = c;
+            }
+            __atomic_store_n(&jcl_crc_ready, 1, __ATOMIC_RELEASE);
         }
-        jcl_crc_ready = 1;
+        nabu_rt_unlock();
     }
     crc = ~crc;
     for (int32_t i = 0; i < len; i++) crc = jcl_crc_table[(crc ^ data[i]) & 0xff] ^ (crc >> 8);

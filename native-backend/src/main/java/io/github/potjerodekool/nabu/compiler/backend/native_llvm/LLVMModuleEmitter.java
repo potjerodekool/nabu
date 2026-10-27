@@ -770,6 +770,15 @@ public void setReflectionRegistry(
         LLVMSetLinkage(monitorExitFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_monitorexit", monitorExitFn);
 
+        // --- class initialization: i32 nabu_clinit_begin(ptr state), void nabu_clinit_end(ptr state) ---
+        LLVMValueRef clinitBeginFn = LLVMAddFunction(mod, new BytePointer("nabu_clinit_begin"),
+                LLVMFunctionType(LLVMInt32TypeInContext(ctx), monitorParams, 1, 0));
+        LLVMSetLinkage(clinitBeginFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_clinit_begin", clinitBeginFn);
+        LLVMValueRef clinitEndFn = LLVMAddFunction(mod, new BytePointer("nabu_clinit_end"), monitorFnType);
+        LLVMSetLinkage(clinitEndFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_clinit_end", clinitEndFn);
+
         // --- void nabu_spin_hint(i8* address): a volatile load; lets another thread run when it is a spin ---
         LLVMValueRef spinHintFn = LLVMAddFunction(mod,
                 new BytePointer("nabu_spin_hint"), monitorFnType);

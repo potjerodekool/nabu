@@ -1374,6 +1374,23 @@ for (IRModule m : modules) {
     private static final Set<String> OBJECT_MEMBERS = Set.of(
             "equals", "hashCode", "toString", "getClass", "clone", "finalize", "notify", "notifyAll", "wait");
 
+    private Set<String> volatileStatics;
+
+    /** Whether the static field with this global symbol ({@code pkg.Owner_field}) is volatile. */
+    public synchronized boolean isVolatileStatic(final String symbol) {
+        if (volatileStatics == null) {
+            volatileStatics = new java.util.HashSet<>();
+            for (final IRModule module : modulesByInternalName.values()) {
+                for (final IRField irField : module.fields()) {
+                    if (Flags.hasFlag(irField.flags(), Flags.STATIC) && Flags.hasFlag(irField.flags(), Flags.VOLATILE)) {
+                        volatileStatics.add(module.name.replace('/', '.') + "_" + irField.name());
+                    }
+                }
+            }
+        }
+        return volatileStatics.contains(symbol);
+    }
+
     /** Whether the field, declared in the owner or in one of its superclasses, is volatile. */
     public boolean isVolatileField(final IRType ownerType, final String field) {
         final ClassLayout layout = getFor(ownerType);

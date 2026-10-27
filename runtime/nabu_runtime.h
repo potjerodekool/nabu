@@ -461,6 +461,8 @@ void nabu_monitorexit(void *obj);
  * nabu_threads_active is 0 and the functions below do nothing.
  */
 extern volatile int nabu_threads_active;
+/** 1 when threads run in parallel (NABU_PARALLEL=1): the GIL functions below then do nothing and waits poll. */
+extern volatile int nabu_parallel;
 int nabu_current_thread_id(void);
 void nabu_set_current_thread_id(int id);
 void nabu_gil_acquire(void);
@@ -473,6 +475,21 @@ void nabu_spin_hint(const void *address);
 int nabu_gil_wait(int64_t timeout_ms);
 /* Where the running thread tells what it waits for (Thread.getState): 0 runs, 1 timed waiting, 2 waiting, 3 blocked. */
 void nabu_set_wait_slot(volatile int *slot);
+/**
+ * Class initialization (JLS 12.4.2). state is the class's flag: 0 not initialized, 2 initialized, odd = being
+ * initialized by the thread (state >> 1). nabu_clinit_begin returns 1 when the caller has to run the initializer
+ * (it then calls nabu_clinit_end) and 0 when there is nothing to do: the class is initialized, or the calling
+ * thread is already initializing it. A thread that finds another one initializing the class waits for it.
+ */
+/**
+ * The lock of the runtime's own shared tables (the type cache, the class objects, the symbol tables): with threads
+ * in parallel, two threads must not extend them at the same time. Recursive; keep the sections short.
+ */
+void nabu_rt_lock(void);
+void nabu_rt_unlock(void);
+
+int nabu_clinit_begin(volatile int32_t *state);
+void nabu_clinit_end(volatile int32_t *state);
 void nabu_wait_mark(int state);
 /** Registers the program's ThreadSupport.runThread(Thread), which a new thread runs. */
 void nabu_set_thread_run_fn(void *fn);

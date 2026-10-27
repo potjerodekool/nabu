@@ -14,7 +14,9 @@ public final class ThreadSupport {
 
     /** Runs the thread: its {@code run} method, or the Runnable it was made with. An exception that escapes is reported. */
     public static void runThread(final Thread thread) {
-        live.add(thread);
+        synchronized (live) {
+            live.add(thread);
+        }
         try {
             final Object parentLocals = parentLocals0(thread);
             if (parentLocals != null) {
@@ -32,10 +34,12 @@ public final class ThreadSupport {
             dispatchUncaught(thread, t);
         } finally {
             // By reference: equals on a Thread object does not dispatch to anything useful here.
-            for (int i = 0; i < live.size(); i++) {
-                if (live.get(i) == thread) {
-                    live.remove(i);
-                    break;
+            synchronized (live) {
+                for (int i = 0; i < live.size(); i++) {
+                    if (live.get(i) == thread) {
+                        live.remove(i);
+                        break;
+                    }
                 }
             }
             final Object container = containerOf0(thread);
@@ -102,12 +106,14 @@ public final class ThreadSupport {
 
     /** The threads that are running: the main thread and the started threads that have not ended. */
     public static Thread[] liveThreads() {
-        final Thread[] threads = new Thread[live.size() + 1];
-        threads[0] = mainThread0();
-        for (int i = 0; i < live.size(); i++) {
-            threads[i + 1] = live.get(i);
+        synchronized (live) {
+            final Thread[] threads = new Thread[live.size() + 1];
+            threads[0] = mainThread0();
+            for (int i = 0; i < live.size(); i++) {
+                threads[i + 1] = live.get(i);
+            }
+            return threads;
         }
-        return threads;
     }
 
     /** Thread.getAllStackTraces: the running threads, each with an empty trace (the stack of another thread is not walked). */
@@ -214,7 +220,7 @@ public final class ThreadSupport {
     /** The group a thread was made in, or null for the main group. */
     private static native Object groupOf0(Thread thread);
 
-    private static void makeRootGroups() {
+    private static synchronized void makeRootGroups() {
         if (mainGroup == null) {
             systemGroup = new ThreadGroup(null, "system");
             mainGroup = new ThreadGroup(systemGroup, "main");
@@ -228,10 +234,12 @@ public final class ThreadSupport {
             return null;
         }
         if (thread.isVirtual()) {
-            if (virtualGroup == null) {
-                virtualGroup = new ThreadGroup(systemGroup, "VirtualThreads");
+            synchronized (ThreadSupport.class) {
+                if (virtualGroup == null) {
+                    virtualGroup = new ThreadGroup(systemGroup, "VirtualThreads");
+                }
+                return virtualGroup;
             }
-            return virtualGroup;
         }
         final Object group = groupOf0(thread);
         return group == null ? mainGroup : (ThreadGroup) group;
@@ -241,7 +249,9 @@ public final class ThreadSupport {
     private static native void nameGroup0(Object group, String name);
 
     public static void addGroup(final ThreadGroup group) {
-        groups.add(group);
+        synchronized (groups) {
+            groups.add(group);
+        }
         nameGroup0(group, group.getName());
     }
 
@@ -290,7 +300,11 @@ public final class ThreadSupport {
     /** Fills the list (when given) with the groups below the group; returns how many it has (copied). */
     public static int enumerateGroups(final ThreadGroup group, final ThreadGroup[] list, final boolean recurse) {
         int n = 0;
-        for (final ThreadGroup g : groups) {
+        final ThreadGroup[] all;
+        synchronized (groups) {
+            all = groups.toArray(new ThreadGroup[0]);
+        }
+        for (final ThreadGroup g : all) {
             if (g != group && (recurse ? group.parentOf(g) : g.getParent() == group)) {
                 if (list == null) {
                     n++;

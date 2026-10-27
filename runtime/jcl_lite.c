@@ -309,7 +309,17 @@ static uint32_t jcl_class_slot(void **table, uint32_t cap, const char *iname) {
     return i;
 }
 
+static void *jcl_class_unlocked(const char *iname);
+
+/* The table grows and gets new entries from every thread: one at a time. */
 static void *jcl_class(const char *iname) {
+    nabu_rt_lock();
+    void *found = jcl_class_unlocked(iname);
+    nabu_rt_unlock();
+    return found;
+}
+
+static void *jcl_class_unlocked(const char *iname) {
     if (iname == NULL) iname = "";
     /* Eén Class-object per klasse, ongeacht de naamvorm: "pkg.Cls",
      * "pkg/Cls" en "Lpkg/Cls;" interneren naar de interne vorm "pkg/Cls"
@@ -911,7 +921,20 @@ static void jcl_props_put_system(void) {
 
 /* De runtime-eigen property-tabel (C-strings); bron voor zowel
  * System.getProperty als de gecompileerde Properties hieronder. */
+static void *jcl_props_table_populate(void);
+
+/* Filled once, by the first thread that asks; the others get the finished table. */
 static void *jcl_props_table(void) {
+    static volatile int ready = 0;
+    if (__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return jcl_props;
+    nabu_rt_lock();
+    void *table = jcl_props_table_populate();
+    __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
+    nabu_rt_unlock();
+    return table;
+}
+
+static void *jcl_props_table_populate(void) {
     jcl_props_init();
     if (jcl_map_get(jcl_props, "os.name") == NULL) {
 #if defined(_WIN32)
@@ -957,7 +980,17 @@ static void *jcl_new_compiled(void *type, void *vtable, void *itable, int64_t si
 }
 
 static void *jcl_compiled_props = NULL;
+static void *jcl_compiled_properties_build(void);
+
 static void *jcl_compiled_properties(void) {
+    if (jcl_compiled_props != NULL) return jcl_compiled_props;
+    nabu_rt_lock();
+    void *props = jcl_compiled_properties_build();
+    nabu_rt_unlock();
+    return props;
+}
+
+static void *jcl_compiled_properties_build(void) {
     if (jcl_compiled_props != NULL) return jcl_compiled_props;
     const nabu_properties_meta_t *m = &nabu_properties_meta;
     void *self = jcl_new_compiled(m->type, m->vtable, m->itable, m->size);
@@ -3951,7 +3984,7 @@ BIND(void *, jcl_Unsafe_staticFieldBase0, "jdk.internal.misc.Unsafe_staticFieldB
     (void)self; (void)field;
     return NULL;
 }
-BIND(void, jcl_Unsafe_fullFence, "jdk.internal.misc.Unsafe_fullFence", (void *self)) { (void)self; }
+BIND(void, jcl_Unsafe_fullFence, "jdk.internal.misc.Unsafe_fullFence", (void *self)) { (void)self; __atomic_thread_fence(__ATOMIC_SEQ_CST); }
 BIND(void, jcl_Unsafe_ensureClassInitialized0, "jdk.internal.misc.Unsafe_ensureClassInitialized0", (void *self, void *cls)) { (void)self; (void)cls; }
 BIND(int, jcl_Unsafe_shouldBeInitialized0, "jdk.internal.misc.Unsafe_shouldBeInitialized0", (void *self, void *cls)) { (void)self; (void)cls; return 0; }
 
@@ -3960,30 +3993,31 @@ BIND(int8_t, jcl_Unsafe_getByte, "jdk.internal.misc.Unsafe_getByte", (void *self
 BIND(int16_t, jcl_Unsafe_getShort, "jdk.internal.misc.Unsafe_getShort", (void *self, void *o, int64_t off)) { (void)self; int16_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
 BIND(uint16_t, jcl_Unsafe_getChar, "jdk.internal.misc.Unsafe_getChar", (void *self, void *o, int64_t off)) { (void)self; uint16_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
 BIND(int32_t, jcl_Unsafe_getInt, "jdk.internal.misc.Unsafe_getInt", (void *self, void *o, int64_t off)) { (void)self; int32_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
-BIND(int32_t, jcl_Unsafe_getIntVolatile, "jdk.internal.misc.Unsafe_getIntVolatile", (void *self, void *o, int64_t off)) { (void)self; int32_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
+BIND(int32_t, jcl_Unsafe_getIntVolatile, "jdk.internal.misc.Unsafe_getIntVolatile", (void *self, void *o, int64_t off)) { (void)self; return __atomic_load_n((int32_t *)UNSAFE_ADDR(o, off), __ATOMIC_SEQ_CST); }
 BIND(int64_t, jcl_Unsafe_getLong, "jdk.internal.misc.Unsafe_getLong", (void *self, void *o, int64_t off)) { (void)self; int64_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
-BIND(int64_t, jcl_Unsafe_getLongVolatile, "jdk.internal.misc.Unsafe_getLongVolatile", (void *self, void *o, int64_t off)) { (void)self; int64_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
+BIND(int64_t, jcl_Unsafe_getLongVolatile, "jdk.internal.misc.Unsafe_getLongVolatile", (void *self, void *o, int64_t off)) { (void)self; return __atomic_load_n((int64_t *)UNSAFE_ADDR(o, off), __ATOMIC_SEQ_CST); }
 BIND(void *, jcl_Unsafe_getReference, "jdk.internal.misc.Unsafe_getReference", (void *self, void *o, int64_t off)) { (void)self; void * v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
-BIND(void *, jcl_Unsafe_getReferenceVolatile, "jdk.internal.misc.Unsafe_getReferenceVolatile", (void *self, void *o, int64_t off)) { (void)self; void * v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
+BIND(void *, jcl_Unsafe_getReferenceVolatile, "jdk.internal.misc.Unsafe_getReferenceVolatile", (void *self, void *o, int64_t off)) { (void)self; return __atomic_load_n((void **)UNSAFE_ADDR(o, off), __ATOMIC_SEQ_CST); }
 BIND(void, jcl_Unsafe_putByte, "jdk.internal.misc.Unsafe_putByte", (void *self, void *o, int64_t off, int8_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
 BIND(void, jcl_Unsafe_putShort, "jdk.internal.misc.Unsafe_putShort", (void *self, void *o, int64_t off, int16_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
 BIND(void, jcl_Unsafe_putInt, "jdk.internal.misc.Unsafe_putInt", (void *self, void *o, int64_t off, int32_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
-BIND(void, jcl_Unsafe_putIntVolatile, "jdk.internal.misc.Unsafe_putIntVolatile", (void *self, void *o, int64_t off, int32_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
+BIND(void, jcl_Unsafe_putIntVolatile, "jdk.internal.misc.Unsafe_putIntVolatile", (void *self, void *o, int64_t off, int32_t v)) { (void)self; __atomic_store_n((int32_t *)UNSAFE_ADDR(o, off), v, __ATOMIC_SEQ_CST); }
 BIND(void, jcl_Unsafe_putLong, "jdk.internal.misc.Unsafe_putLong", (void *self, void *o, int64_t off, int64_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
-BIND(void, jcl_Unsafe_putLongVolatile, "jdk.internal.misc.Unsafe_putLongVolatile", (void *self, void *o, int64_t off, int64_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
+BIND(void, jcl_Unsafe_putLongVolatile, "jdk.internal.misc.Unsafe_putLongVolatile", (void *self, void *o, int64_t off, int64_t v)) { (void)self; __atomic_store_n((int64_t *)UNSAFE_ADDR(o, off), v, __ATOMIC_SEQ_CST); }
 BIND(void, jcl_Unsafe_putFloat, "jdk.internal.misc.Unsafe_putFloat", (void *self, void *o, int64_t off, float v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
 BIND(void, jcl_Unsafe_putDouble, "jdk.internal.misc.Unsafe_putDouble", (void *self, void *o, int64_t off, double v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
 BIND(void, jcl_Unsafe_putReference, "jdk.internal.misc.Unsafe_putReference", (void *self, void *o, int64_t off, void * v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
-BIND(void, jcl_Unsafe_putReferenceVolatile, "jdk.internal.misc.Unsafe_putReferenceVolatile", (void *self, void *o, int64_t off, void * v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
+BIND(void, jcl_Unsafe_putReferenceVolatile, "jdk.internal.misc.Unsafe_putReferenceVolatile", (void *self, void *o, int64_t off, void * v)) { (void)self; __atomic_store_n((void **)UNSAFE_ADDR(o, off), v, __ATOMIC_SEQ_CST); }
 BIND(void, jcl_Unsafe_putBoolean, "jdk.internal.misc.Unsafe_putBoolean", (void *self, void *o, int64_t off, int v)) { (void)self; *(int8_t *)UNSAFE_ADDR(o, off) = (int8_t)(v != 0); }
 BIND(void, jcl_Unsafe_putChar, "jdk.internal.misc.Unsafe_putChar$Pa86c5f3aP5f790d9cI64I16", (void *self, void *o, int64_t off, uint16_t v)) { (void)self; memcpy(UNSAFE_ADDR(o, off), &v, sizeof v); }
 
 
-BIND(int, jcl_Unsafe_compareAndSetInt, "jdk.internal.misc.Unsafe_compareAndSetInt", (void *self, void *o, int64_t off, int32_t expected, int32_t x)) { (void)self; int32_t cur; memcpy(&cur, UNSAFE_ADDR(o, off), sizeof cur); if (cur != expected) return 0; memcpy(UNSAFE_ADDR(o, off), &x, sizeof x); return 1; }
-BIND(int, jcl_Unsafe_compareAndSetLong, "jdk.internal.misc.Unsafe_compareAndSetLong", (void *self, void *o, int64_t off, int64_t expected, int64_t x)) { (void)self; int64_t cur; memcpy(&cur, UNSAFE_ADDR(o, off), sizeof cur); if (cur != expected) return 0; memcpy(UNSAFE_ADDR(o, off), &x, sizeof x); return 1; }
-BIND(int, jcl_Unsafe_compareAndSetReference, "jdk.internal.misc.Unsafe_compareAndSetReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; void * cur; memcpy(&cur, UNSAFE_ADDR(o, off), sizeof cur); if (cur != expected) return 0; memcpy(UNSAFE_ADDR(o, off), &x, sizeof x); return 1; }
-BIND(int64_t, jcl_Unsafe_compareAndExchangeLong, "jdk.internal.misc.Unsafe_compareAndExchangeLong", (void *self, void *o, int64_t off, int64_t expected, int64_t x)) { (void)self; int64_t cur; memcpy(&cur, UNSAFE_ADDR(o, off), sizeof cur); if (cur == expected) memcpy(UNSAFE_ADDR(o, off), &x, sizeof x); return cur; }
-BIND(void *, jcl_Unsafe_compareAndExchangeReference, "jdk.internal.misc.Unsafe_compareAndExchangeReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; void * cur; memcpy(&cur, UNSAFE_ADDR(o, off), sizeof cur); if (cur == expected) memcpy(UNSAFE_ADDR(o, off), &x, sizeof x); return cur; }
+BIND(int, jcl_Unsafe_compareAndSetInt, "jdk.internal.misc.Unsafe_compareAndSetInt", (void *self, void *o, int64_t off, int32_t expected, int32_t x)) { (void)self; return __atomic_compare_exchange_n((int32_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+BIND(int32_t, jcl_Unsafe_compareAndExchangeInt, "jdk.internal.misc.Unsafe_compareAndExchangeInt", (void *self, void *o, int64_t off, int32_t expected, int32_t x)) { (void)self; __atomic_compare_exchange_n((int32_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
+BIND(int, jcl_Unsafe_compareAndSetLong, "jdk.internal.misc.Unsafe_compareAndSetLong", (void *self, void *o, int64_t off, int64_t expected, int64_t x)) { (void)self; return __atomic_compare_exchange_n((int64_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+BIND(int, jcl_Unsafe_compareAndSetReference, "jdk.internal.misc.Unsafe_compareAndSetReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; return __atomic_compare_exchange_n((void **)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+BIND(int64_t, jcl_Unsafe_compareAndExchangeLong, "jdk.internal.misc.Unsafe_compareAndExchangeLong", (void *self, void *o, int64_t off, int64_t expected, int64_t x)) { (void)self; __atomic_compare_exchange_n((int64_t *)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
+BIND(void *, jcl_Unsafe_compareAndExchangeReference, "jdk.internal.misc.Unsafe_compareAndExchangeReference", (void *self, void *o, int64_t off, void * expected, void * x)) { (void)self; __atomic_compare_exchange_n((void **)UNSAFE_ADDR(o, off), &expected, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); return expected; }
 BIND(int64_t, jcl_Unsafe_allocateMemory0, "jdk.internal.misc.Unsafe_allocateMemory0", (void *self, int64_t bytes)) { (void)self; return (int64_t)(intptr_t)malloc((size_t)bytes); }
 BIND(void, jcl_Unsafe_freeMemory0, "jdk.internal.misc.Unsafe_freeMemory0", (void *self, int64_t address)) { (void)self; free((void *)(intptr_t)address); }
 BIND(void, jcl_Unsafe_setMemory0, "jdk.internal.misc.Unsafe_setMemory0", (void *self, void *o, int64_t off, int64_t bytes, int8_t value)) { (void)self; memset(UNSAFE_ADDR(o, off), value, (size_t)bytes); }
@@ -4109,7 +4143,7 @@ extern int GC_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void
 static void (*jcl_thread_run_fn)(void *) = NULL;
 void nabu_set_thread_run_fn(void *fn) { jcl_thread_run_fn = (void (*)(void *))fn; }
 
-static int jcl_live_threads = 0;
+static volatile int jcl_live_threads = 0;
 
 static int64_t jcl_now_ms(void) {
     struct timespec ts;
@@ -4121,16 +4155,21 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
     nabu_throw(jcl_throw(cls, super, msg));
 }
 
-typedef struct jcl_waiter { void *obj; int notified; struct jcl_waiter *next; } jcl_waiter;
+typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; } jcl_waiter;
 static jcl_waiter *jcl_waiters = NULL;
+/* The waiters list is shared by all threads; with the GIL only one thread touches it at a time, in parallel mode
+ * this lock guards it. */
+static pthread_mutex_t jcl_waiters_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void jcl_notify(void *obj, int all) {
+    pthread_mutex_lock(&jcl_waiters_lock);
     for (jcl_waiter *w = jcl_waiters; w != NULL; w = w->next) {
         if (w->obj == obj && !w->notified) {
             w->notified = 1;
             if (!all) break;
         }
     }
+    pthread_mutex_unlock(&jcl_waiters_lock);
     nabu_gil_signal();
 }
 
@@ -4169,11 +4208,13 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     const int me = nabu_current_thread_id();
     const int32_t depth = h->monitor_count;
     jcl_waiter w = { self, 0, NULL };
+    pthread_mutex_lock(&jcl_waiters_lock);
     jcl_waiter **tail = &jcl_waiters;
     while (*tail != NULL) tail = &(*tail)->next;
     *tail = &w;
+    pthread_mutex_unlock(&jcl_waiters_lock);
     h->monitor_count = 0;
-    h->thread_id = 0;
+    __atomic_store_n(&h->thread_id, 0, __ATOMIC_RELEASE);
     nabu_gil_signal();
     const int64_t start = jcl_now_ms();
     nabu_wait_mark(timeout > 0 ? 1 : 2);
@@ -4186,14 +4227,19 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
             nabu_gil_wait(-1);
         }
     }
+    pthread_mutex_lock(&jcl_waiters_lock);
     for (jcl_waiter **p = &jcl_waiters; *p != NULL; p = &(*p)->next) {
         if (*p == &w) { *p = w.next; break; }
     }
+    pthread_mutex_unlock(&jcl_waiters_lock);
     nabu_wait_mark(3);
-    while (h->monitor_count > 0 && h->thread_id != me) nabu_gil_wait(-1);
+    for (;;) {
+        int free_word = 0;
+        if (__atomic_compare_exchange_n(&h->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
+        nabu_gil_wait(-1);
+    }
     nabu_wait_mark(0);
     h->monitor_count = depth;
-    h->thread_id = me;
     if (!w.notified) jcl_check_interrupt(cur);
 }
 
@@ -4232,7 +4278,7 @@ BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
 BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int absolute, int64_t time)) {
     (void)self;
     s_thread *cur = jcl_thread_of(jcl_current_thread());
-    if (cur->permit) { cur->permit = 0; return; }
+    if (__atomic_exchange_n(&cur->permit, 0, __ATOMIC_ACQ_REL)) return;
     if (cur->interrupted) return;
     int64_t ms = -1;
     if (absolute) {
@@ -4258,13 +4304,13 @@ BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int ab
         }
     }
     nabu_wait_mark(0);
-    cur->permit = 0;
+    __atomic_store_n(&cur->permit, 0, __ATOMIC_SEQ_CST);
 }
 BIND(void, jcl_Unsafe_unpark, "jdk.internal.misc.Unsafe_unpark", (void *self, void *thread)) {
     (void)self;
     s_thread *st = thread == NULL ? NULL : jcl_thread_state(thread);
     if (st == NULL) return;
-    st->permit = 1;
+    __atomic_store_n(&st->permit, 1, __ATOMIC_SEQ_CST);
     nabu_gil_signal();
 }
 
@@ -4302,7 +4348,7 @@ static void *jcl_thread_main(void *arg) {
     nabu_set_wait_slot(&st->wait_state);
     if (jcl_thread_run_fn != NULL) jcl_thread_run_fn(st->self);
     st->state = 2;
-    if (!st->daemon) jcl_live_threads--;
+    if (!st->daemon) __atomic_fetch_sub(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
     jcl_notify(st->self, 1);
     nabu_gil_release();
     return NULL;
@@ -4318,6 +4364,9 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     s_thread *st = jcl_thread_state(self);
     if (st == NULL || st->state != 0) jcl_throw_new("java/lang/IllegalThreadStateException", "java/lang/IllegalArgumentException", NULL);
     if (!nabu_threads_active) {
+        /* Threads run in parallel; NABU_GIL=1 makes them run one at a time again (see nabu_gil_*). */
+        const char *gil = getenv("NABU_GIL");
+        nabu_parallel = !(gil != NULL && gil[0] == '1');
         nabu_threads_active = 1;
         nabu_gil_acquire();
         nabu_set_wait_slot(&jcl_thread_of(jcl_current_thread())->wait_state);
@@ -4325,7 +4374,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     }
     st->state = 1;
     st->self = self;
-    if (!st->daemon) jcl_live_threads++;
+    if (!st->daemon) __atomic_fetch_add(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
@@ -4335,7 +4384,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     pthread_attr_destroy(&attr);
     if (rc != 0) {
         st->state = 2;
-        if (!st->daemon) jcl_live_threads--;
+        if (!st->daemon) __atomic_fetch_sub(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
         jcl_throw_new("java/lang/IllegalThreadStateException", "java/lang/IllegalArgumentException", "unable to create native thread");
     }
 }

@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <pthread.h>
+#include <sched.h>
 #include <time.h>
 #ifdef _WIN32
 #include <windows.h>
@@ -320,10 +321,33 @@ static const char *nabu_builtin_super_of(const char *name) {
     return NULL;
 }
 
+static pthread_mutex_t nabu_rt_mutex;
+static pthread_once_t nabu_rt_once = PTHREAD_ONCE_INIT;
+
+static void nabu_rt_init(void) {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&nabu_rt_mutex, &attr);
+}
+
+void nabu_rt_lock(void) {
+    pthread_once(&nabu_rt_once, nabu_rt_init);
+    pthread_mutex_lock(&nabu_rt_mutex);
+}
+
+void nabu_rt_unlock(void) {
+    pthread_mutex_unlock(&nabu_rt_mutex);
+}
+
 static nabu_type_info *nabu_type_info_for(const char *name) {
+    nabu_rt_lock();
     for (int i = 0; i < nabu_type_count; i++) {
-        if (strcmp(nabu_type_cache[i].name, name) == 0)
-            return &nabu_type_cache[i];
+        if (strcmp(nabu_type_cache[i].name, name) == 0) {
+            nabu_type_info *found = &nabu_type_cache[i];
+            nabu_rt_unlock();
+            return found;
+        }
     }
     if (nabu_type_count >= NABU_MAX_TYPES) {
         fprintf(stderr, "nabu: too many runtime type info entries\n");
@@ -342,6 +366,7 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
     if (builtinSuper != NULL) {
         ti->super_type = nabu_type_info_for(builtinSuper);
     }
+    nabu_rt_unlock();
     return ti;
 }
 
@@ -802,9 +827,22 @@ static void nabu_load_symbols(void) {
     fclose(f);
 }
 
+static volatile int nabu_syms_ready = 0;
+
+/* The symbol tables are read once, by the first thread that needs them; the others wait for it. */
+static void nabu_ensure_symbols(void) {
+    if (__atomic_load_n(&nabu_syms_ready, __ATOMIC_ACQUIRE)) return;
+    nabu_rt_lock();
+    if (!nabu_syms_loaded) {
+        nabu_load_symbols();
+        __atomic_store_n(&nabu_syms_ready, 1, __ATOMIC_RELEASE);
+    }
+    nabu_rt_unlock();
+}
+
 /* The address of a global by its symbol name (for example "java.util.concurrent.ForkJoinPool_poolIds"), or NULL. */
 void *nabu_data_symbol(const char *name) {
-    if (!nabu_syms_loaded) nabu_load_symbols();
+    nabu_ensure_symbols();
     size_t lo = 0, hi = nabu_dsym_count;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
@@ -817,7 +855,7 @@ void *nabu_data_symbol(const char *name) {
 
 /* The symbol of the function that contains the address, or NULL. */
 const char *nabu_frame_name(uintptr_t addr) {
-    if (!nabu_syms_loaded) nabu_load_symbols();
+    nabu_ensure_symbols();
     if (addr >= nabu_image_end) return NULL; /* a system DLL */
     size_t lo = 0, hi = nabu_sym_count;
     while (lo < hi) {
@@ -829,7 +867,7 @@ const char *nabu_frame_name(uintptr_t addr) {
 
 /* The line of the address: its row's function symbol, file and line; 0 when there is none. */
 int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
-    if (!nabu_syms_loaded) nabu_load_symbols();
+    nabu_ensure_symbols();
     size_t lo = 0, hi = nabu_row_count;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
@@ -857,6 +895,7 @@ void *nabu_data_symbol(const char *name) {
 #if defined(__linux__)
 #include <elf.h>
 static int nabu_lines_loaded = 0;
+static volatile int nabu_lines_ready = 0;
 
 /* Reads the .debug_line section of the running ELF executable (the backend's line tables, see above). The
    addresses in it are link-time addresses: a position independent executable is moved by its load address. */
@@ -899,13 +938,21 @@ static void nabu_load_lines(void) {
 }
 #else
 static int nabu_lines_loaded = 1; /* no line tables read on this platform (macOS: Mach-O) */
+static volatile int nabu_lines_ready = 0;
 static void nabu_load_lines(void) {
 }
 #endif
 
 /* The line of the address: its row's function symbol, file and line; 0 when there is none. */
 int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
-    if (!nabu_lines_loaded) nabu_load_lines();
+    if (!__atomic_load_n(&nabu_lines_ready, __ATOMIC_ACQUIRE)) {
+        nabu_rt_lock();
+        if (!nabu_lines_loaded) {
+            nabu_load_lines();
+            __atomic_store_n(&nabu_lines_ready, 1, __ATOMIC_RELEASE);
+        }
+        nabu_rt_unlock();
+    }
     size_t lo = 0, hi = nabu_row_count;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
@@ -1991,6 +2038,17 @@ static unsigned long nabu_gil_next = 0;
 static unsigned long nabu_gil_serving = 0;
 static unsigned long nabu_gil_events = 0;
 volatile int nabu_threads_active = 0;
+volatile int nabu_parallel = 0;
+
+/* In parallel mode a wait polls: no signal can be missed, a woken thread is just a little late. */
+static void nabu_poll_pause(void) {
+#ifdef _WIN32
+    Sleep(1);
+#else
+    struct timespec ts = { 0, 1000000L };
+    nanosleep(&ts, NULL);
+#endif
+}
 
 /* Where the running thread tells what it waits for, see nabu_wait_mark. */
 static __thread volatile int *nabu_wait_slot = NULL;
@@ -2004,6 +2062,35 @@ static __thread int nabu_thread_id = 1;
 int nabu_current_thread_id(void) { return nabu_thread_id; }
 void nabu_set_current_thread_id(int id) { nabu_thread_id = id; }
 
+int nabu_clinit_begin(volatile int32_t *state) {
+    const int32_t marker = (nabu_thread_id << 1) | 1;
+    int waited_ms = 0;
+    for (;;) {
+        int32_t seen = __atomic_load_n(state, __ATOMIC_ACQUIRE);
+        if (seen == 2) return 0;
+        if (seen == marker) return 0;
+        if (seen == 0) {
+            int32_t expected = 0;
+            if (__atomic_compare_exchange_n(state, &expected, marker, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                return 1;
+            }
+            continue;
+        }
+        /* another thread is initializing the class: wait for it. An initializer that threw never finishes, so
+         * after a long wait carry on as the old code did (the class stays half initialized). */
+        if (waited_ms > 10000) return 0;
+        if (nabu_threads_active) {
+            nabu_gil_wait(1);
+        }
+        waited_ms++;
+    }
+}
+
+void nabu_clinit_end(volatile int32_t *state) {
+    __atomic_store_n(state, 2, __ATOMIC_RELEASE);
+    nabu_gil_signal();
+}
+
 /* Waits for the turn, with the mutex held. */
 static void nabu_gil_take_turn(void) {
     unsigned long ticket = nabu_gil_next++;
@@ -2013,12 +2100,14 @@ static void nabu_gil_take_turn(void) {
 }
 
 void nabu_gil_acquire(void) {
+    if (nabu_parallel) return;
     pthread_mutex_lock(&nabu_gil_mutex);
     nabu_gil_take_turn();
     pthread_mutex_unlock(&nabu_gil_mutex);
 }
 
 void nabu_gil_release(void) {
+    if (nabu_parallel) return;
     pthread_mutex_lock(&nabu_gil_mutex);
     nabu_gil_serving++;
     pthread_cond_broadcast(&nabu_gil_turn);
@@ -2028,6 +2117,7 @@ void nabu_gil_release(void) {
 /* Lets the other threads run, and waits for the next turn. */
 void nabu_gil_yield(void) {
     if (!nabu_threads_active) return;
+    if (nabu_parallel) { sched_yield(); return; }
     pthread_mutex_lock(&nabu_gil_mutex);
     nabu_gil_serving++;
     pthread_cond_broadcast(&nabu_gil_turn);
@@ -2037,7 +2127,7 @@ void nabu_gil_yield(void) {
 
 /* Wakes the threads in nabu_gil_wait: something they may be waiting for has changed. */
 void nabu_gil_signal(void) {
-    if (!nabu_threads_active) return;
+    if (!nabu_threads_active || nabu_parallel) return;
     pthread_mutex_lock(&nabu_gil_mutex);
     nabu_gil_events++;
     pthread_cond_broadcast(&nabu_gil_event);
@@ -2052,6 +2142,11 @@ void nabu_gil_signal(void) {
  */
 int nabu_gil_wait(int64_t timeout_ms) {
     if (!nabu_threads_active) return 1;
+    if (nabu_parallel) {
+        if (timeout_ms == 0) return 1;
+        nabu_poll_pause();
+        return timeout_ms >= 0 && timeout_ms <= 1;
+    }
     struct timespec deadline;
     if (timeout_ms >= 0) {
         clock_gettime(CLOCK_REALTIME, &deadline);
@@ -2105,6 +2200,24 @@ void nabu_monitorenter(void *obj) {
     }
     nabu_object *header = (nabu_object *)obj;
     const int me = nabu_thread_id;
+    if (nabu_parallel) {
+        /* thread_id is the lock word: 0 free, else the owner; only the owner touches monitor_count */
+        if (header->thread_id != me) {
+            int free_word = 0;
+            if (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                nabu_wait_mark(3);
+                do {
+                    nabu_poll_pause();
+                    free_word = 0;
+                } while (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+                nabu_wait_mark(0);
+            }
+            header->monitor_count = 1;
+        } else {
+            header->monitor_count++;
+        }
+        return;
+    }
     if (header->monitor_count > 0 && header->thread_id != me) {
         nabu_wait_mark(3);
         while (header->monitor_count > 0 && header->thread_id != me) {
@@ -2122,6 +2235,12 @@ void nabu_monitorexit(void *obj) {
         abort();
     }
     nabu_object *header = (nabu_object *)obj;
+    if (nabu_parallel) {
+        if (--header->monitor_count == 0) {
+            __atomic_store_n(&header->thread_id, 0, __ATOMIC_RELEASE);
+        }
+        return;
+    }
     header->monitor_count--;
     if (header->monitor_count == 0) {
         header->thread_id = 0;

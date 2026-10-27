@@ -1,0 +1,5 @@
+sync 80000
+atomic 80000
+long 160000
+lock 80000
+map 80000

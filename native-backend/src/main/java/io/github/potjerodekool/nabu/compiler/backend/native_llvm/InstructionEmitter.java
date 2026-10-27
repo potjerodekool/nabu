@@ -1100,10 +1100,13 @@ public class InstructionEmitter {
      * the others run: threads run one at a time (see nabu_gil_*), so the runtime is told about each such read.
      */
     private void markVolatileLoad(final LLVMValueRef load, final IRValue.Named field, final LLVMValueRef address) {
-        if (field.ownerType() == null || !classLayouts.isVolatileField(field.ownerType(), field.name())) {
+        final boolean isVolatile = (field.ownerType() != null && classLayouts.isVolatileField(field.ownerType(), field.name()))
+                || (field.isStatic() && classLayouts.isVolatileStatic(field.name()));
+        if (!isVolatile) {
             return;
         }
         LLVMSetVolatile(load, 1);
+        makeAtomic(load, LLVMTypeOf(load));
         final LLVMValueRef hint = globalValueMap.get("@nabu_spin_hint");
         if (hint == null) {
             return;
@@ -1112,6 +1115,39 @@ public class InstructionEmitter {
         args.put(0, address);
         LLVMBuildCall2(builder, LLVMGlobalGetValueType(hint), hint, args, 1, "");
         Reference.reachabilityFence(args);
+    }
+
+    /**
+     * A volatile access is sequentially consistent (JLS 17.4): threads run in parallel, and the store of one must
+     * be visible to the load of another in order. Only the sizes the hardware can do atomically.
+     */
+    private static void makeAtomic(final LLVMValueRef instruction, final LLVMTypeRef type) {
+        final int kind = LLVMGetTypeKind(type);
+        final int bytes;
+        if (kind == LLVMPointerTypeKind || kind == LLVMDoubleTypeKind) {
+            bytes = 8;
+        } else if (kind == LLVMFloatTypeKind) {
+            bytes = 4;
+        } else if (kind == LLVMIntegerTypeKind) {
+            final int bits = LLVMGetIntTypeWidth(type);
+            if (bits != 8 && bits != 16 && bits != 32 && bits != 64) {
+                return;
+            }
+            bytes = bits / 8;
+        } else {
+            return;
+        }
+        LLVMSetAlignment(instruction, bytes);
+        LLVMSetOrdering(instruction, LLVMAtomicOrderingSequentiallyConsistent);
+    }
+
+    /** Whether a store to this target writes a volatile field. */
+    private boolean isVolatileTarget(final IRValue target) {
+        if (isObjectFieldAccess(target)) {
+            final IRValue.Named named = (IRValue.Named) ((IRValue.Values) target).values().getLast();
+            return named.ownerType() != null && classLayouts.isVolatileField(named.ownerType(), named.name());
+        }
+        return target instanceof IRValue.Named named && named.isStatic() && classLayouts.isVolatileStatic(named.name());
     }
 
     private void emitStore(IRInstruction.Store store) {
@@ -1148,7 +1184,11 @@ public class InstructionEmitter {
                 value = coerceTo(value, types.map(objectFieldPointeeType(target)), isUnsigned(store.value()));
             }
         }
-        LLVMBuildStore(builder, value, ptr);
+        final LLVMValueRef storeInstruction = LLVMBuildStore(builder, value, ptr);
+        if (isVolatileTarget(target)) {
+            LLVMSetVolatile(storeInstruction, 1);
+            makeAtomic(storeInstruction, LLVMTypeOf(value));
+        }
     }
 
     // -------------------------------------------------------
@@ -2928,32 +2968,46 @@ private void emitThrow(IRInstruction.Throw throwInst) {
             return null;
         }
 
-        final LLVMTypeRef i1 = LLVMInt1TypeInContext(ctx);
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
         final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
                 new PointerPointer<>(0), 0, 0);
         final LLVMValueRef fn = LLVMAddFunction(mod, dotted + ".clinit.once", fnType);
         LLVMSetLinkage(fn, LLVMInternalLinkage);
-        final LLVMValueRef flag = LLVMAddGlobal(mod, i1,
+        // The flag is the state of the initialization: 0 not yet, 2 done, odd while one thread runs it
+        // (nabu_clinit_begin). The initializer touches its own static fields: the thread that runs it passes.
+        final LLVMValueRef flag = LLVMAddGlobal(mod, i32,
                 new BytePointer(dotted + ".clinit.done"));
         LLVMSetLinkage(flag, LLVMInternalLinkage);
-        LLVMSetInitializer(flag, LLVMConstInt(i1, 0, 0));
+        LLVMSetInitializer(flag, LLVMConstInt(i32, 0, 0));
 
         final LLVMBuilderRef b = LLVMCreateBuilderInContext(ctx);
         final LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("entry"));
+        final LLVMBasicBlockRef claim = LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("claim"));
         final LLVMBasicBlockRef run = LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("run"));
         final LLVMBasicBlockRef done = LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("done"));
         LLVMPositionBuilderAtEnd(b, entry);
-        LLVMBuildCondBr(b, LLVMBuildLoad2(b, i1, flag, new BytePointer("already")), done, run);
+        final LLVMValueRef state = LLVMBuildLoad2(b, i32, flag, new BytePointer("state"));
+        LLVMSetAlignment(state, 4);
+        LLVMSetOrdering(state, LLVMAtomicOrderingAcquire);
+        LLVMBuildCondBr(b, LLVMBuildICmp(b, LLVMIntEQ, state, LLVMConstInt(i32, 2, 0),
+                new BytePointer("already")), done, claim);
+        LLVMPositionBuilderAtEnd(b, claim);
+        final LLVMValueRef beginFn = globalValueMap.get("@nabu_clinit_begin");
+        final LLVMValueRef endFn = globalValueMap.get("@nabu_clinit_end");
+        final PointerPointer<Pointer> flagArg = new PointerPointer<>(1);
+        flagArg.put(0, flag);
+        final LLVMValueRef mine = LLVMBuildCall2(b, LLVMGlobalGetValueType(beginFn), beginFn, flagArg, 1, "mine");
+        LLVMBuildCondBr(b, LLVMBuildICmp(b, LLVMIntNE, mine, LLVMConstInt(i32, 0, 0),
+                new BytePointer("owner")), run, done);
         LLVMPositionBuilderAtEnd(b, run);
-        // Vlag vóór de initializer zetten: de initializer raakt zijn eigen
-        // statische velden aan en zou anders zichzelf opnieuw aanroepen.
-        LLVMBuildStore(b, LLVMConstInt(i1, 1, 0), flag);
         if (superInit != null) {
             LLVMBuildCall2(b, fnType, superInit, new PointerPointer<>(0), 0, "");
         }
         if (clinit != null) {
             LLVMBuildCall2(b, LLVMGlobalGetValueType(clinit), clinit, new PointerPointer<>(0), 0, "");
         }
+        LLVMBuildCall2(b, LLVMGlobalGetValueType(endFn), endFn, flagArg, 1, "");
+        Reference.reachabilityFence(flagArg);
         LLVMBuildBr(b, done);
         LLVMPositionBuilderAtEnd(b, done);
         LLVMBuildRetVoid(b);

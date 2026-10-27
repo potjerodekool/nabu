@@ -175,6 +175,22 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void parallelCounters() throws Exception {
+        assertEquals(expected("parallelCounters"), output("parallelCounters"));
+    }
+
+    /** NABU_GIL=1 runs the threads one at a time again; the counters must come out the same. */
+    @Test
+    void parallelCountersWithTheGlobalLock() throws Exception {
+        assertEquals(expected("parallelCounters"), output("parallelCounters", java.util.Map.of("NABU_GIL", "1")));
+    }
+
+    @Test
+    void parallelSpeed() throws Exception {
+        assertEquals(expected("parallelSpeed"), output("parallelSpeed"));
+    }
+
+    @Test
     void objectAcrossInvokeAll() throws Exception {
         assertEquals(expected("objectAcrossInvokeAll"), output("objectAcrossInvokeAll"));
     }
@@ -208,7 +224,9 @@ class ThreadsE2eIT {
         final String only = System.getProperty("nabu.threads.only");
         final List<String> names = new ArrayList<>();
         for (final Method method : ThreadsE2eIT.class.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(Test.class)) {
+            // a test that runs another program in another way has no program of its own
+            if (method.isAnnotationPresent(Test.class)
+                    && ThreadsE2eIT.class.getResource("/threads/" + method.getName() + ".java") != null) {
                 names.add(method.getName());
             }
         }
@@ -290,9 +308,15 @@ class ThreadsE2eIT {
 
     /** Runs one program of the executable and returns what it printed; the exit code must be 0. */
     private String output(final String name) throws Exception {
+        return output(name, java.util.Map.of());
+    }
+
+    /** Same, with extra environment variables for the program. */
+    private String output(final String name, final java.util.Map<String, String> environment) throws Exception {
         final Path exe = executable();
         final Path log = Files.createTempFile(buildDir, name, ".log");
         final ProcessBuilder builder = NativeToolchain.run(exe.toAbsolutePath());
+        builder.environment().putAll(environment);
         builder.command().add(name);
         final Process proc = builder.redirectErrorStream(true).redirectOutput(log.toFile()).start();
         if (!proc.waitFor(60, TimeUnit.SECONDS)) {

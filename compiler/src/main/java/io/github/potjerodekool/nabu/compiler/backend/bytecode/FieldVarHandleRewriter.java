@@ -307,6 +307,10 @@ final class FieldVarHandleRewriter {
         if (!compareKind || args.length <= lead) {
             return null;
         }
+        final MethodNode atomic = generateAtomic(method, call, handle, field, args, slot, lead);
+        if (atomic != null) {
+            return atomic;
+        }
         if (op.startsWith("get") && !op.startsWith("getAnd") && args.length == 1 + lead) {
             loadReceiver(code, slot[0], handle, hostClass);
             code.add(getField(handle, hostClass));
@@ -368,6 +372,105 @@ final class FieldVarHandleRewriter {
         }
         method.maxLocals = temp + 2;
         method.maxStack = 6;
+        return method;
+    }
+
+    private static final String UNSAFE = "jdk/internal/misc/Unsafe";
+
+    /** The Unsafe name part for the kind of the field, or null when its accesses cannot be done atomically. */
+    private static String unsafeKind(final Type field) {
+        return switch (field.getSort()) {
+            case Type.INT -> "Int";
+            case Type.LONG -> "Long";
+            case Type.OBJECT, Type.ARRAY -> "Reference";
+            default -> null;
+        };
+    }
+
+    /** The size in bytes of an element of an array of this type (every array has an 8 byte header). */
+    private static int elementScale(final Type element) {
+        return switch (element.getSort()) {
+            case Type.BOOLEAN, Type.BYTE -> 1;
+            case Type.CHAR, Type.SHORT -> 2;
+            case Type.INT, Type.FLOAT -> 4;
+            default -> 8;
+        };
+    }
+
+    /**
+     * The operation as an atomic access through Unsafe: threads run in parallel, so a read, a compare and a write
+     * in separate instructions are not one atomic step. Null when the operation or the type is not covered (the
+     * plain sequence is generated then).
+     */
+    private static MethodNode generateAtomic(final MethodNode method, final MethodInsnNode call, final Handle handle,
+                                             final Type field, final Type[] args, final int[] slot, final int lead) {
+        final String kind = unsafeKind(field);
+        if (kind == null || isRuntimeObject(handle)) {
+            return null;
+        }
+        final String op = call.name;
+        final Type result = Type.getReturnType(call.desc);
+        final String value = field.getSort() >= Type.ARRAY ? "Ljava/lang/Object;" : field.getDescriptor();
+        final InsnList code = method.instructions;
+        final String unsafeDesc;
+        final String unsafeName;
+        final int valueCount;
+        if (op.startsWith("get") && !op.startsWith("getAnd") && args.length == 1 + lead) {
+            unsafeName = "get" + kind + "Volatile";
+            unsafeDesc = "(Ljava/lang/Object;J)" + value;
+            valueCount = 0;
+        } else if (op.startsWith("set") && args.length == 2 + lead) {
+            unsafeName = "put" + kind + "Volatile";
+            unsafeDesc = "(Ljava/lang/Object;J" + value + ")V";
+            valueCount = 1;
+        } else if ((op.startsWith("compareAndSet") || op.startsWith("weakCompareAndSet")) && args.length == 3 + lead) {
+            unsafeName = "compareAndSet" + kind;
+            unsafeDesc = "(Ljava/lang/Object;J" + value + value + ")Z";
+            valueCount = 2;
+        } else if (op.startsWith("compareAndExchange") && args.length == 3 + lead) {
+            unsafeName = "compareAndExchange" + kind;
+            unsafeDesc = "(Ljava/lang/Object;J" + value + value + ")" + value;
+            valueCount = 2;
+        } else if (op.startsWith("getAndSet") && args.length == 2 + lead) {
+            unsafeName = "getAndSet" + kind;
+            unsafeDesc = "(Ljava/lang/Object;J" + value + ")" + value;
+            valueCount = 1;
+        } else if (op.startsWith("getAndAdd") && args.length == 2 + lead && !"Reference".equals(kind)) {
+            unsafeName = "getAndAdd" + kind;
+            unsafeDesc = "(Ljava/lang/Object;J" + value + ")" + value;
+            valueCount = 1;
+        } else {
+            return null;
+        }
+        code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, UNSAFE, "getUnsafe", "()L" + UNSAFE + ";", false));
+        code.add(new VarInsnNode(Opcodes.ALOAD, slot[0]));
+        if (handle.isArray()) {
+            // the element at base 8 + index * scale
+            code.add(new VarInsnNode(Opcodes.ILOAD, slot[0] + 1));
+            code.add(new InsnNode(Opcodes.I2L));
+            code.add(new LdcInsnNode((long) elementScale(field)));
+            code.add(new InsnNode(Opcodes.LMUL));
+            code.add(new LdcInsnNode(8L));
+            code.add(new InsnNode(Opcodes.LADD));
+        } else {
+            code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, UNSAFE, "getUnsafe", "()L" + UNSAFE + ";", false));
+            code.add(new LdcInsnNode(Type.getObjectType(handle.owner())));
+            code.add(new LdcInsnNode(handle.name()));
+            code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, UNSAFE, "objectFieldOffset",
+                    "(Ljava/lang/Class;Ljava/lang/String;)J", false));
+        }
+        for (int i = 0; i < valueCount; i++) {
+            final int argument = args.length - valueCount + i;
+            code.add(new VarInsnNode(args[argument].getOpcode(Opcodes.ILOAD), slot[argument]));
+        }
+        code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, UNSAFE, unsafeName, unsafeDesc, false));
+        if (result.getSort() == Type.VOID) {
+            code.add(new InsnNode(Opcodes.RETURN));
+        } else {
+            code.add(new InsnNode(result.getOpcode(Opcodes.IRETURN)));
+        }
+        method.maxLocals = slot[args.length - 1] + args[args.length - 1].getSize() + 2;
+        method.maxStack = 10;
         return method;
     }
 

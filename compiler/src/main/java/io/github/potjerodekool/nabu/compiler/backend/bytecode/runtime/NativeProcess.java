@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
- * A child process in a native executable (Windows): {@code ProcessImpl.start} is replaced by
+ * A child process in a native executable: {@code ProcessImpl.start} is replaced by
  * {@link #start} (see {@code ProcessImplSubstitution}). The streams are pipes; a redirect can be
  * {@code PIPE} or {@code INHERIT}. The C runtime does the work through the natives below. Written for
  * bytecode lowering: no string concatenation with {@code +} and no lambdas.
@@ -88,6 +88,16 @@ public final class NativeProcess extends Process {
     /** The command line the way CommandLineToArgvW reads it back: an argument with a space or quote is quoted. */
     private static String commandLine(final String[] cmdarray) {
         final StringBuilder sb = new StringBuilder();
+        if (!System.getProperty("os.name").startsWith("Windows")) {
+            // no quoting on Linux and macOS: the arguments are joined by \u0001 and the C side splits them again
+            for (int i = 0; i < cmdarray.length; i++) {
+                if (i > 0) {
+                    sb.append('\u0001');
+                }
+                sb.append(cmdarray[i]);
+            }
+            return sb.toString();
+        }
         for (int i = 0; i < cmdarray.length; i++) {
             if (i > 0) {
                 sb.append(' ');

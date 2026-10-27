@@ -52,6 +52,7 @@ public final class JavaSubstitutions {
             Map.entry("java/nio/channels/FileChannel", FileChannelSubstitution.class),
             Map.entry("java/lang/ProcessImpl", ProcessImplSubstitution.class),
             Map.entry("sun/nio/fs/WindowsPath", WindowsPathSubstitution.class),
+            Map.entry("sun/nio/fs/UnixPath", UnixPathSubstitution.class),
             Map.entry("java/util/ResourceBundle", ResourceBundleSubstitution.class),
             Map.entry("java/lang/ThreadGroup", ThreadGroupSubstitution.class),
             Map.entry("java/lang/ThreadBuilders$BoundVirtualThread", BoundVirtualThreadSubstitution.class));

@@ -548,6 +548,7 @@ static int nabu_sym_cmp(const void *a, const void *b) {
     return x < y ? -1 : x > y ? 1 : 0;
 }
 
+#endif /* _WIN32: symbols */
 
 /* -------------------------------------------------------
  * Line numbers
@@ -707,7 +708,7 @@ static int nabu_row_cmp(const void *a, const void *b) {
     return x->seq < y->seq ? -1 : x->seq > y->seq ? 1 : 0;
 }
 
-
+#ifdef _WIN32
 /* Reads the COFF symbol table of the running executable: the functions in code sections. */
 static void nabu_load_symbols(void) {
     nabu_syms_loaded = 1;
@@ -847,14 +848,75 @@ const char *nabu_frame_name(uintptr_t addr) {
     Dl_info info;
     return dladdr((void *) addr, &info) != 0 ? info.dli_sname : NULL;
 }
-/* Line tables are only read on Windows. A data symbol is found through the dynamic symbol table, which the link
-   command fills with -rdynamic (this is also what gives dladdr above the names of the functions). */
+/* A data symbol is found through the dynamic symbol table, which the link command fills with -rdynamic (this is
+   also what gives dladdr above the names of the functions). */
 void *nabu_data_symbol(const char *name) {
     return dlsym(RTLD_DEFAULT, name);
 }
+
+#if defined(__linux__)
+#include <elf.h>
+static int nabu_lines_loaded = 0;
+
+/* Reads the .debug_line section of the running ELF executable (the backend's line tables, see above). The
+   addresses in it are link-time addresses: a position independent executable is moved by its load address. */
+static void nabu_load_lines(void) {
+    nabu_lines_loaded = 1;
+    FILE *f = fopen("/proc/self/exe", "rb");
+    if (f == NULL) return;
+    Elf64_Ehdr eh;
+    Elf64_Shdr *sh = NULL;
+    char *names = NULL;
+    do {
+        if (fread(&eh, sizeof eh, 1, f) != 1 || memcmp(eh.e_ident, ELFMAG, SELFMAG) != 0
+                || eh.e_ident[EI_CLASS] != ELFCLASS64) break;
+        if (eh.e_shnum == 0 || eh.e_shentsize != sizeof *sh || eh.e_shstrndx >= eh.e_shnum) break;
+        sh = malloc(eh.e_shnum * sizeof *sh);
+        if (sh == NULL || fseek(f, (long) eh.e_shoff, SEEK_SET) != 0
+                || fread(sh, sizeof *sh, eh.e_shnum, f) != eh.e_shnum) break;
+        const Elf64_Shdr *str = &sh[eh.e_shstrndx];
+        names = malloc(str->sh_size + 1);
+        if (names == NULL || fseek(f, (long) str->sh_offset, SEEK_SET) != 0
+                || fread(names, 1, str->sh_size, f) != str->sh_size) break;
+        names[str->sh_size] = 0;
+        Dl_info info;
+        intptr_t delta = 0;
+        if (eh.e_type == ET_DYN && dladdr((void *) nabu_load_lines, &info) != 0) delta = (intptr_t) info.dli_fbase;
+        for (unsigned i = 0; i < eh.e_shnum; i++) {
+            if (sh[i].sh_name >= str->sh_size || strcmp(names + sh[i].sh_name, ".debug_line") != 0) continue;
+            unsigned char *buf = malloc(sh[i].sh_size);
+            if (buf != NULL && fseek(f, (long) sh[i].sh_offset, SEEK_SET) == 0
+                    && fread(buf, 1, sh[i].sh_size, f) == sh[i].sh_size) {
+                nabu_parse_lines(buf, sh[i].sh_size, delta);
+                qsort(nabu_rows, nabu_row_count, sizeof *nabu_rows, nabu_row_cmp);
+            }
+            free(buf);
+        }
+    } while (0);
+    free(sh);
+    free(names);
+    fclose(f);
+}
+#else
+static int nabu_lines_loaded = 1; /* no line tables read on this platform (macOS: Mach-O) */
+static void nabu_load_lines(void) {
+}
+#endif
+
+/* The line of the address: its row's function symbol, file and line; 0 when there is none. */
 int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
-    (void) addr; (void) scope; (void) file;
-    return 0;
+    if (!nabu_lines_loaded) nabu_load_lines();
+    size_t lo = 0, hi = nabu_row_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (nabu_rows[mid].addr <= addr) lo = mid + 1; else hi = mid;
+    }
+    if (lo == 0) return 0;
+    const nabu_line_row *r = &nabu_rows[lo - 1];
+    if (r->file == NULL) return 0; /* after the end of a sequence */
+    *scope = r->dir;
+    *file = r->file;
+    return r->line;
 }
 #endif
 

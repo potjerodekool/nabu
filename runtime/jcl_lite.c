@@ -19,6 +19,8 @@
 #else
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
 #endif
 
 #ifdef NABU_GC_BOEHM
@@ -862,7 +864,16 @@ static void jcl_props_put_system(void) {
     jcl_map_put(jcl_props, (void *)"user.name", (void *)jcl_env_or("USERNAME", "user"));
     jcl_map_put(jcl_props, (void *)"os.version", (void *)"10.0");
 #else
-    jcl_map_put(jcl_props, (void *)"java.home", (void *)".");
+    /* The directory of the program: the lib directory with the JDK's data files lies next to it. */
+    ssize_t exe_len = readlink("/proc/self/exe", buf, sizeof buf - 1);
+    if (exe_len > 0) {
+        buf[exe_len] = '\0';
+        char *slash = strrchr(buf, '/');
+        if (slash != NULL) *slash = '\0';
+        jcl_map_put(jcl_props, (void *)"java.home", (void *)jcl_dup(buf));
+    } else {
+        jcl_map_put(jcl_props, (void *)"java.home", (void *)".");
+    }
     jcl_map_put(jcl_props, (void *)"java.io.tmpdir", (void *)jcl_env_or("TMPDIR", "/tmp"));
     jcl_map_put(jcl_props, (void *)"user.dir",
             (void *)(getcwd(buf, sizeof buf) != NULL ? jcl_dup(buf) : "."));
@@ -903,11 +914,27 @@ static void jcl_props_put_system(void) {
 static void *jcl_props_table(void) {
     jcl_props_init();
     if (jcl_map_get(jcl_props, "os.name") == NULL) {
+#if defined(_WIN32)
         jcl_map_put(jcl_props, (void *)"os.name", (void *)"Windows 11");
         jcl_map_put(jcl_props, (void *)"os.arch", (void *)"amd64");
         jcl_map_put(jcl_props, (void *)"file.separator", (void *)"\\");
         jcl_map_put(jcl_props, (void *)"line.separator", (void *)"\r\n");
         jcl_map_put(jcl_props, (void *)"path.separator", (void *)";");
+#else
+#if defined(__APPLE__)
+        jcl_map_put(jcl_props, (void *)"os.name", (void *)"Mac OS X");
+#else
+        jcl_map_put(jcl_props, (void *)"os.name", (void *)"Linux");
+#endif
+#if defined(__aarch64__)
+        jcl_map_put(jcl_props, (void *)"os.arch", (void *)"aarch64");
+#else
+        jcl_map_put(jcl_props, (void *)"os.arch", (void *)"amd64");
+#endif
+        jcl_map_put(jcl_props, (void *)"file.separator", (void *)"/");
+        jcl_map_put(jcl_props, (void *)"line.separator", (void *)"\n");
+        jcl_map_put(jcl_props, (void *)"path.separator", (void *)":");
+#endif
         jcl_map_put(jcl_props, (void *)"java.version", (void *)"17.0.0");
         jcl_props_put_system();
     }
@@ -1164,6 +1191,7 @@ static int64_t jcl_filetime_ms(FILETIME t) {
 #include <dirent.h>
 #include <limits.h>
 #include <utime.h>
+#include <sys/statvfs.h>
 static int32_t jcl_fs_attributes(const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) return 0;
@@ -1412,12 +1440,79 @@ BIND(void *, jcl_fs_canonicalize0, JCL_FS("canonicalize0"), (void *self, void *p
     }
     return jcl_jstring_wide(buf);
 #else
-    char buf[PATH_MAX];
-    return realpath(path, buf) != NULL ? nabu_jstring_new(buf) : pathString;
+    /* Like the JDK: make the path absolute, collapse "." and "..", then resolve links for the longest
+     * prefix that exists; the rest does not exist and stays as it is. */
+    char full[PATH_MAX * 2], *out = full;
+    if (path[0] != '/') {
+        if (getcwd(full, PATH_MAX) == NULL) return pathString;
+        out = full + strlen(full);
+        if (out > full && out[-1] == '/') out--;
+    }
+    for (const char *p = path; *p != '\0';) {
+        while (*p == '/') p++;
+        const char *end = p;
+        while (*end != '\0' && *end != '/') end++;
+        size_t len = (size_t)(end - p);
+        if (len == 0) break;
+        if (len == 1 && p[0] == '.') {
+            /* current directory: nothing */
+        } else if (len == 2 && p[0] == '.' && p[1] == '.') {
+            while (out > full && out[-1] != '/') out--;
+            if (out > full) out--;
+        } else {
+            if ((size_t)(out - full) + len + 2 >= sizeof full) return pathString;
+            *out++ = '/';
+            memcpy(out, p, len);
+            out += len;
+        }
+        p = end;
+    }
+    if (out == full) *out++ = '/';
+    *out = '\0';
+    char real[PATH_MAX];
+    for (char *cut = out;;) {
+        char saved = *cut;
+        *cut = '\0';
+        int found = realpath(cut == full ? "/" : full, real) != NULL;
+        *cut = saved;
+        if (found) {
+            size_t rl = strlen(real);
+            if (cut != out) {
+                if (rl > 0 && real[rl - 1] == '/') real[--rl] = '\0';
+                if (rl + strlen(cut) + 1 >= sizeof real) return pathString;
+                strcpy(real + rl, cut);
+            }
+            return nabu_jstring_new(real);
+        }
+        while (cut > full && cut[-1] != '/') cut--;
+        if (cut > full) cut--;
+    }
 #endif
 }
 
 BIND(int32_t, jcl_fs_getNameMax0, JCL_FS("getNameMax0"), (void *self, void *pathString)) { return 255; }
+
+#ifndef _WIN32
+/* --- sun.nio.fs on Linux and macOS: the default file system (UnixFileSystem) only needs the current
+ * directory and the capabilities; the file operations of Files go through java.io.File (FilesSubstitution). */
+static void *jcl_byte_array(const char *s, size_t n) {
+    void *p = jcl_alloc(8 + n);
+    ((int32_t *)p)[0] = (int32_t)n;
+    ((int32_t *)p)[1] = 1;
+    jcl_arr_set_type(p, "[B");
+    memcpy((char *)p + 8, s, n);
+    return p;
+}
+
+/* No optional capability (openat, futimes, ...): the JDK code then takes its plain paths. */
+BIND(int32_t, jcl_UnixNativeDispatcher_init, "sun.nio.fs.UnixNativeDispatcher_init", (void)) { return 0; }
+
+BIND(void *, jcl_UnixNativeDispatcher_getcwd, "sun.nio.fs.UnixNativeDispatcher_getcwd", (void)) {
+    char buf[4096];
+    if (getcwd(buf, sizeof buf) == NULL) { buf[0] = '/'; buf[1] = '\0'; }
+    return jcl_byte_array(buf, strlen(buf));
+}
+#endif
 
 BIND(int64_t, jcl_fs_getSpace0, JCL_FS("getSpace0"), (void *self, void *f, int32_t t)) {
 #ifdef _WIN32
@@ -1431,7 +1526,10 @@ BIND(int64_t, jcl_fs_getSpace0, JCL_FS("getSpace0"), (void *self, void *f, int32
     }
     return t == 0 ? (int64_t)total.QuadPart : t == 1 ? (int64_t)freeTotal.QuadPart : (int64_t)freeToCaller.QuadPart;
 #else
-    return 0;
+    struct statvfs vfs;
+    if (statvfs(jcl_file_path_of(f), &vfs) != 0) return 0;
+    uint64_t unit = vfs.f_frsize != 0 ? vfs.f_frsize : vfs.f_bsize;
+    return t == 0 ? (int64_t)(vfs.f_blocks * unit) : t == 1 ? (int64_t)(vfs.f_bfree * unit) : (int64_t)(vfs.f_bavail * unit);
 #endif
 }
 
@@ -1528,6 +1626,14 @@ BIND(int64_t, jcl_java_io_FileInputStream_position0, "java.io.FileInputStream_po
  * The channel works on the CRT descriptor in the FileDescriptor, like the streams. IOStatus values: EOF -1,
  * UNSUPPORTED_CASE -6 (the JDK then takes another way). */
 
+/* The natives of FileChannel's dispatcher: FileDispatcherImpl on Windows, UnixFileDispatcherImpl (the superclass of
+ * FileDispatcherImpl) on Linux and macOS; the signatures are the same. */
+#ifdef _WIN32
+#define JCL_FDI(name) "sun.nio.ch.FileDispatcherImpl_" name
+#else
+#define JCL_FDI(name) "sun.nio.ch.UnixFileDispatcherImpl_" name
+#endif
+
 static int jcl_chan_fd(void *fdObj) {
     int32_t *slot = jcl_fd_slot(fdObj);
     return slot != NULL ? *slot : -1;
@@ -1547,14 +1653,14 @@ static void jcl_chan_error(const char *what) {
 #define JCL_SEEK(fd, off, whence) lseek((fd), (off_t)(off), (whence))
 #endif
 
-BIND(int32_t, jcl_FileDispatcherImpl_read0, "sun.nio.ch.FileDispatcherImpl_read0", (void *fdObj, int64_t address, int32_t len)) {
+BIND(int32_t, jcl_FileDispatcherImpl_read0, JCL_FDI("read0"), (void *fdObj, int64_t address, int32_t len)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
     int n = (int)JCL_READ(fd, (void *)(intptr_t)address, len);
     if (n < 0) { jcl_chan_error("Read"); return -1; }
     return n == 0 && len > 0 ? -1 : n;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_pread0, "sun.nio.ch.FileDispatcherImpl_pread0",
+BIND(int32_t, jcl_FileDispatcherImpl_pread0, JCL_FDI("pread0"),
      (void *fdObj, int64_t address, int32_t len, int64_t position)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
@@ -1565,7 +1671,7 @@ BIND(int32_t, jcl_FileDispatcherImpl_pread0, "sun.nio.ch.FileDispatcherImpl_prea
     if (n < 0) { jcl_chan_error("Read"); return -1; }
     return n == 0 && len > 0 ? -1 : n;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_write0, "sun.nio.ch.FileDispatcherImpl_write0",
+BIND(int32_t, jcl_FileDispatcherImpl_write0, JCL_FDI("write0"),
      (void *fdObj, int64_t address, int32_t len, uint8_t append)) {
     (void)append;
     int fd = jcl_chan_fd(fdObj);
@@ -1574,7 +1680,7 @@ BIND(int32_t, jcl_FileDispatcherImpl_write0, "sun.nio.ch.FileDispatcherImpl_writ
     if (n < 0) { jcl_chan_error("Write"); return -1; }
     return n;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_pwrite0, "sun.nio.ch.FileDispatcherImpl_pwrite0",
+BIND(int32_t, jcl_FileDispatcherImpl_pwrite0, JCL_FDI("pwrite0"),
      (void *fdObj, int64_t address, int32_t len, int64_t position)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
@@ -1585,24 +1691,24 @@ BIND(int32_t, jcl_FileDispatcherImpl_pwrite0, "sun.nio.ch.FileDispatcherImpl_pwr
     if (n < 0) { jcl_chan_error("Write"); return -1; }
     return n;
 }
-BIND(int64_t, jcl_FileDispatcherImpl_readv0, "sun.nio.ch.FileDispatcherImpl_readv0", (void *fdObj, int64_t address, int32_t len)) {
+BIND(int64_t, jcl_FileDispatcherImpl_readv0, JCL_FDI("readv0"), (void *fdObj, int64_t address, int32_t len)) {
     (void)fdObj; (void)address; (void)len;
     return -6;
 }
-BIND(int64_t, jcl_FileDispatcherImpl_writev0, "sun.nio.ch.FileDispatcherImpl_writev0",
+BIND(int64_t, jcl_FileDispatcherImpl_writev0, JCL_FDI("writev0"),
      (void *fdObj, int64_t address, int32_t len, uint8_t append)) {
     (void)fdObj; (void)address; (void)len; (void)append;
     return -6;
 }
 /* offset -1: the current position; otherwise set it. Returns the position. */
-BIND(int64_t, jcl_FileDispatcherImpl_seek0, "sun.nio.ch.FileDispatcherImpl_seek0", (void *fdObj, int64_t offset)) {
+BIND(int64_t, jcl_FileDispatcherImpl_seek0, JCL_FDI("seek0"), (void *fdObj, int64_t offset)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
     int64_t r = offset < 0 ? JCL_SEEK(fd, 0, SEEK_CUR) : JCL_SEEK(fd, offset, SEEK_SET);
     if (r < 0) { jcl_chan_error("Seek"); return -1; }
     return r;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_force0, "sun.nio.ch.FileDispatcherImpl_force0", (void *fdObj, uint8_t metaData)) {
+BIND(int32_t, jcl_FileDispatcherImpl_force0, JCL_FDI("force0"), (void *fdObj, uint8_t metaData)) {
     (void)metaData;
     int fd = jcl_chan_fd(fdObj);
 #ifdef _WIN32
@@ -1612,7 +1718,7 @@ BIND(int32_t, jcl_FileDispatcherImpl_force0, "sun.nio.ch.FileDispatcherImpl_forc
 #endif
     return 0;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_truncate0, "sun.nio.ch.FileDispatcherImpl_truncate0", (void *fdObj, int64_t size)) {
+BIND(int32_t, jcl_FileDispatcherImpl_truncate0, JCL_FDI("truncate0"), (void *fdObj, int64_t size)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
 #ifdef _WIN32
@@ -1623,7 +1729,7 @@ BIND(int32_t, jcl_FileDispatcherImpl_truncate0, "sun.nio.ch.FileDispatcherImpl_t
     if (bad) { jcl_chan_error("Truncate"); return -1; }
     return 0;
 }
-BIND(int64_t, jcl_FileDispatcherImpl_size0, "sun.nio.ch.FileDispatcherImpl_size0", (void *fdObj)) {
+BIND(int64_t, jcl_FileDispatcherImpl_size0, JCL_FDI("size0"), (void *fdObj)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
 #ifdef _WIN32
@@ -1635,7 +1741,7 @@ BIND(int64_t, jcl_FileDispatcherImpl_size0, "sun.nio.ch.FileDispatcherImpl_size0
     if (n < 0) { jcl_chan_error("Size"); return -1; }
     return n;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_available0, "sun.nio.ch.FileDispatcherImpl_available0", (void *fdObj)) {
+BIND(int32_t, jcl_FileDispatcherImpl_available0, JCL_FDI("available0"), (void *fdObj)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) return 0;
     int64_t pos = JCL_SEEK(fd, 0, SEEK_CUR);
@@ -1648,14 +1754,14 @@ BIND(int32_t, jcl_FileDispatcherImpl_available0, "sun.nio.ch.FileDispatcherImpl_
     int64_t left = size - pos;
     return left < 0 ? 0 : left > 0x7fffffff ? 0x7fffffff : (int32_t)left;
 }
-BIND(uint8_t, jcl_FileDispatcherImpl_isOther0, "sun.nio.ch.FileDispatcherImpl_isOther0", (void *fdObj)) { (void)fdObj; return 0; }
+BIND(uint8_t, jcl_FileDispatcherImpl_isOther0, JCL_FDI("isOther0"), (void *fdObj)) { (void)fdObj; return 0; }
 /* No file locks between processes: the lock is always granted (0 = LOCKED). */
-BIND(int32_t, jcl_FileDispatcherImpl_lock0, "sun.nio.ch.FileDispatcherImpl_lock0",
+BIND(int32_t, jcl_FileDispatcherImpl_lock0, JCL_FDI("lock0"),
      (void *fdObj, uint8_t blocking, int64_t pos, int64_t size, uint8_t shared)) {
     (void)fdObj; (void)blocking; (void)pos; (void)size; (void)shared;
     return 0;
 }
-BIND(void, jcl_FileDispatcherImpl_release0, "sun.nio.ch.FileDispatcherImpl_release0", (void *fdObj, int64_t pos, int64_t size)) {
+BIND(void, jcl_FileDispatcherImpl_release0, JCL_FDI("release0"), (void *fdObj, int64_t pos, int64_t size)) {
     (void)fdObj; (void)pos; (void)size;
 }
 BIND(int32_t, jcl_FileDispatcherImpl_maxDirectTransferSize0, "sun.nio.ch.FileDispatcherImpl_maxDirectTransferSize0", (void)) {
@@ -1666,31 +1772,87 @@ BIND(int64_t, jcl_FileDispatcherImpl_transferTo0, "sun.nio.ch.FileDispatcherImpl
     (void)src; (void)position; (void)count; (void)dst; (void)append;
     return -6; /* UNSUPPORTED_CASE: the JDK copies through a buffer */
 }
-BIND(int64_t, jcl_FileDispatcherImpl_allocationGranularity0, "sun.nio.ch.FileDispatcherImpl_allocationGranularity0", (void)) {
+BIND(int64_t, jcl_FileDispatcherImpl_allocationGranularity0, JCL_FDI("allocationGranularity0"), (void)) {
     return 65536;
 }
-BIND(int64_t, jcl_FileDispatcherImpl_map0, "sun.nio.ch.FileDispatcherImpl_map0",
+BIND(int64_t, jcl_FileDispatcherImpl_map0, JCL_FDI("map0"),
      (void *fdObj, int32_t prot, int64_t position, int64_t length, uint8_t isSync)) {
     (void)fdObj; (void)prot; (void)position; (void)length; (void)isSync;
     nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
             "Memory-mapped files are not supported in a native executable"));
     return 0;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_unmap0, "sun.nio.ch.FileDispatcherImpl_unmap0", (int64_t address, int64_t length)) {
+BIND(int32_t, jcl_FileDispatcherImpl_unmap0, JCL_FDI("unmap0"), (int64_t address, int64_t length)) {
     (void)address; (void)length;
     return 0;
 }
 BIND(int64_t, jcl_FileDispatcherImpl_duplicateHandle, "sun.nio.ch.FileDispatcherImpl_duplicateHandle", (int64_t handle)) {
     return handle;
 }
-BIND(int32_t, jcl_FileDispatcherImpl_setDirect0, "sun.nio.ch.FileDispatcherImpl_setDirect0", (void *fdObj, void *buf)) {
+BIND(int32_t, jcl_FileDispatcherImpl_setDirect0, JCL_FDI("setDirect0"), (void *fdObj, void *buf)) {
     (void)fdObj; (void)buf;
     return -1;
+}
+/* The names of these natives are known to RuntimeSymbols (it reads this file), so they are defined on every
+ * platform: a native that is only defined on Linux would leave an undefined reference on Windows. */
+BIND(void, jcl_FileDispatcherImpl_init0, "sun.nio.ch.FileDispatcherImpl_init0", (void)) {
+}
+BIND(int64_t, jcl_FileDispatcherImpl_transferFrom0, "sun.nio.ch.FileDispatcherImpl_transferFrom0",
+     (void *src, void *dst, int64_t position, int64_t count, uint8_t append)) {
+    (void)src; (void)dst; (void)position; (void)count; (void)append;
+    return -6; /* UNSUPPORTED_CASE: the JDK copies through a buffer */
+}
+BIND(void, jcl_UnixFileDispatcherImpl_closeIntFD, "sun.nio.ch.UnixFileDispatcherImpl_closeIntFD", (int32_t fd)) {
+    if (fd > 2) {
+#ifdef _WIN32
+        _close(fd);
+#else
+        close(fd);
+#endif
+    }
+}
+/* Interrupting a blocked channel operation with a signal is not supported: threads run one at a time. */
+BIND(void, jcl_NativeThread_init, "sun.nio.ch.NativeThread_init", (void)) {
+}
+BIND(uint8_t, jcl_NativeThread_supportPendingSignals0, "sun.nio.ch.NativeThread_supportPendingSignals0", (void)) {
+    return 0;
+}
+BIND(int64_t, jcl_NativeThread_current0, "sun.nio.ch.NativeThread_current0", (void)) {
+    return 0;
+}
+BIND(void, jcl_NativeThread_signal0, "sun.nio.ch.NativeThread_signal0", (int64_t thread)) {
+    (void)thread;
+}
+BIND(void, jcl_IOUtil_initIDs, "sun.nio.ch.IOUtil_initIDs", (void)) {
+}
+BIND(int32_t, jcl_IOUtil_fdVal, "sun.nio.ch.IOUtil_fdVal", (void *fdObj)) {
+    return jcl_chan_fd(fdObj);
+}
+BIND(void, jcl_IOUtil_setfdVal, "sun.nio.ch.IOUtil_setfdVal", (void *fdObj, int32_t fd)) {
+    int32_t *slot = jcl_fd_slot(fdObj);
+    if (slot != NULL) *slot = fd;
+}
+BIND(void, jcl_IOUtil_configureBlocking, "sun.nio.ch.IOUtil_configureBlocking", (void *fdObj, uint8_t blocking)) {
+    int fd = jcl_chan_fd(fdObj);
+    if (fd < 0) return;
+#ifndef _WIN32
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(fd, F_SETFL, blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK));
+#else
+    (void)blocking;
+#endif
+}
+BIND(int32_t, jcl_IOUtil_fdLimit, "sun.nio.ch.IOUtil_fdLimit", (void)) {
+    return 1024;
+}
+BIND(uint8_t, jcl_IOUtil_randomBytes, "sun.nio.ch.IOUtil_randomBytes", (void *bytes)) {
+    (void)bytes;
+    return 0;
 }
 BIND(int32_t, jcl_IOUtil_iovMax, "sun.nio.ch.IOUtil_iovMax", (void)) { return 16; }
 BIND(int64_t, jcl_IOUtil_writevMax, "sun.nio.ch.IOUtil_writevMax", (void)) { return 0x7fffffffLL; }
 
-/* --- NativeProcess: child processes (Windows) --------------------------- */
+/* --- NativeProcess: child processes ------------------------------------- */
 
 #ifdef _WIN32
 static HANDLE jcl_process_handle(int64_t h) { return (HANDLE)(intptr_t)h; }
@@ -1701,6 +1863,18 @@ static int64_t jcl_pipe_fd(HANDLE h, int flags) {
     int fd = _open_osfhandle((intptr_t)h, flags | _O_BINARY | _O_NOINHERIT);
     if (fd < 0) { CloseHandle(h); return -1; }
     return fd;
+}
+#endif
+
+#ifndef _WIN32
+/* Gives up the GIL around a call that blocks; only when threads have been started (before that nothing is locked). */
+static int jcl_blocking_begin(void) {
+    if (!nabu_threads_active) return 0;
+    nabu_gil_release();
+    return 1;
+}
+static void jcl_blocking_end(int released) {
+    if (released) nabu_gil_acquire();
 }
 #endif
 
@@ -1801,20 +1975,131 @@ fail:
     nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Cannot create a pipe"));
     return 0;
 #else
-    (void)cmd; (void)env; (void)dir; (void)modesArr;
-    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
-            "Starting a process is only supported on Windows in a native executable"));
-    return 0;
+    /* The arguments come joined by \x01 (NativeProcess.commandLine). */
+    const int32_t *m = (const int32_t *)((const char *)modesArr + 8);
+    char *line = jcl_dup(nabu_cstr(cmd));
+    int argc = 1;
+    for (char *q = line; *q != '\0'; q++) if (*q == '\x01') argc++;
+    char **argv = (char **)calloc((size_t)argc + 1, sizeof(char *));
+    int at = 0;
+    argv[at++] = line;
+    for (char *q = line; *q != '\0'; q++) {
+        if (*q == '\x01') { *q = '\0'; argv[at++] = q + 1; }
+    }
+    char **envp = NULL;
+    if (env != NULL) {
+        int32_t n = jcl_arr_len(env);
+        envp = (char **)calloc((size_t)n + 1, sizeof(char *));
+        for (int32_t i = 0; i < n; i++) envp[i] = jcl_dup(nabu_cstr(((void **)((char *)env + 8))[i]));
+    }
+    const char *workdir = dir != NULL ? nabu_cstr(dir) : NULL;
+    int in[2] = {-1, -1}, out[2] = {-1, -1}, err[2] = {-1, -1}, ep[2] = {-1, -1};
+    signal(SIGPIPE, SIG_IGN); /* a write to a child that has ended is an IOException, as on the JVM */
+    if ((m[0] == 0 && pipe(in) != 0) || (m[1] == 0 && pipe(out) != 0)
+            || (m[3] == 0 && m[2] == 0 && pipe(err) != 0) || pipe(ep) != 0) {
+        int fdsToClose[8] = {in[0], in[1], out[0], out[1], err[0], err[1], ep[0], ep[1]};
+        for (int i = 0; i < 8; i++) if (fdsToClose[i] >= 0) close(fdsToClose[i]);
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Cannot create a pipe"));
+        return 0;
+    }
+    fcntl(ep[1], F_SETFD, FD_CLOEXEC);
+    int released = jcl_blocking_begin();
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* the child: only calls that are safe between fork and exec */
+        if (m[0] == 0) { dup2(in[0], 0); close(in[0]); close(in[1]); }
+        if (m[1] == 0) { dup2(out[1], 1); close(out[0]); close(out[1]); }
+        if (m[3] != 0) dup2(1, 2);
+        else if (m[2] == 0) { dup2(err[1], 2); close(err[0]); close(err[1]); }
+        close(ep[0]);
+        if (workdir != NULL && chdir(workdir) != 0) {
+            int e = errno;
+            if (write(ep[1], &e, sizeof e) < 0) { /* nothing more to do */ }
+            _exit(127);
+        }
+        extern char **environ;
+        if (envp != NULL) environ = envp;
+        execvp(argv[0], argv);
+        int e = errno;
+        if (write(ep[1], &e, sizeof e) < 0) { /* nothing more to do */ }
+        _exit(127);
+    }
+    close(ep[1]);
+    int exec_errno = 0;
+    ssize_t got = 0;
+    if (pid > 0) {
+        do { got = read(ep[0], &exec_errno, sizeof exec_errno); } while (got < 0 && errno == EINTR);
+        jcl_blocking_end(released);
+    } else {
+        jcl_blocking_end(released);
+        exec_errno = errno;
+        got = (ssize_t)sizeof exec_errno;
+    }
+    close(ep[0]);
+    if (got == (ssize_t)sizeof exec_errno) {
+        if (pid > 0) { int st; waitpid(pid, &st, 0); }
+        if (in[0] >= 0) close(in[0]);
+        if (in[1] >= 0) close(in[1]);
+        if (out[0] >= 0) close(out[0]);
+        if (out[1] >= 0) close(out[1]);
+        if (err[0] >= 0) close(err[0]);
+        if (err[1] >= 0) close(err[1]);
+        char reason[320];
+        snprintf(reason, sizeof reason, "Cannot run program \"%s\": error=%d, %s", argv[0], exec_errno,
+                strerror(exec_errno));
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(reason)));
+        return 0;
+    }
+    /* The child has its ends; the parent keeps the others, which no other child may inherit. */
+    if (in[0] >= 0) close(in[0]);
+    if (out[1] >= 0) close(out[1]);
+    if (err[1] >= 0) close(err[1]);
+    if (in[1] >= 0) fcntl(in[1], F_SETFD, FD_CLOEXEC);
+    if (out[0] >= 0) fcntl(out[0], F_SETFD, FD_CLOEXEC);
+    if (err[0] >= 0) fcntl(err[0], F_SETFD, FD_CLOEXEC);
+    fds[0] = in[1];
+    fds[1] = out[0];
+    fds[2] = err[0];
+    return (int64_t)pid;
 #endif
 }
+
+#ifndef _WIN32
+/* The children that have been waited for: a process can only be reaped once, wait0 and exit0 both need the status. */
+typedef struct { int32_t pid; int status; } jcl_child_status;
+static jcl_child_status jcl_children[256];
+static int jcl_child_next = 0;
+
+/* 1 when the child has ended (its status is kept), 0 when it still runs. block: wait for it. */
+static int jcl_child_reap(int64_t handle, int block) {
+    pid_t pid = (pid_t)handle;
+    for (int i = 0; i < 256; i++) if (jcl_children[i].pid == pid) return 1;
+    int status = 0;
+    pid_t r;
+    int released = block ? jcl_blocking_begin() : 0;
+    do { r = waitpid(pid, &status, block ? 0 : WNOHANG); } while (r < 0 && errno == EINTR);
+    jcl_blocking_end(released);
+    if (r == 0) return 0;
+    jcl_children[jcl_child_next].pid = (int32_t)pid;
+    jcl_children[jcl_child_next].status = r < 0 ? 0 : status;
+    jcl_child_next = (jcl_child_next + 1) % 256;
+    return 1;
+}
+#endif
 
 /* true when the process has ended (within millis; negative: wait without limit) */
 BIND(uint8_t, jcl_NativeProcess_wait0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_wait0", (int64_t handle, int64_t millis)) {
 #ifdef _WIN32
     return WaitForSingleObject(jcl_process_handle(handle), millis < 0 ? INFINITE : (DWORD)millis) == WAIT_OBJECT_0;
 #else
-    (void)handle; (void)millis;
-    return 1;
+    if (millis < 0) return (uint8_t)jcl_child_reap(handle, 1);
+    for (int64_t waited = 0;; waited += 2) {
+        if (jcl_child_reap(handle, 0)) return 1;
+        if (waited >= millis) return 0;
+        int released = jcl_blocking_begin();
+        jcl_sleep_ms(2);
+        jcl_blocking_end(released);
+    }
 #endif
 }
 BIND(int32_t, jcl_NativeProcess_exit0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_exit0", (int64_t handle)) {
@@ -1823,7 +2108,13 @@ BIND(int32_t, jcl_NativeProcess_exit0, "io.github.potjerodekool.nabu.compiler.ba
     if (!GetExitCodeProcess(jcl_process_handle(handle), &code)) return -1;
     return (int32_t)code;
 #else
-    (void)handle;
+    if (!jcl_child_reap(handle, 0)) return -1;
+    for (int i = 0; i < 256; i++) {
+        if (jcl_children[i].pid == (int32_t)handle) {
+            int st = jcl_children[i].status;
+            return WIFEXITED(st) ? WEXITSTATUS(st) : 128 + WTERMSIG(st);
+        }
+    }
     return -1;
 #endif
 }
@@ -1831,15 +2122,14 @@ BIND(void, jcl_NativeProcess_destroy0, "io.github.potjerodekool.nabu.compiler.ba
 #ifdef _WIN32
     TerminateProcess(jcl_process_handle(handle), 1);
 #else
-    (void)handle;
+    kill((pid_t)handle, SIGKILL);
 #endif
 }
 BIND(int32_t, jcl_NativeProcess_pid0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_pid0", (int64_t handle)) {
 #ifdef _WIN32
     return (int32_t)GetProcessId(jcl_process_handle(handle));
 #else
-    (void)handle;
-    return -1;
+    return (int32_t)handle;
 #endif
 }
 BIND(int32_t, jcl_NativeProcess_read0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_read0", (int32_t fd, void *b, int32_t off, int32_t len)) {
@@ -1850,7 +2140,10 @@ BIND(int32_t, jcl_NativeProcess_read0, "io.github.potjerodekool.nabu.compiler.ba
 #ifdef _WIN32
     int n = _read(fd, (char *)b + 8 + off, (unsigned int)len);
 #else
-    ssize_t n = read(fd, (char *)b + 8 + off, (size_t)len);
+    int released = jcl_blocking_begin();
+    ssize_t n;
+    do { n = read(fd, (char *)b + 8 + off, (size_t)len); } while (n < 0 && errno == EINTR);
+    jcl_blocking_end(released);
 #endif
     if (n < 0) {
         /* a pipe whose write end is closed reports a broken pipe, which is the end of the output */

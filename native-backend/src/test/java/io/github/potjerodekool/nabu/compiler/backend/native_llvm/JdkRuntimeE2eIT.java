@@ -48,7 +48,7 @@ class JdkRuntimeE2eIT {
                                 System.out.println("hook ran");
                             }
                         }));
-                        System.out.println(java.nio.file.Path.of("C:\\\\Users\\\\evert\\\\work").getFileName());
+                        System.out.println(java.nio.file.Path.of("home", "evert", "work").getFileName());
                         System.out.println(String.format(java.util.Locale.ROOT, "%5.2f|%d|%s|%,d", 3.14159, 42, "hi", 1234567));
                         java.util.List<String> words = java.util.Arrays.asList("delta", "alpha", "charlie");
                         System.out.println(words.stream().sorted().collect(java.util.stream.Collectors.toList()) + " "
@@ -163,7 +163,9 @@ class JdkRuntimeE2eIT {
                             CharSequence[] c = (CharSequence[]) strings; int[] i = (int[]) ints; casts.append("ok"); }
                         catch (ClassCastException e) { casts.append("wrong"); }
                         System.out.println(casts);
-                        Process child = new ProcessBuilder("cmd", "/c", "echo", "child").redirectErrorStream(true).start();
+                        Process child = (System.getProperty("os.name").startsWith("Windows")
+                                ? new ProcessBuilder("cmd", "/c", "echo", "child") : new ProcessBuilder("echo", "child"))
+                                .redirectErrorStream(true).start();
                         System.out.println(new String(child.getInputStream().readAllBytes()).trim() + " " + child.waitFor());
                         java.io.File raf = java.io.File.createTempFile("raf", ".bin");
                         try (java.io.RandomAccessFile rafFile = new java.io.RandomAccessFile(raf, "rw")) {

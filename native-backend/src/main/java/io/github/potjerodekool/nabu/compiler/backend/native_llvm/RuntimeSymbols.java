@@ -26,6 +26,12 @@ final class RuntimeSymbols {
      */
     private static final Pattern FILE_SYSTEM_SYMBOL = Pattern.compile("JCL_FS\\(\"([\\w$]+)\"\\)");
 
+    /**
+     * {@code JCL_FDI("name")}: a native of the dispatcher of {@code FileChannel}, bound as
+     * {@code sun.nio.ch.FileDispatcherImpl_name} (Windows) or {@code sun.nio.ch.UnixFileDispatcherImpl_name}.
+     */
+    private static final Pattern FILE_DISPATCHER_SYMBOL = Pattern.compile("JCL_FDI\\(\"([\\w$]+)\"\\)");
+
     private static final String[] SOURCES = {"jcl_lite.c", "nabu_runtime.c"};
 
     private RuntimeSymbols() {
@@ -51,6 +57,11 @@ final class RuntimeSymbols {
                 while (fileSystem.find()) {
                     symbols.add("java.io.WinNTFileSystem_" + fileSystem.group(1));
                     symbols.add("java.io.UnixFileSystem_" + fileSystem.group(1));
+                }
+                final Matcher dispatcher = FILE_DISPATCHER_SYMBOL.matcher(text);
+                while (dispatcher.find()) {
+                    symbols.add("sun.nio.ch.FileDispatcherImpl_" + dispatcher.group(1));
+                    symbols.add("sun.nio.ch.UnixFileDispatcherImpl_" + dispatcher.group(1));
                 }
             } catch (final IOException e) {
                 // Zonder de bron is er niets af te lezen; de linker meldt

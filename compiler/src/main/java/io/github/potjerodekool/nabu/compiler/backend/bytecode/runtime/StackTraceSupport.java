@@ -67,7 +67,7 @@ public final class StackTraceSupport {
                 final int lastTab = location.lastIndexOf('\t');
                 scope = location.substring(0, firstTab);
                 file = location.substring(firstTab + 1, lastTab);
-                line = Integer.parseInt(location.substring(lastTab + 1));
+                line = number(location, lastTab + 1);
             }
             // A line of an inlined function belongs to that function; the
             // symbol around the address is its caller, whose own line is lost.
@@ -89,6 +89,26 @@ public final class StackTraceSupport {
         final StackTraceElement[] result = new StackTraceElement[count];
         System.arraycopy(found, 0, result, 0, count);
         return result;
+    }
+
+    /**
+     * The decimal number in {@code text} from {@code start}, or -1. Not Integer.parseInt: its error path formats a
+     * message (String.format), which would put the whole Formatter, locale and time machinery in every program that
+     * can print a stack trace.
+     */
+    private static int number(final String text, final int start) {
+        int value = 0;
+        if (start >= text.length()) {
+            return -1;
+        }
+        for (int i = start; i < text.length(); i++) {
+            final char c = text.charAt(i);
+            if (c < '0' || c > '9') {
+                return -1;
+            }
+            value = value * 10 + (c - '0');
+        }
+        return value;
     }
 
     /** The element for a symbol "package.Owner_member", or null for a frame that is not part of the trace. */

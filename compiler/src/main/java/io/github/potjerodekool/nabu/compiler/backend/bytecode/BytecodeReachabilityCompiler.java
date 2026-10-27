@@ -214,6 +214,10 @@ public final class BytecodeReachabilityCompiler {
      *       in JRELocaleProviderAdapter).</li>
      * </ul>
      */
+    /** JDK classes whose calls of String.format (error messages) go to MiniFormat. */
+    private static final Set<String> MINI_FORMAT_CLASSES = Set.of(
+            "java/lang/Integer", "java/lang/Long", "java/lang/Character", "java/lang/Short", "java/lang/Byte");
+
     private static ClassNode substitute(final ClassNode classNode,
                                         final java.util.function.Function<String, ClassNode> loader) {
         if (classNode == null) {
@@ -235,6 +239,45 @@ public final class BytecodeReachabilityCompiler {
                                 "(Ljava/lang/Class;)Ljava/util/Iterator;", false));
                         insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
                     });
+                }
+            }
+        }
+        if (MINI_FORMAT_CLASSES.contains(classNode.name)) {
+            // The error messages of these classes are formatted with String.format; see MiniFormat.
+            for (final MethodNode m : classNode.methods) {
+                for (final var insn : m.instructions.toArray()) {
+                    if (insn instanceof org.objectweb.asm.tree.MethodInsnNode call
+                            && call.getOpcode() == Opcodes.INVOKESTATIC
+                            && "java/lang/String".equals(call.owner) && "format".equals(call.name)
+                            && "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;".equals(call.desc)) {
+                        call.owner = RuntimeCalls.RUNTIME_PACKAGE + "MiniFormat";
+                    }
+                }
+            }
+        }
+        if ("jdk/internal/util/Preconditions".equals(classNode.name)) {
+            // The messages of a failed range check come from String.format, which would bring the Formatter and
+            // everything it uses into every program (see PreconditionsSupport).
+            for (final MethodNode m : classNode.methods) {
+                if ("outOfBoundsMessage".equals(m.name) && "(Ljava/lang/String;Ljava/util/List;)Ljava/lang/String;".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
+                                RuntimeCalls.RUNTIME_PACKAGE + "PreconditionsSupport", "outOfBoundsMessage",
+                                "(Ljava/lang/String;Ljava/util/List;)Ljava/lang/String;", false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
+        if ("java/util/Tripwire".equals(classNode.name)) {
+            // A diagnostic, off unless -Djava.util.stream.tripwire=true: it logs a warning through the platform
+            // logger, which brings the logger finder, the console logger and java.time into every program that
+            // uses a stream or a spliterator.
+            for (final MethodNode m : classNode.methods) {
+                if ("trip".equals(m.name) && "(Ljava/lang/Class;Ljava/lang/String;)V".equals(m.desc)) {
+                    replaceBody(m, insns -> insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN)));
                 }
             }
         }
@@ -678,6 +721,13 @@ public final class BytecodeReachabilityCompiler {
             queueInit(root.ownerInternalName());
             queueMethod(root);
         }
+        // System.getProperties() hands out a real java.util.Properties built by the runtime (nabu_properties_meta):
+        // its constructor and setProperty have to be there, also in a program that does not use Properties.
+        ensureShape("java/util/Properties");
+        queueInstantiate("java/util/Properties");
+        queueMethod(new MethodRef("java/util/Properties", "<init>", "()V", false));
+        queueMethod(new MethodRef("java/util/Properties", "setProperty",
+                "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;", false));
         // The C runtime creates these exceptions as real objects
         // (nabu_exception_table), through their (String) constructor.
         for (final String exception : io.github.potjerodekool.nabu.backend.RuntimeExceptions.CLASSES) {

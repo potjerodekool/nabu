@@ -185,6 +185,12 @@ class ThreadsE2eIT {
         assertEquals(expected("parallelCounters"), output("parallelCounters", java.util.Map.of("NABU_GIL", "1")));
     }
 
+    /** The messages the compiler formats without String.format (Preconditions, Integer, Long, Character). */
+    @Test
+    void jdkErrorMessages() throws Exception {
+        assertEquals(expected("jdkErrorMessages"), output("jdkErrorMessages"));
+    }
+
     @Test
     void pingPong() throws Exception {
         assertEquals(expected("pingPong"), output("pingPong"));

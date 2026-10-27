@@ -205,12 +205,13 @@ public final class BytecodeReachabilityCompiler {
      * echte JDK-bytecode.
      *
      * <ul>
-     *   <li>{@code ServiceLoader.newLookupIterator()} geeft een lege iterator:
-     *       service-discovery loopt over module-layers en de
-     *       class-loader-hiërarchie (ClassLoaders/BuiltinClassLoader), die
-     *       een native programma niet heeft. Er zijn dus geen geïnstalleerde
-     *       providers; de JDK valt dan terug op zijn ingebouwde defaults
-     *       (bv. locale-data in JRELocaleProviderAdapter).</li>
+     *   <li>{@code ServiceLoader.newLookupIterator()} geeft de providers uit de
+     *       {@code META-INF/services}-bestanden van het classpath
+     *       ({@code ServiceSupport}): service-discovery loopt in de JDK over
+     *       module-layers en de class-loader-hiërarchie, die een native
+     *       programma niet heeft. Zonder zulke bestanden is de iterator leeg
+     *       en valt de JDK terug op zijn ingebouwde defaults (bv. locale-data
+     *       in JRELocaleProviderAdapter).</li>
      * </ul>
      */
     private static ClassNode substitute(final ClassNode classNode,
@@ -226,8 +227,12 @@ public final class BytecodeReachabilityCompiler {
             for (final MethodNode m : classNode.methods) {
                 if ("newLookupIterator".equals(m.name) && "()Ljava/util/Iterator;".equals(m.desc)) {
                     replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETFIELD,
+                                "java/util/ServiceLoader", "service", "Ljava/lang/Class;"));
                         insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
-                                "java/util/Collections", "emptyIterator", "()Ljava/util/Iterator;", false));
+                                RuntimeCalls.RUNTIME_PACKAGE + "ServiceSupport", "lookup",
+                                "(Ljava/lang/Class;)Ljava/util/Iterator;", false));
                         insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
                     });
                 }

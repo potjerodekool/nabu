@@ -215,6 +215,16 @@ public class NabuCompiler implements Compiler {
                 final var reflectionRoots = new ArrayList<>(nativeImageConfigs.stream()
                         .flatMap(config -> config.reflectEntries().stream())
                         .toList());
+                // ServiceLoader: the services files of the class path are resources, their providers are created
+                // through reflection.
+                final var applicationResources = new java.util.TreeMap<>(resources.resources());
+                final var serviceFiles = io.github.potjerodekool.nabu.compiler.backend.bytecode.ServiceFiles
+                        .scan(classPath);
+                serviceFiles.files().forEach(applicationResources::putIfAbsent);
+                for (final String provider : serviceFiles.providers()) {
+                    reflectionRoots.add(new io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig
+                            .ReflectEntry(provider, true, false, false, false, List.of(), List.of()));
+                }
                 // Class-based resource bundles: ResourceBundle instantiates
                 // them reflectively.
                 final var bundleClasses = new java.util.LinkedHashSet<>(resources.bundleClasses());
@@ -241,7 +251,7 @@ public class NabuCompiler implements Compiler {
                         alreadyCompiled,
                         jdkHomeOverride
                 );
-                reachabilityCompiler.setApplicationResources(resources.resources());
+                reachabilityCompiler.setApplicationResources(applicationResources);
                 reachabilityCompiler.setDynamicAccess(
                         io.github.potjerodekool.nabu.compiler.backend.bytecode.ProxySpecs.resolve(
                                 nativeImageConfigs.stream()

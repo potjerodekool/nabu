@@ -72,6 +72,7 @@ public final class NativeImage {
                   -d, --output-dir <dir>     where the executable is written (default: the current directory)
                   --gc <BOEHM|REFCOUNT|NONE> garbage collector (default BOEHM)
                   -O0 .. -O3, --opt <level>  optimization: NONE, DEFAULT or AGGRESSIVE (-O0 / -O1, -O2 / -O3)
+                  --strict, --no-fallback    fail when the program or its libraries call a method without implementation
                   --keep-work                keep the directory with the intermediate files
                   --doctor                   check the toolchain this command needs
                   --version                  print the version
@@ -86,10 +87,6 @@ public final class NativeImage {
     private static int build(final NativeImageArguments arguments, final PrintStream out, final PrintStream err) {
         for (final String warning : arguments.warnings()) {
             err.println("nabu-native-image: warning: " + warning);
-        }
-        if (arguments.strict()) {
-            err.println("nabu-native-image: warning: --strict / --no-fallback is not checked yet: "
-                    + "a missing JDK method still fails when the program runs");
         }
         for (final Path entry : arguments.classPath()) {
             if (!Files.exists(entry)) {
@@ -155,6 +152,20 @@ public final class NativeImage {
                         + " a main method?");
                 return 1;
             }
+            if (arguments.strict()) {
+                final List<String> missing = unresolvedOutsideTheJdk(
+                        built.toAbsolutePath().getParent().resolve(arguments.imageName() + ".unresolved.txt"));
+                if (!missing.isEmpty()) {
+                    err.println("nabu-native-image: --strict: the program calls " + missing.size()
+                            + " method(s) of its own or of its libraries that have no implementation (native "
+                            + "methods?); they would stop it at run time:");
+                    missing.stream().limit(30).forEach(m -> err.println("  " + m));
+                    if (missing.size() > 30) {
+                        err.println("  ... " + (missing.size() - 30) + " more");
+                    }
+                    return 1;
+                }
+            }
             final Path exe = outputDir.resolve(exeName);
             Files.copy(built, exe, StandardCopyOption.REPLACE_EXISTING);
             exe.toFile().setExecutable(true);
@@ -178,6 +189,24 @@ public final class NativeImage {
             err.println("nabu-native-image: " + e.getMessage());
             return 1;
         }
+    }
+
+    /** Prefixes of the names (package.Class_member) of classes of the JDK and of the runtime. */
+    private static final List<String> JDK_PREFIXES = List.of("java.", "javax.", "jdk.", "sun.", "com.sun.",
+            "io.github.potjerodekool.nabu.");
+
+    /**
+     * The unresolved functions of the report (see NativeLLVMBackend) that belong to the program or its libraries. The
+     * JDK itself always has some: its natives that the program never reaches in practice.
+     */
+    static List<String> unresolvedOutsideTheJdk(final Path report) throws IOException {
+        if (!Files.isRegularFile(report)) {
+            return List.of();
+        }
+        return Files.readAllLines(report).stream()
+                .filter(line -> !line.isBlank() && !line.startsWith("#"))
+                .filter(name -> JDK_PREFIXES.stream().noneMatch(name::startsWith))
+                .toList();
     }
 
     static String executableSuffix() {

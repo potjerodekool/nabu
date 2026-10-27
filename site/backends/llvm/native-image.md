@@ -26,10 +26,11 @@ nabu-native-image --doctor                               # checks gcc/clang, lib
 | `-d`, `--output-dir` | where the executable is written (default: the current directory) |
 | `--gc` | `BOEHM` (default), `REFCOUNT` or `NONE` |
 | `-O0` … `-O3`, `--opt` | `NONE`, `DEFAULT` or `AGGRESSIVE` |
+| `--strict`, `--no-fallback` | fail the build when the program or its libraries call a method that has no implementation (a `native` method of the program, a library method that could not be compiled) |
 | `--keep-work` | keep the directory with the intermediate files (`.nabu-build-<name>`) |
 | `--doctor` | check what a build needs |
 
-Options of `native-image` that have no meaning here (`-H:…`, `-R:…`, `--initialize-at-…`, `-march=…`, …) are accepted and ignored with a warning, so existing command lines keep working. `--no-fallback` is accepted too, but not checked yet.
+Options of `native-image` that have no meaning here (`-H:…`, `-R:…`, `--initialize-at-…`, `-march=…`, …) are accepted and ignored with a warning, so existing command lines keep working.
 
 The `META-INF/native-image` configuration of the jars (reflection, resources, proxies) is read as GraalVM reads it, so the output of the GraalVM tracing agent can be used as is.
 
@@ -41,6 +42,14 @@ The `META-INF/native-image` configuration of the jars (reflection, resources, pr
 
 On Windows the executable needs the runtime libraries of the MinGW toolchain on the `PATH`, as for every program of this backend.
 
+## Closed world
+
+The executable contains only what the build can reach from `main`. Three things help it find the rest:
+
+- **Configuration.** Reflection, resources and proxies come from `META-INF/native-image`. To write it for a program, run the program on a JVM with the GraalVM tracing agent (`-agentlib:native-image-agent=config-output-dir=META-INF/native-image`) and put the directory in a jar on the class path. The files are used as they are.
+- **ServiceLoader.** The `META-INF/services/<service>` files of the jars on the class path are embedded, and the providers they name are compiled and created through reflection. `ServiceLoader.load(Service.class)` finds them as on a JVM. Providers of the JDK itself (module `provides`) are not listed: the JDK uses its built-in defaults.
+- **Strict mode.** Without `--strict` a method without implementation only stops the program when it is executed. The JDK always has some of these (see `<name>.unresolved.txt`), so `--strict` only looks at the program and its libraries.
+
 ## Not there yet
 
-A strict mode that fails the build on an unresolved JDK method, `ServiceLoader` providers, a faster build (the JDK part is compiled again every time), and a distribution that does not need Maven.
+A faster build (the JDK part is compiled again every time), a check of `Class.forName` calls against the configuration, and a distribution that does not need Maven.

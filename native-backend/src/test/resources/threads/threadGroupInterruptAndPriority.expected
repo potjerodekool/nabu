@@ -1,0 +1,7 @@
+active 2 groups 1
+interrupted true true
+destroyed false daemon false maxpri 10
+sub maxpri 3
+java.lang.ThreadGroup[name=g,maxpri=3]
+true false
+done

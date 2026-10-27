@@ -1,0 +1,11 @@
+inherited parent
+state NEW
+state TIMED_WAITING
+state WAITING
+state BLOCKED
+holds true false
+state TERMINATED
+invokeAll 1 4 9
+factory worker-1 worker-2
+shutdownNow interrupted true
+stacks true

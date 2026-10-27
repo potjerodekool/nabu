@@ -1,0 +1,7 @@
+barrier 3
+semaphore 0
+rw 5
+stamped 7
+map 300
+transfer x
+random true

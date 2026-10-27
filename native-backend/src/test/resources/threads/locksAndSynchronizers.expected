@@ -1,0 +1,5 @@
+lock 2000
+latch 0
+semaphore 3
+barrier 3
+readwrite 5

@@ -1,0 +1,2 @@
+inherited alice
+failed java.lang.IllegalStateException: boom

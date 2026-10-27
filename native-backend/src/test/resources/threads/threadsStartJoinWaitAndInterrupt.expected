@@ -1,0 +1,9 @@
+main main
+child Thread-0
+joined false
+join true
+got 42
+interrupted false
+count 4000
+main done
+late

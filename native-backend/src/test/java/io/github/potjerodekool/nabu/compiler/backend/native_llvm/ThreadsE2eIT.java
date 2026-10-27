@@ -186,6 +186,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void pingPong() throws Exception {
+        assertEquals(expected("pingPong"), output("pingPong"));
+    }
+
+    @Test
     void parallelSpeed() throws Exception {
         assertEquals(expected("parallelSpeed"), output("parallelSpeed"));
     }

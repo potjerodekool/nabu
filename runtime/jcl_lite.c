@@ -4218,14 +4218,15 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     nabu_gil_signal();
     const int64_t start = jcl_now_ms();
     nabu_wait_mark(timeout > 0 ? 1 : 2);
-    while (!w.notified && !cur->interrupted) {
+    for (;;) {
+        const unsigned long ticket = nabu_gil_ticket();
+        if (w.notified || cur->interrupted) break;
+        int64_t left = -1;
         if (timeout > 0) {
-            int64_t left = timeout - (jcl_now_ms() - start);
+            left = timeout - (jcl_now_ms() - start);
             if (left <= 0) break;
-            nabu_gil_wait(left);
-        } else {
-            nabu_gil_wait(-1);
         }
+        nabu_gil_wait_since(ticket, left);
     }
     pthread_mutex_lock(&jcl_waiters_lock);
     for (jcl_waiter **p = &jcl_waiters; *p != NULL; p = &(*p)->next) {
@@ -4233,11 +4234,14 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     }
     pthread_mutex_unlock(&jcl_waiters_lock);
     nabu_wait_mark(3);
+    __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
     for (;;) {
+        const unsigned long ticket = nabu_gil_ticket();
         int free_word = 0;
         if (__atomic_compare_exchange_n(&h->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
-        nabu_gil_wait(-1);
+        nabu_gil_wait_since(ticket, -1);
     }
+    __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
     nabu_wait_mark(0);
     h->monitor_count = depth;
     if (!w.notified) jcl_check_interrupt(cur);
@@ -4266,10 +4270,12 @@ BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
     if (!nabu_threads_active) { jcl_sleep_ms(ms); return; }
     const int64_t start = jcl_now_ms();
     nabu_wait_mark(1);
-    while (!cur->interrupted) {
+    for (;;) {
+        const unsigned long ticket = nabu_gil_ticket();
+        if (cur->interrupted) break;
         int64_t left = ms - (jcl_now_ms() - start);
         if (left <= 0) break;
-        nabu_gil_wait(left);
+        nabu_gil_wait_since(ticket, left);
     }
     nabu_wait_mark(0);
     jcl_check_interrupt(cur);
@@ -4294,14 +4300,15 @@ BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int ab
     if (!nabu_threads_active) { if (ms > 0) jcl_sleep_ms(ms); return; }
     const int64_t start = jcl_now_ms();
     nabu_wait_mark(ms >= 0 ? 1 : 2);
-    while (!cur->permit && !cur->interrupted) {
+    for (;;) {
+        const unsigned long ticket = nabu_gil_ticket();
+        if (__atomic_load_n(&cur->permit, __ATOMIC_SEQ_CST) || cur->interrupted) break;
+        int64_t left = -1;
         if (ms >= 0) {
-            int64_t left = ms - (jcl_now_ms() - start);
+            left = ms - (jcl_now_ms() - start);
             if (left <= 0) break;
-            nabu_gil_wait(left);
-        } else {
-            nabu_gil_wait(-1);
         }
+        nabu_gil_wait_since(ticket, left);
     }
     nabu_wait_mark(0);
     __atomic_store_n(&cur->permit, 0, __ATOMIC_SEQ_CST);
@@ -4357,7 +4364,11 @@ static void *jcl_thread_main(void *arg) {
 /* At exit the JVM waits for the threads that are not daemons, unless System.exit was called. */
 static void jcl_await_threads(void) {
     if (jcl_exiting) return;
-    while (jcl_live_threads > 0) nabu_gil_wait(-1);
+    for (;;) {
+        const unsigned long ticket = nabu_gil_ticket();
+        if (jcl_live_threads <= 0) break;
+        nabu_gil_wait_since(ticket, -1);
+    }
 }
 
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {

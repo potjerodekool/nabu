@@ -2039,6 +2039,9 @@ static unsigned long nabu_gil_serving = 0;
 static unsigned long nabu_gil_events = 0;
 volatile int nabu_threads_active = 0;
 volatile int nabu_parallel = 0;
+volatile int nabu_monitor_waiters = 0;
+/* Threads inside nabu_gil_wait_since (parallel mode): a signal only has to wake someone when this is not 0. */
+static volatile int nabu_waiters = 0;
 
 /* In parallel mode a wait polls: no signal can be missed, a woken thread is just a little late. */
 static void nabu_poll_pause(void) {
@@ -2064,8 +2067,10 @@ void nabu_set_current_thread_id(int id) { nabu_thread_id = id; }
 
 int nabu_clinit_begin(volatile int32_t *state) {
     const int32_t marker = (nabu_thread_id << 1) | 1;
-    int waited_ms = 0;
+    struct timespec began;
+    clock_gettime(CLOCK_REALTIME, &began);
     for (;;) {
+        const unsigned long ticket = nabu_gil_ticket();
         int32_t seen = __atomic_load_n(state, __ATOMIC_ACQUIRE);
         if (seen == 2) return 0;
         if (seen == marker) return 0;
@@ -2078,11 +2083,12 @@ int nabu_clinit_begin(volatile int32_t *state) {
         }
         /* another thread is initializing the class: wait for it. An initializer that threw never finishes, so
          * after a long wait carry on as the old code did (the class stays half initialized). */
-        if (waited_ms > 10000) return 0;
+        struct timespec now;
+        clock_gettime(CLOCK_REALTIME, &now);
+        if ((now.tv_sec - began.tv_sec) * 1000L + (now.tv_nsec - began.tv_nsec) / 1000000L > 10000) return 0;
         if (nabu_threads_active) {
-            nabu_gil_wait(1);
+            nabu_gil_wait_since(ticket, 100);
         }
-        waited_ms++;
     }
 }
 
@@ -2127,11 +2133,51 @@ void nabu_gil_yield(void) {
 
 /* Wakes the threads in nabu_gil_wait: something they may be waiting for has changed. */
 void nabu_gil_signal(void) {
-    if (!nabu_threads_active || nabu_parallel) return;
+    if (!nabu_threads_active) return;
+    if (nabu_parallel) {
+        /* The counter first, then the look at the waiters: a thread that is about to wait counts itself first and
+         * then looks at the counter, so one of the two sees the other. */
+        __atomic_add_fetch(&nabu_gil_events, 1, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&nabu_waiters, __ATOMIC_SEQ_CST) > 0) {
+            pthread_mutex_lock(&nabu_gil_mutex);
+            pthread_cond_broadcast(&nabu_gil_event);
+            pthread_mutex_unlock(&nabu_gil_mutex);
+        }
+        return;
+    }
     pthread_mutex_lock(&nabu_gil_mutex);
     nabu_gil_events++;
     pthread_cond_broadcast(&nabu_gil_event);
     pthread_mutex_unlock(&nabu_gil_mutex);
+}
+
+unsigned long nabu_gil_ticket(void) {
+    return __atomic_load_n(&nabu_gil_events, __ATOMIC_SEQ_CST);
+}
+
+/* A wait of at most this long at a time, whatever the caller asks: a safety net, a wake-up is never missed. */
+#define NABU_WAIT_SPAN_MS 50
+
+int nabu_gil_wait_since(unsigned long ticket, int64_t timeout_ms) {
+    if (!nabu_threads_active) return 1;
+    if (!nabu_parallel) return nabu_gil_wait(timeout_ms);
+    if (timeout_ms == 0) return 1;
+    const int bounded = timeout_ms > 0 && timeout_ms <= NABU_WAIT_SPAN_MS;
+    const int64_t span = bounded ? timeout_ms : NABU_WAIT_SPAN_MS;
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += (time_t)(span / 1000);
+    deadline.tv_nsec += (long)(span % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
+    int timed_out = 0;
+    pthread_mutex_lock(&nabu_gil_mutex);
+    __atomic_add_fetch(&nabu_waiters, 1, __ATOMIC_SEQ_CST);
+    while (__atomic_load_n(&nabu_gil_events, __ATOMIC_SEQ_CST) == ticket && !timed_out) {
+        if (pthread_cond_timedwait(&nabu_gil_event, &nabu_gil_mutex, &deadline) != 0) timed_out = 1;
+    }
+    __atomic_sub_fetch(&nabu_waiters, 1, __ATOMIC_SEQ_CST);
+    pthread_mutex_unlock(&nabu_gil_mutex);
+    return timed_out && bounded;
 }
 
 /*
@@ -2206,10 +2252,16 @@ void nabu_monitorenter(void *obj) {
             int free_word = 0;
             if (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                 nabu_wait_mark(3);
-                do {
-                    nabu_poll_pause();
+                __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
+                for (;;) {
+                    const unsigned long ticket = nabu_gil_ticket();
                     free_word = 0;
-                } while (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+                    if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                        break;
+                    }
+                    nabu_gil_wait_since(ticket, -1);
+                }
+                __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
                 nabu_wait_mark(0);
             }
             header->monitor_count = 1;
@@ -2237,7 +2289,10 @@ void nabu_monitorexit(void *obj) {
     nabu_object *header = (nabu_object *)obj;
     if (nabu_parallel) {
         if (--header->monitor_count == 0) {
-            __atomic_store_n(&header->thread_id, 0, __ATOMIC_RELEASE);
+            __atomic_store_n(&header->thread_id, 0, __ATOMIC_SEQ_CST);
+            if (__atomic_load_n(&nabu_monitor_waiters, __ATOMIC_SEQ_CST) > 0) {
+                nabu_gil_signal();
+            }
         }
         return;
     }

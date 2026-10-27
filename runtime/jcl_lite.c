@@ -64,7 +64,8 @@ typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
                  int daemon; int priority; int64_t id;
                  int state; int interrupted; int permit; void *self; volatile int wait_state; void *inherit_from;
-                 void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope; } s_thread;
+                 void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope;
+                 nabu_waiter *waiter; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -4155,7 +4156,7 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
     nabu_throw(jcl_throw(cls, super, msg));
 }
 
-typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; } jcl_waiter;
+typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; } jcl_waiter;
 static jcl_waiter *jcl_waiters = NULL;
 /* The waiters list is shared by all threads; with the GIL only one thread touches it at a time, in parallel mode
  * this lock guards it. */
@@ -4166,11 +4167,11 @@ static void jcl_notify(void *obj, int all) {
     for (jcl_waiter *w = jcl_waiters; w != NULL; w = w->next) {
         if (w->obj == obj && !w->notified) {
             w->notified = 1;
+            nabu_waiter_wake(w->waiter);
             if (!all) break;
         }
     }
     pthread_mutex_unlock(&jcl_waiters_lock);
-    nabu_gil_signal();
 }
 
 static int jcl_owns_monitor(void *obj) {
@@ -4207,26 +4208,29 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     }
     const int me = nabu_current_thread_id();
     const int32_t depth = h->monitor_count;
-    jcl_waiter w = { self, 0, NULL };
+    nabu_waiter *me_waiter = nabu_waiter_self();
+    jcl_waiter w = { self, 0, NULL, me_waiter };
     pthread_mutex_lock(&jcl_waiters_lock);
     jcl_waiter **tail = &jcl_waiters;
     while (*tail != NULL) tail = &(*tail)->next;
     *tail = &w;
     pthread_mutex_unlock(&jcl_waiters_lock);
     h->monitor_count = 0;
-    __atomic_store_n(&h->thread_id, 0, __ATOMIC_RELEASE);
-    nabu_gil_signal();
+    __atomic_store_n(&h->thread_id, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&nabu_monitor_waiters, __ATOMIC_SEQ_CST) > 0 || !nabu_parallel) {
+        nabu_keyq_wake_one(self);
+    }
     const int64_t start = jcl_now_ms();
     nabu_wait_mark(timeout > 0 ? 1 : 2);
     for (;;) {
-        const unsigned long ticket = nabu_gil_ticket();
+        const unsigned long ticket = nabu_waiter_ticket(me_waiter);
         if (w.notified || cur->interrupted) break;
         int64_t left = -1;
         if (timeout > 0) {
             left = timeout - (jcl_now_ms() - start);
             if (left <= 0) break;
         }
-        nabu_gil_wait_since(ticket, left);
+        nabu_waiter_wait(me_waiter, ticket, left);
     }
     pthread_mutex_lock(&jcl_waiters_lock);
     for (jcl_waiter **p = &jcl_waiters; *p != NULL; p = &(*p)->next) {
@@ -4234,14 +4238,16 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     }
     pthread_mutex_unlock(&jcl_waiters_lock);
     nabu_wait_mark(3);
+    nabu_keyq_add(self, me_waiter);
     __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
     for (;;) {
-        const unsigned long ticket = nabu_gil_ticket();
+        const unsigned long ticket = nabu_waiter_ticket(me_waiter);
         int free_word = 0;
         if (__atomic_compare_exchange_n(&h->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
-        nabu_gil_wait_since(ticket, -1);
+        nabu_waiter_wait(me_waiter, ticket, -1);
     }
     __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
+    nabu_keyq_remove(self, me_waiter);
     nabu_wait_mark(0);
     h->monitor_count = depth;
     if (!w.notified) jcl_check_interrupt(cur);
@@ -4270,12 +4276,13 @@ BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
     if (!nabu_threads_active) { jcl_sleep_ms(ms); return; }
     const int64_t start = jcl_now_ms();
     nabu_wait_mark(1);
+    nabu_waiter *waiter = nabu_waiter_self();
     for (;;) {
-        const unsigned long ticket = nabu_gil_ticket();
+        const unsigned long ticket = nabu_waiter_ticket(waiter);
         if (cur->interrupted) break;
         int64_t left = ms - (jcl_now_ms() - start);
         if (left <= 0) break;
-        nabu_gil_wait_since(ticket, left);
+        nabu_waiter_wait(waiter, ticket, left);
     }
     nabu_wait_mark(0);
     jcl_check_interrupt(cur);
@@ -4300,15 +4307,16 @@ BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int ab
     if (!nabu_threads_active) { if (ms > 0) jcl_sleep_ms(ms); return; }
     const int64_t start = jcl_now_ms();
     nabu_wait_mark(ms >= 0 ? 1 : 2);
+    nabu_waiter *waiter = nabu_waiter_self();
     for (;;) {
-        const unsigned long ticket = nabu_gil_ticket();
+        const unsigned long ticket = nabu_waiter_ticket(waiter);
         if (__atomic_load_n(&cur->permit, __ATOMIC_SEQ_CST) || cur->interrupted) break;
         int64_t left = -1;
         if (ms >= 0) {
             left = ms - (jcl_now_ms() - start);
             if (left <= 0) break;
         }
-        nabu_gil_wait_since(ticket, left);
+        nabu_waiter_wait(waiter, ticket, left);
     }
     nabu_wait_mark(0);
     __atomic_store_n(&cur->permit, 0, __ATOMIC_SEQ_CST);
@@ -4318,7 +4326,7 @@ BIND(void, jcl_Unsafe_unpark, "jdk.internal.misc.Unsafe_unpark", (void *self, vo
     s_thread *st = thread == NULL ? NULL : jcl_thread_state(thread);
     if (st == NULL) return;
     __atomic_store_n(&st->permit, 1, __ATOMIC_SEQ_CST);
-    nabu_gil_signal();
+    nabu_waiter_wake(st->waiter);
 }
 
 BIND(void, jcl_Thread_yield, "java.lang.Thread_yield", (void)) { nabu_gil_yield(); }
@@ -4337,8 +4345,9 @@ BIND(int, jcl_Thread_isInterrupted, "java.lang.Thread_isInterrupted", (void *sel
 }
 BIND(void, jcl_Thread_clearInterrupt, "java.lang.Thread_clearInterrupt", (void *self)) { jcl_thread_of(self)->interrupted = 0; }
 BIND(void, jcl_Thread_interrupt, "java.lang.Thread_interrupt", (void *self)) {
-    jcl_thread_of(self)->interrupted = 1;
-    nabu_gil_signal();
+    s_thread *target = jcl_thread_of(self);
+    target->interrupted = 1;
+    nabu_waiter_wake(target->waiter);
 }
 BIND(int, jcl_java_lang_Thread_isAlive, "java.lang.Thread_isAlive", (void *self)) {
     s_thread *st = jcl_thread_of(self);
@@ -4353,10 +4362,16 @@ static void *jcl_thread_main(void *arg) {
     jcl_cur_thread = st->self;
     nabu_set_current_thread_id((int)st->id);
     nabu_set_wait_slot(&st->wait_state);
+    __atomic_store_n(&st->waiter, nabu_waiter_self(), __ATOMIC_SEQ_CST);
     if (jcl_thread_run_fn != NULL) jcl_thread_run_fn(st->self);
+    /* Under the monitor of the thread, as the JVM does: Thread.join holds it from its look at isAlive until it
+     * waits, so the end of the thread cannot come in between and its notification be missed. */
+    nabu_monitorenter(st->self);
     st->state = 2;
     if (!st->daemon) __atomic_fetch_sub(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
     jcl_notify(st->self, 1);
+    nabu_monitorexit(st->self);
+    nabu_keyq_wake((const void *) &jcl_live_threads);
     nabu_gil_release();
     return NULL;
 }
@@ -4364,11 +4379,14 @@ static void *jcl_thread_main(void *arg) {
 /* At exit the JVM waits for the threads that are not daemons, unless System.exit was called. */
 static void jcl_await_threads(void) {
     if (jcl_exiting) return;
+    nabu_waiter *waiter = nabu_waiter_self();
+    nabu_keyq_add((const void *) &jcl_live_threads, waiter);
     for (;;) {
-        const unsigned long ticket = nabu_gil_ticket();
+        const unsigned long ticket = nabu_waiter_ticket(waiter);
         if (jcl_live_threads <= 0) break;
-        nabu_gil_wait_since(ticket, -1);
+        nabu_waiter_wait(waiter, ticket, -1);
     }
+    nabu_keyq_remove((const void *) &jcl_live_threads, waiter);
 }
 
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
@@ -4381,6 +4399,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
         nabu_threads_active = 1;
         nabu_gil_acquire();
         nabu_set_wait_slot(&jcl_thread_of(jcl_current_thread())->wait_state);
+        jcl_thread_of(jcl_current_thread())->waiter = nabu_waiter_self();
         atexit(jcl_await_threads);
     }
     st->state = 1;
@@ -4389,7 +4408,9 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&attr, (size_t)16 << 20);
+    /* On Windows the stack of a thread is committed at once, so 16 MB per thread is 16 GB for a thousand threads.
+     * A virtual thread is meant to be one of very many and gets a small stack. */
+    pthread_attr_setstacksize(&attr, st->is_virtual ? (size_t)1 << 20 : (size_t)16 << 20);
     pthread_t handle;
     int rc = JCL_PTHREAD_CREATE(&handle, &attr, jcl_thread_main, st);
     pthread_attr_destroy(&attr);

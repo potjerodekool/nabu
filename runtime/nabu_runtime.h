@@ -484,6 +484,26 @@ unsigned long nabu_gil_ticket(void);
 int nabu_gil_wait_since(unsigned long ticket, int64_t timeout_ms);
 /** The number of threads that wait for a monitor: the one that leaves a monitor signals only when there are some. */
 extern volatile int nabu_monitor_waiters;
+
+/**
+ * Targeted wake-ups for threads in parallel: every thread has a waiter of its own. A thread that waits reads the
+ * ticket of its waiter, checks what it waits for and waits with the ticket; whoever changes what it waits for wakes
+ * its waiter (a wake after the ticket was read ends the wait at once, also one that comes before the wait begins).
+ * A thread that waits for a thing that has no thread of its own (a monitor, the end of a class initializer) puts
+ * its waiter in the queue of a key (the address of the thing) BEFORE it checks, and removes it afterwards.
+ * With the global lock (NABU_GIL=1) all of these fall back on the one shared signal.
+ */
+typedef struct nabu_waiter nabu_waiter;
+nabu_waiter *nabu_waiter_self(void);
+unsigned long nabu_waiter_ticket(nabu_waiter *waiter);
+/** Returns 1 when the time (milliseconds, negative: none) has passed. */
+int nabu_waiter_wait(nabu_waiter *waiter, unsigned long ticket, int64_t timeout_ms);
+void nabu_waiter_wake(nabu_waiter *waiter);
+void nabu_keyq_add(const void *key, nabu_waiter *waiter);
+void nabu_keyq_remove(const void *key, nabu_waiter *waiter);
+void nabu_keyq_wake(const void *key);
+/** Wakes the first waiter of the key (the one that waits longest): for a monitor, which one thread can take. */
+void nabu_keyq_wake_one(const void *key);
 /* Where the running thread tells what it waits for (Thread.getState): 0 runs, 1 timed waiting, 2 waiting, 3 blocked. */
 void nabu_set_wait_slot(volatile int *slot);
 /**

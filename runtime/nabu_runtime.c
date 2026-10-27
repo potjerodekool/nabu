@@ -2069,15 +2069,17 @@ int nabu_clinit_begin(volatile int32_t *state) {
     const int32_t marker = (nabu_thread_id << 1) | 1;
     struct timespec began;
     clock_gettime(CLOCK_REALTIME, &began);
+    nabu_waiter *waiter = NULL;
+    int result;
     for (;;) {
-        const unsigned long ticket = nabu_gil_ticket();
+        const unsigned long ticket = waiter != NULL ? nabu_waiter_ticket(waiter) : 0;
         int32_t seen = __atomic_load_n(state, __ATOMIC_ACQUIRE);
-        if (seen == 2) return 0;
-        if (seen == marker) return 0;
+        if (seen == 2 || seen == marker) { result = 0; break; }
         if (seen == 0) {
             int32_t expected = 0;
             if (__atomic_compare_exchange_n(state, &expected, marker, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                return 1;
+                result = 1;
+                break;
             }
             continue;
         }
@@ -2085,16 +2087,24 @@ int nabu_clinit_begin(volatile int32_t *state) {
          * after a long wait carry on as the old code did (the class stays half initialized). */
         struct timespec now;
         clock_gettime(CLOCK_REALTIME, &now);
-        if ((now.tv_sec - began.tv_sec) * 1000L + (now.tv_nsec - began.tv_nsec) / 1000000L > 10000) return 0;
+        if ((now.tv_sec - began.tv_sec) * 1000L + (now.tv_nsec - began.tv_nsec) / 1000000L > 10000) { result = 0; break; }
+        if (waiter == NULL) {
+            /* in the queue of the class before the next look at its state */
+            waiter = nabu_waiter_self();
+            nabu_keyq_add((const void *) state, waiter);
+            continue;
+        }
         if (nabu_threads_active) {
-            nabu_gil_wait_since(ticket, 100);
+            nabu_waiter_wait(waiter, ticket, 100);
         }
     }
+    if (waiter != NULL) nabu_keyq_remove((const void *) state, waiter);
+    return result;
 }
 
 void nabu_clinit_end(volatile int32_t *state) {
-    __atomic_store_n(state, 2, __ATOMIC_RELEASE);
-    nabu_gil_signal();
+    __atomic_store_n(state, 2, __ATOMIC_SEQ_CST);
+    nabu_keyq_wake((const void *) state);
 }
 
 /* Waits for the turn, with the mutex held. */
@@ -2157,6 +2167,155 @@ unsigned long nabu_gil_ticket(void) {
 
 /* A wait of at most this long at a time, whatever the caller asks: a safety net, a wake-up is never missed. */
 #define NABU_WAIT_SPAN_MS 50
+
+struct nabu_waiter {
+    pthread_mutex_t mutex;
+    pthread_cond_t wake;
+    unsigned long seq;
+    int sleeping;
+};
+
+static __thread nabu_waiter *nabu_self_waiter = NULL;
+
+/* Never freed: another thread may still try to wake the waiter of a thread that has ended. */
+nabu_waiter *nabu_waiter_self(void) {
+    if (nabu_self_waiter == NULL) {
+        nabu_waiter *waiter = (nabu_waiter *) calloc(1, sizeof *waiter);
+        pthread_mutex_init(&waiter->mutex, NULL);
+        pthread_cond_init(&waiter->wake, NULL);
+        nabu_self_waiter = waiter;
+    }
+    return nabu_self_waiter;
+}
+
+unsigned long nabu_waiter_ticket(nabu_waiter *waiter) {
+    return nabu_parallel ? __atomic_load_n(&waiter->seq, __ATOMIC_SEQ_CST) : nabu_gil_ticket();
+}
+
+/* A wait of at most this long at a time as a safety net; every wake-up is targeted, so a thread that waits does not wake for nothing. */
+#define NABU_WAITER_SPAN_MS 1000
+
+int nabu_waiter_wait(nabu_waiter *waiter, unsigned long ticket, int64_t timeout_ms) {
+    if (!nabu_threads_active) return 1;
+    if (!nabu_parallel) return nabu_gil_wait(timeout_ms);
+    if (timeout_ms == 0) return 1;
+    const int bounded = timeout_ms > 0 && timeout_ms <= NABU_WAITER_SPAN_MS;
+    const int64_t span = bounded ? timeout_ms : NABU_WAITER_SPAN_MS;
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += (time_t)(span / 1000);
+    deadline.tv_nsec += (long)(span % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
+    int timed_out = 0;
+    pthread_mutex_lock(&waiter->mutex);
+    /* sleeping first, then the look at the counter: the waker raises the counter first and then looks at sleeping */
+    __atomic_store_n(&waiter->sleeping, 1, __ATOMIC_SEQ_CST);
+    while (__atomic_load_n(&waiter->seq, __ATOMIC_SEQ_CST) == ticket && !timed_out) {
+        if (pthread_cond_timedwait(&waiter->wake, &waiter->mutex, &deadline) != 0) timed_out = 1;
+    }
+    __atomic_store_n(&waiter->sleeping, 0, __ATOMIC_SEQ_CST);
+    pthread_mutex_unlock(&waiter->mutex);
+    return timed_out && bounded;
+}
+
+void nabu_waiter_wake(nabu_waiter *waiter) {
+    if (!nabu_parallel) {
+        nabu_gil_signal();
+        return;
+    }
+    if (waiter == NULL) return;
+    __atomic_add_fetch(&waiter->seq, 1, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&waiter->sleeping, __ATOMIC_SEQ_CST)) {
+        pthread_mutex_lock(&waiter->mutex);
+        pthread_cond_signal(&waiter->wake);
+        pthread_mutex_unlock(&waiter->mutex);
+    }
+}
+
+/* The queues of the keys: the waiters of a monitor, of a class initializer. */
+#define NABU_KEYQ_BUCKETS 256
+
+typedef struct nabu_keyq_entry {
+    const void *key;
+    nabu_waiter *waiter;
+    struct nabu_keyq_entry *next;
+} nabu_keyq_entry;
+
+static pthread_mutex_t nabu_keyq_locks[NABU_KEYQ_BUCKETS];
+static nabu_keyq_entry *nabu_keyq_heads[NABU_KEYQ_BUCKETS];
+static nabu_keyq_entry *nabu_keyq_tails[NABU_KEYQ_BUCKETS];
+static pthread_once_t nabu_keyq_once = PTHREAD_ONCE_INIT;
+
+static void nabu_keyq_init(void) {
+    for (int i = 0; i < NABU_KEYQ_BUCKETS; i++) pthread_mutex_init(&nabu_keyq_locks[i], NULL);
+}
+
+static unsigned nabu_keyq_bucket(const void *key) {
+    return (unsigned) (((uintptr_t) key >> 4) * 2654435761u) % NABU_KEYQ_BUCKETS;
+}
+
+void nabu_keyq_add(const void *key, nabu_waiter *waiter) {
+    if (!nabu_parallel) return;
+    pthread_once(&nabu_keyq_once, nabu_keyq_init);
+    nabu_keyq_entry *entry = (nabu_keyq_entry *) malloc(sizeof *entry);
+    entry->key = key;
+    entry->waiter = waiter;
+    const unsigned bucket = nabu_keyq_bucket(key);
+    entry->next = NULL;
+    pthread_mutex_lock(&nabu_keyq_locks[bucket]);
+    /* at the end: the one that waits longest is woken first */
+    if (nabu_keyq_tails[bucket] != NULL) nabu_keyq_tails[bucket]->next = entry; else nabu_keyq_heads[bucket] = entry;
+    nabu_keyq_tails[bucket] = entry;
+    pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
+}
+
+void nabu_keyq_remove(const void *key, nabu_waiter *waiter) {
+    if (!nabu_parallel) return;
+    pthread_once(&nabu_keyq_once, nabu_keyq_init);
+    const unsigned bucket = nabu_keyq_bucket(key);
+    pthread_mutex_lock(&nabu_keyq_locks[bucket]);
+    nabu_keyq_entry *previous = NULL;
+    for (nabu_keyq_entry *entry = nabu_keyq_heads[bucket]; entry != NULL; previous = entry, entry = entry->next) {
+        if (entry->key == key && entry->waiter == waiter) {
+            if (previous != NULL) previous->next = entry->next; else nabu_keyq_heads[bucket] = entry->next;
+            if (nabu_keyq_tails[bucket] == entry) nabu_keyq_tails[bucket] = previous;
+            free(entry);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
+}
+
+void nabu_keyq_wake_one(const void *key) {
+    if (!nabu_parallel) {
+        nabu_gil_signal();
+        return;
+    }
+    pthread_once(&nabu_keyq_once, nabu_keyq_init);
+    const unsigned bucket = nabu_keyq_bucket(key);
+    pthread_mutex_lock(&nabu_keyq_locks[bucket]);
+    for (nabu_keyq_entry *entry = nabu_keyq_heads[bucket]; entry != NULL; entry = entry->next) {
+        if (entry->key == key) {
+            nabu_waiter_wake(entry->waiter);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
+}
+
+void nabu_keyq_wake(const void *key) {
+    if (!nabu_parallel) {
+        nabu_gil_signal();
+        return;
+    }
+    pthread_once(&nabu_keyq_once, nabu_keyq_init);
+    const unsigned bucket = nabu_keyq_bucket(key);
+    pthread_mutex_lock(&nabu_keyq_locks[bucket]);
+    for (nabu_keyq_entry *entry = nabu_keyq_heads[bucket]; entry != NULL; entry = entry->next) {
+        if (entry->key == key) nabu_waiter_wake(entry->waiter);
+    }
+    pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
+}
 
 int nabu_gil_wait_since(unsigned long ticket, int64_t timeout_ms) {
     if (!nabu_threads_active) return 1;
@@ -2252,16 +2411,19 @@ void nabu_monitorenter(void *obj) {
             int free_word = 0;
             if (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                 nabu_wait_mark(3);
+                nabu_waiter *waiter = nabu_waiter_self();
+                nabu_keyq_add(obj, waiter);
                 __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
                 for (;;) {
-                    const unsigned long ticket = nabu_gil_ticket();
+                    const unsigned long ticket = nabu_waiter_ticket(waiter);
                     free_word = 0;
                     if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                         break;
                     }
-                    nabu_gil_wait_since(ticket, -1);
+                    nabu_waiter_wait(waiter, ticket, -1);
                 }
                 __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
+                nabu_keyq_remove(obj, waiter);
                 nabu_wait_mark(0);
             }
             header->monitor_count = 1;
@@ -2291,7 +2453,7 @@ void nabu_monitorexit(void *obj) {
         if (--header->monitor_count == 0) {
             __atomic_store_n(&header->thread_id, 0, __ATOMIC_SEQ_CST);
             if (__atomic_load_n(&nabu_monitor_waiters, __ATOMIC_SEQ_CST) > 0) {
-                nabu_gil_signal();
+                nabu_keyq_wake_one(obj);
             }
         }
         return;

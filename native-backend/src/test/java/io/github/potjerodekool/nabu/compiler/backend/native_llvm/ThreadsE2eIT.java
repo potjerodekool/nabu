@@ -191,6 +191,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void manyVirtualThreads() throws Exception {
+        assertEquals(expected("manyVirtualThreads"), output("manyVirtualThreads"));
+    }
+
+    @Test
     void parallelSpeed() throws Exception {
         assertEquals(expected("parallelSpeed"), output("parallelSpeed"));
     }

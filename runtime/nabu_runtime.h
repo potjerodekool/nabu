@@ -471,6 +471,9 @@ void nabu_gil_signal(void);
 void nabu_spin_hint(const void *address);
 /** Gives up the lock until nabu_gil_signal or the timeout (ms, negative: none); 1 when the time passed. */
 int nabu_gil_wait(int64_t timeout_ms);
+/* Where the running thread tells what it waits for (Thread.getState): 0 runs, 1 timed waiting, 2 waiting, 3 blocked. */
+void nabu_set_wait_slot(volatile int *slot);
+void nabu_wait_mark(int state);
 /** Registers the program's ThreadSupport.runThread(Thread), which a new thread runs. */
 void nabu_set_thread_run_fn(void *fn);
 

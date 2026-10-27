@@ -125,6 +125,8 @@ final class RuntimeCalls {
             new Redirect("java/lang/Thread", "getThreadGroup", "()Ljava/lang/ThreadGroup;", false, THREAD_SUPPORT,
                     "getThreadGroup"),
             new Redirect("java/lang/Thread", "getState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT, "getState"),
+            new Redirect("java/lang/Thread", "getAllStackTraces", "()Ljava/util/Map;", true, THREAD_SUPPORT,
+                    "getAllStackTraces"),
             new Redirect("java/lang/Thread", "getUncaughtExceptionHandler",
                     "()Ljava/lang/Thread$UncaughtExceptionHandler;", false, THREAD_SUPPORT, "getUncaughtExceptionHandler"),
             new Redirect("java/lang/Thread", "start", "(Ljdk/internal/vm/ThreadContainer;)V", false, THREAD_SUPPORT,

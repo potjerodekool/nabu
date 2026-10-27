@@ -16,6 +16,10 @@ public final class ThreadSupport {
     public static void runThread(final Thread thread) {
         live.add(thread);
         try {
+            final Object parentLocals = parentLocals0(thread);
+            if (parentLocals != null) {
+                setLocals0(thread, inheritedMap0(parentLocals));
+            }
             if (thread.getClass() == Thread.class) {
                 final Object target = ShutdownSupport.targetOf0(thread);
                 if (target instanceof Runnable runnable) {
@@ -46,6 +50,16 @@ public final class ThreadSupport {
     private static native Object containerOf0(Thread thread);
 
     private static native void inheritBindings0(Thread thread);
+
+    /** The inheritable thread locals of the thread that made this one (null: none). */
+    private static native Object parentLocals0(Thread thread);
+
+    private static native void setLocals0(Thread thread, Object map);
+
+    /** ThreadLocal.createInheritedMap(parent): replaced when the program is compiled (the method is not public). */
+    private static Object inheritedMap0(final Object parent) {
+        return null;
+    }
 
     // The three bodies below are replaced when the program is compiled (BytecodeReachabilityCompiler): they call
     // jdk.internal.vm.ThreadContainer, which cannot be named in this source.
@@ -94,6 +108,16 @@ public final class ThreadSupport {
             threads[i + 1] = live.get(i);
         }
         return threads;
+    }
+
+    /** Thread.getAllStackTraces: the running threads, each with an empty trace (the stack of another thread is not walked). */
+    public static java.util.Map<Thread, StackTraceElement[]> getAllStackTraces() {
+        final java.util.HashMap<Thread, StackTraceElement[]> traces = new java.util.HashMap<>();
+        final Thread[] threads = liveThreads();
+        for (int i = 0; i < threads.length; i++) {
+            traces.put(threads[i], new StackTraceElement[0]);
+        }
+        return traces;
     }
 
     private static native Object handlerOf0(Thread thread);
@@ -298,7 +322,7 @@ public final class ThreadSupport {
         }
     }
 
-    /** 0 new, 1 started, 2 terminated. */
+    /** 0 new, 2 terminated, 10 a started thread that runs, 11 timed waiting, 12 waiting, 13 blocked on a monitor. */
     private static native int stateOf0(Thread thread);
 
     public static Thread.State getState(final Thread thread) {
@@ -306,6 +330,15 @@ public final class ThreadSupport {
         if (state == 0) {
             return Thread.State.NEW;
         }
-        return state == 1 ? Thread.State.RUNNABLE : Thread.State.TERMINATED;
+        if (state == 2) {
+            return Thread.State.TERMINATED;
+        }
+        if (state == 11) {
+            return Thread.State.TIMED_WAITING;
+        }
+        if (state == 12) {
+            return Thread.State.WAITING;
+        }
+        return state == 13 ? Thread.State.BLOCKED : Thread.State.RUNNABLE;
     }
 }

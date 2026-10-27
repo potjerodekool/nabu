@@ -63,7 +63,7 @@ typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 /* A java.lang.Thread. state: 0 new, 1 started, 2 terminated. Threads run one at a time (see nabu_gil_*). */
 typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
                  int daemon; int priority; int64_t id;
-                 int state; int interrupted; int permit; void *self;
+                 int state; int interrupted; int permit; void *self; volatile int wait_state; void *inherit_from;
                  void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
@@ -4047,6 +4047,7 @@ static s_thread *jcl_thread_new_state(void) {
     st->priority = 5;
     st->id = next_id++;
     st->group = jcl_thread_state(jcl_current_thread())->group;
+    st->inherit_from = jcl_thread_state(jcl_current_thread())->inheritableThreadLocals;
     return st;
 }
 
@@ -4175,6 +4176,7 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     h->thread_id = 0;
     nabu_gil_signal();
     const int64_t start = jcl_now_ms();
+    nabu_wait_mark(timeout > 0 ? 1 : 2);
     while (!w.notified && !cur->interrupted) {
         if (timeout > 0) {
             int64_t left = timeout - (jcl_now_ms() - start);
@@ -4187,7 +4189,9 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     for (jcl_waiter **p = &jcl_waiters; *p != NULL; p = &(*p)->next) {
         if (*p == &w) { *p = w.next; break; }
     }
+    nabu_wait_mark(3);
     while (h->monitor_count > 0 && h->thread_id != me) nabu_gil_wait(-1);
+    nabu_wait_mark(0);
     h->monitor_count = depth;
     h->thread_id = me;
     if (!w.notified) jcl_check_interrupt(cur);
@@ -4198,7 +4202,15 @@ BIND(void, jcl_ThreadSupport_waitOn0, "io.github.potjerodekool.nabu.compiler.bac
 }
 
 BIND(int, jcl_ThreadSupport_stateOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_stateOf0", (void *thread)) {
-    return jcl_thread_of(thread)->state;
+    s_thread *st = jcl_thread_of(thread);
+    /* 0 new, 2 terminated, 10 + what a started thread waits for (0 runs, 1 timed waiting, 2 waiting, 3 blocked) */
+    return st->state == 1 ? 10 + st->wait_state : st->state;
+}
+BIND(void *, jcl_ThreadSupport_parentLocals0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_parentLocals0", (void *thread)) {
+    return jcl_thread_of(thread)->inherit_from;
+}
+BIND(void, jcl_ThreadSupport_setLocals0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_setLocals0", (void *thread, void *map)) {
+    jcl_thread_of(thread)->inheritableThreadLocals = map;
 }
 
 BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
@@ -4207,11 +4219,13 @@ BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
     if (ms <= 0) return;
     if (!nabu_threads_active) { jcl_sleep_ms(ms); return; }
     const int64_t start = jcl_now_ms();
+    nabu_wait_mark(1);
     while (!cur->interrupted) {
         int64_t left = ms - (jcl_now_ms() - start);
         if (left <= 0) break;
         nabu_gil_wait(left);
     }
+    nabu_wait_mark(0);
     jcl_check_interrupt(cur);
 }
 
@@ -4233,6 +4247,7 @@ BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int ab
     }
     if (!nabu_threads_active) { if (ms > 0) jcl_sleep_ms(ms); return; }
     const int64_t start = jcl_now_ms();
+    nabu_wait_mark(ms >= 0 ? 1 : 2);
     while (!cur->permit && !cur->interrupted) {
         if (ms >= 0) {
             int64_t left = ms - (jcl_now_ms() - start);
@@ -4242,6 +4257,7 @@ BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int ab
             nabu_gil_wait(-1);
         }
     }
+    nabu_wait_mark(0);
     cur->permit = 0;
 }
 BIND(void, jcl_Unsafe_unpark, "jdk.internal.misc.Unsafe_unpark", (void *self, void *thread)) {
@@ -4283,6 +4299,7 @@ static void *jcl_thread_main(void *arg) {
     nabu_gil_acquire();
     jcl_cur_thread = st->self;
     nabu_set_current_thread_id((int)st->id);
+    nabu_set_wait_slot(&st->wait_state);
     if (jcl_thread_run_fn != NULL) jcl_thread_run_fn(st->self);
     st->state = 2;
     if (!st->daemon) jcl_live_threads--;
@@ -4303,6 +4320,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     if (!nabu_threads_active) {
         nabu_threads_active = 1;
         nabu_gil_acquire();
+        nabu_set_wait_slot(&jcl_thread_of(jcl_current_thread())->wait_state);
         atexit(jcl_await_threads);
     }
     st->state = 1;
@@ -4359,7 +4377,10 @@ BIND(void *, jcl_VirtualThread_currentThread, "java.lang.VirtualThread_currentTh
 BIND(int, jcl_Thread_isVirtual, "java.lang.Thread_isVirtual", (void *self)) { return jcl_thread_of(self)->is_virtual; }
 BIND(int64_t, jcl_Thread_threadId, "java.lang.Thread_threadId", (void *self)) { return jcl_thread_of(self)->id; }
 BIND(void *, jcl_Thread_getName, "java.lang.Thread_getName", (void *self)) { return nabu_jstring_new(jcl_thread_of(self)->name); }
-BIND(int, jcl_Thread_holdsLock, "java.lang.Thread_holdsLock", (void *obj)) { (void)obj; return 1; }
+BIND(int, jcl_Thread_holdsLock, "java.lang.Thread_holdsLock", (void *obj)) {
+    if (obj == NULL) jcl_throw_new("java/lang/NullPointerException", "java/lang/RuntimeException", NULL);
+    return jcl_owns_monitor(obj);
+}
 BIND(void *, jcl_Thread_getContextClassLoader, "java.lang.Thread_getContextClassLoader", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_Thread_getUncaughtExceptionHandler, "java.lang.Thread_getUncaughtExceptionHandler", (void *self)) { return jcl_thread_of(self)->handler; }
 BIND(int, jcl_ContinuationSupport_isSupported0, "jdk.internal.vm.ContinuationSupport_isSupported0", (void)) { return 0; }

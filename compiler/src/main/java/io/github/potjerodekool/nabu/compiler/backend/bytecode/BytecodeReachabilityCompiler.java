@@ -1464,6 +1464,15 @@ public final class BytecodeReachabilityCompiler {
                             "(Ljava/lang/Thread;)V", false));
                     insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
                 });
+            } else if ("inheritedMap0".equals(m.name)) {
+                final String map = "java/lang/ThreadLocal$ThreadLocalMap";
+                replaceBody(m, insns -> {
+                    insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                    insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.CHECKCAST, map));
+                    insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/ThreadLocal",
+                            "createInheritedMap", "(L" + map + ";)L" + map + ";", false));
+                    insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                });
             } else if ("containerInherits0".equals(m.name)) {
                 replaceBody(m, insns -> {
                     final var no = new org.objectweb.asm.tree.LabelNode();

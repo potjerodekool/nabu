@@ -1992,6 +1992,12 @@ static unsigned long nabu_gil_serving = 0;
 static unsigned long nabu_gil_events = 0;
 volatile int nabu_threads_active = 0;
 
+/* Where the running thread tells what it waits for, see nabu_wait_mark. */
+static __thread volatile int *nabu_wait_slot = NULL;
+
+void nabu_set_wait_slot(volatile int *slot) { nabu_wait_slot = slot; }
+void nabu_wait_mark(int state) { if (nabu_wait_slot != NULL) *nabu_wait_slot = state; }
+
 /* The id of the running thread, in the header of the object whose monitor it holds. The main thread is 1. */
 static __thread int nabu_thread_id = 1;
 
@@ -2099,8 +2105,12 @@ void nabu_monitorenter(void *obj) {
     }
     nabu_object *header = (nabu_object *)obj;
     const int me = nabu_thread_id;
-    while (header->monitor_count > 0 && header->thread_id != me) {
-        nabu_gil_wait(-1);
+    if (header->monitor_count > 0 && header->thread_id != me) {
+        nabu_wait_mark(3);
+        while (header->monitor_count > 0 && header->thread_id != me) {
+            nabu_gil_wait(-1);
+        }
+        nabu_wait_mark(0);
     }
     header->monitor_count++;
     header->thread_id = me;

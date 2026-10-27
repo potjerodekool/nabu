@@ -1,0 +1,14 @@
+#!/bin/sh
+# nabu-native-image: compiles a Java program (jars, a class directory) to a native executable.
+# Set NABU_JAVA_OPTS for options of the JVM that runs the compiler, for example NABU_JAVA_OPTS=-Xmx3g.
+self="$0"
+while [ -h "$self" ]; do
+    target=$(readlink "$self")
+    case "$target" in
+        /*) self="$target" ;;
+        *) self="$(dirname "$self")/$target" ;;
+    esac
+done
+home=$(cd "$(dirname "$self")/.." && pwd)
+if [ -n "$NABU_JAVA_HOME" ]; then java="$NABU_JAVA_HOME/bin/java"; elif [ -n "$JAVA_HOME" ]; then java="$JAVA_HOME/bin/java"; else java=java; fi
+exec "$java" $NABU_JAVA_OPTS -cp "$home/lib/*" io.github.potjerodekool.nabu.nativeimage.NativeImage "$@"

@@ -24,6 +24,7 @@ import java.util.jar.JarFile;
  * @param opt       the optimization level: NONE, DEFAULT or AGGRESSIVE
  * @param strict    fail the build instead of producing a program that can fail on a missing JDK method
  * @param keepWork  keep the directory with the intermediate files
+ * @param staticLink link the runtime of the toolchain into the executable (Windows/MinGW)
  * @param action    what to do
  * @param warnings  options that are accepted but have no effect
  */
@@ -35,6 +36,7 @@ public record NativeImageArguments(List<Path> classPath,
                                    String opt,
                                    boolean strict,
                                    boolean keepWork,
+                                   boolean staticLink,
                                    Action action,
                                    List<String> warnings) {
 
@@ -58,6 +60,7 @@ public record NativeImageArguments(List<Path> classPath,
         String opt = "DEFAULT";
         boolean strict = false;
         boolean keepWork = false;
+        boolean staticLink = false;
         Action action = Action.BUILD;
 
         for (int i = 0; i < args.size(); i++) {
@@ -94,6 +97,8 @@ public record NativeImageArguments(List<Path> classPath,
                 strict = true;
             } else if (arg.equals("--keep-work")) {
                 keepWork = true;
+            } else if (arg.equals("--static")) {
+                staticLink = true;
             } else if (arg.equals("--verbose") || arg.equals("--install-exit-handlers")) {
                 warnings.add(arg + " has no effect");
             } else if (arg.startsWith("-H:") || arg.startsWith("-R:") || arg.startsWith("-J")
@@ -109,8 +114,8 @@ public record NativeImageArguments(List<Path> classPath,
         }
 
         if (action != Action.BUILD) {
-            return new NativeImageArguments(classPath, null, imageName, outputDir, gc, opt, strict, keepWork, action,
-                    warnings);
+            return new NativeImageArguments(classPath, null, imageName, outputDir, gc, opt, strict, keepWork,
+                    staticLink, action, warnings);
         }
 
         String mainClass;
@@ -158,7 +163,8 @@ public record NativeImageArguments(List<Path> classPath,
             throw new UsageException("unknown --opt value " + opt + ", use NONE, DEFAULT or AGGRESSIVE");
         }
         return new NativeImageArguments(List.copyOf(classPath), mainClass, imageName,
-                outputDir != null ? outputDir : Path.of("."), gc, opt, strict, keepWork, action, List.copyOf(warnings));
+                outputDir != null ? outputDir : Path.of("."), gc, opt, strict, keepWork, staticLink, action,
+                List.copyOf(warnings));
     }
 
     private static String value(final List<String> args, final int index, final String option)

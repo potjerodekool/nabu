@@ -78,6 +78,11 @@ public class Linker {
                 objects.forEach(o -> cmd.add(o.toString()));
                 addRuntimeSources(cmd, gcStrategy);
                 addGcLibraries(cmd, gcStrategy);
+                if (Boolean.getBoolean("nabu.link.static")) {
+                    // The MinGW runtime (libgcc, libwinpthread, libstdc++) inside the executable: it then runs
+                    // without the toolchain's bin directory on the PATH.
+                    cmd.add("-static");
+                }
             } else {
                 throw new CompileException(msvcUnsupported(triple));
             }

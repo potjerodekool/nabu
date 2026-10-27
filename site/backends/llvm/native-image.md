@@ -27,6 +27,7 @@ nabu-native-image --doctor                               # checks gcc/clang, lib
 | `--gc` | `BOEHM` (default), `REFCOUNT` or `NONE` |
 | `-O0` … `-O3`, `--opt` | `NONE`, `DEFAULT` or `AGGRESSIVE` |
 | `--strict`, `--no-fallback` | fail the build when the program or its libraries call a method that has no implementation (a `native` method of the program, a library method that could not be compiled) |
+| `--static` | link the runtime of the toolchain into the executable; on Windows it then runs without the MinGW `bin` directory on the `PATH` |
 | `--keep-work` | keep the directory with the intermediate files (`.nabu-build-<name>`) |
 | `--doctor` | check what a build needs |
 
@@ -40,7 +41,7 @@ The `META-INF/native-image` configuration of the jars (reflection, resources, pr
 - `lib/tzdb.dat` next to it: the time zone data the program reads at run time, which must stay next to the executable;
 - `<name>.unresolved.txt` and `<name>.warnings.txt`: the JDK methods the program can reach but that are not implemented; the program stops when it executes one.
 
-On Windows the executable needs the runtime libraries of the MinGW toolchain on the `PATH`, as for every program of this backend.
+On Windows an executable needs the runtime libraries of the MinGW toolchain on the `PATH`, unless it is built with `--static`.
 
 ## Closed world
 
@@ -53,3 +54,15 @@ The executable contains only what the build can reach from `main`. Three things 
 ## Not there yet
 
 A faster build (the JDK part is compiled again every time), a check of `Class.forName` calls against the configuration, and a distribution that does not need Maven.
+
+## The distribution
+
+`mvn package -pl native-image -am` puts a ready-to-use directory in `native-image/target/dist`:
+
+```
+bin/nabu-native-image        (Linux, macOS)
+bin/nabu-native-image.cmd    (Windows)
+lib/*.jar                    the compiler, the language support and the backend with the LLVM libraries
+```
+
+The launchers need a JDK 21 or later (`NABU_JAVA_HOME`, `JAVA_HOME` or the `PATH`); `NABU_JAVA_OPTS` holds options of the JVM that runs the compiler, for example `-Xmx3g`. The backend jar is about 500 MB, because it contains the LLVM libraries of its platform: a distribution is for one platform.

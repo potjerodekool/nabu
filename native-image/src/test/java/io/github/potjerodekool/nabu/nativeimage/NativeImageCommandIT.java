@@ -56,6 +56,28 @@ class NativeImageCommandIT {
     }
 
     @Test
+    void aStaticExecutableRunsWithoutTheToolchainOnThePath() throws Exception {
+        final Path jar = jar("app.Main", Map.of("app/Main.java", """
+                package app;
+
+                public class Main {
+                    public static void main(String[] args) {
+                        System.out.println("static " + args.length);
+                    }
+                }
+                """), Map.of());
+
+        final Path exe = build(0, "--static", "-d", temp.resolve("bin").toString(), "-jar", jar.toString());
+
+        assertTrue(Files.isRegularFile(exe));
+        final Process process = new ProcessBuilder(exe.toString(), "a").redirectErrorStream(true).start();
+        final String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                .replace("\r\n", "\n");
+        assertTrue(process.waitFor(60, TimeUnit.SECONDS));
+        assertEquals("static 1\n", output);
+    }
+
+    @Test
     void serviceLoaderFindsTheProvidersOfTheServicesFiles() throws Exception {
         final Path jar = jar("app.Main", Map.of(
                 "app/Greeter.java", """

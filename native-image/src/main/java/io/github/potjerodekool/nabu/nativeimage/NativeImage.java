@@ -73,6 +73,7 @@ public final class NativeImage {
                   --gc <BOEHM|REFCOUNT|NONE> garbage collector (default BOEHM)
                   -O0 .. -O3, --opt <level>  optimization: NONE, DEFAULT or AGGRESSIVE (-O0 / -O1, -O2 / -O3)
                   --strict, --no-fallback    fail when the program or its libraries call a method without implementation
+                  --static                   link the toolchain runtime into the executable (Windows: no MinGW DLLs needed)
                   --keep-work                keep the directory with the intermediate files
                   --doctor                   check the toolchain this command needs
                   --version                  print the version
@@ -130,6 +131,9 @@ public final class NativeImage {
                 }
                 err.println(message);
             });
+            if (arguments.staticLink()) {
+                System.setProperty("nabu.link.static", "true");
+            }
             out.println("Building " + arguments.mainClass() + " ...");
             final long start = System.nanoTime();
             final int result;

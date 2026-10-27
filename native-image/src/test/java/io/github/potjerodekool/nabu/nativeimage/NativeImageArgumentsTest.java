@@ -43,6 +43,12 @@ class NativeImageArgumentsTest {
     }
 
     @Test
+    void staticLinkingIsAnOption() throws Exception {
+        assertTrue(NativeImageArguments.parse(List.of("--static", "a.Main")).staticLink());
+        assertTrue(!NativeImageArguments.parse(List.of("a.Main")).staticLink());
+    }
+
+    @Test
     void optimizationAndGcOptions() throws Exception {
         final var arguments = NativeImageArguments.parse(List.of("-O3", "--gc=refcount", "a.Main"));
 

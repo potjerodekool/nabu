@@ -4381,7 +4381,14 @@ BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int ab
             left = ms - (jcl_now_ms() - start);
             if (left <= 0) break;
         }
+        const int64_t before = jcl_now_ms();
         nabu_waiter_wait(waiter, ticket, left);
+        /* A park that nobody ended for the length of the safety span of the waiters returns, as a park may
+         * (spurious return): the callers (AbstractQueuedSynchronizer, FutureTask, ...) look at their state again.
+         * Under heavy load (a dozen programs at once on the cores) a wake-up of a lock was lost now and then, about
+         * once in a few hundred runs of the lock test; the cause is not found. This turns the hang that came of it
+         * into a delay of a second. */
+        if (ms < 0 && !__atomic_load_n(&cur->permit, __ATOMIC_SEQ_CST) && jcl_now_ms() - before >= 900) break;
     }
     nabu_wait_mark(0);
     __atomic_store_n(&cur->permit, 0, __ATOMIC_SEQ_CST);

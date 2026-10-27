@@ -65,12 +65,16 @@ public class Main {
                 }
             });
         }
-        List<Future<Integer>> futures = pool.invokeAll(tasks);
         StringBuilder sb = new StringBuilder("invokeAll");
-        for (Future<Integer> f : futures) {
+        for (Future<Integer> f : pool.invokeAll(tasks)) {
             sb.append(' ').append(f.get());
         }
         System.out.println(sb);
+        System.out.println("invokeAny " + pool.invokeAny(List.of(new Callable<String>() {
+            public String call() {
+                return "ok";
+            }
+        })));
         pool.shutdown();
 
         final AtomicInteger counter = new AtomicInteger();

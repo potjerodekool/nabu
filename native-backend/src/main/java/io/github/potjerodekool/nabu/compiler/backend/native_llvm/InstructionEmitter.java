@@ -674,7 +674,13 @@ public class InstructionEmitter {
         LLVMValueRef obj;
         if (ha.allocType() instanceof IRType.Ptr p && p.jvmDescriptor() != null) {
             final String internalName = ClassLayouts.fromDescriptor(p.jvmDescriptor());
-            obj = allocForStrategy(headerSize + JCL_STATE_SLOT, nameOf(ha.result()));
+            // A plain Thread has the room behind its state word that its subclasses have too (see
+            // ClassLayouts.THREAD_ROOM_WORDS): the JDK writes there with Unsafe (the park blocker, the random
+            // seed). With only the state word, LockSupport.setCurrentBlocker overwrote the next object.
+            final long size = "java/lang/Thread".equals(internalName)
+                    ? headerSize + 8L * ClassLayouts.THREAD_ROOM_WORDS
+                    : headerSize + JCL_STATE_SLOT;
+            obj = allocForStrategy(size, nameOf(ha.result()));
             // GC-strategie-onafhankelijk: het runtime-type-info komt van de naam.
             final LLVMValueRef initObjFn = globalValueMap.get("@nabu_init_object");
             if (initObjFn == null) {

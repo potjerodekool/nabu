@@ -175,6 +175,16 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void objectAcrossInvokeAll() throws Exception {
+        assertEquals(expected("objectAcrossInvokeAll"), output("objectAcrossInvokeAll"));
+    }
+
+    @Test
+    void completionServiceAndLinkedQueue() throws Exception {
+        assertEquals(expected("completionServiceAndLinkedQueue"), output("completionServiceAndLinkedQueue"));
+    }
+
+    @Test
     void threadStatesInheritableLocalsAndExecutorExtras() throws Exception {
         assertEquals(expected("threadStatesInheritableLocalsAndExecutorExtras"), output("threadStatesInheritableLocalsAndExecutorExtras"));
     }

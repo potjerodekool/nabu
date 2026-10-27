@@ -6,6 +6,7 @@ state BLOCKED
 holds true false
 state TERMINATED
 invokeAll 1 4 9
+invokeAny ok
 factory worker-1 worker-2
 shutdownNow interrupted true
 stacks true

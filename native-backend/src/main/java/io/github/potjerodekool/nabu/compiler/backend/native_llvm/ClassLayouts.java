@@ -628,12 +628,18 @@ for (IRModule m : modules) {
                         // The call as the emitter sees it: a method the interface only inherits
                         // (Stream.onClose, declared by BaseStream) is named after its declaring interface.
                         if (instr instanceof IRInstruction.Call raw
-                                && raw.callKind() == CallKind.INTERFACE
+                                && (raw.callKind() == CallKind.INTERFACE || raw.callKind() == CallKind.VIRTUAL)
                                 && raw.function() != null) {
                             // Only a call that does not name a declared function is rewritten: the others keep their slot.
                             final IRInstruction.Call call = resolveFunction(raw.function()) != null
                                     ? raw : canonicalize(CallTargets.normalize(raw));
                             if (call.function() == null || resolveFunction(call.function()) == null) {
+                                continue;
+                            }
+                            // An invokevirtual of a method the class only inherits from an interface
+                            // (AbstractQueue.add calls this.offer, which only Queue declares) is dispatched through
+                            // the itable too (see InstructionEmitter); a direct call went to the abstract declaration.
+                            if (raw.callKind() == CallKind.VIRTUAL && !ownedByInterface(call.function())) {
                                 continue;
                             }
                             // A method the interface inherits from Object has a vtable slot, not an itable slot.
@@ -1389,7 +1395,7 @@ for (IRModule m : modules) {
     }
 
     /** Words of a Thread object from the state word on (offset 40) to the first field of a subclass (offset 128). */
-    private static final int THREAD_ROOM_WORDS = 11;
+    static final int THREAD_ROOM_WORDS = 11;
 
     /** Whether the superclass of the module is {@code java.lang.Thread}, which the C runtime provides. */
     private static boolean extendsRuntimeThread(final IRModule module) {

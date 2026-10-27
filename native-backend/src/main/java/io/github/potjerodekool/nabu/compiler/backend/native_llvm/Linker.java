@@ -37,7 +37,8 @@ public class Linker {
                              Path       executable,
                              String     targetTriple,
                              CompileOptions.GcStrategy gcStrategy) throws CompileException {
-        List<String> cmd = buildCommand(objectFiles, executable, targetTriple, gcStrategy);
+        List<String> cmd = buildCommand(objectFiles, executable, targetTriple, gcStrategy,
+                cachedRuntime(targetTriple, gcStrategy));
         try {
             Process process = new ProcessBuilder(cmd)
                     .redirectErrorStream(true)
@@ -65,6 +66,18 @@ public class Linker {
                                      Path exe,
                                      String triple,
                                      CompileOptions.GcStrategy gcStrategy) throws CompileException {
+        return buildCommand(objects, exe, triple, gcStrategy, null);
+    }
+
+    /**
+     * As above; with {@code runtimeObjects} the runtime is linked from these object files instead of being compiled
+     * from its sources in the same command (see {@link RuntimeObjects}).
+     */
+    static List<String> buildCommand(List<Path> objects,
+                                     Path exe,
+                                     String triple,
+                                     CompileOptions.GcStrategy gcStrategy,
+                                     List<Path> runtimeObjects) throws CompileException {
         List<String> cmd = new ArrayList<>();
         if (triple != null && triple.contains("windows")) {
             if (triple.contains("gnu")) {
@@ -76,7 +89,7 @@ public class Linker {
                 cmd.add("-g"); cmd.add("-gdwarf-4");
                 cmd.add("-o"); cmd.add(exe.toString());
                 objects.forEach(o -> cmd.add(o.toString()));
-                addRuntimeSources(cmd, gcStrategy);
+                addRuntime(cmd, gcStrategy, runtimeObjects);
                 addGcLibraries(cmd, gcStrategy);
                 if (Boolean.getBoolean("nabu.link.static")) {
                     // The MinGW runtime (libgcc, libwinpthread, libstdc++) inside the executable: it then runs
@@ -91,7 +104,7 @@ public class Linker {
             cmd.add("-g");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
-            addRuntimeSources(cmd, gcStrategy);
+            addRuntime(cmd, gcStrategy, runtimeObjects);
             addGcLibraries(cmd, gcStrategy);
             cmd.add("-lm");
         } else {
@@ -100,11 +113,49 @@ public class Linker {
             cmd.add("-rdynamic");
             cmd.add("-o"); cmd.add(exe.toString());
             objects.forEach(o -> cmd.add(o.toString()));
-            addRuntimeSources(cmd, gcStrategy);
+            addRuntime(cmd, gcStrategy, runtimeObjects);
             addGcLibraries(cmd, gcStrategy);
             cmd.add("-lm");
         }
         return cmd;
+    }
+
+    /** The runtime as compiled objects when we have them, else as the sources the compiler gets in the command. */
+    private static void addRuntime(List<String> cmd,
+                                   CompileOptions.GcStrategy gcStrategy,
+                                   List<Path> runtimeObjects) {
+        if (runtimeObjects == null) {
+            addRuntimeSources(cmd, gcStrategy);
+        } else {
+            runtimeObjects.forEach(o -> cmd.add(o.toString()));
+        }
+    }
+
+    /**
+     * The compiled runtime from the cache (compiled now when it is not there yet), or null when the target is not
+     * one we link or the compilation fails: the link command then compiles the sources itself.
+     */
+    private static List<Path> cachedRuntime(String triple, CompileOptions.GcStrategy gcStrategy) {
+        final List<String> flags = new ArrayList<>();
+        final String compiler;
+        if (triple != null && triple.contains("windows")) {
+            if (!triple.contains("gnu")) {
+                return null;
+            }
+            compiler = resolveCompiler("gcc");
+            flags.add("-g");
+            flags.add("-gdwarf-4");
+        } else if (triple != null && triple.contains("apple")) {
+            compiler = "clang";
+            flags.add("-g");
+        } else {
+            compiler = "gcc";
+            flags.add("-g");
+        }
+        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
+            flags.add("-DNABU_GC_BOEHM");
+        }
+        return RuntimeObjects.get(runtimeSources(), compiler, flags, triple);
     }
 
     private static void addRuntimeSources(List<String> cmd,

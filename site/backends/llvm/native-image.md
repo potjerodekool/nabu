@@ -55,6 +55,10 @@ The executable contains only what the build can reach from `main`. Three things 
 
 A faster build (the JDK part is compiled again every time), a check of `Class.forName` calls against the configuration, and a distribution that does not need Maven.
 
+## The runtime cache
+
+The C runtime that every program is linked with is compiled once and kept in `~/.nabu/cache/runtime/<key>/` (another directory: `-Dnabu.cache.dir=...` or `NABU_CACHE_DIR`). The key is a hash of the runtime sources and headers, the compiler (its version), the target and the flags, so a new compiler or a changed runtime makes a new entry; old entries can be deleted at any time. `-Dnabu.runtime.cache=false` switches the cache off. It saves about 2.5 seconds per build.
+
 ## The distribution
 
 `mvn package -pl native-image -am` puts a ready-to-use directory in `native-image/target/dist`:

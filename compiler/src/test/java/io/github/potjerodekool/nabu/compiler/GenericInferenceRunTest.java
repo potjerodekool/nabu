@@ -172,6 +172,35 @@ class GenericInferenceRunTest {
     }
 
     @Test
+    void nestedMemberTypesAsParametersAndChainedCallsOnAMap() throws Exception {
+        final var cls = compileAndLoad("NestedParam", """
+                package mini;
+                import java.util.Map;
+                public class NestedParam {
+                    static String a(Thread.State state) {
+                        return state.name();
+                    }
+                    static String b(Map.Entry<String, String> e) {
+                        return e.getKey();
+                    }
+                    static String c(Thread.UncaughtExceptionHandler h) {
+                        return h == null ? "none" : h.toString();
+                    }
+                    static String d(java.lang.Thread.State state) {
+                        return state.name();
+                    }
+
+                    public static String start() throws Exception {
+                        int n = Thread.getAllStackTraces().size();
+                        int k = Thread.getAllStackTraces().keySet().size();
+                        return a(Thread.State.NEW) + b(Map.entry("key", "v")) + c(null) + d(Thread.State.BLOCKED) + (n >= 0) + (k >= 0);
+                    }
+                }
+                """);
+        assertEquals("NEWkeynoneBLOCKEDtruetrue", cls.getMethod("start").invoke(null));
+    }
+
+    @Test
     void scheduleWithLambda() throws Exception {
         final var cls = compileAndLoad("Scheduled", """
                 package mini;

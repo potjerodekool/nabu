@@ -1127,21 +1127,38 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             if (element == null) {
                 return null;
             }
-            final String memberName = parts[i];
-            type = ElementFilter.elements(
-                            element,
-                            member -> member.getKind().isClass()
-                                    || member.getKind().isInterface()
-                                    || member.getKind() == ElementKind.ENUM
-                                    || member.getKind() == ElementKind.ANNOTATION_TYPE,
-                            TypeElement.class
-                    ).stream()
-                    .filter(member -> member.getSimpleName().contentEquals(memberName))
-                    .map(TypeElement::asType)
-                    .findFirst()
-                    .orElse(null);
+            type = memberType(element, parts[i]);
         }
         return type;
+    }
+
+    /**
+     * The member type {@code memberName} of {@code outer}. A member class of a class file is only an enclosed
+     * element of its outer class once it has been loaded itself (Map.Entry was, Thread.State was not), so it is
+     * loaded by its flat name when it is not among them.
+     */
+    private TypeMirror memberType(final TypeElement outer, final String memberName) {
+        final var declared = ElementFilter.elements(
+                        outer,
+                        member -> member.getKind().isClass()
+                                || member.getKind().isInterface()
+                                || member.getKind() == ElementKind.ENUM
+                                || member.getKind() == ElementKind.ANNOTATION_TYPE,
+                        TypeElement.class
+                ).stream()
+                .filter(member -> member.getSimpleName().contentEquals(memberName))
+                .map(TypeElement::asType)
+                .findFirst();
+        if (declared.isPresent()) {
+            return declared.get();
+        }
+        if (outer instanceof ClassSymbol outerClass) {
+            final var loaded = loader.loadClass(findModuleElement(outerClass), outerClass.getFlatName() + "$" + memberName);
+            if (loaded != null) {
+                return loaded.asType();
+            }
+        }
+        return null;
     }
 
     private TypeMirror resolveType(final String name,
@@ -1271,7 +1288,10 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         final var currentClass = (ClassSymbol) scope.getCurrentClass();
         final var clazz = typeIdentifier.getClazz();
         final var name = TreeUtils.getClassName(clazz);
-        DeclaredType type = (DeclaredType) resolveType(name, currentClass);
+        // A member type through its outer class (`Thread.State`, `Map.Entry`): the dotted name as a whole is no
+        // class, and looking it up gave a type without members (`state.name()` did not resolve).
+        final TypeMirror nested = name.indexOf('.') > 0 ? resolveNestedTypeName(name, scope, currentClass) : null;
+        DeclaredType type = (DeclaredType) (nested != null ? nested : resolveType(name, currentClass));
 
         if (type == null) {
             type = compilerContext.getTypes().getErrorType(name);
@@ -1865,9 +1885,17 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         // tried first whenever the qualifier is no variable.
         if (varElement == null) {
             final var qualifiedName = nameOfExpression(fieldAccessExpression);
-            TypeMirror type = qualifiedName != null && scope.getCurrentClass() instanceof ClassSymbol currentClass
-                    ? resolveType(qualifiedName, currentClass)
-                    : null;
+            TypeMirror type = null;
+            if (qualifiedName != null && scope.getCurrentClass() instanceof ClassSymbol currentClass) {
+                // A member type through its outer class (`Thread.State`) before the dotted name as a whole,
+                // which was looked up as one class and gave a type without members.
+                if (qualifiedName.indexOf('.') > 0) {
+                    type = resolveNestedTypeName(qualifiedName, scope, currentClass);
+                }
+                if (type == null) {
+                    type = resolveType(qualifiedName, currentClass);
+                }
+            }
             if ((type == null || type instanceof ErrorType) && qualifiedName != null) {
                 // Without a class in scope (an annotation of a class
                 // header: `@Retention(java.lang.annotation.RetentionPolicy.RUNTIME)`).
@@ -1878,6 +1906,21 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 fieldAccessExpression.getField().setType(type);
                 fieldAccessExpression.setType(type);
                 return fieldAccessExpression;
+            }
+        }
+
+        // A member type through its outer class (`Thread.State`): the selector is a type, so the field is looked
+        // up among its member types. Resolving the field name in the scope of the outer class gave a type
+        // without members (`state.name()` did not resolve).
+        if (varElement == null && selected.getType() != null && !(selected.getType() instanceof ErrorType)) {
+            final var outer = selected.getType().asTypeElement();
+            if (outer != null) {
+                final var member = memberType(outer, fieldAccessExpression.getField().getName());
+                if (member != null) {
+                    fieldAccessExpression.getField().setType(member);
+                    fieldAccessExpression.setType(member);
+                    return fieldAccessExpression;
+                }
             }
         }
 

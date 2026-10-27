@@ -8,6 +8,7 @@ import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableCla
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableType;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableTypeVariable;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.type.mutable.MutableWildcardType;
+import org.objectweb.asm.signature.SignatureVisitor;
 
 public class TypeArgumentVisitor extends AbstractVisitor {
 
@@ -50,6 +51,18 @@ public class TypeArgumentVisitor extends AbstractVisitor {
         } else {
             return typeMirror;
         }
+    }
+
+    /**
+     * An array as type argument (Thread.getAllStackTraces returns {@code Map<Thread, StackTraceElement[]>}): the
+     * ArrayVisitor only makes the array this visitor's type, so it is added to the arguments of the type here.
+     * It was dropped, which left {@code Map<Thread>}, and no method of it resolved.
+     */
+    @Override
+    public SignatureVisitor visitArrayType() {
+        final SignatureVisitor visitor = super.visitArrayType();
+        parent.addTypeArgument(process(type));
+        return visitor;
     }
 
     @Override

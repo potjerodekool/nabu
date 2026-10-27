@@ -12,7 +12,7 @@ public class Main {
     static final InheritableThreadLocal<String> local = new InheritableThreadLocal<String>();
     static final Object lock = new Object();
 
-    static void waitFor(Thread t, java.lang.Thread.State state) throws Exception {
+    static void waitFor(Thread t, Thread.State state) throws Exception {
         for (int i = 0; i < 2000 && t.getState() != state; i++) {
             Thread.sleep(1);
         }
@@ -114,7 +114,6 @@ public class Main {
         Thread.sleep(100);
         single.shutdownNow();
         System.out.println("shutdownNow interrupted " + single.awaitTermination(5, TimeUnit.SECONDS) + "");
-        java.util.Map<Thread, StackTraceElement[]> stacks = Thread.getAllStackTraces();
-        System.out.println("stacks " + (stacks.size() >= 1));
+        System.out.println("stacks " + (Thread.getAllStackTraces().size() >= 1));
     }
 }

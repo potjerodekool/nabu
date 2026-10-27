@@ -214,9 +214,28 @@ public final class BytecodeReachabilityCompiler {
      *       in JRELocaleProviderAdapter).</li>
      * </ul>
      */
-    /** JDK classes whose calls of String.format (error messages) go to MiniFormat. */
-    private static final Set<String> MINI_FORMAT_CLASSES = Set.of(
-            "java/lang/Integer", "java/lang/Long", "java/lang/Character", "java/lang/Short", "java/lang/Byte");
+    /**
+     * JDK classes that keep the real String.format: the Formatter itself and the classes with a conversion that
+     * MiniFormat does not know ({@code %f}, {@code %#x}, {@code %b}...). Found by scanning the sources of java.base for
+     * the patterns of its calls; every other class of the JDK only uses {@code %s %d %x %X %c %n %%} (with width).
+     */
+    private static final Set<String> REAL_FORMAT_CLASSES = Set.of(
+            "java/util/Formatter", "java/util/DoubleSummaryStatistics", "java/util/IntSummaryStatistics",
+            "java/util/LongSummaryStatistics", "java/util/IllegalFormatCodePointException",
+            "jdk/internal/classfile/impl/AbstractAttributeMapper");
+
+    /**
+     * Whether the calls of String.format in this class go to MiniFormat (see there): the classes of the JDK, whose
+     * messages would otherwise bring the Formatter, the locale providers and java.time into every program.
+     */
+    private static boolean usesMiniFormat(final String internalName) {
+        if (!(internalName.startsWith("java/") || internalName.startsWith("javax/") || internalName.startsWith("jdk/")
+                || internalName.startsWith("sun/") || internalName.startsWith("com/sun/"))) {
+            return false;
+        }
+        final int nested = internalName.indexOf('$');
+        return !REAL_FORMAT_CLASSES.contains(nested < 0 ? internalName : internalName.substring(0, nested));
+    }
 
     private static ClassNode substitute(final ClassNode classNode,
                                         final java.util.function.Function<String, ClassNode> loader) {
@@ -242,7 +261,54 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
-        if (MINI_FORMAT_CLASSES.contains(classNode.name)) {
+        if ("java/nio/file/FileSystems$DefaultFileSystemHolder".equals(classNode.name)) {
+            // The default file system provider, without the option to name another one by a property: that path
+            // loads a class through the application class loader, which brings ClassLoaders, URLClassPath and the
+            // jar and jrt URL handlers into every program that touches a file.
+            for (final MethodNode m : classNode.methods) {
+                if ("getDefaultProvider".equals(m.name)) {
+                    org.objectweb.asm.tree.MethodInsnNode instance = null;
+                    for (final var insn : m.instructions.toArray()) {
+                        if (insn instanceof org.objectweb.asm.tree.MethodInsnNode call
+                                && "sun/nio/fs/DefaultFileSystemProvider".equals(call.owner)
+                                && "instance".equals(call.name)) {
+                            instance = call;
+                            break;
+                        }
+                    }
+                    if (instance != null) {
+                        final String owner = instance.owner;
+                        final String name = instance.name;
+                        final String desc = instance.desc;
+                        replaceBody(m, insns -> {
+                            insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, owner, name, desc,
+                                    false));
+                            insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                        });
+                    }
+                }
+            }
+        }
+        if ("jdk/internal/util/Exceptions".equals(classNode.name)) {
+            // setup() reads the security property jdk.includeInExceptions, which starts the whole security framework
+            // (providers, URLs, jar verification) from the error path of every URI, file and socket. The security
+            // file of the JDK has jdk.includeInExceptions=hostInfoExclSocket: the text of other than socket
+            // exceptions is enhanced (the input of a URISyntaxException), that of sockets, users and jars is not.
+            for (final MethodNode m : classNode.methods) {
+                if ("setup".equals(m.name) && "()V".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_1));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.PUTSTATIC,
+                                "jdk/internal/util/Exceptions", "enhancedNonSocketExceptionText", "Z"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_1));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.PUTSTATIC,
+                                "jdk/internal/util/Exceptions", "initialized", "Z"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+                    });
+                }
+            }
+        }
+        if (usesMiniFormat(classNode.name)) {
             // The error messages of these classes are formatted with String.format; see MiniFormat.
             for (final MethodNode m : classNode.methods) {
                 for (final var insn : m.instructions.toArray()) {

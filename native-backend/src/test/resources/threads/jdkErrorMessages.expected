@@ -10,4 +10,8 @@ parseLong: NumberFormatException: For input string: "12ab"
 unsignedMinus: NumberFormatException: Illegal leading minus sign on unsigned string -1.
 unsignedRange: NumberFormatException: String value 99999999999 exceeds range of unsigned int.
 codePoint: IllegalArgumentException: Not a valid Unicode code point: 0x110000
+uri: URISyntaxException: Illegal character in path at index 1: a b
+noFile: NoSuchFileException: definitely-missing.txt
+false
+fileExists: no exception
 5|x|ff

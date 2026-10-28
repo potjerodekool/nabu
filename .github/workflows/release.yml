@@ -48,6 +48,7 @@ jobs:
 
       - name: C toolchain and libgc (Windows)
         if: runner.os == 'Windows'
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -56,7 +57,7 @@ jobs:
 
       - name: Put the MinGW tools on the PATH (Windows)
         if: runner.os == 'Windows'
-        run: echo "C:\msys64\ucrt64\bin" >> "$GITHUB_PATH"
+        run: echo "${{ steps.msys2.outputs.msys2-location }}/ucrt64/bin" >> "$GITHUB_PATH"
 
       - name: Version
         id: version

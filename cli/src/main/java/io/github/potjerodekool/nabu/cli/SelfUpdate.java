@@ -27,6 +27,8 @@ final class SelfUpdate {
     record Options(boolean check, String version, Boolean nativeBackend) {
     }
 
+    private static final List<String> NATIVE_LAUNCHERS = List.of("nabu-native-image", "nabu-native-image.cmd");
+
     private final Settings settings;
     private final Releases releases;
     private final PrintStream out;
@@ -161,6 +163,7 @@ final class SelfUpdate {
                 switchTo(target);
                 prune(target, running);
             }
+            syncNativeLaunchers(other ? target : running);
         } finally {
             deleteTree(work);
             deleteTree(settings.versions().resolve(target + ".partial"));
@@ -191,6 +194,29 @@ final class SelfUpdate {
         final Path next = settings.home().resolve("current.new");
         Files.writeString(next, version + System.lineSeparator());
         Files.move(next, current, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    /**
+     * The launchers of the native backend ({@code nabu-native-image}) are in {@code bin} of the native archive. They
+     * are in {@code <home>/bin} as long as the current version has the native backend, and gone when it has not.
+     */
+    private void syncNativeLaunchers(final String current) {
+        final Path bin = settings.home().resolve("bin");
+        try {
+            for (final String name : NATIVE_LAUNCHERS) {
+                final Path installed = bin.resolve(name);
+                final Path shipped = settings.versionDirectory(current).resolve("bin").resolve(name);
+                if (settings.nativeInstalled(current) && Files.isRegularFile(shipped)) {
+                    Files.createDirectories(bin);
+                    Files.copy(shipped, installed, StandardCopyOption.REPLACE_EXISTING);
+                    installed.toFile().setExecutable(true);
+                } else {
+                    Files.deleteIfExists(installed);
+                }
+            }
+        } catch (final IOException e) {
+            err.println("nabu: could not update the launchers in " + bin + ": " + e.getMessage());
+        }
     }
 
     /** Keeps the new version and the one that was current; older ones go (a version that is in use stays). */

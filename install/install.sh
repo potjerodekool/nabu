@@ -147,6 +147,14 @@ mv "$target.partial" "$target"
 cp "$target/bin/nabu" "$home/bin/nabu"
 cp "$target/bin/nabu.cmd" "$home/bin/nabu.cmd"
 chmod +x "$home/bin/nabu"
+# the launchers of the native backend are there when this installation has it, and not when it has not
+if [ "$native" = yes ]; then
+    cp "$target/bin/nabu-native-image" "$home/bin/nabu-native-image"
+    cp "$target/bin/nabu-native-image.cmd" "$home/bin/nabu-native-image.cmd"
+    chmod +x "$home/bin/nabu-native-image"
+else
+    rm -f "$home/bin/nabu-native-image" "$home/bin/nabu-native-image.cmd"
+fi
 printf '%s\n' "$version" > "$home/current.new"
 mv "$home/current.new" "$home/current"
 say "nabu $version is installed in $home"

@@ -114,6 +114,12 @@ try {
     Move-Item $partial $target
     Copy-Item (Join-Path $target 'bin\nabu.cmd') (Join-Path $NabuHome 'bin\nabu.cmd') -Force
     Copy-Item (Join-Path $target 'bin\nabu') (Join-Path $NabuHome 'bin\nabu') -Force
+    # the launchers of the native backend are there when this installation has it, and not when it has not
+    foreach ($launcher in 'nabu-native-image.cmd', 'nabu-native-image') {
+        $installed = Join-Path $NabuHome "bin\$launcher"
+        if ($Native) { Copy-Item (Join-Path $target "bin\$launcher") $installed -Force }
+        elseif (Test-Path $installed) { Remove-Item $installed -Force }
+    }
     [IO.File]::WriteAllText((Join-Path $NabuHome 'current.new'), "$Version`n")
     Move-Item (Join-Path $NabuHome 'current.new') (Join-Path $NabuHome 'current') -Force
     Write-Host "nabu $Version is installed in $NabuHome"

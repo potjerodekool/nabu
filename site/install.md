@@ -90,6 +90,7 @@ Nabu does not ship the Microsoft runtime that its LLVM libraries need on Windows
 nabu version
 nabu doctor
 nabu native-image -jar app.jar          # needs the native backend
+nabu-native-image -jar app.jar          # the same, as a command of its own (also needs the native backend)
 ```
 
 ## Update
@@ -129,6 +130,7 @@ Run the install script with a fixed version, and put `bin` on the PATH of the jo
 ```
 ~/.nabu/
   bin/nabu, bin/nabu.cmd     the launcher: it does not change when Nabu is updated
+  bin/nabu-native-image(.cmd)  the same for the native backend; only there when the backend is installed
   current                    the version that the launcher starts
   versions/<version>/        the jars of one version (lib), the licenses
 ```

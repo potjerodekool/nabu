@@ -10,6 +10,13 @@
     <includeBaseDirectory>false</includeBaseDirectory>
 
     <fileSets>
+        <!-- the launchers of an installation: the install script and `nabu self-update` copy them from versions/<version>/bin
+             to bin/, next to the launchers of nabu -->
+        <fileSet>
+            <directory>src/main/launchers</directory>
+            <outputDirectory>bin</outputDirectory>
+            <fileMode>0755</fileMode>
+        </fileSet>
         <fileSet>
             <directory>${project.basedir}/../licenses</directory>
             <outputDirectory>licenses</outputDirectory>

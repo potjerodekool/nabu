@@ -1,0 +1,28 @@
+#!/bin/sh
+# nabu-native-image: compiles a Java program (jars, a class directory) to a native executable.
+# This is the launcher of an installation of Nabu (~/.nabu/bin): it starts the version that the file `current` names,
+# so it does not change when `nabu self-update` installs a new version.
+# NABU_JAVA_HOME or JAVA_HOME name the JDK (21 or later); NABU_JAVA_OPTS are options for the JVM, for example -Xmx3g.
+self="$0"
+while [ -h "$self" ]; do
+    target=$(readlink "$self")
+    case "$target" in
+        /*) self="$target" ;;
+        *) self="$(dirname "$self")/$target" ;;
+    esac
+done
+home=$(cd "$(dirname "$self")/.." && pwd)
+version=$(tr -d '\r\n' < "$home/current" 2>/dev/null)
+if [ -z "$version" ]; then
+    echo "nabu-native-image: $home/current is missing or empty; install nabu again" >&2
+    exit 1
+fi
+lib="$home/versions/$version/lib"
+set -- "$lib"/nabu-native-image-*.jar "$@"
+if [ ! -f "$1" ]; then
+    echo "nabu-native-image: the native backend is not installed in version $version (nabu self-update --native)" >&2
+    exit 1
+fi
+shift
+if [ -n "$NABU_JAVA_HOME" ]; then java="$NABU_JAVA_HOME/bin/java"; elif [ -n "$JAVA_HOME" ]; then java="$JAVA_HOME/bin/java"; else java=java; fi
+exec "$java" $NABU_JAVA_OPTS --enable-native-access=ALL-UNNAMED -cp "$lib/*" io.github.potjerodekool.nabu.nativeimage.NativeImage "$@"

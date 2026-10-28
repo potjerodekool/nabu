@@ -47,6 +47,9 @@ class SelfUpdateTest {
         Files.writeString(lib.resolve("nabu-cli.jar"), "core " + version);
         if (withNative) {
             Files.writeString(lib.resolve("native-backend-" + version + ".jar"), "native " + version);
+            final Path bin = Files.createDirectories(home.resolve("bin"));
+            Files.writeString(bin.resolve("nabu-native-image"), "launcher " + version);
+            Files.writeString(bin.resolve("nabu-native-image.cmd"), "launcher " + version);
         }
         Files.writeString(home.resolve("current"), version + "\n");
     }
@@ -56,7 +59,9 @@ class SelfUpdateTest {
         releases.publish(tag, "nabu-" + version + ".zip",
                 FakeReleases.zip("lib/nabu-cli.jar", "core " + version, "NOTICE", "notice"));
         releases.publish(tag, "nabu-native-" + version + "-" + PLATFORM + ".zip",
-                FakeReleases.zip("lib/native-backend-" + version + ".jar", "native " + version));
+                FakeReleases.zip("lib/native-backend-" + version + ".jar", "native " + version,
+                        "bin/nabu-native-image", "launcher " + version,
+                        "bin/nabu-native-image.cmd", "launcher " + version));
     }
 
     private int run(final String running, final String... args) {
@@ -176,6 +181,8 @@ class SelfUpdateTest {
 
         assertEquals("native 0.2.0", Files.readString(home.resolve("versions/0.2.0/lib/native-backend-0.2.0.jar")));
         assertTrue(out().contains("with the native backend"), out());
+        assertEquals("launcher 0.2.0", Files.readString(home.resolve("bin/nabu-native-image")));
+        assertEquals("launcher 0.2.0", Files.readString(home.resolve("bin/nabu-native-image.cmd")));
     }
 
     @Test
@@ -186,6 +193,7 @@ class SelfUpdateTest {
         assertEquals(0, run("0.1.0"), err());
 
         assertTrue(Files.exists(home.resolve("versions/0.2.0/lib/native-backend-0.2.0.jar")));
+        assertEquals("launcher 0.2.0", Files.readString(home.resolve("bin/nabu-native-image")));
     }
 
     @Test
@@ -196,6 +204,8 @@ class SelfUpdateTest {
         assertEquals(0, run("0.1.0", "--no-native"), err());
 
         assertFalse(Files.exists(home.resolve("versions/0.2.0/lib/native-backend-0.2.0.jar")));
+        assertFalse(Files.exists(home.resolve("bin/nabu-native-image")));
+        assertFalse(Files.exists(home.resolve("bin/nabu-native-image.cmd")));
     }
 
     @Test

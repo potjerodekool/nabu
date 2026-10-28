@@ -45,12 +45,12 @@ The JDK matters a little more for the LLVM backend than usual. The backend compi
 
 ### 2. MinGW-w64 GCC
 
-Install a 64-bit MinGW-w64 GCC that uses **SEH** exceptions. A build that has been verified is the [WinLibs](https://winlibs.com/) release *GCC 16.2.0 (UCRT runtime, POSIX threads), Win64*. Unpack it, for example to `C:\programs\mingw64`, so that `C:\programs\mingw64\mingw64\bin\gcc.exe` exists.
+Install a 64-bit MinGW-w64 GCC that uses **SEH** exceptions. A build that has been verified is the [WinLibs](https://winlibs.com/) release *GCC 16.2.0 (UCRT runtime, POSIX threads), Win64*. Unpack it, for example to `C:\programs\mingw64`, so that `C:\programs\mingw64\bin\gcc.exe` exists.
 
 Check the compiler:
 
 ```powershell
-C:\programs\mingw64\mingw64\bin\gcc.exe --version
+C:\programs\mingw64\bin\gcc.exe --version
 # gcc.exe (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders, r1) 16.2.0
 ```
 
@@ -66,7 +66,7 @@ WinLibs does not include the Boehm GC, so build it once from source with the sam
 2. Build and install it with the MinGW toolchain (PowerShell, from the unpacked `gc-8.2.12` directory):
 
    ```powershell
-   $env:PATH = "C:\programs\mingw64\mingw64\bin;" + $env:PATH
+   $env:PATH = "C:\programs\mingw64\bin;" + $env:PATH
    cmake -S . -B build -G "MinGW Makefiles" `
          -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -Denable_cplusplus=OFF `
          "-DCMAKE_INSTALL_PREFIX=C:\programs\bdwgc-8.2.12"
@@ -76,7 +76,7 @@ WinLibs does not include the Boehm GC, so build it once from source with the sam
 
    This installs `include\gc.h`, `include\gc\…` and `lib\libgc.a` under `C:\programs\bdwgc-8.2.12`.
 
-3. Make the headers and library visible to GCC. Either copy `include\*` and `lib\libgc.a` into the MinGW tree (`C:\programs\mingw64\mingw64\include` and `…\lib`), or point GCC at them with environment variables:
+3. Make the headers and library visible to GCC. Either copy `include\*` and `lib\libgc.a` into the MinGW tree (`C:\programs\mingw64\include` and `…\lib`), or point GCC at them with environment variables:
 
    ```powershell
    setx C_INCLUDE_PATH "C:\programs\bdwgc-8.2.12\include"
@@ -98,12 +98,12 @@ Nabu looks for `gcc.exe` in this order:
 2. the environment variable `NABU_GCC`
 3. the directory in the system property `nabu.toolchain.bin` or the environment variable `NABU_TOOLCHAIN_BIN`
 4. the `PATH`
-5. a few common locations: `C:\mingw64\bin`, `C:\msys64\mingw64\bin`, `C:\msys64\ucrt64\bin`, `C:\ProgramData\mingw64\mingw64\bin`
+5. a few common locations: `C:\mingw64\bin`, `C:\msys64\mingw64\bin`, `C:\msys64\ucrt64\bin`, `C:\ProgramData\mingw64\bin`
 
 The simplest setup is to set `NABU_TOOLCHAIN_BIN`:
 
 ```powershell
-setx NABU_TOOLCHAIN_BIN "C:\programs\mingw64\mingw64\bin"
+setx NABU_TOOLCHAIN_BIN "C:\programs\mingw64\bin"
 ```
 
 When Nabu finds a GCC on Windows, it targets `x86_64-w64-windows-gnu` automatically. Without one it falls back to LLVM's default MSVC target, and linking fails with the MSVC error described above.

@@ -43,9 +43,16 @@ class NativeImageArgumentsTest {
     }
 
     @Test
-    void staticLinkingIsAnOption() throws Exception {
-        assertTrue(NativeImageArguments.parse(List.of("--static", "a.Main")).staticLink());
-        assertTrue(!NativeImageArguments.parse(List.of("a.Main")).staticLink());
+    void staticLinkingIsTheDefaultOnWindowsOnly() throws Exception {
+        assertTrue(NativeImageArguments.parse(List.of("a.Main"), true).staticLink());
+        assertTrue(!NativeImageArguments.parse(List.of("a.Main"), false).staticLink());
+    }
+
+    @Test
+    void staticAndDynamicOverrideTheDefault() throws Exception {
+        assertTrue(NativeImageArguments.parse(List.of("--static", "a.Main"), false).staticLink());
+        assertTrue(!NativeImageArguments.parse(List.of("--dynamic", "a.Main"), true).staticLink());
+        assertTrue(NativeImageArguments.parse(List.of("--dynamic", "--static", "a.Main"), false).staticLink());
     }
 
     @Test

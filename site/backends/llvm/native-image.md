@@ -27,7 +27,8 @@ nabu-native-image --doctor                               # checks gcc/clang, lib
 | `--gc` | `BOEHM` (default), `REFCOUNT` or `NONE` |
 | `-O0` … `-O3`, `--opt` | `NONE`, `DEFAULT` or `AGGRESSIVE` |
 | `--strict`, `--no-fallback` | fail the build when the program or its libraries call a method that has no implementation (a `native` method of the program, a library method that could not be compiled) |
-| `--static` | link the runtime of the toolchain into the executable; on Windows it then runs without the MinGW `bin` directory on the `PATH` |
+| `--static` | link the runtime of the toolchain into the executable. This is the default on Windows: the executable runs without the MinGW `bin` directory on the `PATH` |
+| `--dynamic` | do not link it in (Windows): the executable needs the MinGW DLLs, `libwinpthread-1.dll`, on the `PATH` |
 | `--keep-work` | keep the directory with the intermediate files (`.nabu-build-<name>`) |
 | `--doctor` | check what a build needs |
 
@@ -41,7 +42,7 @@ The `META-INF/native-image` configuration of the jars (reflection, resources, pr
 - `lib/tzdb.dat` next to it: the time zone data the program reads at run time, which must stay next to the executable;
 - `<name>.unresolved.txt` and `<name>.warnings.txt`: the JDK methods the program can reach but that are not implemented; the program stops when it executes one.
 
-On Windows an executable needs the runtime libraries of the MinGW toolchain on the `PATH`, unless it is built with `--static`.
+On Windows the runtime of the MinGW toolchain (`libwinpthread`, `libgcc`) is linked into the executable, so it needs no DLLs of the toolchain and does not depend on which copy of `libwinpthread-1.dll` comes first on the `PATH`. With `--dynamic` it does: an older copy of that DLL from another program (Multipass, for example) then makes the executable fail to start with the error `0xC0000139`. On Linux and macOS nothing changes.
 
 ## Closed world
 

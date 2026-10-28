@@ -73,7 +73,9 @@ public final class NativeImage {
                   --gc <BOEHM|REFCOUNT|NONE> garbage collector (default BOEHM)
                   -O0 .. -O3, --opt <level>  optimization: NONE, DEFAULT or AGGRESSIVE (-O0 / -O1, -O2 / -O3)
                   --strict, --no-fallback    fail when the program or its libraries call a method without implementation
-                  --static                   link the toolchain runtime into the executable (Windows: no MinGW DLLs needed)
+                  --static                   link the toolchain runtime into the executable (the default on Windows: the
+                                             executable needs no MinGW DLLs)
+                  --dynamic                  do not (Windows: the executable needs the MinGW DLLs on the PATH)
                   --keep-work                keep the directory with the intermediate files
                   --doctor                   check the toolchain this command needs
                   --version                  print the version

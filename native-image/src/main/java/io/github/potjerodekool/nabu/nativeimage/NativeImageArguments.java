@@ -24,7 +24,7 @@ import java.util.jar.JarFile;
  * @param opt       the optimization level: NONE, DEFAULT or AGGRESSIVE
  * @param strict    fail the build instead of producing a program that can fail on a missing JDK method
  * @param keepWork  keep the directory with the intermediate files
- * @param staticLink link the runtime of the toolchain into the executable (Windows/MinGW)
+ * @param staticLink link the runtime of the toolchain into the executable (Windows/MinGW; the default there)
  * @param action    what to do
  * @param warnings  options that are accepted but have no effect
  */
@@ -50,6 +50,15 @@ public record NativeImageArguments(List<Path> classPath,
     }
 
     public static NativeImageArguments parse(final List<String> args) throws UsageException {
+        return parse(args, System.getProperty("os.name", "").toLowerCase().contains("win"));
+    }
+
+    /**
+     * @param windows on Windows the runtime of the toolchain is linked into the executable unless {@code --dynamic} is
+     *                given: an executable that needs {@code libwinpthread-1.dll} from the PATH fails to start when
+     *                another, older copy of that DLL comes first
+     */
+    static NativeImageArguments parse(final List<String> args, final boolean windows) throws UsageException {
         final List<Path> classPath = new ArrayList<>();
         final List<String> positional = new ArrayList<>();
         final List<String> warnings = new ArrayList<>();
@@ -60,7 +69,7 @@ public record NativeImageArguments(List<Path> classPath,
         String opt = "DEFAULT";
         boolean strict = false;
         boolean keepWork = false;
-        boolean staticLink = false;
+        boolean staticLink = windows;
         Action action = Action.BUILD;
 
         for (int i = 0; i < args.size(); i++) {
@@ -99,6 +108,8 @@ public record NativeImageArguments(List<Path> classPath,
                 keepWork = true;
             } else if (arg.equals("--static")) {
                 staticLink = true;
+            } else if (arg.equals("--dynamic")) {
+                staticLink = false;
             } else if (arg.equals("--verbose") || arg.equals("--install-exit-handlers")) {
                 warnings.add(arg + " has no effect");
             } else if (arg.startsWith("-H:") || arg.startsWith("-R:") || arg.startsWith("-J")

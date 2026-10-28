@@ -6,7 +6,7 @@ title: Installing the LLVM toolchain
 The LLVM backend turns a Nabu or Java program into a native executable. This page lists what you need to install, how Nabu finds those tools, and how to check that everything works.
 
 <div class="callout callout-info" markdown="1">
-**Verified on Windows x64 only.** Every step for Windows on this page has been run on a real machine. The Linux and macOS sections follow what the code expects (`gcc` on Linux, `clang` on macOS), but they have **not been tested**. Please report what you find.
+**Verified on Windows x64 and Linux x64.** Every step for Windows on this page has been run on a real machine, and a native build has been run on Ubuntu (in WSL, `gcc` 15 and `libgc` 8.2 from the Ubuntu packages). The macOS section follows what the code expects (`clang` on macOS), but it has **not been tested**. Please report what you find. To install Nabu itself, see [Installing Nabu](/install/).
 </div>
 
 ## What the backend needs

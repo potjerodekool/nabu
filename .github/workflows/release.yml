@@ -1,0 +1,139 @@
+name: Release
+
+# A tag v<version> builds the release files on Linux and Windows, tries them (install script, then a native build of a
+# small program) and publishes them as a GitHub release. Started by hand it only builds and tries, and keeps the files
+# as an artifact of the run.
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+          - os: windows-latest
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: C toolchain and libgc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgc-dev unzip
+
+      - name: C toolchain and libgc (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gc
+
+      - name: Put the MinGW tools on the PATH (Windows)
+        if: runner.os == 'Windows'
+        run: echo "C:\msys64\ucrt64\bin" >> "$GITHUB_PATH"
+
+      - name: Version
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version="${GITHUB_REF_NAME#v}"; else version="0.0.0-dev"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set the version
+        run: mvn -B versions:set -DnewVersion="${{ steps.version.outputs.version }}" -DgenerateBackupPoms=false
+
+      - name: Build the release files, and run the tests of the nabu command
+        run: >
+          mvn -B verify -pl cli,native-image -am -DskipITs
+          -Dtest='SelfUpdateTest,SmallPartsTest,NativeImageArgumentsTest' -Dsurefire.failIfNoSpecifiedTests=false
+          -Djavacpp.platform=${{ matrix.platform }}
+
+      - name: Collect the release files
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          mkdir release
+          cp "native-image/target/nabu-native-$version-${{ matrix.platform }}.zip" release/
+          # the core is the same everywhere: it is published from the Linux job
+          if [ "$RUNNER_OS" = Linux ]; then cp "cli/target/nabu-$version.zip" release/; fi
+          mkdir local
+          cp "cli/target/nabu-$version.zip" "native-image/target/nabu-native-$version-${{ matrix.platform }}.zip" local/
+          ls -l release local
+
+      - name: Install the release with the install script, and try it
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          tmp="$RUNNER_TEMP"
+          if command -v cygpath >/dev/null 2>&1; then tmp=$(cygpath -m "$RUNNER_TEMP"); fi
+          python install/fake-releases.py 8800 "v$version" local &
+          sleep 5
+          export NABU_RELEASES_URL=http://127.0.0.1:8800/releases
+          if [ "$RUNNER_OS" = Windows ]; then
+            powershell -NoProfile -ExecutionPolicy Bypass -File install/install.ps1 -Native -NabuHome "$tmp/nabu" -NoModifyPath
+          else
+            sh install/install.sh --native --home "$tmp/nabu" --no-modify-path
+          fi
+          sh install/smoke-test.sh "$tmp/nabu"
+
+      - name: Keep the release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download the release files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd release
+          sha256sum nabu-*.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" release/* install/install.sh install/install.ps1 \
+            --title "Nabu ${GITHUB_REF_NAME#v}" --generate-notes $prerelease

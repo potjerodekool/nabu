@@ -46,6 +46,16 @@ The second line of each pair also installs the native backend. The scripts downl
 | `--modify-path` | `-ModifyPath` | add the `bin` directory to your PATH without asking |
 | `--no-modify-path` | `-NoModifyPath` | never touch your PATH |
 
+### "File is not digitally signed" (Windows)
+
+If you download `install.ps1` first and run it, PowerShell can refuse with *"cannot be loaded. The file is not digitally signed"*. A file from the internet is marked as such, and the execution policy of many machines (`RemoteSigned`, `AllSigned`) then asks for a signature. Nabu does not sign the script. You can:
+
+- run the script from the command above, which downloads the text and runs it without a file on disk, so the policy does not apply; or
+- remove the mark and run the file: `Unblock-File .\install.ps1`, then `.\install.ps1`; or
+- when the policy is `AllSigned`, run it once with the policy bypassed, for this one process only: `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
+
+Changing the execution policy of your machine for good is not needed.
+
 ### Your PATH
 
 The script **changes nothing outside the installation directory unless you say so**. When `bin` is not on your PATH it asks, in a terminal, whether it may add it: on Linux and macOS by appending one line to your shell profile (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish` or `~/.profile`), on Windows by adding the directory to your *user* PATH. The default answer is no. Without a terminal (a pipeline, a container) it does not ask and does not change anything.

@@ -107,6 +107,21 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>dist-licenses</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dist/licenses</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../licenses</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>dist-jar</id>
                         <phase>package</phase>
                         <goals>

@@ -1,5 +1,7 @@
 # Third-party notices
 
+The license texts are in the directory `licenses/` (see `licenses/README.md`).
+
 Nabu is under the Apache License 2.0 (`LICENSE`). This file lists what else is in what Nabu ships or links into
 the executables it builds, with the license of each. The OpenJDK, which ends up in every executable, is described in
 `NOTICE`.
@@ -58,8 +60,5 @@ installation does not carry their texts).
 * Whether the Microsoft files in the backend jar may be redistributed in this form, and under what conditions. A
   platform backend jar without them (the user gets the JavaCPP artifacts from Maven Central instead of from a shaded
   jar) would not redistribute them.
-* The full license texts (BSD-3-Clause, the Unicode/ICU License, the Boehm GC license, Apache-2.0 with LLVM Exceptions)
-  are named here, not copied. A binary distribution of BSD-licensed code has to reproduce the copyright notice and the
-  license text; the distribution does not carry them yet.
 * The other modules (Maven plugin, daemon, Java backend, JPA support) were not reviewed.
 * Nothing here is legal advice.

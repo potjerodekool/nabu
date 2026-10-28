@@ -2,8 +2,9 @@ package io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions;
 
 /**
  * {@code java.util.concurrent.atomic.AtomicReferenceArray} without the {@code VarHandle} for array elements,
- * which does not exist in a native executable. A native executable runs one thread, so plain reads and writes
- * are atomic. The field is declared here only to compile against; its owner becomes the atomic class when the
+ * which does not exist in a native executable. Threads run in parallel, so
+ * every access takes the monitor of the atomic object (an array has no monitor: its header is only the length);
+ * the field is declared here only to compile against; its owner becomes the atomic class when the
  * body is copied.
  */
 public final class AtomicReferenceArraySubstitution {
@@ -18,68 +19,96 @@ public final class AtomicReferenceArraySubstitution {
     }
 
     public final Object get(final int i) {
-        return array[i];
+        synchronized (this) {
+            return array[i];
+        }
     }
 
     public final void set(final int i, final Object newValue) {
-        array[i] = newValue;
+        synchronized (this) {
+            array[i] = newValue;
+        }
     }
 
     public final void lazySet(final int i, final Object newValue) {
-        array[i] = newValue;
+        synchronized (this) {
+            array[i] = newValue;
+        }
     }
 
     public final Object getAndSet(final int i, final Object newValue) {
-        final Object old = array[i];
-        array[i] = newValue;
-        return old;
+        synchronized (this) {
+            final Object old = array[i];
+            array[i] = newValue;
+            return old;
+        }
     }
 
     public final boolean compareAndSet(final int i, final Object expectedValue, final Object newValue) {
-        if (array[i] == expectedValue) {
-            array[i] = newValue;
-            return true;
+        synchronized (this) {
+            if (array[i] == expectedValue) {
+                array[i] = newValue;
+                return true;
+            }
+            return false;
         }
-        return false;
     }
 
     public final boolean weakCompareAndSet(final int i, final Object expectedValue, final Object newValue) {
-        return compareAndSet(i, expectedValue, newValue);
+        synchronized (this) {
+            return compareAndSet(i, expectedValue, newValue);
+        }
     }
 
     public final boolean weakCompareAndSetPlain(final int i, final Object expectedValue, final Object newValue) {
-        return compareAndSet(i, expectedValue, newValue);
+        synchronized (this) {
+            return compareAndSet(i, expectedValue, newValue);
+        }
     }
 
     public final Object compareAndExchange(final int i, final Object expectedValue, final Object newValue) {
-        final Object old = array[i];
-        if (old == expectedValue) {
-            array[i] = newValue;
+        synchronized (this) {
+            final Object old = array[i];
+            if (old == expectedValue) {
+                array[i] = newValue;
+            }
+            return old;
         }
-        return old;
     }
 
     public final Object getPlain(final int i) {
-        return array[i];
+        synchronized (this) {
+            return array[i];
+        }
     }
 
     public final void setPlain(final int i, final Object newValue) {
-        array[i] = newValue;
+        synchronized (this) {
+            array[i] = newValue;
+        }
     }
 
     public final Object getOpaque(final int i) {
-        return array[i];
+        synchronized (this) {
+            return array[i];
+        }
     }
 
     public final void setOpaque(final int i, final Object newValue) {
-        array[i] = newValue;
+        synchronized (this) {
+            array[i] = newValue;
+        }
     }
 
     public final Object getAcquire(final int i) {
-        return array[i];
+        synchronized (this) {
+            return array[i];
+        }
     }
 
     public final void setRelease(final int i, final Object newValue) {
-        array[i] = newValue;
+        synchronized (this) {
+            array[i] = newValue;
+        }
     }
 }

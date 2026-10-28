@@ -37,6 +37,9 @@ public class Main {
         show("fileExists", () -> System.out.println(java.nio.file.Files.exists(java.nio.file.Path.of("definitely-missing.txt"))));
         // a regex without CANON_EQ and named characters keeps working
         System.out.println(java.util.regex.Pattern.compile("[a-c]+\\d").matcher("xabc7").find());
+        // a capital sigma at the end of a word becomes a final sigma (962), elsewhere a plain one (963)
+        final String lower = "ΟΔΟΣ ΣΑ".toLowerCase();
+        System.out.println((int) lower.charAt(3) + " " + (int) lower.charAt(5));
         // the program's own String.format is the real Formatter
         System.out.println(String.format("%d|%s|%x", 5, "x", 255));
     }

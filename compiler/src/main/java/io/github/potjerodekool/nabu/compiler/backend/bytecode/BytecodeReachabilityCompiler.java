@@ -337,6 +337,46 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        if ("java/lang/ConditionalSpecialCasing".equals(classNode.name)) {
+            // The final sigma asks a word BreakIterator for the word boundaries, which brings the locale providers,
+            // resource bundles, regex and streams into every program that lower-cases a string (see FinalSigmaSupport).
+            for (final MethodNode m : classNode.methods) {
+                if ("isFinalCased".equals(m.name) && "(Ljava/lang/String;ILjava/util/Locale;)Z".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ILOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
+                                RuntimeCalls.RUNTIME_PACKAGE + "FinalSigmaSupport", "isFinalCased",
+                                "(Ljava/lang/String;I)Z", false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                    });
+                }
+            }
+        }
+        if ("java/util/Locale".equals(classNode.name)) {
+            // The default locale of a program only has extensions when the system property user.extensions is set,
+            // and parsing that brings in the locale builder and regex. Natively the property is ignored.
+            for (final MethodNode m : classNode.methods) {
+                if ("getDefaultExtensions".equals(m.name) && "(Ljava/lang/String;)Ljava/util/Optional;".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
+                                "java/util/Optional", "empty", "()Ljava/util/Optional;", false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
+        if ("jdk/internal/util/ReferencedKeyMap".equals(classNode.name)) {
+            // toString is for debugging and streams over the keys; the map is the cache of every Locale.
+            for (final MethodNode m : classNode.methods) {
+                if ("toString".equals(m.name) && "()Ljava/lang/String;".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.LdcInsnNode("ReferencedKeyMap"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
         if ("java/util/Tripwire".equals(classNode.name)) {
             // A diagnostic, off unless -Djava.util.stream.tripwire=true: it logs a warning through the platform
             // logger, which brings the logger finder, the console logger and java.time into every program that
@@ -948,6 +988,15 @@ public final class BytecodeReachabilityCompiler {
     private static Map<String, Boolean> collectSourceCalls(final List<IRModule> modules) {
         final Map<String, Boolean> calls = new HashMap<>();
         for (final IRModule module : modules) {
+            // A static field of a library class that source reads or writes (BreakIterator.DONE) is an external
+            // global named owner_field: the owner is shaped and initialized like the owner of a call, or the global
+            // is declared without the constant value the class file gives it.
+            for (final var global : module.globals().values()) {
+                if (global.linkage() == io.github.potjerodekool.nabu.backend.ir.IRGlobal.Linkage.EXTERNAL
+                        && global.isStatic()) {
+                    calls.putIfAbsent(global.name(), false);
+                }
+            }
             for (final var fn : module.functions()) {
                 for (final var block : fn.blocks()) {
                     for (final IRInstruction insn : block.instructions()) {

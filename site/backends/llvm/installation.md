@@ -110,7 +110,7 @@ When Nabu finds a GCC on Windows, it targets `x86_64-w64-windows-gnu` automatica
 
 ### 5. Running the executable
 
-An executable built with [nabu-native-image](/backends/llvm/native-image/) has the MinGW runtime linked in and needs no DLLs. An executable from a Maven build (the `llvm` profile) links the MinGW runtime statically, except for **`libwinpthread-1.dll`**: to run it outside the build, either put the MinGW `bin` directory on the `PATH`, or copy `libwinpthread-1.dll` from there next to the `.exe`. Make sure that no other copy of that DLL comes first on the `PATH`: an older one makes the executable fail to start with the error `0xC0000139`.
+On Windows the executables have the MinGW runtime (`libwinpthread`, `libgcc`) linked in, both from a Maven build (the `llvm` profile) and from [nabu-native-image](/backends/llvm/native-image/), so they run without the MinGW `bin` directory on the `PATH`, on any machine. That also keeps another program's older `libwinpthread-1.dll` that comes first on the `PATH` from making the executable fail to start (error `0xC0000139`). To link the DLL dynamically instead, pass `-Dnabu.link.static=false` to Maven (`--dynamic` to nabu-native-image): the executable then needs `libwinpthread-1.dll` from the MinGW `bin` directory, on the `PATH` or next to the `.exe`.
 
 ## Linux x64 (not tested)
 

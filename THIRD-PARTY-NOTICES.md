@@ -51,7 +51,7 @@ executable. They come from the toolchain of whoever builds, not from Nabu.
 | Component | Version in the build checked | License |
 |---|---|---|
 | Boehm-Demers-Weiser garbage collector (`libgc`) | 8.2.12 | permissive, in the Boehm GC license (the notices must stay with copies; the text is in the `bdwgc` repository) |
-| `libwinpthread` (MinGW-w64), linked into the executable on Windows (`nabu-native-image`: the default, `--static`); with `--dynamic` or in a Maven build a DLL next to the executable | | permissive (MinGW-w64 winpthreads) |
+| `libwinpthread` (MinGW-w64), linked into the executable on Windows (`nabu-native-image` and the Maven `llvm` profile: the default); with `--dynamic` or `-Dnabu.link.static=false` a DLL next to the executable | | permissive (MinGW-w64 winpthreads) |
 | `libgcc` (linked in the same way, or when the executable needs `libgcc_s_seh-1.dll`) | | GPL-3.0 with the GCC Runtime Library Exception |
 | The C runtime of the platform (Universal CRT on Windows 10 and later, libc elsewhere) | | part of the operating system |
 

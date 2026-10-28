@@ -133,9 +133,7 @@ public final class NativeImage {
                 }
                 err.println(message);
             });
-            if (arguments.staticLink()) {
-                System.setProperty("nabu.link.static", "true");
-            }
+            System.setProperty("nabu.link.static", Boolean.toString(arguments.staticLink()));
             out.println("Building " + arguments.mainClass() + " ...");
             final long start = System.nanoTime();
             final int result;

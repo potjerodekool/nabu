@@ -91,9 +91,10 @@ public class Linker {
                 objects.forEach(o -> cmd.add(o.toString()));
                 addRuntime(cmd, gcStrategy, runtimeObjects);
                 addGcLibraries(cmd, gcStrategy);
-                if (Boolean.getBoolean("nabu.link.static")) {
+                if (linkStatic()) {
                     // The MinGW runtime (libgcc, libwinpthread, libstdc++) inside the executable: it then runs
-                    // without the toolchain's bin directory on the PATH.
+                    // without the toolchain's bin directory on the PATH, and an older libwinpthread-1.dll that comes
+                    // first on the PATH (from another program) cannot make it fail to start (0xC0000139).
                     cmd.add("-static");
                 }
             } else {
@@ -118,6 +119,15 @@ public class Linker {
             cmd.add("-lm");
         }
         return cmd;
+    }
+
+    /**
+     * The MinGW runtime is linked into the executable, unless {@code -Dnabu.link.static=false} says otherwise (the
+     * executable then needs the DLLs of the toolchain on the PATH).
+     */
+    static boolean linkStatic() {
+        final String value = System.getProperty("nabu.link.static");
+        return value == null || Boolean.parseBoolean(value);
     }
 
     /** The runtime as compiled objects when we have them, else as the sources the compiler gets in the command. */

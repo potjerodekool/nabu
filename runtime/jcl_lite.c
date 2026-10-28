@@ -1030,16 +1030,21 @@ static int32_t *jcl_fd_slot(void *fdObj) {
     intptr_t off = fdObj != NULL ? nabu_instance_field_offset(fdObj, "fd") : -1;
     return off >= 0 ? (int32_t *)((char *)fdObj + off) : NULL;
 }
-BIND(void, jcl_java_io_FileDescriptor_close0, "java.io.FileDescriptor_close0", (void *self)) {
-    int32_t *slot = jcl_fd_slot(self);
-    if (slot != NULL && *slot > 2) {
+/* Closes the descriptor in a slot, once: the thread that swaps it for -1 closes it, a second close sees -1. */
+static void jcl_fd_close_slot(int32_t *slot) {
+    if (slot != NULL && __atomic_load_n(slot, __ATOMIC_ACQUIRE) > 2) {
+        const int32_t fd = __atomic_exchange_n(slot, -1, __ATOMIC_ACQ_REL);
+        if (fd > 2) {
 #ifdef _WIN32
-        _close(*slot);
+            _close(fd);
 #else
-        close(*slot);
+            close(fd);
 #endif
-        *slot = -1;
+        }
     }
+}
+BIND(void, jcl_java_io_FileDescriptor_close0, "java.io.FileDescriptor_close0", (void *self)) {
+    jcl_fd_close_slot(jcl_fd_slot(self));
 }
 
 /* Het fd-nummer van een gecompileerde FileOutputStream: this.fd.fd. */
@@ -1596,15 +1601,7 @@ BIND(void *, jcl_fs_getDriveDirectory, JCL_FS("getDriveDirectory$PI32"), (void *
  * JDK's cleaner does. The descriptor can have been closed already. */
 static void jcl_fd_finalize(void *fdObj, void *unused) {
     (void)unused;
-    int32_t *slot = jcl_fd_slot(fdObj);
-    if (slot != NULL && *slot > 2) {
-#ifdef _WIN32
-        _close(*slot);
-#else
-        close(*slot);
-#endif
-        *slot = -1;
-    }
+    jcl_fd_close_slot(jcl_fd_slot(fdObj));
 }
 #endif
 
@@ -1694,10 +1691,69 @@ static void jcl_chan_error(const char *what) {
 #define JCL_SEEK(fd, off, whence) lseek((fd), (off_t)(off), (whence))
 #endif
 
+/* A positional read or write must not move the position of the descriptor that other threads use. Where there is
+ * pread/pwrite that is what they do. The CRT has none, so there the seek, the transfer and the seek back are done
+ * under a lock that read0, write0 and seek0 take as well. Returns the count, -1 on an error, -2 when the seek failed. */
+#ifdef _WIN32
+static pthread_mutex_t jcl_position_locks[16] = {
+    PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,
+    PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,
+    PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER,
+    PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER, PTHREAD_MUTEX_INITIALIZER };
+static pthread_mutex_t *jcl_position_lock(int fd) { return &jcl_position_locks[(unsigned)fd & 15]; }
+#define JCL_POSITION_LOCK(fd) pthread_mutex_lock(jcl_position_lock(fd))
+#define JCL_POSITION_UNLOCK(fd) pthread_mutex_unlock(jcl_position_lock(fd))
+#else
+#define JCL_POSITION_LOCK(fd) ((void)(fd))
+#define JCL_POSITION_UNLOCK(fd) ((void)(fd))
+#endif
+
+static int jcl_pread(int fd, void *buffer, int len, int64_t position) {
+#ifdef _WIN32
+    JCL_POSITION_LOCK(fd);
+    int64_t saved = JCL_SEEK(fd, 0, SEEK_CUR);
+    int n;
+    if (JCL_SEEK(fd, position, SEEK_SET) < 0) {
+        n = -2;
+    } else {
+        n = (int)JCL_READ(fd, buffer, len);
+        JCL_SEEK(fd, saved, SEEK_SET);
+    }
+    JCL_POSITION_UNLOCK(fd);
+    return n;
+#else
+    ssize_t n;
+    do { n = pread(fd, buffer, (size_t)len, (off_t)position); } while (n < 0 && errno == EINTR);
+    return n < 0 && errno == ESPIPE ? -2 : (int)n;
+#endif
+}
+
+static int jcl_pwrite(int fd, const void *buffer, int len, int64_t position) {
+#ifdef _WIN32
+    JCL_POSITION_LOCK(fd);
+    int64_t saved = JCL_SEEK(fd, 0, SEEK_CUR);
+    int n;
+    if (JCL_SEEK(fd, position, SEEK_SET) < 0) {
+        n = -2;
+    } else {
+        n = (int)JCL_WRITE(fd, buffer, len);
+        JCL_SEEK(fd, saved, SEEK_SET);
+    }
+    JCL_POSITION_UNLOCK(fd);
+    return n;
+#else
+    ssize_t n;
+    do { n = pwrite(fd, buffer, (size_t)len, (off_t)position); } while (n < 0 && errno == EINTR);
+    return n < 0 && errno == ESPIPE ? -2 : (int)n;
+#endif
+}
+
 BIND(int32_t, jcl_FileDispatcherImpl_read0, JCL_FDI("read0"), (void *fdObj, int64_t address, int32_t len)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    JCL_POSITION_LOCK(fd);
     int n = (int)JCL_READ(fd, (void *)(intptr_t)address, len);
+    JCL_POSITION_UNLOCK(fd);
     if (n < 0) { jcl_chan_error("Read"); return -1; }
     return n == 0 && len > 0 ? -1 : n;
 }
@@ -1705,10 +1761,8 @@ BIND(int32_t, jcl_FileDispatcherImpl_pread0, JCL_FDI("pread0"),
      (void *fdObj, int64_t address, int32_t len, int64_t position)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
-    int64_t saved = JCL_SEEK(fd, 0, SEEK_CUR);
-    if (JCL_SEEK(fd, position, SEEK_SET) < 0) { jcl_chan_error("Seek"); return -1; }
-    int n = (int)JCL_READ(fd, (void *)(intptr_t)address, len);
-    JCL_SEEK(fd, saved, SEEK_SET);
+    int n = jcl_pread(fd, (void *)(intptr_t)address, len, position);
+    if (n == -2) { jcl_chan_error("Seek"); return -1; }
     if (n < 0) { jcl_chan_error("Read"); return -1; }
     return n == 0 && len > 0 ? -1 : n;
 }
@@ -1717,7 +1771,9 @@ BIND(int32_t, jcl_FileDispatcherImpl_write0, JCL_FDI("write0"),
     (void)append;
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    JCL_POSITION_LOCK(fd);
     int n = (int)JCL_WRITE(fd, (const void *)(intptr_t)address, len);
+    JCL_POSITION_UNLOCK(fd);
     if (n < 0) { jcl_chan_error("Write"); return -1; }
     return n;
 }
@@ -1725,10 +1781,8 @@ BIND(int32_t, jcl_FileDispatcherImpl_pwrite0, JCL_FDI("pwrite0"),
      (void *fdObj, int64_t address, int32_t len, int64_t position)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
-    int64_t saved = JCL_SEEK(fd, 0, SEEK_CUR);
-    if (JCL_SEEK(fd, position, SEEK_SET) < 0) { jcl_chan_error("Seek"); return -1; }
-    int n = (int)JCL_WRITE(fd, (const void *)(intptr_t)address, len);
-    JCL_SEEK(fd, saved, SEEK_SET);
+    int n = jcl_pwrite(fd, (const void *)(intptr_t)address, len, position);
+    if (n == -2) { jcl_chan_error("Seek"); return -1; }
     if (n < 0) { jcl_chan_error("Write"); return -1; }
     return n;
 }
@@ -1745,7 +1799,9 @@ BIND(int64_t, jcl_FileDispatcherImpl_writev0, JCL_FDI("writev0"),
 BIND(int64_t, jcl_FileDispatcherImpl_seek0, JCL_FDI("seek0"), (void *fdObj, int64_t offset)) {
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
+    JCL_POSITION_LOCK(fd);
     int64_t r = offset < 0 ? JCL_SEEK(fd, 0, SEEK_CUR) : JCL_SEEK(fd, offset, SEEK_SET);
+    JCL_POSITION_UNLOCK(fd);
     if (r < 0) { jcl_chan_error("Seek"); return -1; }
     return r;
 }
@@ -1919,8 +1975,27 @@ static void jcl_blocking_end(int released) {
 }
 #endif
 
+/* One process is started at a time. A child inherits every descriptor that is inheritable at that moment, so a
+ * pipe of a spawn that is still busy in another thread would end up in this child, and the reader of that pipe
+ * would never see the end of the stream. The lock is taken without blocking the thread for good: where the threads
+ * take turns (NABU_GIL=1) a thread that waits for it has to hand over the turn. */
+static pthread_mutex_t jcl_spawn_lock = PTHREAD_MUTEX_INITIALIZER;
+static __thread char jcl_spawn_error[352];
+static void jcl_spawn_fail(const char *reason) { snprintf(jcl_spawn_error, sizeof jcl_spawn_error, "%s", reason); }
+static int64_t jcl_spawn_unlocked(void *cmd, void *env, void *dir, void *modesArr, void *fdsArr);
+
 BIND(int64_t, jcl_NativeProcess_spawn0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NativeProcess_spawn0",
      (void *cmd, void *env, void *dir, void *modesArr, void *fdsArr)) {
+    while (pthread_mutex_trylock(&jcl_spawn_lock) != 0) nabu_gil_yield();
+    jcl_spawn_error[0] = '\0';
+    const int64_t result = jcl_spawn_unlocked(cmd, env, dir, modesArr, fdsArr);
+    pthread_mutex_unlock(&jcl_spawn_lock);
+    /* thrown after the unlock: a throw does not run code in the frames it leaves */
+    if (jcl_spawn_error[0] != '\0') nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(jcl_spawn_error)));
+    return result;
+}
+
+static int64_t jcl_spawn_unlocked(void *cmd, void *env, void *dir, void *modesArr, void *fdsArr) {
     int64_t *fds = (int64_t *)((char *)fdsArr + 8);
     fds[0] = fds[1] = fds[2] = -1;
 #ifdef _WIN32
@@ -1994,7 +2069,7 @@ BIND(int64_t, jcl_NativeProcess_spawn0, "io.github.potjerodekool.nabu.compiler.b
         if (outW) CloseHandle(outW);
         if (errR) CloseHandle(errR);
         if (errW) CloseHandle(errW);
-        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(reason)));
+        jcl_spawn_fail(reason);
         return 0;
     }
     /* The child has its ends; the parent keeps the others. */
@@ -2013,7 +2088,7 @@ fail:
     if (outW) CloseHandle(outW);
     if (errR) CloseHandle(errR);
     if (errW) CloseHandle(errW);
-    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Cannot create a pipe"));
+    jcl_spawn_fail("Cannot create a pipe");
     return 0;
 #else
     /* The arguments come joined by \x01 (NativeProcess.commandLine). */
@@ -2040,7 +2115,7 @@ fail:
             || (m[3] == 0 && m[2] == 0 && pipe(err) != 0) || pipe(ep) != 0) {
         int fdsToClose[8] = {in[0], in[1], out[0], out[1], err[0], err[1], ep[0], ep[1]};
         for (int i = 0; i < 8; i++) if (fdsToClose[i] >= 0) close(fdsToClose[i]);
-        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Cannot create a pipe"));
+        jcl_spawn_fail("Cannot create a pipe");
         return 0;
     }
     fcntl(ep[1], F_SETFD, FD_CLOEXEC);
@@ -2088,7 +2163,7 @@ fail:
         char reason[320];
         snprintf(reason, sizeof reason, "Cannot run program \"%s\": error=%d, %s", argv[0], exec_errno,
                 strerror(exec_errno));
-        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", jcl_dup(reason)));
+        jcl_spawn_fail(reason);
         return 0;
     }
     /* The child has its ends; the parent keeps the others, which no other child may inherit. */
@@ -2428,12 +2503,12 @@ static void *jcl_map_get(void *map, void *k) {
 static const char *jcl_desc_name(const char *desc) {
     if (desc == NULL) return "";
     if (desc[0] == 'L' && desc[strlen(desc) - 1] == ';') {
-        static char buf[256];
+        /* A copy of its own: a buffer shared by the callers (and the threads) would be overwritten. */
         size_t n = strlen(desc) - 2;
-        if (n >= sizeof(buf)) n = sizeof(buf) - 1;
-        memcpy(buf, desc + 1, n);
-        buf[n] = 0;
-        return buf;
+        char *copy = (char *)jcl_alloc(n + 1);
+        memcpy(copy, desc + 1, n);
+        copy[n] = 0;
+        return copy;
     }
     if (desc[0] == '[') return desc;
     switch (desc[0]) {
@@ -4123,8 +4198,12 @@ static void *jcl_new_thread(const char *name, void *target) {
 
 static void *jcl_main_thread(void) {
     static void *thread = NULL;
-    if (thread == NULL) thread = jcl_new_thread("main", NULL);
-    return thread;
+    void *seen = __atomic_load_n(&thread, __ATOMIC_ACQUIRE);
+    if (seen != NULL) return seen;
+    void *made = jcl_new_thread("main", NULL);
+    void *none = NULL;
+    if (__atomic_compare_exchange_n(&thread, &none, made, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return made;
+    return none;
 }
 
 /* The Thread object of the running thread: the thread's own, or "main". */
@@ -4157,7 +4236,7 @@ static void jcl_thread_name(s_thread *st, const char *name) {
     } else {
         char generated[32];
         static int generated_count = 0;
-        snprintf(generated, sizeof generated, "Thread-%d", generated_count++);
+        snprintf(generated, sizeof generated, "Thread-%d", __atomic_fetch_add(&generated_count, 1, __ATOMIC_SEQ_CST));
         st->name = jcl_dup(generated);
     }
 }
@@ -4628,16 +4707,20 @@ BIND(void *, jcl_Thread_getContextClassLoader, "java.lang.Thread_getContextClass
 BIND(void *, jcl_Thread_getUncaughtExceptionHandler, "java.lang.Thread_getUncaughtExceptionHandler", (void *self)) { return jcl_thread_of(self)->handler; }
 BIND(int, jcl_ContinuationSupport_isSupported0, "jdk.internal.vm.ContinuationSupport_isSupported0", (void)) { return 0; }
 static void *jcl_default_handler = NULL;
-BIND(void *, jcl_Thread_getDefaultUncaughtExceptionHandler, "java.lang.Thread_getDefaultUncaughtExceptionHandler", (void)) { return jcl_default_handler; }
-BIND(void, jcl_Thread_setDefaultUncaughtExceptionHandler, "java.lang.Thread_setDefaultUncaughtExceptionHandler", (void *handler)) { jcl_default_handler = handler; }
+BIND(void *, jcl_Thread_getDefaultUncaughtExceptionHandler, "java.lang.Thread_getDefaultUncaughtExceptionHandler", (void)) { return __atomic_load_n(&jcl_default_handler, __ATOMIC_ACQUIRE); }
+BIND(void, jcl_Thread_setDefaultUncaughtExceptionHandler, "java.lang.Thread_setDefaultUncaughtExceptionHandler", (void *handler)) { __atomic_store_n(&jcl_default_handler, handler, __ATOMIC_RELEASE); }
 BIND(void *, jcl_ThreadSupport_handlerOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_handlerOf0", (void *thread)) { return jcl_thread_of(thread)->handler; }
 BIND(void *, jcl_ThreadSupport_groupOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_groupOf0", (void *thread)) { return jcl_thread_of(thread)->group; }
 BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_mainThread0", (void)) { return jcl_main_thread(); }
 
 static void *jcl_the_runtime(void) {
     static void *runtime = NULL;
-    if (runtime == NULL) runtime = jcl_new_str_obj("runtime");
-    return runtime;
+    void *seen = __atomic_load_n(&runtime, __ATOMIC_ACQUIRE);
+    if (seen != NULL) return seen;
+    void *made = jcl_new_str_obj("runtime");
+    void *none = NULL;
+    if (__atomic_compare_exchange_n(&runtime, &none, made, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return made;
+    return none;
 }
 BIND(void *, jcl_Runtime_getRuntime, "java.lang.Runtime_getRuntime", (void)) { return jcl_the_runtime(); }
 BIND(int64_t, jcl_Runtime_maxMemory, "java.lang.Runtime_maxMemory", (void *self)) { (void)self; return INT64_MAX; }

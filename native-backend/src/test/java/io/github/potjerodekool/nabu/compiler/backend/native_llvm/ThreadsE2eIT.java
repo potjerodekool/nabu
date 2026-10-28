@@ -190,6 +190,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void concurrentFilesAndProcesses() throws Exception {
+        assertEquals(expected("concurrentFilesAndProcesses"), output("concurrentFilesAndProcesses"));
+    }
+
+    @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));
     }

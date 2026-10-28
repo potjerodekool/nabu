@@ -70,3 +70,14 @@ lib/*.jar                    the compiler, the language support and the backend 
 ```
 
 The launchers need a JDK 21 or later (`NABU_JAVA_HOME`, `JAVA_HOME` or the `PATH`); `NABU_JAVA_OPTS` holds options of the JVM that runs the compiler, for example `-Xmx3g`. The backend jar is about 500 MB, because it contains the LLVM libraries of its platform: a distribution is for one platform.
+
+
+## Licenses
+
+Nabu is under the Apache License 2.0. It does not contain the Java class library: the executable it builds contains the
+OpenJDK classes the program can reach, compiled from the JDK that ran the build, and the file `lib/tzdb.dat` that is
+copied from that JDK. The OpenJDK is under the GNU General Public License, version 2, with the
+[Classpath Exception](https://openjdk.org/legal/gplv2+ce.html), which lets you distribute the executable under terms of
+your choice. Nabu changes some of the JDK code it compiles, and that changed code stays under the OpenJDK license: when
+you distribute an executable, include that license text and say where the source of the OpenJDK release can be had
+(<https://openjdk.org/>). The file `NOTICE` in the root of the repository has the details.

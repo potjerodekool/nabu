@@ -1,0 +1,41 @@
+Nabu
+Copyright The Nabu authors
+
+Nabu is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The OpenJDK in the executables Nabu produces
+--------------------------------------------
+
+Nabu does not contain the Java class library. The LLVM backend (and the nabu-native-image command) reads the JDK
+that runs the compiler and compiles the bytecode of the classes a program can reach, the classes of java.base and
+other JDK modules among them, into the executable. The OpenJDK is licensed under the GNU General Public License,
+version 2, with the Classpath Exception (https://openjdk.org/legal/gplv2+ce.html). For the executables that means:
+
+  * An executable contains OpenJDK code, compiled from the class files of the JDK it was built with. The Classpath
+    Exception lets you link that code with your own, independent code and distribute the result under terms of your
+    choice, provided that you meet the terms of the license of each linked module.
+
+  * Nabu changes some of the OpenJDK code it compiles: it replaces the bodies of some methods, redirects some calls
+    (String.format inside the JDK, for example) and leaves out code that cannot run in a native executable. The
+    replacement code is in compiler/src/main/java/io/github/potjerodekool/nabu/compiler/backend/bytecode
+    (substitutions and runtime) and in runtime/ (the C runtime). The changed OpenJDK code remains under the GNU
+    General Public License, version 2, with the Classpath Exception.
+
+  * Whoever distributes an executable therefore distributes OpenJDK code, and should include the license text
+    (https://openjdk.org/legal/gplv2+ce.html) and say where the source of that code can be had: the source of the
+    OpenJDK release the executable was built with is at https://openjdk.org/, and the replacements are the Nabu source
+    named above.
+
+The Java time zone database
+---------------------------
+
+The executable reads time zones from lib/tzdb.dat. Nabu copies that file from the JDK it runs on to the directory of
+the executable (a lib directory next to it). It is part of the OpenJDK and falls under the same license as the
+classes above; distribute it with the executable under the same terms.
+
+What is Nabu's own
+------------------
+
+The compiler, the backends, the plugins, the C runtime in runtime/ and the substitution classes are written for
+Nabu and are under the Apache License, Version 2.0. The substitution classes only describe what replaces the body
+of a JDK method; they are not part of the OpenJDK.

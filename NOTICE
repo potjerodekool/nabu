@@ -33,6 +33,11 @@ The executable reads time zones from lib/tzdb.dat. Nabu copies that file from th
 the executable (a lib directory next to it). It is part of the OpenJDK and falls under the same license as the
 classes above; distribute it with the executable under the same terms.
 
+Other components
+----------------
+
+The libraries Nabu uses and links, and their licenses, are in THIRD-PARTY-NOTICES.md.
+
 What is Nabu's own
 ------------------
 

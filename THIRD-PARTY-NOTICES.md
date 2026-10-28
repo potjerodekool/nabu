@@ -33,10 +33,13 @@ The jar contains the LLVM libraries of its platform; the jar of this build is fo
 | JavaCPP Presets for LLVM (`org.bytedeco:llvm`) | 21.1.8-1.5.13 | the same three, for the Java bindings |
 | LLVM and Clang (libraries, headers) | 21.1.8 | Apache-2.0 with LLVM Exceptions (<https://llvm.org/LICENSE.txt>) |
 | ASM | 9.8 | BSD-3-Clause |
-| Microsoft Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`, `ucrtbase.dll`, `api-ms-win-*.dll` and others) | | Microsoft's terms for redistributable code |
 
-The Microsoft runtime files are in the JavaCPP artifact for Windows and are shaded into the backend jar with it. Their
-terms are not those of the other components: **check them before the backend jar is distributed** (see the open points).
+The JavaCPP artifact for Windows also carries the Microsoft Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`,
+`ucrtbase.dll` and others). Nabu does **not** ship those files: the build of the backend jar leaves them out (the
+filters in `native-backend/pom.xml`), because Microsoft's terms for redistributable code are not those of the other
+components. On Windows the user installs the Microsoft Visual C++ Redistributable (x64 or arm64); `nabu doctor`
+checks that and says where to get it.
+
 The LLVM libraries bring along the third-party code that LLVM itself contains; <https://llvm.org/LICENSE.txt> and the
 LLVM documentation list it.
 
@@ -57,8 +60,5 @@ installation does not carry their texts).
 
 ## Open points
 
-* Whether the Microsoft files in the backend jar may be redistributed in this form, and under what conditions. A
-  platform backend jar without them (the user gets the JavaCPP artifacts from Maven Central instead of from a shaded
-  jar) would not redistribute them.
 * The other modules (Maven plugin, daemon, Java backend, JPA support) were not reviewed.
 * Nothing here is legal advice.

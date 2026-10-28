@@ -19,5 +19,60 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-    <!-- No dependencies of its own: the command has to start from a distribution that has no native backend. -->
+    <!-- The code of the command uses none of these: they are what the core distribution contains (nabu-<version>.zip),
+         next to this jar. The command has to start from a distribution without the native backend, which is why the
+         backend is not here. -->
+    <dependencies>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>compiler-api</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-compiler</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>nabu-lang</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.potjerodekool</groupId>
+            <artifactId>java-backend</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.7.1</version>
+                <executions>
+                    <execution>
+                        <id>core</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                        <configuration>
+                            <descriptors>
+                                <descriptor>src/assembly/core.xml</descriptor>
+                            </descriptors>
+                            <finalName>nabu-${project.version}</finalName>
+                            <appendAssemblyId>false</appendAssemblyId>
+                            <attach>false</attach>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

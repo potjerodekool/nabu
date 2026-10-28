@@ -20,8 +20,8 @@ the table says where each one came from.
 The OpenJDK license (GPLv2 with the Classpath Exception) is not here: it is named in `NOTICE`, which says what it means
 for the executables Nabu builds.
 
-There is no text for the Microsoft Visual C++ runtime files that are in the backend jar: their terms come from
-Microsoft, not from an upstream project (see "Open points" in `THIRD-PARTY-NOTICES.md`).
+Nabu does not ship the Microsoft Visual C++ runtime files that the JavaCPP artifact for Windows carries, so there is no
+text for them here (see "Inside `native-backend-*.jar`" in `THIRD-PARTY-NOTICES.md`).
 
 Where the table says master, the file was fetched in October 2026 and may have changed since; the versions of the
 components are those of the build described in `THIRD-PARTY-NOTICES.md`.

@@ -1,0 +1,47 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    <!-- nabu-<version>.zip: the core, for every platform. Unpacked it is versions/<version>/ of an installation. -->
+    <id>core</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <fileSets>
+        <fileSet>
+            <directory>src/main/scripts</directory>
+            <outputDirectory>bin</outputDirectory>
+            <fileMode>0755</fileMode>
+        </fileSet>
+        <fileSet>
+            <directory>${project.basedir}/..</directory>
+            <outputDirectory></outputDirectory>
+            <includes>
+                <include>LICENSE</include>
+                <include>NOTICE</include>
+                <include>THIRD-PARTY-NOTICES.md</include>
+            </includes>
+        </fileSet>
+        <fileSet>
+            <directory>${project.basedir}/../licenses</directory>
+            <outputDirectory>licenses</outputDirectory>
+            <includes>
+                <include>README.md</include>
+                <include>ANTLR-*.txt</include>
+                <include>ASM-*.txt</include>
+                <include>abego-*.txt</include>
+                <include>ICU4J-*.txt</include>
+                <include>StringTemplate-*.txt</include>
+            </includes>
+        </fileSet>
+    </fileSets>
+
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>lib</outputDirectory>
+            <useProjectArtifact>true</useProjectArtifact>
+            <scope>runtime</scope>
+        </dependencySet>
+    </dependencySets>
+</assembly>

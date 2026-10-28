@@ -1,0 +1,24 @@
+#!/bin/sh
+# nabu: starts the version of Nabu that the file `current` names. `nabu self-update` installs a new version next to
+# the old one and changes `current`, so this launcher does not change when Nabu is updated.
+# NABU_JAVA_HOME or JAVA_HOME name the JDK (21 or later); NABU_JAVA_OPTS are options for the JVM, for example -Xmx3g.
+self="$0"
+while [ -h "$self" ]; do
+    target=$(readlink "$self")
+    case "$target" in
+        /*) self="$target" ;;
+        *) self="$(dirname "$self")/$target" ;;
+    esac
+done
+home=$(cd "$(dirname "$self")/.." && pwd)
+version=$(tr -d '\r\n' < "$home/current" 2>/dev/null)
+if [ -z "$version" ]; then
+    echo "nabu: $home/current is missing or empty; install nabu again" >&2
+    exit 1
+fi
+if [ ! -d "$home/versions/$version/lib" ]; then
+    echo "nabu: version $version is not in $home/versions; install nabu again" >&2
+    exit 1
+fi
+if [ -n "$NABU_JAVA_HOME" ]; then java="$NABU_JAVA_HOME/bin/java"; elif [ -n "$JAVA_HOME" ]; then java="$JAVA_HOME/bin/java"; else java=java; fi
+exec "$java" $NABU_JAVA_OPTS --enable-native-access=ALL-UNNAMED -Dnabu.home="$home" -Dnabu.version="$version" -cp "$home/versions/$version/lib/*" io.github.potjerodekool.nabu.cli.Nabu "$@"

@@ -6,5 +6,5 @@ set "HOME_DIR=%~dp0.."
 set "JAVA_EXE=java"
 if defined JAVA_HOME set "JAVA_EXE=%JAVA_HOME%\bin\java"
 if defined NABU_JAVA_HOME set "JAVA_EXE=%NABU_JAVA_HOME%\bin\java"
-"%JAVA_EXE%" %NABU_JAVA_OPTS% -cp "%HOME_DIR%\lib\*" io.github.potjerodekool.nabu.nativeimage.NativeImage %*
+"%JAVA_EXE%" %NABU_JAVA_OPTS% --enable-native-access=ALL-UNNAMED -cp "%HOME_DIR%\lib\*" io.github.potjerodekool.nabu.nativeimage.NativeImage %*
 exit /b %ERRORLEVEL%

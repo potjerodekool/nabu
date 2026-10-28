@@ -11,4 +11,4 @@ while [ -h "$self" ]; do
 done
 home=$(cd "$(dirname "$self")/.." && pwd)
 if [ -n "$NABU_JAVA_HOME" ]; then java="$NABU_JAVA_HOME/bin/java"; elif [ -n "$JAVA_HOME" ]; then java="$JAVA_HOME/bin/java"; else java=java; fi
-exec "$java" $NABU_JAVA_OPTS -cp "$home/lib/*" io.github.potjerodekool.nabu.nativeimage.NativeImage "$@"
+exec "$java" $NABU_JAVA_OPTS --enable-native-access=ALL-UNNAMED -cp "$home/lib/*" io.github.potjerodekool.nabu.nativeimage.NativeImage "$@"

@@ -18,7 +18,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
         <javacpp.version>1.5.13</javacpp.version>
-        <javacpp.platform>windows-x86_64</javacpp.platform>
         <!-- Zelfde versie als surefire: de IT-tests hieronder draaien op
              dezelfde JUnit-5/JUnit-platform-provider. -->
         <failsafe.version>3.5.3</failsafe.version>
@@ -165,6 +164,23 @@
                                     <artifact>io.github.potjerodekool:nabu-compiler</artifact>
                                     <excludes>
                                         <exclude>**</exclude>
+                                    </excludes>
+                                </filter>
+                                <!-- The Microsoft Visual C++ runtime that the JavaCPP jar for Windows carries. Microsoft's
+                                     terms for redistributable code are not those of the rest of the jar, so Nabu does
+                                     not ship it: the LLVM libraries find msvcp140.dll and vcruntime140*.dll in the
+                                     system (the Microsoft Visual C++ Redistributable; nabu doctor checks), the other
+                                     files are not needed (ucrtbase and api-ms-win-* are Windows itself). -->
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>org/bytedeco/javacpp/*/api-ms-win-*.dll</exclude>
+                                        <exclude>org/bytedeco/javacpp/*/concrt140*.dll</exclude>
+                                        <exclude>org/bytedeco/javacpp/*/libomp140*.dll</exclude>
+                                        <exclude>org/bytedeco/javacpp/*/msvcp140*.dll</exclude>
+                                        <exclude>org/bytedeco/javacpp/*/ucrtbase*.dll</exclude>
+                                        <exclude>org/bytedeco/javacpp/*/vcomp140*.dll</exclude>
+                                        <exclude>org/bytedeco/javacpp/*/vcruntime140*.dll</exclude>
                                     </excludes>
                                 </filter>
                                 <!-- Remove jar-signatures -->

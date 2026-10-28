@@ -24,6 +24,8 @@
         <surefire.version>2.22.2</surefire.version>
         <failsafe.version>2.22.2</failsafe.version>
         <asm.version>9.8</asm.version>
+        <!-- The platform of the native backend (its LLVM libraries and the name of the release file): windows-x86_64, linux-x86_64, linux-arm64, macosx-x86_64 or macosx-arm64. -->
+        <javacpp.platform>windows-x86_64</javacpp.platform>
         <maven.gpg.plugin.version>3.2.4</maven.gpg.plugin.version>
         <maven.javadoc.plugin.version>3.6.3</maven.javadoc.plugin.version>
         <surefire.version>3.5.3</surefire.version>

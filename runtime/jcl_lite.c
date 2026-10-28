@@ -4463,7 +4463,7 @@ static void jcl_await_threads(void) {
 
 /* The stack trace of another thread, asked cooperatively: the thread that wants it sets a request and wakes the
  * thread, and the thread gives its own stack where it is not busy (the wake hook of the waiters). A thread that
- * runs compiled code without ever waiting does not answer: its trace is empty. */
+ * runs compiled code without ever waiting answers at the next jump back of a loop (nabu_safepoint_poll). */
 static pthread_mutex_t jcl_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void jcl_capture_hook(void) {
@@ -4494,6 +4494,7 @@ BIND(void *, jcl_ThreadSupport_stackTrace0, "io.github.potjerodekool.nabu.compil
     uintptr_t frames[128];
     int n = 0;
     pthread_mutex_lock(&jcl_capture_lock);
+    __atomic_add_fetch(&nabu_safepoint_request, 1, __ATOMIC_SEQ_CST);
     st->cap_done = 0;
     st->cap_requester = self;
     __atomic_store_n(&st->cap_request, 1, __ATOMIC_SEQ_CST);
@@ -4507,6 +4508,7 @@ BIND(void *, jcl_ThreadSupport_stackTrace0, "io.github.potjerodekool.nabu.compil
         nabu_waiter_wait(self, ticket, left);
     }
     __atomic_store_n(&st->cap_request, 0, __ATOMIC_SEQ_CST);
+    __atomic_sub_fetch(&nabu_safepoint_request, 1, __ATOMIC_SEQ_CST);
     if (found) {
         n = st->cap_count;
         memcpy(frames, st->cap_frames, (size_t)n * sizeof(uintptr_t));

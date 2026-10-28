@@ -179,6 +179,16 @@ class ThreadsE2eIT {
         assertEquals(expected("parallelCounters"), output("parallelCounters"));
     }
 
+    @Test
+    void threadStackTraceOfBusyThread() throws Exception {
+        assertEquals(expected("threadStackTraceOfBusyThread"), output("threadStackTraceOfBusyThread"));
+    }
+
+    @Test
+    void concurrentCollections() throws Exception {
+        assertEquals(expected("concurrentCollections"), output("concurrentCollections"));
+    }
+
     /** NABU_GIL=1 runs the threads one at a time again; the counters must come out the same. */
     @Test
     void parallelCountersWithTheGlobalLock() throws Exception {

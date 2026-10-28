@@ -308,6 +308,28 @@ public final class ThreadSupport {
         return x;
     }
 
+    private static final ThreadLocal<int[]> probes = new ThreadLocal<int[]>();
+
+    /** The probe of the current thread (never 0) that Striped64 (LongAdder, ConcurrentSkipListMap) picks a cell with. */
+    public static int probe() {
+        int[] p = probes.get();
+        if (p == null) {
+            p = new int[] { secondarySeed() | 1 };
+            probes.set(p);
+        }
+        return p[0];
+    }
+
+    /** Striped64.advanceProbe: the next probe of the current thread (xorshift). */
+    public static int advanceProbe(int x) {
+        x ^= x << 13;
+        x ^= x >>> 17;
+        x ^= x << 5;
+        probe();
+        probes.get()[0] = x;
+        return x;
+    }
+
     /** ThreadGroup.interrupt(): interrupts the running threads of the group and of its subgroups. */
     public static void interruptGroup(final ThreadGroup group) {
         for (final Thread thread : liveThreads()) {

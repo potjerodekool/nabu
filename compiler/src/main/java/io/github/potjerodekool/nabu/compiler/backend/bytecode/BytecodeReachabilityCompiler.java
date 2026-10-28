@@ -428,6 +428,34 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        if ("java/util/concurrent/atomic/Striped64".equals(classNode.name)) {
+            // The probe of a thread lives in Thread and is reached through ThreadLocalRandom's SharedSecrets
+            // access; keep it in the runtime instead, so ThreadLocalRandom is not needed.
+            for (final MethodNode m : classNode.methods) {
+                if ("getProbe".equals(m.name) && "()I".equals(m.desc)) {
+                    m.instructions.clear();
+                    m.tryCatchBlocks.clear();
+                    m.instructions.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
+                            RuntimeCalls.RUNTIME_PACKAGE + "ThreadSupport", "probe", "()I", false));
+                    m.instructions.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                } else if ("advanceProbe".equals(m.name) && "(I)I".equals(m.desc)) {
+                    m.instructions.clear();
+                    m.tryCatchBlocks.clear();
+                    m.instructions.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ILOAD, 0));
+                    m.instructions.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC,
+                            RuntimeCalls.RUNTIME_PACKAGE + "ThreadSupport", "advanceProbe", "(I)I", false));
+                    m.instructions.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                } else {
+                    for (final var insn : m.instructions.toArray()) {
+                        if (insn instanceof org.objectweb.asm.tree.MethodInsnNode call
+                                && "jdk/internal/access/SharedSecrets".equals(call.owner)
+                                && "getJavaUtilConcurrentTLRAccess".equals(call.name)) {
+                            m.instructions.set(insn, new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        }
+                    }
+                }
+            }
+        }
         if ("java/util/concurrent/ThreadLocalRandom".equals(classNode.name)) {
             // With -Djava.util.secureRandomSeed=true the seed comes from
             // SecureRandom.getSeed, which drags in the whole security-provider

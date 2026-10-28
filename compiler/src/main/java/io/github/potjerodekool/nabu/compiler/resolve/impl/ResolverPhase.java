@@ -1203,9 +1203,9 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         if (leftType.getKind() == TypeKind.BYTE) {
             return binaryExpression;
         } else if (leftType.getKind() == TypeKind.LONG) {
-            if (rightType.getKind() == TypeKind.INT) {
-                final var rightLiteral = (LiteralExpressionTree) binaryExpression.getRight();
-                final var literal = (Integer) rightLiteral.getLiteral();
+            if (rightType.getKind() == TypeKind.INT
+                    && binaryExpression.getRight() instanceof LiteralExpressionTree rightLiteral
+                    && rightLiteral.getLiteral() instanceof Integer literal) {
 
                 rightLiteral.setLiteral(literal.longValue());
                 rightLiteral.setLiteralKind(LiteralExpressionTree.Kind.LONG);

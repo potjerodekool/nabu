@@ -2257,6 +2257,42 @@ public class InstructionEmitter {
     // Controle-stroom
     // -------------------------------------------------------
 
+    /** The blocks that already have a terminator: a branch to one of them (or to its own block) jumps back. */
+    private final java.util.Set<LLVMBasicBlockRef> branchedBlocks = new java.util.HashSet<>();
+
+    /**
+     * Before a jump back of a loop: look at nabu_safepoint_request and call nabu_safepoint_poll while it is set,
+     * so that a thread that only computes can still give its stack to a thread that asks for it.
+     */
+    private void safepointBeforeBranch(final LLVMBasicBlockRef... targets) {
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        branchedBlocks.add(current);
+        boolean back = false;
+        for (final LLVMBasicBlockRef target : targets) {
+            if (target != null && branchedBlocks.contains(target)) {
+                back = true;
+            }
+        }
+        final LLVMValueRef flag = globalValueMap.get("@nabu_safepoint_request");
+        final LLVMValueRef poll = globalValueMap.get("@nabu_safepoint_poll");
+        if (!back || flag == null || poll == null) {
+            return;
+        }
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final LLVMValueRef value = LLVMBuildLoad2(builder, i32, flag, "safepoint");
+        LLVMSetAlignment(value, 4);
+        LLVMSetOrdering(value, LLVMAtomicOrderingMonotonic);
+        final LLVMValueRef requested = LLVMBuildICmp(builder, LLVMIntNE, value, LLVMConstInt(i32, 0, 0), "requested");
+        final LLVMValueRef function = LLVMGetBasicBlockParent(current);
+        final LLVMBasicBlockRef pollBlock = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("safepoint.poll"));
+        final LLVMBasicBlockRef contBlock = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("safepoint.cont"));
+        LLVMBuildCondBr(builder, requested, pollBlock, contBlock);
+        LLVMPositionBuilderAtEnd(builder, pollBlock);
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(poll), poll, new PointerPointer<Pointer>(0), 0, "");
+        LLVMBuildBr(builder, contBlock);
+        LLVMPositionBuilderAtEnd(builder, contBlock);
+    }
+
     private void emitBranch(IRInstruction.Branch br) {
         LLVMBasicBlockRef target = blockMap.get(br.targetLabel());
         if (target == null) {
@@ -2278,6 +2314,7 @@ public class InstructionEmitter {
                 return;
             }
         }
+        safepointBeforeBranch(target);
         LLVMBuildBr(builder, target);
     }
 
@@ -2292,7 +2329,9 @@ public class InstructionEmitter {
         if (trueBlock == null || falseBlock == null) {
             throw new IllegalStateException("Unknown branch labels: " + cb.trueLabel() + " / " + cb.falseLabel());
         }
-        LLVMBuildCondBr(builder, resolveValue(cb.condition()), trueBlock, falseBlock);
+        final LLVMValueRef condition = resolveValue(cb.condition());
+        safepointBeforeBranch(trueBlock, falseBlock);
+        LLVMBuildCondBr(builder, condition, trueBlock, falseBlock);
     }
 
     private void emitReturn(IRInstruction.Return ret) {

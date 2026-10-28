@@ -785,6 +785,17 @@ public void setReflectionRegistry(
         LLVMSetLinkage(spinHintFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_spin_hint", spinHintFn);
 
+        // --- A compiled loop reads nabu_safepoint_request on every jump back, and calls nabu_safepoint_poll
+        // while it is not 0: that is how another thread gets the stack of a thread that never waits ---
+        final LLVMValueRef safepointFlag = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx),
+                new BytePointer("nabu_safepoint_request"));
+        LLVMSetLinkage(safepointFlag, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_safepoint_request", safepointFlag);
+        LLVMValueRef safepointPollFn = LLVMAddFunction(mod, new BytePointer("nabu_safepoint_poll"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<Pointer>(0), 0, 0));
+        LLVMSetLinkage(safepointPollFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_safepoint_poll", safepointPollFn);
+
         // --- String-concat (altijd nodig) ---
         // i8* nabu_concat(i8* a, i8* b)
         PointerPointer<Pointer> concatParams = new PointerPointer<>(2);

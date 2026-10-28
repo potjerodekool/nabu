@@ -2351,6 +2351,14 @@ void nabu_spin_hint(const void *address) {
     }
 }
 
+/* Compiled loops look at nabu_safepoint_request on every jump back; while it is not 0 (another thread wants
+ * the stack of a thread that never waits) they call nabu_safepoint_poll, where the wake hook gives the stack. */
+volatile int nabu_safepoint_request = 0;
+
+void nabu_safepoint_poll(void) {
+    if (nabu_wake_hook != NULL) nabu_wake_hook();
+}
+
 /* -------------------------------------------------------
  * Monitor (synchronized): guarded by the GIL
  * ------------------------------------------------------- */

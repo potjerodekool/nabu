@@ -14,4 +14,5 @@ uri: URISyntaxException: Illegal character in path at index 1: a b
 noFile: NoSuchFileException: definitely-missing.txt
 false
 fileExists: no exception
+true
 5|x|ff

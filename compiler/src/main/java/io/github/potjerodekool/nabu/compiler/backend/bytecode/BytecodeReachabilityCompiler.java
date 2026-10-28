@@ -475,7 +475,12 @@ public final class BytecodeReachabilityCompiler {
             // classes, and there is no Unsafe allocation.
             Map.entry("java/io/ObjectInputStream", Set.of("*")),
             Map.entry("java/io/ObjectOutputStream", Set.of("*")),
-            Map.entry("java/io/ObjectStreamClass", Set.of("*")));
+            Map.entry("java/io/ObjectStreamClass", Set.of("*")),
+            // Pattern.CANON_EQ normalizes with the ICU classes, and a named character in a pattern reads the name
+            // table (uniName.dat of the JDK modules) through the zip classes. Neither works in a native program (a
+            // NullPointerException and an InternalError); without them a program that uses a regex is smaller.
+            Map.entry("java/util/regex/Pattern", Set.of("normalize")),
+            Map.entry("java/lang/CharacterName", Set.of("getInstance")));
 
     /**
      * Void methods whose body becomes empty. {@code Tripwire.trip} only

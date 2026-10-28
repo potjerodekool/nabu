@@ -35,6 +35,8 @@ public class Main {
         show("uri", () -> new java.net.URI("a b"));
         show("noFile", () -> java.nio.file.Files.readAllBytes(java.nio.file.Path.of("definitely-missing.txt")));
         show("fileExists", () -> System.out.println(java.nio.file.Files.exists(java.nio.file.Path.of("definitely-missing.txt"))));
+        // a regex without CANON_EQ and named characters keeps working
+        System.out.println(java.util.regex.Pattern.compile("[a-c]+\\d").matcher("xabc7").find());
         // the program's own String.format is the real Formatter
         System.out.println(String.format("%d|%s|%x", 5, "x", 255));
     }

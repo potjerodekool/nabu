@@ -110,8 +110,7 @@ final class SelfUpdate {
         final boolean other = !target.equals(running);
         final boolean addNative = !other && wantNative && !hasNative;
         if (options.version() == null && !newer && !addNative) {
-            out.println("nabu " + running + " is up to date");
-            return 0;
+            return upToDate(running, options);
         }
         if (options.check()) {
             out.println(other ? "nabu " + target + " is available (running " + running + "); "
@@ -126,8 +125,7 @@ final class SelfUpdate {
         final boolean needCore = !haveCore;
         final boolean needNative = wantNative && !haveNative;
         if (!needCore && !needNative && !other) {
-            out.println("nabu " + running + " is up to date");
-            return 0;
+            return upToDate(running, options);
         }
 
         final String coreFile = "nabu-" + target + ".zip";
@@ -170,6 +168,15 @@ final class SelfUpdate {
         }
         out.println("nabu " + target + " is installed" + (other ? " and current" : "")
                 + (settings.nativeInstalled(target) ? ", with the native backend" : ""));
+        return 0;
+    }
+
+    /** Nothing to install; the launchers of the native backend are put right all the same (an older update left them out). */
+    private int upToDate(final String running, final Options options) {
+        if (!options.check()) {
+            syncNativeLaunchers(running);
+        }
+        out.println("nabu " + running + " is up to date");
         return 0;
     }
 

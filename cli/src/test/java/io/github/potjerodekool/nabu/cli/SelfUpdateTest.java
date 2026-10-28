@@ -209,6 +209,27 @@ class SelfUpdateTest {
     }
 
     @Test
+    void whenThereIsNothingToInstallTheMissingNativeLaunchersAreRestored() throws Exception {
+        install("0.1.0", true);
+        final Path shipped = Files.createDirectories(home.resolve("versions/0.1.0/bin"));
+        Files.writeString(shipped.resolve("nabu-native-image"), "shipped");
+        Files.writeString(shipped.resolve("nabu-native-image.cmd"), "shipped");
+        Files.delete(home.resolve("bin/nabu-native-image"));
+        Files.delete(home.resolve("bin/nabu-native-image.cmd"));
+        publish("0.1.0");
+        releases.latest("v0.1.0");
+
+        assertEquals(0, run("0.1.0", "--check"), err());
+        assertFalse(Files.exists(home.resolve("bin/nabu-native-image")), "--check changes nothing");
+
+        assertEquals(0, run("0.1.0"), err());
+
+        assertTrue(out().contains("is up to date"), out());
+        assertEquals("shipped", Files.readString(home.resolve("bin/nabu-native-image")));
+        assertEquals("shipped", Files.readString(home.resolve("bin/nabu-native-image.cmd")));
+    }
+
+    @Test
     void aNativeBackendThatIsNotPublishedForThePlatformChangesNothing() throws Exception {
         releases.publish("v0.2.0", "nabu-0.2.0.zip", FakeReleases.zip("lib/nabu-cli.jar", "core 0.2.0"));
 

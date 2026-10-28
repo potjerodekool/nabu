@@ -46,6 +46,18 @@
 
     <build>
         <plugins>
+            <!-- the version in the manifest is what the version and the doctor of nabu-native-image print -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
             <!-- The distribution in target/dist: bin/ with the launchers and lib/ with the jars (not one jar: the
                  compiler, the language support and the backend each have their own plugin.xml at the root). -->
             <plugin>

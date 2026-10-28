@@ -66,7 +66,7 @@ if (-not $Version) {
     } catch {
         Fail "could not find the latest release at $base/latest ($($_.Exception.Message))"
     }
-    if (-not $location -or $location -notmatch '/tag/(.+)$') { Fail "could not find the latest release at $base/latest" }
+    if (-not $location -or $location -notmatch '/tag/(.+)$') { Fail "there is no latest release at $base/latest (GitHub does not count pre-releases): give -Version <version>" }
     $Version = $Matches[1]
 }
 $Version = $Version.TrimStart('v')

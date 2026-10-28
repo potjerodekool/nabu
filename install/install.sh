@@ -105,7 +105,7 @@ if [ -z "$version" ]; then
     location=$(redirect "$base/latest") || true
     case "$location" in
         */tag/*) tag=${location##*/tag/} ;;
-        *) fail "could not find the latest release at $base/latest" ;;
+        *) fail "there is no latest release at $base/latest (GitHub does not count pre-releases): give --version <version>" ;;
     esac
     version=${tag#v}
 fi

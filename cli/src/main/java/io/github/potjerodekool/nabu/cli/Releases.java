@@ -41,7 +41,8 @@ final class Releases {
         }
         final int tag = location.lastIndexOf("/tag/");
         if (tag < 0) {
-            throw new IOException("unexpected redirect of " + base + "/latest: " + location);
+            throw new IOException("there is no release to update to: " + base + "/latest leads to " + location
+                    + ", and GitHub does not count pre-releases as the latest release (use --version <version>)");
         }
         return location.substring(tag + "/tag/".length());
     }

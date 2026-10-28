@@ -4,7 +4,7 @@ title: Installing Nabu
 ---
 
 <div class="callout callout-info" markdown="1">
-**The first release has not been published yet.** The install scripts, the release files and `nabu self-update` below have been run against a local copy of the GitHub releases page on Windows x64 and Linux x64 (Ubuntu). They have not been run against a real release, and not on macOS or Linux arm64.
+**Only a pre-release exists so far: `v0.1.0-rc1`.** GitHub does not count a pre-release as the "latest" release, so the commands below with `/releases/latest` work from the first stable release on. Until then give the version: `--version 0.1.0-rc1` (`-Version 0.1.0-rc1` on Windows), with the URL `https://github.com/potjerodekool/nabu/releases/download/v0.1.0-rc1/install.sh` (or `install.ps1`). The release has been built and tried on GitHub Actions for Windows x64 and Linux x64, and installed from GitHub on Windows x64. It has not been tried on macOS or Linux arm64.
 </div>
 
 Nabu comes in two parts that you install separately:
@@ -30,9 +30,11 @@ curl -fsSL https://github.com/potjerodekool/nabu/releases/latest/download/instal
 **Windows (PowerShell)**
 
 ```
-irm https://github.com/potjerodekool/nabu/releases/latest/download/install.ps1 | iex
-& ([scriptblock]::Create((irm https://github.com/potjerodekool/nabu/releases/latest/download/install.ps1))) -Native
+iex (New-Object Net.WebClient).DownloadString('https://github.com/potjerodekool/nabu/releases/latest/download/install.ps1')
+& ([scriptblock]::Create((New-Object Net.WebClient).DownloadString('https://github.com/potjerodekool/nabu/releases/latest/download/install.ps1'))) -Native
 ```
+
+(`irm` does not work here: GitHub serves release files as binary, and `irm` then returns bytes instead of text.)
 
 The second line of each pair also installs the native backend. The scripts download the files of the latest release, check each one against `SHA256SUMS` and only then install; a file that does not match installs nothing.
 

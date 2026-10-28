@@ -121,8 +121,9 @@ public final class ThreadSupport {
 
     /**
      * Thread.getStackTrace. The calling thread walks its own stack. Another thread gives its stack when it waits
-     * (sleep, join, wait, park, a monitor) or spins on a volatile field; a thread that runs compiled code without
-     * ever doing one of those does not answer within 200 ms, and its trace is empty, as the trace of a thread that
+     * (sleep, join, wait, park, a monitor) or spins on a volatile field, or runs compiled code
+     * that loops or calls (safepoint polls at loop jumps and function entries); a thread that stays in one function
+     * without either for more than 200 ms does not answer, and its trace is empty, as the trace of a thread that
      * has not started or has ended.
      */
     public static StackTraceElement[] getStackTrace(final Thread thread) {

@@ -629,6 +629,11 @@ public class FunctionEmitter {
                 instructions.emitClassInit(classLayouts.ownerInternalName(fn.name));
             }
 
+            if (block == fn.blocks().get(0) && callsOthers(fn)) {
+                // Safepoint: een thread zonder lus of wachtpunt geeft zijn stack ook bij het binnengaan van een functie.
+                instructions.emitSafepointPoll();
+            }
+
             if (handlerBody != null) {
                 // De catch-body leest de exception uit het slot van zijn eigen
                 // handler: welk landingspad hem ook bereikte, die heeft hem
@@ -669,6 +674,18 @@ public class FunctionEmitter {
      * over normale sprongen en exception-randen (beschermd blok → handlers).
      * Onbereikbare blokken volgen daarna in IR-volgorde.
      */
+    /** True when the function contains a call: only those can run long without a loop or a wait. */
+    private static boolean callsOthers(final IRFunction fn) {
+        for (final IRBasicBlock block : fn.blocks()) {
+            for (final IRInstruction instr : block.instructions()) {
+                if (instr instanceof IRInstruction.Call) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     static List<IRBasicBlock> reversePostOrder(final IRFunction fn,
                                                final Map<String, List<String>> exceptionSuccessors) {
         final List<IRBasicBlock> blocks = fn.blocks();

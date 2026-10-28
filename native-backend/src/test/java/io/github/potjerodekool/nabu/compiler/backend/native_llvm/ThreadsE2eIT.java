@@ -185,6 +185,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void threadStackTraceOfRecursingThread() throws Exception {
+        assertEquals(expected("threadStackTraceOfRecursingThread"), output("threadStackTraceOfRecursingThread"));
+    }
+
+    @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));
     }

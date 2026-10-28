@@ -2273,9 +2273,20 @@ public class InstructionEmitter {
                 back = true;
             }
         }
+        if (back) {
+            emitSafepointPoll();
+        }
+    }
+
+    /**
+     * Look at nabu_safepoint_request and call nabu_safepoint_poll while it is set. Emitted at the start of a
+     * function that calls others, so that deep recursion and long runs of calls (no loop, no wait) answer too.
+     */
+    public void emitSafepointPoll() {
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
         final LLVMValueRef flag = globalValueMap.get("@nabu_safepoint_request");
         final LLVMValueRef poll = globalValueMap.get("@nabu_safepoint_poll");
-        if (!back || flag == null || poll == null) {
+        if (flag == null || poll == null) {
             return;
         }
         final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);

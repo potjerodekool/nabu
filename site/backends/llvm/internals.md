@@ -3,7 +3,7 @@ layout: page
 title: LLVM Backend Internals
 ---
 
-This page explains how the LLVM backend is built, for people who want to work on it. For using the backend, see the [LLVM backend](/backends/llvm/) page.
+This page explains how the LLVM backend is built, for people who want to work on it. For using the backend, see the [LLVM backend]({{ site.baseurl }}/backends/llvm/) page.
 
 ## Where the code lives
 
@@ -109,7 +109,7 @@ MSVC targets are rejected: they use SEH scope tables with `__C_specific_handler`
 
 ## Garbage collection
 
-See [Choosing a GC strategy](/backends/llvm/#choosing-a-gc-strategy) for the user view.
+See [Choosing a GC strategy]({{ site.baseurl }}/backends/llvm/#choosing-a-gc-strategy) for the user view.
 
 - **BOEHM**: every object, including unknown library classes, goes through `GC_malloc`; the runtime only fills the header (`nabu_init_object`). Fields the backend reads are written explicitly, because the test suite verifies against a GC double that poisons memory instead of zeroing it.
 - **REFCOUNT**: one `nabu_retain` at allocation and one `nabu_release` when the owning reference dies (slot overwrite or function exit). Objects that escape the frame (return value, field, call argument, `throw`) are deliberately not counted and leak; cycles are not collected. See `RefCountEmitter`.

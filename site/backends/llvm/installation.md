@@ -6,7 +6,7 @@ title: Installing the LLVM toolchain
 The LLVM backend turns a Nabu or Java program into a native executable. This page lists what you need to install, how Nabu finds those tools, and how to check that everything works.
 
 <div class="callout callout-info" markdown="1">
-**Verified on Windows x64 and Linux x64.** Every step for Windows on this page has been run on a real machine, and a native build has been run on Ubuntu (in WSL, `gcc` 15 and `libgc` 8.2 from the Ubuntu packages). The macOS section follows what the code expects (`clang` on macOS), but it has **not been tested**. Please report what you find. To install Nabu itself, see [Installing Nabu](/install/).
+**Verified on Windows x64 and Linux x64.** Every step for Windows on this page has been run on a real machine, and a native build has been run on Ubuntu (in WSL, `gcc` 15 and `libgc` 8.2 from the Ubuntu packages). The macOS section follows what the code expects (`clang` on macOS), but it has **not been tested**. Please report what you find. To install Nabu itself, see [Installing Nabu]({{ site.baseurl }}/install/).
 </div>
 
 ## What the backend needs
@@ -23,7 +23,7 @@ To turn that object file into an executable, Nabu calls a **C compiler**. It com
 
 Windows with the **MSVC** toolchain is not supported: Nabu's exception handling relies on DWARF/LSDA unwind data, which the MSVC runtime does not provide. Nabu stops with an explicit error instead of producing a broken executable.
 
-For the default garbage collector (`--gc=BOEHM`, see [Choosing a GC strategy](/backends/llvm/#choosing-a-gc-strategy)) you also need the **Boehm-Demers-Weiser garbage collector** (`libgc` and the `gc.h` header) for that C compiler.
+For the default garbage collector (`--gc=BOEHM`, see [Choosing a GC strategy]({{ site.baseurl }}/backends/llvm/#choosing-a-gc-strategy)) you also need the **Boehm-Demers-Weiser garbage collector** (`libgc` and the `gc.h` header) for that C compiler.
 
 ## Overview
 
@@ -110,7 +110,7 @@ When Nabu finds a GCC on Windows, it targets `x86_64-w64-windows-gnu` automatica
 
 ### 5. Running the executable
 
-On Windows the executables have the MinGW runtime (`libwinpthread`, `libgcc`) linked in, both from a Maven build (the `llvm` profile) and from [nabu-native-image](/backends/llvm/native-image/), so they run without the MinGW `bin` directory on the `PATH`, on any machine. That also keeps another program's older `libwinpthread-1.dll` that comes first on the `PATH` from making the executable fail to start (error `0xC0000139`). To link the DLL dynamically instead, pass `-Dnabu.link.static=false` to Maven (`--dynamic` to nabu-native-image): the executable then needs `libwinpthread-1.dll` from the MinGW `bin` directory, on the `PATH` or next to the `.exe`.
+On Windows the executables have the MinGW runtime (`libwinpthread`, `libgcc`) linked in, both from a Maven build (the `llvm` profile) and from [nabu-native-image]({{ site.baseurl }}/backends/llvm/native-image/), so they run without the MinGW `bin` directory on the `PATH`, on any machine. That also keeps another program's older `libwinpthread-1.dll` that comes first on the `PATH` from making the executable fail to start (error `0xC0000139`). To link the DLL dynamically instead, pass `-Dnabu.link.static=false` to Maven (`--dynamic` to nabu-native-image): the executable then needs `libwinpthread-1.dll` from the MinGW `bin` directory, on the `PATH` or next to the `.exe`.
 
 ## Linux x64 (not tested)
 
@@ -204,6 +204,6 @@ Some things to expect:
 
 ## Next steps
 
-- [LLVM backend](/backends/llvm/): what the backend supports and its compiler options.
-- [Example: a picocli command-line app](/examples/picocli-demo/): one app built as LLVM, JVM and GraalVM executables.
-- [Troubleshooting](/backends/llvm/troubleshooting/): linker errors, crashes and how to debug them.
+- [LLVM backend]({{ site.baseurl }}/backends/llvm/): what the backend supports and its compiler options.
+- [Example: a picocli command-line app]({{ site.baseurl }}/examples/picocli-demo/): one app built as LLVM, JVM and GraalVM executables.
+- [Troubleshooting]({{ site.baseurl }}/backends/llvm/troubleshooting/): linker errors, crashes and how to debug them.

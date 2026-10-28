@@ -18,4 +18,4 @@ public class SomeClass {
 
 Annotation retention and target are emitted via `AsmByteCodeEmitter.emitAnnotations`.
 
-Annotation interfaces themselves can also be declared in Nabu. The compiler also has deep support for running JSR-269-style annotation processors — see [Annotation Processing](/annotation-processing/).
+Annotation interfaces themselves can also be declared in Nabu. The compiler also has deep support for running JSR-269-style annotation processors — see [Annotation Processing]({{ site.baseurl }}/annotation-processing/).

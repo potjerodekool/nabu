@@ -31,11 +31,11 @@ The `ResolverPhase` resolves classes, methods, fields, and other symbols. It rea
 
 ### Annotate
 
-The `AnnotatePhase` de-proxies annotations and provides annotation-processing interoperability. It runs JSR-269-style processors through a `JavacProcessingEnvironment` with a `JavacFiler`, `JavacElements`, `JavacTypes`, `JavacMessager`, and `JavacRoundEnvironment`. See [Annotation Processing](/annotation-processing/) for details.
+The `AnnotatePhase` de-proxies annotations and provides annotation-processing interoperability. It runs JSR-269-style processors through a `JavacProcessingEnvironment` with a `JavacFiler`, `JavacElements`, `JavacTypes`, `JavacMessager`, and `JavacRoundEnvironment`. See [Annotation Processing]({{ site.baseurl }}/annotation-processing/) for details.
 
 ### Transform
 
-The `TransformPhase` runs `CodeTransformer`s registered as compiler plugins. This is where DSLs hook in — for example, the JPA plugin transforms a readable criteria DSL into standard JPA calls. See [DSL Support](/plugins/dsl-support/).
+The `TransformPhase` runs `CodeTransformer`s registered as compiler plugins. This is where DSLs hook in — for example, the JPA plugin transforms a readable criteria DSL into standard JPA calls. See [DSL Support]({{ site.baseurl }}/plugins/dsl-support/).
 
 ### Check
 
@@ -81,11 +81,11 @@ The IR is **backend-agnostic** — all backends consume the same `IRModule`, whi
 
 ### Bytecode compilation (LLVM backend only)
 
-For the LLVM backend, the `BytecodeReachabilityCompiler` (`compiler/…/backend/bytecode`) adds a second source of IR: it reads class files of the JDK and of the libraries on the classpath with ASM, follows every method reachable from the program and from the classes in the GraalVM reflection configuration, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See [LLVM backend internals](/backends/llvm/internals/#compiling-the-jdk-from-bytecode).
+For the LLVM backend, the `BytecodeReachabilityCompiler` (`compiler/…/backend/bytecode`) adds a second source of IR: it reads class files of the JDK and of the libraries on the classpath with ASM, follows every method reachable from the program and from the classes in the GraalVM reflection configuration, and lowers their bytecode to the same IR. Classes that are compiled from source are skipped. See [LLVM backend internals]({{ site.baseurl }}/backends/llvm/internals/#compiling-the-jdk-from-bytecode).
 
 ### Bytecode emission
 
-The IR module is handed to a registered `Backend` which emits class files. See the [Backends](/backends/) section for the details of each backend.
+The IR module is handed to a registered `Backend` which emits class files. See the [Backends]({{ site.baseurl }}/backends/) section for the details of each backend.
 
 - Class files are emitted at **version 61 (Java 17)** by default (`JavaVersion.MINIMAL_VERSION`), up to `V23`.
 - The default **ASM backend** is slot-based (JVM local-variable-slot addressed) and validated via `CheckClassAdapter`.

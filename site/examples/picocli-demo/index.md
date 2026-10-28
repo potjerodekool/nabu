@@ -7,15 +7,15 @@ This example builds one small command-line program, `greet`, in three ways from 
 
 | Build | How | Result |
 |---|---|---|
-| **llvm** | Nabu's [LLVM backend](/backends/llvm/), with picocli compiled from the bytecode in its jar | a native `greet.Main.exe` (15 MB) |
-| **jvm** | Nabu's [ASM backend](/backends/asm/), with the normal picocli jar | class files for the JVM |
+| **llvm** | Nabu's [LLVM backend]({{ site.baseurl }}/backends/llvm/), with picocli compiled from the bytecode in its jar | a native `greet.Main.exe` (15 MB) |
+| **jvm** | Nabu's [ASM backend]({{ site.baseurl }}/backends/asm/), with the normal picocli jar | class files for the JVM |
 | **graal** | the same class files, turned into a native image by GraalVM `native-image` | a native `greet.exe` (13 MB) |
 
 The program uses [picocli](https://picocli.info/) 4.7.6, a real-world library that leans heavily on annotations, reflection, generics, inner classes and collections. That makes it a good test for the compiler: in the llvm build Nabu compiles the parts of the picocli jar and of the JDK that the program can reach, straight from their bytecode.
 
 ## The program
 
-`src/main/nabu/greet/GreetCommand.nabu`, written in the [Nabu language](/languages/nabu/):
+`src/main/nabu/greet/GreetCommand.nabu`, written in the [Nabu language]({{ site.baseurl }}/languages/nabu/):
 
 ```kotlin
 package greet;
@@ -103,7 +103,7 @@ cli-demo/
 
 The snippets below are slightly simplified from the demo's `pom.xml` (comments and a few compiler arguments for the symbol path are left out).
 
-The base build compiles `src/main/nabu` with the [Nabu Maven plugin](/maven-plugin/). The plugin also runs picocli's annotation processor, `picocli-codegen`. That processor writes GraalVM reachability metadata (`META-INF/native-image/picocli-generated/reflect-config.json` and friends) for the annotated classes. Both native builds need this metadata: GraalVM for its own reflection, and Nabu's LLVM backend for its [reflection tables](/backends/llvm/#reflection-resources-and-proxies).
+The base build compiles `src/main/nabu` with the [Nabu Maven plugin]({{ site.baseurl }}/maven-plugin/). The plugin also runs picocli's annotation processor, `picocli-codegen`. That processor writes GraalVM reachability metadata (`META-INF/native-image/picocli-generated/reflect-config.json` and friends) for the annotated classes. Both native builds need this metadata: GraalVM for its own reflection, and Nabu's LLVM backend for its [reflection tables]({{ site.baseurl }}/backends/llvm/#reflection-resources-and-proxies).
 
 ```xml
 <properties>
@@ -256,7 +256,7 @@ The llvm build uses the same picocli jar as the other two builds. The LLVM backe
 </profile>
 ```
 
-The `compilerArgs` of the profile replace those of the base build, so this build uses the LLVM backend instead of ASM. The [toolchain](/backends/llvm/installation/) has to be installed.
+The `compilerArgs` of the profile replace those of the base build, so this build uses the LLVM backend instead of ASM. The [toolchain]({{ site.baseurl }}/backends/llvm/installation/) has to be installed.
 
 ```powershell
 mvn -Pllvm clean package -Dnabu.incremental=false

@@ -25,7 +25,7 @@ The plugin is not published to Maven Central yet; build Nabu from source (`mvn i
 
 The plugin compiles every source root of the project (`src/main/java` and any root added with `build-helper-maven-plugin`), both `.java` and `.nabu` files.
 
-The compiler options for the LLVM backend (`--gc`, `--opt`, …) are described on the [LLVM backend](/backends/llvm/#compiler-options) page. For example:
+The compiler options for the LLVM backend (`--gc`, `--opt`, …) are described on the [LLVM backend]({{ site.baseurl }}/backends/llvm/#compiler-options) page. For example:
 
 ```xml
 <configuration>
@@ -38,7 +38,7 @@ The compiler options for the LLVM backend (`--gc`, `--opt`, …) are described o
 
 ## Mixing Nabu and Java
 
-Nabu compiles Java sources itself (see [Java Interop](/languages/java/)), so the simplest setup is to let the `nabu-maven-plugin` compile everything and switch off `javac` for the main sources:
+Nabu compiles Java sources itself (see [Java Interop]({{ site.baseurl }}/languages/java/)), so the simplest setup is to let the `nabu-maven-plugin` compile everything and switch off `javac` for the main sources:
 
 ```xml
 <plugin>

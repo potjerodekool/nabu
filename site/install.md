@@ -14,7 +14,7 @@ Nabu comes in two parts that you install separately:
 | **Core** | the `nabu` command, the compiler, the language support and the JVM backend | about 18 MB | one file for every platform |
 | **Native backend** | the LLVM backend, with the LLVM libraries of its platform | about 470 to 590 MB | one file per platform and processor |
 
-If you build for the JVM you only need the core (and a Maven build gets it from Maven, without this page). The native backend is for building native executables; see [nabu-native-image](/backends/llvm/native-image/) and [Installing the LLVM toolchain](/backends/llvm/installation/).
+If you build for the JVM you only need the core (and a Maven build gets it from Maven, without this page). The native backend is for building native executables; see [nabu-native-image]({{ site.baseurl }}/backends/llvm/native-image/) and [Installing the LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/).
 
 ## Install
 
@@ -139,4 +139,4 @@ To remove Nabu, delete `~/.nabu` and the PATH line you added.
 
 ## The release files
 
-A release has `nabu-<version>.zip` (core), `nabu-native-<version>-<platform>.zip` for each platform (`linux-x86_64`, `windows-x86_64`), `SHA256SUMS`, `install.sh` and `install.ps1`. What the executables you build contain, and under which licenses, is in [Licenses](/backends/llvm/native-image/#licenses) and in the files `NOTICE`, `THIRD-PARTY-NOTICES.md` and `licenses/` of the core archive.
+A release has `nabu-<version>.zip` (core), `nabu-native-<version>-<platform>.zip` for each platform (`linux-x86_64`, `windows-x86_64`), `SHA256SUMS`, `install.sh` and `install.ps1`. What the executables you build contain, and under which licenses, is in [Licenses]({{ site.baseurl }}/backends/llvm/native-image/#licenses) and in the files `NOTICE`, `THIRD-PARTY-NOTICES.md` and `licenses/` of the core archive.

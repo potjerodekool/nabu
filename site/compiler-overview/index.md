@@ -23,7 +23,7 @@ Source files are processed through a well-defined sequence of phases:
 
 The **frontend phases** (Parse through Lower) produce a lowered abstract syntax tree. The **backend phases** then generate an intermediate representation (IR), optimize it, and emit code through a pluggable backend.
 
-For the LLVM backend, a second source of IR is added: the reachable part of the **JDK is compiled from its bytecode** into the same IR, so the native program contains the class library it uses (see [LLVM backend](/backends/llvm/#how-it-works)).
+For the LLVM backend, a second source of IR is added: the reachable part of the **JDK is compiled from its bytecode** into the same IR, so the native program contains the class library it uses (see [LLVM backend]({{ site.baseurl }}/backends/llvm/#how-it-works)).
 
 ## Supported languages
 
@@ -56,9 +56,9 @@ The compiler is extended through a plugin system. `PluginRegistry` discovers plu
 
 ## Entry point
 
-The top-level driver is the `NabuCompiler` class, which implements the `tools.Compiler` interface. Its `compile(CompilerOptions)` method orchestrates all phases. The compiler is driven programmatically, through the [Maven plugin](/maven-plugin/), or through the compile daemon.
+The top-level driver is the `NabuCompiler` class, which implements the `tools.Compiler` interface. Its `compile(CompilerOptions)` method orchestrates all phases. The compiler is driven programmatically, through the [Maven plugin]({{ site.baseurl }}/maven-plugin/), or through the compile daemon.
 
 ## Next steps
 
-- Understand each phase in detail in [Compiler Design](/compiler-design/).
-- Read about how to [add a language](/plugins/adding-language/) or [extend the compiler](/plugins/).
+- Understand each phase in detail in [Compiler Design]({{ site.baseurl }}/compiler-design/).
+- Read about how to [add a language]({{ site.baseurl }}/plugins/adding-language/) or [extend the compiler]({{ site.baseurl }}/plugins/).

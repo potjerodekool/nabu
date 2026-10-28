@@ -3,15 +3,15 @@ layout: page
 title: LLVM Backend
 ---
 
-The **LLVM backend** compiles a program to a **native executable** instead of JVM bytecode. The same Nabu and Java sources that run on the JVM through the [ASM backend](/backends/asm/) can be turned into a standalone `.exe`, without a JVM at run time.
+The **LLVM backend** compiles a program to a **native executable** instead of JVM bytecode. The same Nabu and Java sources that run on the JVM through the [ASM backend]({{ site.baseurl }}/backends/asm/) can be turned into a standalone `.exe`, without a JVM at run time.
 
 <div class="callout callout-warning" markdown="1">
-**Experimental.** The backend runs real programs: the [picocli example](/examples/picocli-demo/) compiles the whole picocli library from source and behaves exactly like the JVM version. It is not production-ready, though. Builds are slow, executables are large, and parts of the JDK are not supported yet. See [Known limitations](/limitations/).
+**Experimental.** The backend runs real programs: the [picocli example]({{ site.baseurl }}/examples/picocli-demo/) compiles the whole picocli library from source and behaves exactly like the JVM version. It is not production-ready, though. Builds are slow, executables are large, and parts of the JDK are not supported yet. See [Known limitations]({{ site.baseurl }}/limitations/).
 </div>
 
 ## Getting started
 
-1. Install the toolchain: see [Installing the LLVM toolchain](/backends/llvm/installation/).
+1. Install the toolchain: see [Installing the LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/).
 2. Select the backend with `--backend=LLVM` and add the options below.
 3. Build. The executable appears in the class output directory (`target/classes` with Maven).
 
@@ -52,7 +52,7 @@ With `BOEHM`, `GC_init` runs from `@llvm.global_ctors` before `main` and before 
 
 ## Reflection, resources and proxies
 
-A native executable has no class files or class path at run time. As with GraalVM `native-image`, what a program uses dynamically must be known at build time, from GraalVM configuration files under `META-INF/native-image/`. The backend reads them from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. It is the same format GraalVM uses, so tools that generate it work for Nabu too. picocli's annotation processor (`picocli-codegen`) writes these files into the class output, which is how the [picocli example](/examples/picocli-demo/) gets its metadata.
+A native executable has no class files or class path at run time. As with GraalVM `native-image`, what a program uses dynamically must be known at build time, from GraalVM configuration files under `META-INF/native-image/`. The backend reads them from the class output directory and from every directory and jar on the classpath, so a library can ship its own configuration. It is the same format GraalVM uses, so tools that generate it work for Nabu too. picocli's annotation processor (`picocli-codegen`) writes these files into the class output, which is how the [picocli example]({{ site.baseurl }}/examples/picocli-demo/) gets its metadata.
 
 | File | What it does |
 |---|---|
@@ -94,8 +94,8 @@ Without a `main` method only the `.ll` and object files are written.
 
 ## More
 
-- [Installing the LLVM toolchain](/backends/llvm/installation/)
-- [Example: a picocli command-line app](/examples/picocli-demo/)
-- [Internals](/backends/llvm/internals/): how the backend is built, for contributors
-- [Troubleshooting](/backends/llvm/troubleshooting/)
-- [Known limitations](/limitations/)
+- [Installing the LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/)
+- [Example: a picocli command-line app]({{ site.baseurl }}/examples/picocli-demo/)
+- [Internals]({{ site.baseurl }}/backends/llvm/internals/): how the backend is built, for contributors
+- [Troubleshooting]({{ site.baseurl }}/backends/llvm/troubleshooting/)
+- [Known limitations]({{ site.baseurl }}/limitations/)

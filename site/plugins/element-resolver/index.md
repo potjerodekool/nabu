@@ -20,7 +20,7 @@ public interface ElementResolver {
 
 A DSL typically introduces new ways of writing expressions (for example, field access on a casted join, or operator overloading). An `ElementResolver` teaches the compiler how to resolve these elements so they can be type-checked and transformed correctly.
 
-It is paired with a `CodeTransformer`, which then rewrites the resolved DSL code into ordinary code during the [Transform phase](/compiler-design/). See [DSL Support](/plugins/dsl-support/) for the full example using JPA.
+It is paired with a `CodeTransformer`, which then rewrites the resolved DSL code into ordinary code during the [Transform phase]({{ site.baseurl }}/compiler-design/). See [DSL Support]({{ site.baseurl }}/plugins/dsl-support/) for the full example using JPA.
 
 ## Registration
 

@@ -3,7 +3,7 @@ layout: page
 title: nabu-native-image
 ---
 
-`nabu-native-image` compiles a Java program that is already built (a jar, or a directory of classes) to a native executable with the [LLVM backend](/backends/llvm/). It is used like GraalVM's `native-image`:
+`nabu-native-image` compiles a Java program that is already built (a jar, or a directory of classes) to a native executable with the [LLVM backend]({{ site.baseurl }}/backends/llvm/). It is used like GraalVM's `native-image`:
 
 ```
 nabu-native-image [options] class [imagename]

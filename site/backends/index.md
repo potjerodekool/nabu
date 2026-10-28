@@ -31,6 +31,6 @@ The LLVM backend maps the IR to LLVM IR instead (`LLVMModuleEmitter`), lets LLVM
 
 Individual backends:
 
-- [ASM Backend](/backends/asm/) — the default, production backend
-- [Java Backend](/backends/java-backend/) — a parallel implementation using the JDK ClassFile API
-- [LLVM Backend](/backends/llvm/) — a native backend using LLVM and a C runtime ([installation](/backends/llvm/installation/), [internals](/backends/llvm/internals/), [troubleshooting](/backends/llvm/troubleshooting/))
+- [ASM Backend]({{ site.baseurl }}/backends/asm/) — the default, production backend
+- [Java Backend]({{ site.baseurl }}/backends/java-backend/) — a parallel implementation using the JDK ClassFile API
+- [LLVM Backend]({{ site.baseurl }}/backends/llvm/) — a native backend using LLVM and a C runtime ([installation]({{ site.baseurl }}/backends/llvm/installation/), [internals]({{ site.baseurl }}/backends/llvm/internals/), [troubleshooting]({{ site.baseurl }}/backends/llvm/troubleshooting/))

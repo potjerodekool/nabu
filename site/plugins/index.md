@@ -33,10 +33,10 @@ Plugins are loaded via `registerPlugins()` which calls `loadPluginsFromClassPath
 
 | Description | Interface | More |
 |---|---|---|
-| Custom element resolver for a DSL | `io.github.potjerodekool.nabu.resolve.spi.ElementResolver` | [More info](/plugins/dsl-support/) |
-| Transformer to transform the AST (DSL AST → normal AST) | `io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer` | [More info](/plugins/dsl-support/) |
-| Parser to parse source code and build an AST | `io.github.potjerodekool.nabu.lang.spi.LanguageParser` | [More info](/plugins/adding-language/) |
-| Output backend | `io.github.potjerodekool.nabu.compiler.backend.Backend` | [More info](/backends/) |
+| Custom element resolver for a DSL | `io.github.potjerodekool.nabu.resolve.spi.ElementResolver` | [More info]({{ site.baseurl }}/plugins/dsl-support/) |
+| Transformer to transform the AST (DSL AST → normal AST) | `io.github.potjerodekool.nabu.tools.transform.spi.CodeTransformer` | [More info]({{ site.baseurl }}/plugins/dsl-support/) |
+| Parser to parse source code and build an AST | `io.github.potjerodekool.nabu.lang.spi.LanguageParser` | [More info]({{ site.baseurl }}/plugins/adding-language/) |
+| Output backend | `io.github.potjerodekool.nabu.compiler.backend.Backend` | [More info]({{ site.baseurl }}/backends/) |
 
 ## Plugin classloading
 
@@ -46,5 +46,5 @@ Extension declarations can constrain the JDK feature version via `supportsJdkFea
 
 ## Example plugins
 
-- **`jpa-plugin`** — a DSL plugin that transforms JPA criteria joins/casts into normal code. See [DSL Support](/plugins/dsl-support/).
-- **`java-backend`** and **`native-backend`** — register the `JAVA` and `LLVM` backends. See [Backends](/backends/).
+- **`jpa-plugin`** — a DSL plugin that transforms JPA criteria joins/casts into normal code. See [DSL Support]({{ site.baseurl }}/plugins/dsl-support/).
+- **`java-backend`** and **`native-backend`** — register the `JAVA` and `LLVM` backends. See [Backends]({{ site.baseurl }}/backends/).

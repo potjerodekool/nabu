@@ -7,12 +7,12 @@ The **Nabu language** is a programming language whose syntax is based on both Ja
 
 This is an overview of the language. Individual topics are covered in dedicated pages:
 
-- [Classes](/languages/nabu/classes/)
-- [Fields](/languages/nabu/fields/)
-- [Generics](/languages/nabu/generics/)
-- [Annotations](/languages/nabu/annotations/)
-- [Lambda Expressions](/languages/nabu/lambda-expressions/)
-- [Exceptions](/languages/nabu/exceptions/)
+- [Classes]({{ site.baseurl }}/languages/nabu/classes/)
+- [Fields]({{ site.baseurl }}/languages/nabu/fields/)
+- [Generics]({{ site.baseurl }}/languages/nabu/generics/)
+- [Annotations]({{ site.baseurl }}/languages/nabu/annotations/)
+- [Lambda Expressions]({{ site.baseurl }}/languages/nabu/lambda-expressions/)
+- [Exceptions]({{ site.baseurl }}/languages/nabu/exceptions/)
 
 ## A small example
 

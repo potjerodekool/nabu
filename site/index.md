@@ -10,9 +10,9 @@ Writing a compiler is a complex task that takes a lot of time and usually requir
 ## What can you do with Nabu?
 
 - **Compile the Nabu language** to JVM bytecode. Nabu is a programming language whose syntax is based on Java and Kotlin.
-- **Compile Java.** Nabu and Java sources can be mixed in a single project, call each other, and are compiled by Nabu together. The Java parser supports Java 20. Nabu compiles real-world Java libraries such as [picocli](/examples/picocli-demo/).
-- **Write DSLs.** The compiler supports domain-specific languages (DSLs) so you can write code that is more readable and maintainable for a specific domain. See [DSL support](/plugins/dsl-support/) for an example with JPA.
-- **Target multiple backends.** Besides the standard ASM backend (JVM bytecode), there are experimental backends for the JDK ClassFile API and for [LLVM](/backends/llvm/), which produces native executables without a JVM.
+- **Compile Java.** Nabu and Java sources can be mixed in a single project, call each other, and are compiled by Nabu together. The Java parser supports Java 20. Nabu compiles real-world Java libraries such as [picocli]({{ site.baseurl }}/examples/picocli-demo/).
+- **Write DSLs.** The compiler supports domain-specific languages (DSLs) so you can write code that is more readable and maintainable for a specific domain. See [DSL support]({{ site.baseurl }}/plugins/dsl-support/) for an example with JPA.
+- **Target multiple backends.** Besides the standard ASM backend (JVM bytecode), there are experimental backends for the JDK ClassFile API and for [LLVM]({{ site.baseurl }}/backends/llvm/), which produces native executables without a JVM.
 - **Add your own language.** The compiler is extended via plugins. Provide a language parser that parses source code and builds an AST, and the compiler does the rest.
 
 <div class="callout callout-note" markdown="1">
@@ -48,6 +48,6 @@ A demo application is available at the [Nabu petstore](https://github.com/potjer
 
 ## Getting started
 
-To use Nabu and Java together in a Maven project, see the [Maven Plugin](/maven-plugin/) documentation. For IDE support, check out the [Nabu Idea](https://github.com/potjerodekool/nabu-idea) plugin for IntelliJ.
+To use Nabu and Java together in a Maven project, see the [Maven Plugin]({{ site.baseurl }}/maven-plugin/) documentation. For IDE support, check out the [Nabu Idea](https://github.com/potjerodekool/nabu-idea) plugin for IntelliJ.
 
-To build native executables, install the [LLVM toolchain](/backends/llvm/installation/) and follow the [picocli example](/examples/picocli-demo/), which builds one program for the JVM, with Nabu's LLVM backend and with GraalVM. See [Known limitations](/limitations/) for what does not work yet.
+To build native executables, install the [LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/) and follow the [picocli example]({{ site.baseurl }}/examples/picocli-demo/), which builds one program for the JVM, with Nabu's LLVM backend and with GraalVM. See [Known limitations]({{ site.baseurl }}/limitations/) for what does not work yet.

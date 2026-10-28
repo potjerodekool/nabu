@@ -15,11 +15,11 @@ Nabu did not find a MinGW `gcc` on Windows, so it fell back to LLVM's default MS
 setx NABU_TOOLCHAIN_BIN "C:\programs\mingw64\mingw64\bin"
 ```
 
-See [how Nabu finds GCC](/backends/llvm/installation/#4-tell-nabu-where-gcc-is).
+See [how Nabu finds GCC]({{ site.baseurl }}/backends/llvm/installation/#4-tell-nabu-where-gcc-is).
 
 ### `gc.h: No such file or directory` or `cannot find -lgc`
 
-The Boehm GC is missing for `--gc=BOEHM`. Install it as described in [Boehm GC (libgc)](/backends/llvm/installation/#3-boehm-gc-libgc) and check with `gcc -print-file-name=libgc.a`.
+The Boehm GC is missing for `--gc=BOEHM`. Install it as described in [Boehm GC (libgc)]({{ site.baseurl }}/backends/llvm/installation/#3-boehm-gc-libgc) and check with `gcc -print-file-name=libgc.a`.
 
 ### `mvn install` fails on `native-backend.jar` being in use
 
@@ -27,7 +27,7 @@ A Maven daemon (`mvnd`) or an IDE still has the previous plugin jar in `~/.nabu/
 
 ### The build takes very long
 
-That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program, in as many parallel parts as the machine has cores (see [Parallel code generation](/backends/llvm/internals/#parallel-code-generation)). On an 8-core machine a small program takes about 30 seconds, the [picocli example](/examples/picocli-demo/) about 45. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. `--opt=NONE` turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.
+That is expected for now. The backend compiles every JDK class the program can reach (a few thousand) and LLVM optimizes the whole program, in as many parallel parts as the machine has cores (see [Parallel code generation]({{ site.baseurl }}/backends/llvm/internals/#parallel-code-generation)). On an 8-core machine a small program takes about 30 seconds, the [picocli example]({{ site.baseurl }}/examples/picocli-demo/) about 45. Almost all of that time is spent in the backend (LLVM code generation, optimization and linking); the frontend and the bytecode compilation take seconds. `--opt=NONE` turns off LLVM optimization, at the cost of a slower executable; how much build time it saves has not been measured.
 
 ## Problems when running the executable
 
@@ -37,7 +37,7 @@ The program reached a function that the backend could not compile. All such func
 
 - If a class is only **created or called through reflection** (`Class.forName`, `getDeclaredConstructor().newInstance()`), no code calls it directly, so the backend does not compile it. List it in a `reflect-config.json` under `META-INF/native-image/`, as you would for GraalVM `native-image`.
 - A **resource** that is `null` at run time, or a `MissingResourceException` for a bundle, means it was not embedded: add it to a `resource-config.json` (`resources`/`bundles`). A `Proxy.newProxyInstance` that throws `IllegalArgumentException` ("No proxy class for the interfaces …") needs the interface list in a `proxy-config.json`.
-- If a **specific** function is missing, it is usually a `native` JDK method or a signature-polymorphic method (`MethodHandle.invoke…`) that needs support in the C runtime. See [Known limitations](/limitations/).
+- If a **specific** function is missing, it is usually a `native` JDK method or a signature-polymorphic method (`MethodHandle.invoke…`) that needs support in the C runtime. See [Known limitations]({{ site.baseurl }}/limitations/).
 
 ### "unhandled exception"
 

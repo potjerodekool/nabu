@@ -377,6 +377,24 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        if ("java/io/FileOutputStream".equals(classNode.name)) {
+            // The Flight Recorder variant of a write (a FileWriteEvent around it) is only for a recorder that is
+            // not there: write straight away.
+            for (final MethodNode m : classNode.methods) {
+                if ("traceWriteBytes".equals(m.name) && "([BIIZ)V".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ILOAD, 2));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ILOAD, 3));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ILOAD, 4));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESPECIAL,
+                                "java/io/FileOutputStream", "writeBytes", "([BIIZ)V", false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+                    });
+                }
+            }
+        }
         if ("java/util/Tripwire".equals(classNode.name)) {
             // A diagnostic, off unless -Djava.util.stream.tripwire=true: it logs a warning through the platform
             // logger, which brings the logger finder, the console logger and java.time into every program that
@@ -535,7 +553,13 @@ public final class BytecodeReachabilityCompiler {
             "java/io/FileCleanable", Set.of("register", "unregister"),
             // A Cleaner (the common one, from CleanerFactory) starts a daemon thread that runs the cleaning
             // actions of unreachable objects; there are no threads, so nothing is cleaned.
-            "jdk/internal/ref/CleanerImpl", Set.of("start"));
+            "jdk/internal/ref/CleanerImpl", Set.of("start"),
+            // Flight Recorder events of a thrown exception: there is no recorder, and the event classes with the
+            // code that fills them are in every program (Throwable calls the tracer).
+            "jdk/internal/event/ThrowableTracer", Set.of("traceError", "traceThrowable"),
+            // Pinning a virtual thread to its carrier while it changes a thread container: there are no
+            // continuations (their classes and natives would come with it).
+            "jdk/internal/vm/ContinuationSupport", Set.of("pinIfSupported", "unpinIfSupported"));
 
     private static void throwUnsupported(final org.objectweb.asm.tree.InsnList insns, final String what) {
         insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, "java/lang/UnsupportedOperationException"));

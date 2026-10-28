@@ -94,6 +94,7 @@
         <module>java-backend</module>
         <module>native-backend</module>
         <module>native-image</module>
+        <module>cli</module>
         <module>tools</module>
     </modules>
 

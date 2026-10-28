@@ -475,6 +475,8 @@ void nabu_clinit_end(volatile int32_t *state);
 void nabu_wait_mark(int state);
 /** Registers the program's ThreadSupport.runThread(Thread), which a new thread runs. */
 void nabu_set_thread_run_fn(void *fn);
+/** Registers ContinuationBridge.enter(Object), which runs the body of a continuation on its own stack. */
+void nabu_set_continuation_run_fn(void *fn);
 
 /* Aangeroepen door de stub van een JDK-functie zonder implementatie (native,
  * signature-polymorf): meldt het symbool en breekt het programma af. */

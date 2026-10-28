@@ -1288,6 +1288,13 @@ public final class BytecodeReachabilityCompiler {
             return;
         }
         shapedClasses.add(internalName);
+        if (ContinuationBridge.CONTINUATION.equals(internalName)) {
+            // The C runtime starts the body of a continuation through the bridge.
+            ensureShape(ContinuationBridge.CLASS);
+            queueInit(ContinuationBridge.CLASS);
+            queueMethod(new MethodRef(ContinuationBridge.CLASS, ContinuationBridge.ENTER,
+                    ContinuationBridge.ENTER_DESC, false));
+        }
         classesShaped++;
         if (classesShaped % 50 == 0) {
             System.err.println("[BytecodeReachability] " + classesShaped + " classes shaped, "
@@ -1660,6 +1667,7 @@ public final class BytecodeReachabilityCompiler {
         return loadedClassNodes.computeIfAbsent(internalName,
                 name -> BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
                         : ThreadBridge.CLASS.equals(name) ? ThreadBridge.build()
+                        : ContinuationBridge.CLASS.equals(name) ? ContinuationBridge.build()
                         : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build(applicationResources)
                         : generatedClasses.containsKey(name) ? generatedClasses.get(name)
                         : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? patchRuntimeClass(EmbeddedResources.runtimeClass(name))

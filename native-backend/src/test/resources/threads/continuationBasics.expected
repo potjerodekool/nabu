@@ -1,0 +1,5 @@
+basics [a][b][c] runs 3 done true
+failure boom true
+nested o1 i1 o2 | i2 o3 true
+stacks done 300 intact 300
+migration true 45

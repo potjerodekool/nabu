@@ -1015,6 +1015,13 @@ public void setReflectionRegistry(
         LLVMSetLinkage(setThreadRunFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_set_thread_run_fn", setThreadRunFn);
 
+        // --- void nabu_set_continuation_run_fn(i8* fn) ---
+        LLVMValueRef setContinuationRunFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_continuation_run_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setContinuationRunFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_continuation_run_fn", setContinuationRunFn);
+
         // --- void nabu_register_type_infos(i8* table, i32 count) ---
         PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
         regTypesParams.put(0, i8ptr);
@@ -1179,6 +1186,14 @@ public void setReflectionRegistry(
         final LLVMValueRef runThread = LLVMGetNamedFunction(mod, runThreadName);
         if (runThreadIr != null && !runThreadIr.blocks().isEmpty() && runThread != null && !runThread.isNull()) {
             callSetter(builder, "@nabu_set_thread_run_fn", runThread);
+        }
+        // The body of a continuation (Continuation.enterSpecial in the C runtime calls it).
+        final String enterName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ContinuationBridge_enter";
+        final IRFunction enterIr = classLayouts.resolveFunction(enterName);
+        final LLVMValueRef enterFn = LLVMGetNamedFunction(mod, enterName);
+        if (enterIr != null && !enterIr.blocks().isEmpty() && enterFn != null && !enterFn.isNull()) {
+            callSetter(builder, "@nabu_set_continuation_run_fn", enterFn);
         }
         for (int kind = 0; kind < boxFns.length; kind++) {
             if (boxFns[kind] == null) continue;

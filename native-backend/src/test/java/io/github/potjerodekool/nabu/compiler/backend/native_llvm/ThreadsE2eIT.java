@@ -195,6 +195,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void continuationBasics() throws Exception {
+        assertEquals(expected("continuationBasics"), output("continuationBasics", java.util.Map.of("NABU_CONTINUATIONS", "1")));
+    }
+
+    @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));
     }

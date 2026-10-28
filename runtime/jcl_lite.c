@@ -72,7 +72,7 @@ typedef struct { int kind; char *name; void *target; void *threadLocals; void *i
                  void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope;
                  nabu_waiter *waiter;
                  volatile int cap_request; volatile int cap_done; int cap_count; uintptr_t cap_frames[128];
-                 nabu_waiter *cap_requester; } s_thread;
+                 nabu_waiter *cap_requester; void *continuation; } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -4705,13 +4705,284 @@ BIND(int, jcl_Thread_holdsLock, "java.lang.Thread_holdsLock", (void *obj)) {
 }
 BIND(void *, jcl_Thread_getContextClassLoader, "java.lang.Thread_getContextClassLoader", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_Thread_getUncaughtExceptionHandler, "java.lang.Thread_getUncaughtExceptionHandler", (void *self)) { return jcl_thread_of(self)->handler; }
-BIND(int, jcl_ContinuationSupport_isSupported0, "jdk.internal.vm.ContinuationSupport_isSupported0", (void)) { return 0; }
+/* Virtual threads run on continuations only when NABU_CONTINUATIONS=1 (and the runtime has them, see
+ * JCL_CONTINUATIONS); otherwise each one is bound to a native thread of its own. */
+BIND(int, jcl_ContinuationSupport_isSupported0, "jdk.internal.vm.ContinuationSupport_isSupported0", (void)) {
+#ifdef _WIN32
+#if defined(NABU_GC_BOEHM)
+    const char *on = getenv("NABU_CONTINUATIONS");
+    return on != NULL && on[0] == '1';
+#else
+    return 0;
+#endif
+#else
+    return 0;
+#endif
+}
 static void *jcl_default_handler = NULL;
 BIND(void *, jcl_Thread_getDefaultUncaughtExceptionHandler, "java.lang.Thread_getDefaultUncaughtExceptionHandler", (void)) { return __atomic_load_n(&jcl_default_handler, __ATOMIC_ACQUIRE); }
 BIND(void, jcl_Thread_setDefaultUncaughtExceptionHandler, "java.lang.Thread_setDefaultUncaughtExceptionHandler", (void *handler)) { __atomic_store_n(&jcl_default_handler, handler, __ATOMIC_RELEASE); }
 BIND(void *, jcl_ThreadSupport_handlerOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_handlerOf0", (void *thread)) { return jcl_thread_of(thread)->handler; }
 BIND(void *, jcl_ThreadSupport_groupOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_groupOf0", (void *thread)) { return jcl_thread_of(thread)->group; }
 BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_mainThread0", (void)) { return jcl_main_thread(); }
+
+/* --- jdk.internal.vm.Continuation: a stack of its own per continuation ---------------------------------------
+ * A continuation runs on a fiber (Windows: CreateFiberEx / SwitchToFiber). Run switches from the stack of the
+ * running thread (the carrier) to the fiber, a yield switches back. A suspended continuation can be run again by
+ * any thread. Boehm GC has to find the objects that only live on these stacks:
+ *  - callee-saved registers are spilled to the stack before every switch (__builtin_unwind_init);
+ *  - the running fiber is the stack of its thread for the collector (GC_set_stackbottom), restored on the way back;
+ *  - every stack that is parked (a suspended fiber, the stack of a thread while a fiber runs on it) is a region
+ *    {sp, hi} that the root hook pushes. The regions are never freed, only reused, so the hook can read them
+ *    while the world is stopped without a lock. */
+#if defined(_WIN32) && defined(NABU_GC_BOEHM)
+#define JCL_CONTINUATIONS 1
+
+struct GC_stack_base;
+extern void GC_push_all_eager(void *bottom, void *top);
+extern void GC_set_push_other_roots(void (*proc)(void));
+extern void (*GC_get_push_other_roots(void))(void);
+extern void *GC_get_my_stackbottom(struct GC_stack_base *sb);
+extern void GC_set_stackbottom(void *gc_thread_handle, const struct GC_stack_base *sb);
+extern void *GC_malloc_uncollectable(size_t n);
+extern void GC_free(void *p);
+
+typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; } jcl_region;
+
+typedef struct jcl_cont {
+    LPVOID fiber;
+    jcl_region *region;      /* the stack of this fiber while it is parked */
+    LPVOID back;             /* where a yield or the end goes to: the fiber of the stack that ran it */
+    void *obj;               /* the Continuation */
+    void *failure;           /* a Throwable that ended the body */
+    struct jcl_cont *parent; /* the continuation that was running on this thread when this one was run */
+    void *hi;                /* the base of the fiber stack */
+    int state;               /* 0 new, 1 running, 2 suspended, 3 done */
+    int pins;
+} jcl_cont;
+
+static void *(*jcl_continuation_run_fn)(void *) = NULL;
+void nabu_set_continuation_run_fn(void *fn) { jcl_continuation_run_fn = (void *(*)(void *))fn; }
+
+static jcl_region *volatile *volatile jcl_regions = NULL;
+static volatile long jcl_region_count = 0;
+static long jcl_region_cap = 0;
+static jcl_region *jcl_region_free = NULL;
+static pthread_mutex_t jcl_region_lock = PTHREAD_MUTEX_INITIALIZER;
+static void (*jcl_old_push_other_roots)(void) = NULL;
+static volatile int jcl_roots_hooked = 0;
+
+static void jcl_push_regions(void) {
+    jcl_region *volatile *table = jcl_regions;
+    const long n = jcl_region_count;
+    for (long i = 0; i < n; i++) {
+        jcl_region *r = table[i];
+        void *sp = r->sp;
+        if (sp != NULL && r->hi != NULL && sp < r->hi) GC_push_all_eager(sp, r->hi);
+    }
+    if (jcl_old_push_other_roots != NULL) jcl_old_push_other_roots();
+}
+
+static jcl_region *jcl_region_new(void *hi) {
+    pthread_mutex_lock(&jcl_region_lock);
+    if (!jcl_roots_hooked) {
+        jcl_old_push_other_roots = GC_get_push_other_roots();
+        GC_set_push_other_roots(jcl_push_regions);
+        jcl_roots_hooked = 1;
+    }
+    jcl_region *r = jcl_region_free;
+    if (r != NULL) {
+        jcl_region_free = r->next_free;
+        r->hi = hi;
+    } else {
+        r = (jcl_region *)calloc(1, sizeof *r);
+        r->hi = hi;
+        if (jcl_region_count == jcl_region_cap) {
+            /* a bigger table is published whole; the old one stays for a collection that is reading it */
+            long cap = jcl_region_cap == 0 ? 256 : jcl_region_cap * 2;
+            jcl_region **bigger = (jcl_region **)calloc((size_t)cap, sizeof(jcl_region *));
+            for (long i = 0; i < jcl_region_count; i++) bigger[i] = jcl_regions[i];
+            jcl_region_cap = cap;
+            __atomic_store_n(&jcl_regions, (jcl_region *volatile *)bigger, __ATOMIC_RELEASE);
+        }
+        jcl_regions[jcl_region_count] = r;
+        __atomic_add_fetch(&jcl_region_count, 1, __ATOMIC_RELEASE);
+    }
+    pthread_mutex_unlock(&jcl_region_lock);
+    return r;
+}
+
+static void jcl_region_release(jcl_region *r) {
+    r->sp = NULL;
+    r->hi = NULL;
+    pthread_mutex_lock(&jcl_region_lock);
+    r->next_free = jcl_region_free;
+    jcl_region_free = r;
+    pthread_mutex_unlock(&jcl_region_lock);
+}
+
+#define JCL_CURRENT_SP() ({ void *sp_; __asm__ volatile("movq %%rsp, %0" : "=r"(sp_)); sp_; })
+
+static void *jcl_stack_hi(void) {
+    void *base;
+    __asm__ volatile("movq %%gs:0x8, %0" : "=r"(base));
+    return base;
+}
+
+static __thread void *jcl_gc_thread = NULL;      /* the collector's handle of this thread */
+static __thread jcl_region *jcl_carrier_region = NULL;
+static __thread jcl_cont *jcl_running = NULL;    /* the continuation running on this thread, innermost */
+
+static void jcl_set_gc_base(void *handle, void *hi) {
+    struct { void *mem_base; } sb;
+    sb.mem_base = hi;
+    GC_set_stackbottom(handle, (const struct GC_stack_base *)&sb);
+}
+
+static void *jcl_get_gc_base(void) {
+    struct { void *mem_base; } sb;
+    sb.mem_base = NULL;
+    GC_get_my_stackbottom((struct GC_stack_base *)&sb);
+    return sb.mem_base;
+}
+
+static void WINAPI jcl_fiber_main(LPVOID param) {
+    jcl_cont *k = (jcl_cont *)param;
+    k->hi = jcl_stack_hi();
+    k->region->hi = k->hi;
+    jcl_set_gc_base(jcl_gc_thread, k->hi);
+    k->failure = jcl_continuation_run_fn != NULL ? jcl_continuation_run_fn(k->obj) : NULL;
+    k->state = 3;
+    k->region->sp = NULL;
+    SwitchToFiber(k->back);
+}
+
+/* Runs the continuation until it yields or ends. Noinline: the registers are spilled into this frame, which is then
+ * parked as a region while the fiber runs. */
+static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
+    __builtin_unwind_init();
+    if (jcl_gc_thread == NULL) {
+        struct { void *mem_base; } sb;
+        jcl_gc_thread = GC_get_my_stackbottom((struct GC_stack_base *)&sb);
+    }
+    if (!IsThreadAFiber()) ConvertThreadToFiber(NULL);
+    jcl_cont *outer = jcl_running;
+    const void *prev_hi = jcl_get_gc_base();
+    jcl_region *mine = outer != NULL ? outer->region : jcl_carrier_region;
+    if (mine == NULL) {
+        mine = jcl_carrier_region = jcl_region_new(jcl_stack_hi());
+    }
+    mine->hi = (void *)prev_hi;
+    mine->sp = JCL_CURRENT_SP();
+    k->back = GetCurrentFiber();
+    k->parent = outer;
+    k->state = 1;
+    k->region->sp = NULL;
+    if (k->hi != NULL) jcl_set_gc_base(jcl_gc_thread, k->hi);
+    jcl_running = k;
+    SwitchToFiber(k->fiber);
+    /* back on the stack of this thread (yield or end) */
+    jcl_running = outer;
+    jcl_set_gc_base(jcl_gc_thread, (void *)prev_hi);
+    mine->sp = NULL;
+}
+
+/* Leaves the running continuation; returns when it is run again, possibly by another thread. */
+static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
+    __builtin_unwind_init();
+    k->state = 2;
+    k->region->sp = JCL_CURRENT_SP();
+    SwitchToFiber(k->back);
+}
+
+static void **jcl_cont_slot(void *c) {
+    intptr_t off = nabu_instance_field_offset(c, "tail");
+    return off >= 0 ? (void **)((char *)c + off) : NULL;
+}
+
+BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpecial", (void *c, uint8_t isContinue, uint8_t isVirtual)) {
+    (void)isVirtual;
+    void **slot = jcl_cont_slot(c);
+    jcl_cont *k;
+    if (isContinue) {
+        k = (jcl_cont *)*slot;
+    } else {
+        k = (jcl_cont *)GC_malloc_uncollectable(sizeof(jcl_cont));
+        memset(k, 0, sizeof *k);
+        k->obj = c;
+        k->region = jcl_region_new(NULL);
+        k->fiber = CreateFiberEx(16 * 1024, (size_t)4 << 20, 0, jcl_fiber_main, k);
+        if (k->fiber == NULL) {
+            jcl_region_release(k->region);
+            GC_free(k);
+            jcl_throw_new("java/lang/OutOfMemoryError", "java/lang/Error", "Cannot create a stack for a continuation");
+            return;
+        }
+        *slot = k;
+    }
+    jcl_cont_switch_in(k);
+    if (k->state == 3) {
+        void *failure = k->failure;
+        *slot = NULL;
+        DeleteFiber(k->fiber);
+        jcl_region_release(k->region);
+        GC_free(k);
+        if (failure != NULL) nabu_throw(failure);
+    }
+}
+
+BIND(int, jcl_Continuation_doYield, "jdk.internal.vm.Continuation_doYield", (void)) {
+    jcl_cont *k = jcl_running;
+    if (k == NULL) return 3;
+    if (k->pins > 0) return 2; /* CRITICAL_SECTION */
+    jcl_cont_switch_out(k);
+    return 0;
+}
+
+BIND(void, jcl_Continuation_pin, "jdk.internal.vm.Continuation_pin", (void)) {
+    if (jcl_running != NULL) jcl_running->pins++;
+}
+BIND(void, jcl_Continuation_unpin, "jdk.internal.vm.Continuation_unpin", (void)) {
+    if (jcl_running != NULL && jcl_running->pins > 0) jcl_running->pins--;
+}
+BIND(int, jcl_Continuation_isPinned0, "jdk.internal.vm.Continuation_isPinned0", (void *scope)) {
+    (void)scope;
+    return jcl_running != NULL && jcl_running->pins > 0 ? 2 : 0;
+}
+BIND(void, jcl_Continuation_registerNatives, "jdk.internal.vm.Continuation_registerNatives", (void)) { }
+#else
+void nabu_set_continuation_run_fn(void *fn) { (void)fn; }
+BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpecial", (void *c, uint8_t isContinue, uint8_t isVirtual)) {
+    (void)c; (void)isContinue; (void)isVirtual;
+    jcl_throw_new("java/lang/UnsupportedOperationException", "java/lang/RuntimeException", "Continuations need the Boehm GC on Windows");
+}
+BIND(int, jcl_Continuation_doYield, "jdk.internal.vm.Continuation_doYield", (void)) { return 3; }
+BIND(void, jcl_Continuation_pin, "jdk.internal.vm.Continuation_pin", (void)) { }
+BIND(void, jcl_Continuation_unpin, "jdk.internal.vm.Continuation_unpin", (void)) { }
+BIND(int, jcl_Continuation_isPinned0, "jdk.internal.vm.Continuation_isPinned0", (void *scope)) { (void)scope; return 0; }
+BIND(void, jcl_Continuation_registerNatives, "jdk.internal.vm.Continuation_registerNatives", (void)) { }
+#endif
+
+/* java.lang.VirtualThread: the JVMTI notifications are not there; the thread that unblocks virtual threads waiting
+ * for a monitor has nothing to wait for (virtual threads that wait for a monitor stay on their carrier). */
+BIND(void, jcl_VirtualThread_registerNatives, "java.lang.VirtualThread_registerNatives", (void)) { }
+BIND(void, jcl_VirtualThread_notifyJvmtiStart, "java.lang.VirtualThread_notifyJvmtiStart", (void *self)) { (void)self; }
+BIND(void, jcl_VirtualThread_notifyJvmtiEnd, "java.lang.VirtualThread_notifyJvmtiEnd", (void *self)) { (void)self; }
+BIND(void, jcl_VirtualThread_notifyJvmtiMount, "java.lang.VirtualThread_notifyJvmtiMount", (void *self, uint8_t hide)) { (void)self; (void)hide; }
+BIND(void, jcl_VirtualThread_notifyJvmtiUnmount, "java.lang.VirtualThread_notifyJvmtiUnmount", (void *self, uint8_t hide)) { (void)self; (void)hide; }
+BIND(void, jcl_VirtualThread_notifyJvmtiDisableSuspend, "java.lang.VirtualThread_notifyJvmtiDisableSuspend", (uint8_t enter)) { (void)enter; }
+BIND(void, jcl_VirtualThread_postPinnedEvent, "java.lang.VirtualThread_postPinnedEvent", (void *op)) { (void)op; }
+BIND(void *, jcl_VirtualThread_takeVirtualThreadListToUnblock, "java.lang.VirtualThread_takeVirtualThreadListToUnblock", (void)) {
+    nabu_waiter *waiter = nabu_waiter_self();
+    for (;;) {
+        const unsigned long ticket = nabu_waiter_ticket(waiter);
+        nabu_waiter_wait(waiter, ticket, -1);
+    }
+    return NULL;
+}
+
+BIND(void, jcl_Thread_setContinuation, "java.lang.Thread_setContinuation", (void *self, void *c)) { jcl_thread_of(self)->continuation = c; }
+BIND(void *, jcl_Thread_getContinuation, "java.lang.Thread_getContinuation", (void *self)) { return jcl_thread_of(self)->continuation; }
 
 static void *jcl_the_runtime(void) {
     static void *runtime = NULL;

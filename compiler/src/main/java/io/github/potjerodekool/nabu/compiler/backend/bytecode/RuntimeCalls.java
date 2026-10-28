@@ -125,6 +125,8 @@ final class RuntimeCalls {
             new Redirect("java/lang/Thread", "getThreadGroup", "()Ljava/lang/ThreadGroup;", false, THREAD_SUPPORT,
                     "getThreadGroup"),
             new Redirect("java/lang/Thread", "getState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT, "getState"),
+            new Redirect("java/lang/Thread", "virtualThreadGroup", "()Ljava/lang/ThreadGroup;", true, THREAD_SUPPORT,
+                    "virtualThreadGroup"),
             new Redirect("java/lang/Thread", "getStackTrace", "()[Ljava/lang/StackTraceElement;", false, THREAD_SUPPORT,
                     "getStackTrace"),
             new Redirect("java/lang/Thread", "getAllStackTraces", "()Ljava/util/Map;", true, THREAD_SUPPORT,
@@ -156,6 +158,14 @@ final class RuntimeCalls {
             }
             for (final AbstractInsnNode insn : method.instructions.toArray()) {
                 if (insn instanceof MethodInsnNode call) {
+                    if (call.getOpcode() == Opcodes.INVOKESPECIAL && "java/lang/Thread".equals(call.owner)
+                            && "run".equals(call.name) && "()V".equals(call.desc)) {
+                        // super.run() of a JDK thread class (InnocuousThread): Thread itself is provided by the C
+                        // runtime, so run what the thread was made with.
+                        method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC, THREAD_SUPPORT,
+                                "runTarget", "(Ljava/lang/Thread;)V", false));
+                        continue;
+                    }
                     final Redirect redirect = find(call.owner, call.name, call.desc);
                     if (redirect != null && (call.getOpcode() == Opcodes.INVOKESTATIC) == redirect.isStatic()) {
                         method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC,

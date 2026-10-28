@@ -256,15 +256,29 @@ public final class ThreadSupport {
             return null;
         }
         if (thread.isVirtual()) {
-            synchronized (ThreadSupport.class) {
-                if (virtualGroup == null) {
-                    virtualGroup = new ThreadGroup(systemGroup, "VirtualThreads");
-                }
-                return virtualGroup;
-            }
+            return virtualThreadGroup();
         }
         final Object group = groupOf0(thread);
         return group == null ? mainGroup : (ThreadGroup) group;
+    }
+
+    /** {@code super.run()} of a Thread subclass: runs the target the thread was made with. */
+    public static void runTarget(final Thread thread) {
+        final Object target = ShutdownSupport.targetOf0(thread);
+        if (target instanceof Runnable runnable) {
+            runnable.run();
+        }
+    }
+
+    /** Thread.virtualThreadGroup(): the group of all virtual threads. */
+    public static ThreadGroup virtualThreadGroup() {
+        makeRootGroups();
+        synchronized (ThreadSupport.class) {
+            if (virtualGroup == null) {
+                virtualGroup = new ThreadGroup(systemGroup, "VirtualThreads");
+            }
+            return virtualGroup;
+        }
     }
 
     /** Called by the constructor of every ThreadGroup. */

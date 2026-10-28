@@ -24,7 +24,7 @@ nabu-native-image --doctor                               # checks gcc/clang, lib
 | `-jar` | the program is a jar: `Main-Class` and `Class-Path` come from its manifest |
 | `-o` | name of the executable (default: the class name in lower case, or the name of the jar) |
 | `-d`, `--output-dir` | where the executable is written (default: the current directory) |
-| `--gc` | `BOEHM` (default), `REFCOUNT` or `NONE` |
+| `--gc` | `BOEHM` (default) or `NONE` |
 | `-O0` … `-O3`, `--opt` | `NONE`, `DEFAULT` or `AGGRESSIVE` |
 | `--strict`, `--no-fallback` | fail the build when the program or its libraries call a method that has no implementation (a `native` method of the program, a library method that could not be compiled) |
 | `--static` | link the runtime of the toolchain into the executable. This is the default on Windows: the executable runs without the MinGW `bin` directory on the `PATH` |

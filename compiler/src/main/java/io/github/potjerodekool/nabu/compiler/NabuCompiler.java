@@ -362,7 +362,7 @@ public class NabuCompiler implements Compiler {
             return CompileOptions.GcStrategy.valueOf(raw.trim().toUpperCase());
         } catch (final IllegalArgumentException e) {
             System.err.println("nabu: unknown --gc value '" + raw
-                    + "', use NONE, BOEHM or REFCOUNT. Falling back to BOEHM.");
+                    + "', use NONE or BOEHM. Falling back to BOEHM.");
             return CompileOptions.GcStrategy.BOEHM;
         }
     }

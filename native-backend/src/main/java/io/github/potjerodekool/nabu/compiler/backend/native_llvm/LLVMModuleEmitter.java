@@ -1028,7 +1028,6 @@ public void setReflectionRegistry(
         // --- GC-specifieke helpers ---
         switch (opts.gcStrategy()) {
             case BOEHM -> declareBoehmHelpers(i8ptr, i64);
-            case REFCOUNT -> declareRefCountHelpers(i8ptr, i64);
             case NONE -> { /* geen extra helpers nodig */ }
         }
     }
@@ -1263,48 +1262,6 @@ public void setReflectionRegistry(
         args.put(0, table);
         LLVMBuildCall2(builder, LLVMGlobalGetValueType(setter), setter, args, 1, "");
         Reference.reachabilityFence(args);
-    }
-
-    /**
-     * Reference counting helpers: nabu_retain() en nabu_release().
-     * Plus malloc/free voor initiële allocatie.
-     */
-    private void declareRefCountHelpers(LLVMTypeRef i8ptr, LLVMTypeRef i64) {
-        // i8* malloc(size_t)
-        PointerPointer<Pointer> mallocParams = new PointerPointer<>(1);
-        mallocParams.put(0, i64);
-        LLVMTypeRef mallocType = LLVMFunctionType(i8ptr, mallocParams, 1, 0);
-        LLVMValueRef mallocFn = LLVMAddFunction(mod,
-                new BytePointer("malloc"), mallocType);
-        LLVMSetLinkage(mallocFn, LLVMExternalLinkage);
-        globalValueMap.put("@malloc", mallocFn);
-
-        // void free(i8*)
-        PointerPointer<Pointer> freeParams = new PointerPointer<>(1);
-        freeParams.put(0, i8ptr);
-        LLVMTypeRef freeType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), freeParams, 1, 0);
-        LLVMValueRef freeFn = LLVMAddFunction(mod,
-                new BytePointer("free"), freeType);
-        LLVMSetLinkage(freeFn, LLVMExternalLinkage);
-        globalValueMap.put("@free", freeFn);
-
-        // void nabu_retain(i8*)
-        PointerPointer<Pointer> retainParams = new PointerPointer<>(1);
-        retainParams.put(0, i8ptr);
-        LLVMTypeRef retainType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), retainParams, 1, 0);
-        LLVMValueRef retainFn = LLVMAddFunction(mod,
-                new BytePointer("nabu_retain"), retainType);
-        LLVMSetLinkage(retainFn, LLVMExternalLinkage);
-        globalValueMap.put("@nabu_retain", retainFn);
-
-        // void nabu_release(i8*)
-        PointerPointer<Pointer> releaseParams = new PointerPointer<>(1);
-        releaseParams.put(0, i8ptr);
-        LLVMTypeRef releaseType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), releaseParams, 1, 0);
-        LLVMValueRef releaseFn = LLVMAddFunction(mod,
-                new BytePointer("nabu_release"), releaseType);
-        LLVMSetLinkage(releaseFn, LLVMExternalLinkage);
-        globalValueMap.put("@nabu_release", releaseFn);
     }
 
     /**

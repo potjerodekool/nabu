@@ -20,7 +20,7 @@ import java.util.jar.JarFile;
  * @param mainClass the class with the {@code main} method (a name with dots)
  * @param imageName the name of the executable, without extension
  * @param outputDir the directory the executable is written to
- * @param gc        the garbage collector: BOEHM, REFCOUNT or NONE
+ * @param gc        the garbage collector: BOEHM or NONE
  * @param opt       the optimization level: NONE, DEFAULT or AGGRESSIVE
  * @param strict    fail the build instead of producing a program that can fail on a missing JDK method
  * @param keepWork  keep the directory with the intermediate files
@@ -167,8 +167,8 @@ public record NativeImageArguments(List<Path> classPath,
             classPath.add(Path.of("."));
         }
         mainClass = mainClass.replace('/', '.');
-        if (!List.of("BOEHM", "REFCOUNT", "NONE").contains(gc)) {
-            throw new UsageException("unknown --gc value " + gc + ", use BOEHM, REFCOUNT or NONE");
+        if (!List.of("BOEHM", "NONE").contains(gc)) {
+            throw new UsageException("unknown --gc value " + gc + ", use BOEHM or NONE");
         }
         if (!List.of("NONE", "DEFAULT", "AGGRESSIVE").contains(opt)) {
             throw new UsageException("unknown --opt value " + opt + ", use NONE, DEFAULT or AGGRESSIVE");

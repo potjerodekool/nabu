@@ -97,8 +97,7 @@ class BoehmRuntimeE2eTest {
         assertTrue(Linker.buildCommand(objects, exe, "x86_64-pc-linux-gnu",
                         CompileOptions.GcStrategy.BOEHM).contains("-lgc"),
                 "BOEHM moet -lgc krijgen op Linux");
-        for (final var strategy : List.of(CompileOptions.GcStrategy.NONE,
-                CompileOptions.GcStrategy.REFCOUNT)) {
+        for (final var strategy : List.of(CompileOptions.GcStrategy.NONE)) {
             assertTrue(!Linker.buildCommand(objects, exe, "x86_64-w64-windows-gnu",
                     strategy).contains("-lgc"),
                     strategy + " mag geen -lgc krijgen");

@@ -557,24 +557,6 @@ public class FunctionEmitter {
             }
         }
 
-        // REFCOUNT: escape-analyse vóórdat de body geëmitteerd wordt, zodat de
-        // retain/release-keuzes bij elke allocatie al bekend zijn.
-        instructions.refCounts().beginFunction(fn, llvmFn);
-
-        // REFCOUNT: de initialisatie-vlaggen per lokale referentie-slot staan
-        // bovenaan het entry-blok. De builder staat nog aan het einde van het
-        // laatste alloca uit de phi-slot-lus, dus positioneer hem opnieuw.
-        if (instructions.refCounts().isEnabled()) {
-            LLVMBasicBlockRef entry = blockMap.get(fn.blocks().get(0).label());
-            LLVMValueRef firstInstr = LLVMGetFirstInstruction(entry);
-            if (firstInstr != null && !firstInstr.isNull()) {
-                LLVMPositionBuilder(builder, entry, firstInstr);
-            } else {
-                LLVMPositionBuilderAtEnd(builder, entry);
-            }
-            instructions.refCounts().emitSlotInitFlags();
-        }
-
         // Instructies emitteren per blok, in reverse post-order: zo is de
         // definitie van elke SSA-waarde al geëmitteerd vóór elk gebruik dat ze
         // domineert. In IR-volgorde kwam bv. een lus-update-blok vóór de
@@ -663,10 +645,6 @@ public class FunctionEmitter {
                 LLVMBuildUnreachable(builder);
             }
         }
-
-        // REFCOUNT: de ene exit-pad afronden (returns sprongen er tijdens het
-        // emitteren naartoe).
-        instructions.refCounts().finishFunction();
     }
 
     /**

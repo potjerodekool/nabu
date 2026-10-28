@@ -40,8 +40,7 @@ public record CompileOptions(
 
     public enum GcStrategy {
         NONE,
-        BOEHM,
-        REFCOUNT
+        BOEHM
     }
 
     public static CompileOptions debug() {

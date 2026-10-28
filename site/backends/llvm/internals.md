@@ -80,7 +80,7 @@ Every object starts with a header that `ClassLayouts.objectHeaderType()` and `st
 | 0 | `type` | pointer to the class's `nabu_type_info` (name, size, superclass, interfaces, fields) |
 | 8 | `vtable` | virtual method table |
 | 16 | `itable` | interface method table |
-| 24 | `ref_count` | used by `--gc=REFCOUNT` |
+| 24 | `ref_count` | unused (always 0) |
 | 28 | `monitor_count` | `synchronized` |
 | 32 | `thread_id` | `synchronized` |
 
@@ -112,7 +112,6 @@ MSVC targets are rejected: they use SEH scope tables with `__C_specific_handler`
 See [Choosing a GC strategy]({{ site.baseurl }}/backends/llvm/#choosing-a-gc-strategy) for the user view.
 
 - **BOEHM**: every object, including unknown library classes, goes through `GC_malloc`; the runtime only fills the header (`nabu_init_object`). Fields the backend reads are written explicitly, because the test suite verifies against a GC double that poisons memory instead of zeroing it.
-- **REFCOUNT**: one `nabu_retain` at allocation and one `nabu_release` when the owning reference dies (slot overwrite or function exit). Objects that escape the frame (return value, field, call argument, `throw`) are deliberately not counted and leak; cycles are not collected. See `RefCountEmitter`.
 - **NONE**: objects are `alloca`'d in the frame of the function that creates them.
 
 ## Tests

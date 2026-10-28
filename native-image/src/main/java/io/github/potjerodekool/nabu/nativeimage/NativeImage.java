@@ -70,7 +70,7 @@ public final class NativeImage {
                   -jar <file>                the program is a jar: Main-Class and Class-Path of its manifest
                   -o <name>                  name of the executable (default: the class or the jar)
                   -d, --output-dir <dir>     where the executable is written (default: the current directory)
-                  --gc <BOEHM|REFCOUNT|NONE> garbage collector (default BOEHM)
+                  --gc <BOEHM|NONE>           garbage collector (default BOEHM)
                   -O0 .. -O3, --opt <level>  optimization: NONE, DEFAULT or AGGRESSIVE (-O0 / -O1, -O2 / -O3)
                   --strict, --no-fallback    fail when the program or its libraries call a method without implementation
                   --static                   link the toolchain runtime into the executable (the default on Windows: the

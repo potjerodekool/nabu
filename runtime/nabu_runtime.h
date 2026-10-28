@@ -206,7 +206,7 @@ void nabu_resume(void *unwind_exc);
  * per interne naam gecachet).
  *
  * De *allocatie* gebeurt bewust door de backend, niet hier: alleen die weet
- * welke GC-strategie geldt. BOEHM moet via GC_malloc, REFCOUNT via malloc en
+ * welke GC-strategie geldt. BOEHM moet via GC_malloc en
  * NONE via de stack. Als de runtime zelf mallocte, zouden zulke objecten onder
  * BOEHM onzichtbaar zijn voor de collector en dus permanent lekken.
  *
@@ -289,56 +289,6 @@ void *nabu_jcl_state(void *obj);
 
 /** Vult het state-slot van een library-object. */
 void nabu_jcl_set_state(void *obj, void *state);
-
-/* -------------------------------------------------------
- * Reference counting (GcStrategy.REFCOUNT)
- * -------------------------------------------------------
- *
- * De LLVM-backend gebruikt een sterke-eigenaar-semantiek: een heap-allocatie
- * krijgt één retain, en die eigenaar geeft hem weer af op de plek waar de
- * toewijzing 'dood' gaat — hetzij bij overschrijving van een referentie-slot,
- * hetzij in de exit-pad van de frame die 'm alloceerde. Een allocatie die de
- * frame ontsnapt (returnwaarde, object-veld, call-argument, throw) krijgt
- * bewust géén retain en wordt ook niet vrijgegeven: de ontvanger is eigenaar
- * en de backend weet niet hoe die 'm beheert. Dat is de belangrijkste
- * bekende beperking van REFCOUNT.
- *
- * Beide functies zijn NULL-safe: nabu_retain(NULL) en nabu_release(NULL) zijn
- * no-ops. De backend hoeft daardoor geen null-tests te emitteren; de
- * identiteits-guard (is dit werkelijk een van onze eigen objecten?) gebeurt in
- * het gegenereerde IR, niet hier.
- *
- * nabu_release geeft het geheugen vrij zodra de teller op 0 komt. Een release
- * op een teller die al 0 (of negatief) is, doet niets: dat pad hoort niet voor
- * te komen en zou anders een dubbele free zijn. Er is bewust GEEN
- * finalizer/destructor-traversaal: een object dat door een ander object
- * bereikbaar is gemaakt (een object-graph, en dus ook een cyclus) wordt niet
- * meegezwopt. Dat is de gedocumenteerde beperking van deze strategie; wie die
- * nodig heeft kiest BOEHM.
- */
-
-/** Verhoogt de referentieteller van obj met 1. */
-void nabu_retain(void *obj);
-
-/** Verlaagt de referentieteller; vrijgeeft zodra deze 0 wordt. NULL-safe. */
-void nabu_release(void *obj);
-
-/**
- * Huidige referentieteller van obj, of -1 voor NULL. Diagnostiek: het
- * nadeel van het meelezen van een teller is dat het NA een release een
- * use-after-free is; lees hem dus alleen voor de release.
- */
-int nabu_ref_count(void *obj);
-
-/**
- * Aantal objecten dat sinds processtart in beheer is genomen: één per
- * nabu_retain-call met een niet-NULL argument. NULL-calls tellen niet mee,
- * want die veranderen geen eigendom.
- */
-long nabu_rc_retain_count(void);
-
-/** idem voor nabu_release; zie nabu_rc_retain_count. */
-long nabu_rc_release_count(void);
 
 /**
  * Reflectie-metadata (fase 2): veld- en annotatie-informatie voor klassen

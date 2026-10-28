@@ -48,10 +48,6 @@ public class InstructionEmitter {
     private final CompileOptions opts;
     private final ClassLayouts classLayouts;
 
-    // GcStrategy.REFCOUNT: retain/release-emissie. Inactief (en dus gratis)
-    // voor de andere strategieën.
-    private final RefCountEmitter refCounts;
-
     // Per-functie lokale registers
     private Map<String, LLVMValueRef> localValueMap;
 
@@ -122,14 +118,6 @@ public class InstructionEmitter {
         this.blockMap       = blockMap;
         this.opts           = opts;
         this.classLayouts   = classLayouts;
-        this.refCounts      = new RefCountEmitter(builder, ctx, types, globalValueMap,
-                opts.gcStrategy() == CompileOptions.GcStrategy.REFCOUNT,
-                this::resolveValue);
-    }
-
-    /** De REFCOUNT-emitter, zodat {@link FunctionEmitter} de exit-pad kan afronden. */
-    RefCountEmitter refCounts() {
-        return refCounts;
     }
 
     public void setLocalValueMap(Map<String, LLVMValueRef> localValueMap) {
@@ -484,9 +472,8 @@ public class InstructionEmitter {
         LLVMValueRef array = switch (opts.gcStrategy()) {
             case NONE -> LLVMBuildArrayAlloca(builder, LLVMInt8TypeInContext(ctx), totalBytes,
                     new BytePointer(nameOf(a.result())));
-            case BOEHM, REFCOUNT -> {
-                LLVMValueRef allocFn = globalValueMap.get(opts.gcStrategy() == CompileOptions.GcStrategy.BOEHM
-                        ? "@GC_malloc" : "@malloc");
+            case BOEHM -> {
+                LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
                 LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
                 PointerPointer<Pointer> args = new PointerPointer<>(1);
                 args.put(0, totalBytes);
@@ -498,7 +485,6 @@ public class InstructionEmitter {
         final String arrayClass = arrayClassName(a);
         storeArrayElemSize(array, elemSize | ((long) (arrayClass != null ? arrayTypeId(arrayClass) : 0) << 8));
         storeLocal(a.result(), array);
-        refCounts.onAlloc(a.result(), array);
     }
 
     /**
@@ -623,12 +609,10 @@ public class InstructionEmitter {
                     // stack-alloca van de object-struct (voor tests/kleine demo's)
                     LLVMBuildAlloca(builder, layout.structType,
                             new BytePointer(nameOf(ha.result())));
-                case BOEHM, REFCOUNT -> {
+                case BOEHM -> {
                     long size = sizeOf(layout.structType);
                     LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                    LLVMValueRef allocFn = globalValueMap.get(
-                            opts.gcStrategy() == CompileOptions.GcStrategy.BOEHM
-                                    ? "@GC_malloc" : "@malloc");
+                    LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
                     LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
                     PointerPointer<Pointer> args = new PointerPointer<>(1);
                     args.put(0, sizeVal);
@@ -638,7 +622,6 @@ public class InstructionEmitter {
             };
             initObjectHeader(obj, layout);
             storeLocal(ha.result(), obj);
-            refCounts.onAlloc(ha.result(), obj);
             return;
         }
 
@@ -699,12 +682,11 @@ public class InstructionEmitter {
             obj = allocForStrategy(headerSize, nameOf(ha.result()));
         }
         storeLocal(ha.result(), obj);
-        refCounts.onAlloc(ha.result(), obj);
     }
 
     /**
      * Reserveert {@code size} bytes met de allocator van de gekozen GC-strategie:
-     * stack (NONE), {@code GC_malloc} (BOEHM) of {@code malloc} (REFCOUNT).
+     * stack (NONE) of {@code GC_malloc} (BOEHM).
      *
      * De switch is bewust een switch-expressie: de GcStrategy-cases zijn dan
      * compiler-gedekt en een nieuwe strategie levert een compilefout op in plaats
@@ -720,10 +702,8 @@ public class InstructionEmitter {
                         LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0),
                         new BytePointer(name));
             }
-            case BOEHM, REFCOUNT -> {
-                final LLVMValueRef allocFn = globalValueMap.get(
-                        opts.gcStrategy() == CompileOptions.GcStrategy.BOEHM
-                                ? "@GC_malloc" : "@malloc");
+            case BOEHM -> {
+                final LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
                 if (allocFn == null) {
                     throw new IllegalStateException("Allocation helper not defined");
                 }
@@ -755,12 +735,8 @@ public class InstructionEmitter {
                 ".itable.slot");
         LLVMBuildStore(builder, layout.itableGlobal, itableSlot);
 
-        // De teller moet vanaf een bekende waarde beginnen: malloc, GC_malloc en
-        // de stack geven ongeïnitialiseerd geheugen terug, en nabu_retain telt op
-        // wat er staat. Zonder deze nulstore zou een object nooit op 0 komen en
-        // dus nooit vrijgegeven worden. Ook de andere strategieën krijgen de
-        // nulstore: de header is dan nooit half ongeïnitialiseerd, ook niet als
-        // iemand later naar de teller kijkt (bv. een debug-tool).
+        // Het slot van de oude referentieteller blijft in de header zitten (offset 24) en wordt op 0 gezet:
+        // GC_malloc en de stack geven ongeïnitialiseerd geheugen terug.
         LLVMValueRef countSlot = LLVMBuildStructGEP2(builder,
                 classLayouts.objectHeaderType(), headerPtr,
                 ClassLayouts.HEADER_SLOT_REF_COUNT, ".refcount.slot");
@@ -1160,10 +1136,6 @@ public class InstructionEmitter {
             // object vallen, dus deze toewijzing wordt overgeslagen.
             return;
         }
-        // GcStrategy.REFCOUNT: de toewijzing die vrijkomt. De waarde die in
-        // de slot zegt release'n we vóór de overschrijving; de nieuwe waarde
-        // neemt de eigendom over van de frame (zie RefCountEmitter).
-        refCounts.onStoreToSlot(target, ptr);
         LLVMValueRef value = resolveValue(store.value());
         LLVMValueRef slot = LLVMIsAAllocaInst(ptr);
         if (slot != null && !slot.isNull()) {
@@ -2346,12 +2318,6 @@ public class InstructionEmitter {
     }
 
     private void emitReturn(IRInstruction.Return ret) {
-        if (refCounts.isEnabled()) {
-            // REFCOUNT: alle returns sprongen naar de ene exit-pad, die de
-            // frame-eigen referenties afgeeft en daarna teruggeeft.
-            refCounts.onReturn(ret.value());
-            return;
-        }
         if (ret.value() == null)
             LLVMBuildRetVoid(builder);
         else {
@@ -2647,12 +2613,10 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         LLVMValueRef obj = switch (opts.gcStrategy()) {
             case NONE -> LLVMBuildAlloca(builder, layout.structType,
                     new BytePointer(".exc"));
-            case BOEHM, REFCOUNT -> {
+            case BOEHM -> {
                 long size = sizeOf(layout.structType);
                 LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                LLVMValueRef allocFn = globalValueMap.get(
-                        opts.gcStrategy() == CompileOptions.GcStrategy.BOEHM
-                                ? "@GC_malloc" : "@malloc");
+                LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
                 if (allocFn == null)
                     throw new IllegalStateException("Allocation helper missing");
                 LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);

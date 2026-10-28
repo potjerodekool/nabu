@@ -57,10 +57,10 @@ class NativeImageArgumentsTest {
 
     @Test
     void optimizationAndGcOptions() throws Exception {
-        final var arguments = NativeImageArguments.parse(List.of("-O3", "--gc=refcount", "a.Main"));
+        final var arguments = NativeImageArguments.parse(List.of("-O3", "--gc=none", "a.Main"));
 
         assertEquals("AGGRESSIVE", arguments.opt());
-        assertEquals("REFCOUNT", arguments.gc());
+        assertEquals("NONE", arguments.gc());
         assertEquals("NONE", NativeImageArguments.parse(List.of("-O0", "a.Main")).opt());
     }
 

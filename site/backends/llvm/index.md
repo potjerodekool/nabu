@@ -36,7 +36,7 @@ The options are passed like any other Nabu compiler option. With Maven, use `<co
 | Option | Values | Default | Meaning |
 |---|---|---|---|
 | `--backend` | `ASM`, `JAVA`, `LLVM` | `ASM` | Selects the backend. |
-| `--gc` | `NONE`, `BOEHM`, `REFCOUNT` | `BOEHM` | Memory management, see below. |
+| `--gc` | `NONE`, `BOEHM` | `BOEHM` | Memory management, see below. |
 | `--bytecode-jdk-home` | path to a JDK | the running JDK | Reads JDK bytecode from another JDK installation. |
 | `--opt` | `NONE`, `DEFAULT`, `AGGRESSIVE` | `DEFAULT` | LLVM optimization level. |
 
@@ -45,7 +45,6 @@ The options are passed like any other Nabu compiler option. With Maven, use `<co
 | Strategy | Allocation | Freeing | Use for |
 |---|---|---|---|
 | `BOEHM` (default) | `GC_malloc` (Boehm GC, linked with `-lgc`) | by the collector | real programs |
-| `REFCOUNT` | `malloc` | `nabu_release` when the owning reference dies | experiments; leaks objects that escape a frame, does not collect cycles |
 | `NONE` | stack `alloca` in the allocating function | when that function returns | not for executables: the JDK startup code keeps objects past the function that created them, so the program crashes before `main` |
 
 With `BOEHM`, `GC_init` runs from `@llvm.global_ctors` before `main` and before any allocation. Every object, including ones created by the runtime, goes through `GC_malloc`.

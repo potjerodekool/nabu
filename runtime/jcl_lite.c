@@ -4208,8 +4208,14 @@ static void *jcl_main_thread(void) {
 }
 
 /* The Thread object of the running thread: the thread's own, or "main". */
+/* Continuations need the Boehm collector, and fibers (Windows) or ucontext (Linux, x86-64 and aarch64). */
+#if defined(NABU_GC_BOEHM) && (defined(_WIN32) || (defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))))
+#define JCL_CONTINUATIONS_PLATFORM 1
+#else
+#define JCL_CONTINUATIONS_PLATFORM 0
+#endif
 static int jcl_continuations_enabled(void) {
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
+#if JCL_CONTINUATIONS_PLATFORM
     const char *off = getenv("NABU_CONTINUATIONS");
     return off == NULL || off[0] != '0';
 #else
@@ -4755,8 +4761,12 @@ BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compil
  *  - every stack that is parked (a suspended fiber, the stack of a thread while a fiber runs on it) is a region
  *    {sp, hi} that the root hook pushes. The regions are never freed, only reused, so the hook can read them
  *    while the world is stopped without a lock. */
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
+#if JCL_CONTINUATIONS_PLATFORM
 #define JCL_CONTINUATIONS 1
+#ifndef _WIN32
+#include <ucontext.h>
+#include <sys/mman.h>
+#endif
 
 struct GC_stack_base;
 extern void GC_push_all_eager(void *bottom, void *top);
@@ -4770,9 +4780,16 @@ extern void GC_free(void *p);
 typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; } jcl_region;
 
 typedef struct jcl_cont {
+#ifdef _WIN32
     LPVOID fiber;
-    jcl_region *region;      /* the stack of this fiber while it is parked */
     LPVOID back;             /* where a yield or the end goes to: the fiber of the stack that ran it */
+#else
+    ucontext_t uc;           /* the registers of the continuation while it is parked */
+    ucontext_t *back;        /* where a yield or the end goes to: the context of the stack that ran it */
+    void *stack_map;         /* the mapping of the stack (guard page first) */
+    size_t stack_map_size;
+#endif
+    jcl_region *region;      /* the stack of this fiber while it is parked */
     void *obj;               /* the Continuation */
     void *failure;           /* a Throwable that ended the body */
     struct jcl_cont *parent; /* the continuation that was running on this thread when this one was run */
@@ -4842,40 +4859,75 @@ static void jcl_region_release(jcl_region *r) {
     pthread_mutex_unlock(&jcl_region_lock);
 }
 
+#if defined(__x86_64__)
 #define JCL_CURRENT_SP() ({ void *sp_; __asm__ volatile("movq %%rsp, %0" : "=r"(sp_)); sp_; })
+#else
+#define JCL_CURRENT_SP() ({ void *sp_; __asm__ volatile("mov %0, sp" : "=r"(sp_)); sp_; })
+#endif
 
+#ifdef _WIN32
 static void *jcl_stack_hi(void) {
     void *base;
     __asm__ volatile("movq %%gs:0x8, %0" : "=r"(base));
     return base;
 }
+#endif
 
 static __thread void *jcl_gc_thread = NULL;      /* the collector's handle of this thread */
 static __thread jcl_region *jcl_carrier_region = NULL;
 static __thread jcl_cont *jcl_running = NULL;    /* the continuation running on this thread, innermost */
 
+#ifndef _WIN32
+/* The collector scans the stack of the process's first thread up to GC_stackbottom, that of the others up to the
+ * stack end it has recorded for them. */
+static int jcl_on_main_thread(void) {
+    static __thread int known = 0, main_thread = 0;
+    if (!known) {
+        main_thread = (pid_t)syscall(SYS_gettid) == getpid();
+        known = 1;
+    }
+    return main_thread;
+}
+#endif
+
 static void jcl_set_gc_base(void *handle, void *hi) {
     struct { void *mem_base; } sb;
     sb.mem_base = hi;
     GC_set_stackbottom(handle, (const struct GC_stack_base *)&sb);
+#ifndef _WIN32
+    if (jcl_on_main_thread()) GC_stackbottom = (char *)hi;
+#endif
 }
 
 static void *jcl_get_gc_base(void) {
+#ifndef _WIN32
+    if (jcl_on_main_thread()) return (void *)GC_stackbottom;
+#endif
     struct { void *mem_base; } sb;
     sb.mem_base = NULL;
     GC_get_my_stackbottom((struct GC_stack_base *)&sb);
     return sb.mem_base;
 }
 
+#ifdef _WIN32
 static void WINAPI jcl_fiber_main(LPVOID param) {
     jcl_cont *k = (jcl_cont *)param;
     k->hi = jcl_stack_hi();
+#else
+static void jcl_fiber_main(unsigned int lo, unsigned int hi) {
+    jcl_cont *k = (jcl_cont *)(((uintptr_t)hi << 32) | (uintptr_t)lo);
+    k->hi = (char *)k->stack_map + k->stack_map_size;
+#endif
     k->region->hi = k->hi;
     jcl_set_gc_base(jcl_gc_thread, k->hi);
     k->failure = jcl_continuation_run_fn != NULL ? jcl_continuation_run_fn(k->obj) : NULL;
     k->state = 3;
     k->region->sp = NULL;
+#ifdef _WIN32
     SwitchToFiber(k->back);
+#else
+    setcontext(k->back);
+#endif
 }
 
 /* Runs the continuation until it yields or ends. Noinline: the registers are spilled into this frame, which is then
@@ -4886,23 +4938,34 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
         struct { void *mem_base; } sb;
         jcl_gc_thread = GC_get_my_stackbottom((struct GC_stack_base *)&sb);
     }
+#ifdef _WIN32
     if (!IsThreadAFiber()) ConvertThreadToFiber(NULL);
+#endif
     jcl_cont *outer = jcl_running;
     const void *prev_hi = jcl_get_gc_base();
     jcl_region *mine = outer != NULL ? outer->region : jcl_carrier_region;
     if (mine == NULL) {
-        mine = jcl_carrier_region = jcl_region_new(jcl_stack_hi());
+        mine = jcl_carrier_region = jcl_region_new((void *)prev_hi);
     }
     mine->hi = (void *)prev_hi;
     mine->sp = JCL_CURRENT_SP();
+#ifdef _WIN32
     k->back = GetCurrentFiber();
+#else
+    ucontext_t back_context;    /* in this frame, which is pushed as part of the region of this stack */
+    k->back = &back_context;
+#endif
     k->parent = outer;
     k->monitors = nabu_held_monitors();
     k->state = 1;
     k->region->sp = NULL;
     if (k->hi != NULL) jcl_set_gc_base(jcl_gc_thread, k->hi);
     jcl_running = k;
+#ifdef _WIN32
     SwitchToFiber(k->fiber);
+#else
+    swapcontext(&back_context, &k->uc);
+#endif
     /* back on the stack of this thread (yield or end) */
     jcl_running = outer;
     jcl_set_gc_base(jcl_gc_thread, (void *)prev_hi);
@@ -4914,7 +4977,11 @@ static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
     __builtin_unwind_init();
     k->state = 2;
     k->region->sp = JCL_CURRENT_SP();
+#ifdef _WIN32
     SwitchToFiber(k->back);
+#else
+    swapcontext(&k->uc, k->back);
+#endif
 }
 
 static void **jcl_cont_slot(void *c) {
@@ -4933,8 +5000,27 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
         memset(k, 0, sizeof *k);
         k->obj = c;
         k->region = jcl_region_new(NULL);
+#ifdef _WIN32
         k->fiber = CreateFiberEx(16 * 1024, (size_t)4 << 20, 0, jcl_fiber_main, k);
-        if (k->fiber == NULL) {
+        const int created = k->fiber != NULL;
+#else
+        /* a stack of 4 MB; its pages are committed when they are used; the lowest page is a guard */
+        const size_t page = (size_t)sysconf(_SC_PAGESIZE);
+        k->stack_map_size = (size_t)4 << 20;
+        k->stack_map = mmap(NULL, k->stack_map_size, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_STACK, -1, 0);
+        int created = k->stack_map != MAP_FAILED;
+        if (created) {
+            mprotect(k->stack_map, page, PROT_NONE);
+            getcontext(&k->uc);
+            k->uc.uc_stack.ss_sp = (char *)k->stack_map + page;
+            k->uc.uc_stack.ss_size = k->stack_map_size - page;
+            k->uc.uc_link = NULL;
+            makecontext(&k->uc, (void (*)(void))jcl_fiber_main, 2, (unsigned int)((uintptr_t)k & 0xffffffffu),
+                    (unsigned int)((uintptr_t)k >> 32));
+        }
+#endif
+        if (!created) {
             jcl_region_release(k->region);
             GC_free(k);
             jcl_throw_new("java/lang/OutOfMemoryError", "java/lang/Error", "Cannot create a stack for a continuation");
@@ -4946,7 +5032,11 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
     if (k->state == 3) {
         void *failure = k->failure;
         *slot = NULL;
+#ifdef _WIN32
         DeleteFiber(k->fiber);
+#else
+        munmap(k->stack_map, k->stack_map_size);
+#endif
         jcl_region_release(k->region);
         GC_free(k);
         if (failure != NULL) nabu_throw(failure);
@@ -4977,7 +5067,7 @@ BIND(void, jcl_Continuation_registerNatives, "jdk.internal.vm.Continuation_regis
 void nabu_set_continuation_run_fn(void *fn) { (void)fn; }
 BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpecial", (void *c, uint8_t isContinue, uint8_t isVirtual)) {
     (void)c; (void)isContinue; (void)isVirtual;
-    jcl_throw_new("java/lang/UnsupportedOperationException", "java/lang/RuntimeException", "Continuations need the Boehm GC on Windows");
+    jcl_throw_new("java/lang/UnsupportedOperationException", "java/lang/RuntimeException", "Continuations need the Boehm GC on Windows or Linux");
 }
 BIND(int, jcl_Continuation_doYield, "jdk.internal.vm.Continuation_doYield", (void)) { return 3; }
 BIND(void, jcl_Continuation_pin, "jdk.internal.vm.Continuation_pin", (void)) { }

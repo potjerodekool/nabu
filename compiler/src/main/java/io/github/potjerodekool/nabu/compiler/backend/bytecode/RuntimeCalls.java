@@ -8,6 +8,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
@@ -127,6 +128,19 @@ final class RuntimeCalls {
             new Redirect("java/lang/Thread", "getState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT, "getState"),
             new Redirect("java/lang/Thread", "virtualThreadGroup", "()Ljava/lang/ThreadGroup;", true, THREAD_SUPPORT,
                     "virtualThreadGroup"),
+            new Redirect("java/lang/Thread", "isAlive", "()Z", false, THREAD_SUPPORT, "isAlive"),
+            new Redirect("java/lang/Thread", "runWith", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", false,
+                    THREAD_SUPPORT, "runWith"),
+            new Redirect("java/lang/Thread", "dispatchUncaughtException", "(Ljava/lang/Throwable;)V", false,
+                    THREAD_SUPPORT, "dispatchUncaught"),
+            new Redirect("java/lang/VirtualThread", "dispatchUncaughtException", "(Ljava/lang/Throwable;)V", false,
+                    THREAD_SUPPORT, "dispatchUncaught", "(Ljava/lang/Thread;Ljava/lang/Throwable;)V"),
+            new Redirect("java/lang/Thread", "threadState", "()Ljava/lang/Thread$State;", false, THREAD_SUPPORT,
+                    "getState"),
+            // VirtualThread calls the method it inherits, with its own class as the owner.
+            new Redirect("java/lang/VirtualThread", "runWith", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", false,
+                    THREAD_SUPPORT, "runWith", "(Ljava/lang/Thread;Ljava/lang/Object;Ljava/lang/Runnable;)V"),
+            new Redirect("java/lang/Thread", "sleep", "(J)V", true, THREAD_SUPPORT, "sleep"),
             new Redirect("java/lang/Thread", "getStackTrace", "()[Ljava/lang/StackTraceElement;", false, THREAD_SUPPORT,
                     "getStackTrace"),
             new Redirect("java/lang/Thread", "getAllStackTraces", "()Ljava/util/Map;", true, THREAD_SUPPORT,
@@ -157,6 +171,14 @@ final class RuntimeCalls {
                 continue;
             }
             for (final AbstractInsnNode insn : method.instructions.toArray()) {
+                if (insn instanceof FieldInsnNode field && field.getOpcode() == Opcodes.GETFIELD
+                        && "interruptLock".equals(field.name)
+                        && ("java/lang/VirtualThread".equals(field.owner) || "java/lang/Thread".equals(field.owner))) {
+                    // Thread's own field: Thread is provided by the C runtime, which has no such field.
+                    method.instructions.set(field, new MethodInsnNode(Opcodes.INVOKESTATIC, THREAD_SUPPORT,
+                            "interruptLock", "(Ljava/lang/Thread;)Ljava/lang/Object;", false));
+                    continue;
+                }
                 if (insn instanceof MethodInsnNode call) {
                     if (call.getOpcode() == Opcodes.INVOKESPECIAL && "java/lang/Thread".equals(call.owner)
                             && "run".equals(call.name) && "()V".equals(call.desc)) {

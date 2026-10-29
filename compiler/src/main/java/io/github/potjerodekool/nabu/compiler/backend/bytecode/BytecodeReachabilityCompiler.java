@@ -1294,6 +1294,11 @@ public final class BytecodeReachabilityCompiler {
             queueInit(ContinuationBridge.CLASS);
             queueMethod(new MethodRef(ContinuationBridge.CLASS, ContinuationBridge.ENTER,
                     ContinuationBridge.ENTER_DESC, false));
+            queueMethod(new MethodRef(ContinuationBridge.CLASS, ContinuationBridge.CREATE,
+                    ContinuationBridge.CREATE_DESC, false));
+            queueMethod(new MethodRef(ContinuationBridge.CLASS, ContinuationBridge.START_ROOT,
+                    ContinuationBridge.START_ROOT_DESC, false));
+            queueInstantiate(ContinuationBridge.CLASS);
         }
         classesShaped++;
         if (classesShaped % 50 == 0) {

@@ -1022,6 +1022,20 @@ public void setReflectionRegistry(
         LLVMSetLinkage(setContinuationRunFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_set_continuation_run_fn", setContinuationRunFn);
 
+        // --- void nabu_set_virtual_ops_fn(i8* fn) ---
+        LLVMValueRef setVirtualOpsFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_virtual_ops_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setVirtualOpsFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_virtual_ops_fn", setVirtualOpsFn);
+
+        // --- void nabu_set_virtual_start_fn(i8* fn) ---
+        LLVMValueRef setVirtualStartFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_virtual_start_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setVirtualStartFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_virtual_start_fn", setVirtualStartFn);
+
         // --- void nabu_register_type_infos(i8* table, i32 count) ---
         PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
         regTypesParams.put(0, i8ptr);
@@ -1194,6 +1208,22 @@ public void setReflectionRegistry(
         final LLVMValueRef enterFn = LLVMGetNamedFunction(mod, enterName);
         if (enterIr != null && !enterIr.blocks().isEmpty() && enterFn != null && !enterFn.isNull()) {
             callSetter(builder, "@nabu_set_continuation_run_fn", enterFn);
+        }
+        // The factory of the object that gives ThreadSupport the methods of the JDK's VirtualThread.
+        final String createName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ContinuationBridge_create";
+        final IRFunction createIr = classLayouts.resolveFunction(createName);
+        final LLVMValueRef createFn = LLVMGetNamedFunction(mod, createName);
+        if (createIr != null && !createIr.blocks().isEmpty() && createFn != null && !createFn.isNull()) {
+            callSetter(builder, "@nabu_set_virtual_ops_fn", createFn);
+        }
+        // Thread.start() of a virtual thread on a continuation runs VirtualThread.start(root container).
+        final String startRootName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ContinuationBridge_startRoot";
+        final IRFunction startRootIr = classLayouts.resolveFunction(startRootName);
+        final LLVMValueRef startRootFn = LLVMGetNamedFunction(mod, startRootName);
+        if (startRootIr != null && !startRootIr.blocks().isEmpty() && startRootFn != null && !startRootFn.isNull()) {
+            callSetter(builder, "@nabu_set_virtual_start_fn", startRootFn);
         }
         for (int kind = 0; kind < boxFns.length; kind++) {
             if (boxFns[kind] == null) continue;

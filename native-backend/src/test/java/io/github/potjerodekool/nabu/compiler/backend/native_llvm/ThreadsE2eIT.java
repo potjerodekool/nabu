@@ -199,6 +199,38 @@ class ThreadsE2eIT {
         assertEquals(expected("continuationBasics"), output("continuationBasics", java.util.Map.of("NABU_CONTINUATIONS", "1")));
     }
 
+    private static final java.util.Map<String, String> CONTINUATIONS = java.util.Map.of("NABU_CONTINUATIONS", "1");
+
+    /** Same program as {@code virtualThreads}, with virtual threads on continuations. */
+    @Test
+    void virtualThreadsOnContinuations() throws Exception {
+        assertEquals(expected("virtualThreads"), output("virtualThreads", CONTINUATIONS));
+    }
+
+    /** Same program as {@code virtualThreadExecutor}, with virtual threads on continuations. */
+    @Test
+    void virtualThreadExecutorOnContinuations() throws Exception {
+        assertEquals(expected("virtualThreadExecutor"), output("virtualThreadExecutor", CONTINUATIONS));
+    }
+
+    /** Same program as {@code manyVirtualThreads}, with virtual threads on continuations. */
+    @Test
+    void manyVirtualThreadsOnContinuations() throws Exception {
+        assertEquals(expected("manyVirtualThreads"), output("manyVirtualThreads", CONTINUATIONS));
+    }
+
+    /** Same program as {@code structuredTaskScope}, with virtual threads on continuations. */
+    @Test
+    void structuredTaskScopeOnContinuations() throws Exception {
+        assertEquals(expected("structuredTaskScope"), output("structuredTaskScope", CONTINUATIONS));
+    }
+
+    /** Same program as {@code scopedValues}, with virtual threads on continuations. */
+    @Test
+    void scopedValuesOnContinuations() throws Exception {
+        assertEquals(expected("scopedValues"), output("scopedValues", CONTINUATIONS));
+    }
+
     @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));
@@ -358,6 +390,22 @@ class ThreadsE2eIT {
         final String keep = System.getProperty("nabu.keepExe");
         if (keep != null) {
             Files.copy(executable, Path.of(keep), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try (Stream<Path> walk = Files.walk(out)) {
+                final Path unresolved = walk.filter(f -> f.getFileName().toString().endsWith(".unresolved.txt"))
+                        .findFirst().orElse(null);
+                if (unresolved != null) {
+                    Files.copy(unresolved, Path.of(keep + ".unresolved.txt"),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            try (Stream<Path> walk = Files.walk(out)) {
+                final Path warnings = walk.filter(f -> f.getFileName().toString().endsWith(".warnings.txt"))
+                        .findFirst().orElse(null);
+                if (warnings != null) {
+                    Files.copy(warnings, Path.of(keep + ".warnings.txt"),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
         }
         return executable;
     }

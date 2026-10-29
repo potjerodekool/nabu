@@ -83,6 +83,11 @@ public final class ThreadSupport {
 
     /** Thread.start(ThreadContainer): starts the thread as a member of the container. */
     public static void startInContainer(final Thread thread, final Object container) {
+        final VirtualThreadOps virtual = virtualOps(thread);
+        if (virtual != null) {
+            virtual.start(thread, container);
+            return;
+        }
         if (getState(thread) != Thread.State.NEW || containerOf0(thread) != null) {
             throw new IllegalThreadStateException();
         }
@@ -127,6 +132,11 @@ public final class ThreadSupport {
      * has not started or has ended.
      */
     public static StackTraceElement[] getStackTrace(final Thread thread) {
+        final VirtualThreadOps virtual = virtualOps(thread);
+        if (virtual != null) {
+            final StackTraceElement[] trace = virtual.stackTrace(thread);
+            return trace != null ? trace : new StackTraceElement[0];
+        }
         if (thread == Thread.currentThread()) {
             final StackTraceElement[] own = new Throwable().getStackTrace();
             if (own.length > 0 && own[0].getClassName().endsWith("ThreadSupport")) {
@@ -151,7 +161,7 @@ public final class ThreadSupport {
     private static native Object handlerOf0(Thread thread);
 
     /** The handler of the thread, else its group (which passes it on to the default handler or prints it). */
-    private static void dispatchUncaught(final Thread thread, final Throwable t) {
+    public static void dispatchUncaught(final Thread thread, final Throwable t) {
         Thread.UncaughtExceptionHandler handler = (Thread.UncaughtExceptionHandler) handlerOf0(thread);
         if (handler == null) {
             handler = getThreadGroup(thread);
@@ -204,6 +214,13 @@ public final class ThreadSupport {
         if (millis < 0L) {
             throw new IllegalArgumentException("timeout value is negative");
         }
+        final VirtualThreadOps virtual = virtualOps(thread);
+        if (virtual != null) {
+            if (virtual.alive(thread)) {
+                virtual.join(thread, millis == 0L ? Long.MAX_VALUE : java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(millis));
+            }
+            return;
+        }
         synchronized (thread) {
             if (millis == 0L) {
                 while (thread.isAlive()) {
@@ -224,6 +241,14 @@ public final class ThreadSupport {
 
     /** Thread.join(Duration): whether the thread has ended. */
     public static boolean join(final Thread thread, final java.time.Duration duration) throws InterruptedException {
+        final VirtualThreadOps virtual = virtualOps(thread);
+        if (virtual != null) {
+            if (!virtual.alive(thread)) {
+                return true;
+            }
+            final long nanos = duration.isNegative() ? 0L : java.util.concurrent.TimeUnit.NANOSECONDS.convert(duration);
+            return virtual.join(thread, nanos);
+        }
         final long millis = duration.toMillis();
         if (millis > 0L || duration.getNano() > 0) {
             join(thread, millis > 0L ? millis : 1L);
@@ -260,6 +285,69 @@ public final class ThreadSupport {
         }
         final Object group = groupOf0(thread);
         return group == null ? mainGroup : (ThreadGroup) group;
+    }
+
+    /** The object that creates the VirtualThreadOps, or null when virtual threads are bound to native threads. */
+    private static native Object virtualOps0();
+
+    private static VirtualThreadOps virtualOps;
+
+    private static boolean virtualOpsKnown;
+
+    /** The VirtualThread methods for a virtual thread that runs on a continuation, else null. */
+    private static VirtualThreadOps virtualOps(final Thread thread) {
+        if (!thread.isVirtual()) {
+            return null;
+        }
+        if (!virtualOpsKnown) {
+            virtualOps = (VirtualThreadOps) virtualOps0();
+            virtualOpsKnown = true;
+        }
+        return virtualOps;
+    }
+
+    /** Thread.runWith(bindings, op): the body of a virtual thread, run with the scoped values it was started with. */
+    public static void runWith(final Thread thread, final Object bindings, final Runnable op) {
+        op.run();
+    }
+
+    /** Thread.interruptLock of a virtual thread: the lock that makes interrupt and unmount exclusive. */
+    public static Object interruptLock(final Thread thread) {
+        return thread;
+    }
+
+    /** Thread.isAlive(). */
+    public static boolean isAlive(final Thread thread) {
+        final VirtualThreadOps virtual = virtualOps(thread);
+        return virtual != null ? virtual.alive(thread) : thread.isAlive();
+    }
+
+    /**
+     * Thread.sleep(long). A virtual thread on a continuation parks (which lets its carrier run another one);
+     * every other thread waits natively.
+     */
+    public static void sleep(final long millis) throws InterruptedException {
+        if (millis < 0L) {
+            throw new IllegalArgumentException("timeout value is negative");
+        }
+        if (virtualOps(Thread.currentThread()) == null) {
+            Thread.sleep(millis);
+            return;
+        }
+        if (Thread.interrupted()) {
+            throw new InterruptedException();
+        }
+        final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(millis);
+        for (;;) {
+            final long left = deadline - System.nanoTime();
+            if (left <= 0L) {
+                return;
+            }
+            java.util.concurrent.locks.LockSupport.parkNanos(left);
+            if (Thread.interrupted()) {
+                throw new InterruptedException();
+            }
+        }
     }
 
     /** {@code super.run()} of a Thread subclass: runs the target the thread was made with. */
@@ -398,6 +486,10 @@ public final class ThreadSupport {
     private static native int stateOf0(Thread thread);
 
     public static Thread.State getState(final Thread thread) {
+        final VirtualThreadOps virtual = virtualOps(thread);
+        if (virtual != null) {
+            return virtual.state(thread);
+        }
         final int state = stateOf0(thread);
         if (state == 0) {
             return Thread.State.NEW;

@@ -2299,7 +2299,14 @@ void nabu_safepoint_poll(void) {
  * Monitor (synchronized): guarded by the GIL
  * ------------------------------------------------------- */
 
+/* The monitors the running thread holds (counting re-entries). A continuation that holds one cannot yield: the
+ * monitor belongs to the thread, not to the stack of the continuation. */
+static __thread int nabu_held_monitor_count = 0;
+
+int nabu_held_monitors(void) { return nabu_held_monitor_count; }
+
 void nabu_monitorenter(void *obj) {
+    nabu_held_monitor_count++;
     if (obj == NULL) {
         fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
@@ -2345,6 +2352,7 @@ void nabu_monitorenter(void *obj) {
 }
 
 void nabu_monitorexit(void *obj) {
+    nabu_held_monitor_count--;
     if (obj == NULL) {
         fprintf(stderr, "nabu: synchronized on null object\n");
         abort();

@@ -477,6 +477,12 @@ void nabu_wait_mark(int state);
 void nabu_set_thread_run_fn(void *fn);
 /** Registers ContinuationBridge.enter(Object), which runs the body of a continuation on its own stack. */
 void nabu_set_continuation_run_fn(void *fn);
+/** Registers ContinuationBridge.create(), which makes the object with the methods of the JDK VirtualThread. */
+void nabu_set_virtual_ops_fn(void *fn);
+/** Registers ContinuationBridge.startRoot(Object), the start() of a virtual thread on a continuation. */
+void nabu_set_virtual_start_fn(void *fn);
+/** The monitor enters of the running thread that have not been exited; a continuation cannot yield while it holds one. */
+int nabu_held_monitors(void);
 
 /* Aangeroepen door de stub van een JDK-functie zonder implementatie (native,
  * signature-polymorf): meldt het symbool en breekt het programma af. */

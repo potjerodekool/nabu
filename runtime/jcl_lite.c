@@ -4134,6 +4134,7 @@ BIND(int8_t, jcl_Unsafe_getByte, "jdk.internal.misc.Unsafe_getByte", (void *self
 BIND(int16_t, jcl_Unsafe_getShort, "jdk.internal.misc.Unsafe_getShort", (void *self, void *o, int64_t off)) { (void)self; int16_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
 BIND(uint16_t, jcl_Unsafe_getChar, "jdk.internal.misc.Unsafe_getChar", (void *self, void *o, int64_t off)) { (void)self; uint16_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
 BIND(int32_t, jcl_Unsafe_getInt, "jdk.internal.misc.Unsafe_getInt", (void *self, void *o, int64_t off)) { (void)self; int32_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
+BIND(int32_t, jcl_Unsafe_getByteVolatile, "jdk.internal.misc.Unsafe_getByteVolatile", (void *self, void *o, int64_t off)) { (void)self; return (int32_t)__atomic_load_n((int8_t *)UNSAFE_ADDR(o, off), __ATOMIC_SEQ_CST); }
 BIND(int32_t, jcl_Unsafe_getIntVolatile, "jdk.internal.misc.Unsafe_getIntVolatile", (void *self, void *o, int64_t off)) { (void)self; return __atomic_load_n((int32_t *)UNSAFE_ADDR(o, off), __ATOMIC_SEQ_CST); }
 BIND(int64_t, jcl_Unsafe_getLong, "jdk.internal.misc.Unsafe_getLong", (void *self, void *o, int64_t off)) { (void)self; int64_t v; memcpy(&v, UNSAFE_ADDR(o, off), sizeof v); return v; }
 BIND(int64_t, jcl_Unsafe_getLongVolatile, "jdk.internal.misc.Unsafe_getLongVolatile", (void *self, void *o, int64_t off)) { (void)self; return __atomic_load_n((int64_t *)UNSAFE_ADDR(o, off), __ATOMIC_SEQ_CST); }
@@ -4207,8 +4208,24 @@ static void *jcl_main_thread(void) {
 }
 
 /* The Thread object of the running thread: the thread's own, or "main". */
+static int jcl_continuations_enabled(void) {
+#if defined(_WIN32) && defined(NABU_GC_BOEHM)
+    const char *on = getenv("NABU_CONTINUATIONS");
+    return on != NULL && on[0] == '1';
+#else
+    return 0;
+#endif
+}
+/* ContinuationBridge.startRoot: the start() of a virtual thread on a continuation. */
+static void (*jcl_virtual_start_fn)(void *) = NULL;
+void nabu_set_virtual_start_fn(void *fn) { jcl_virtual_start_fn = (void (*)(void *))fn; }
+
 static __thread void *jcl_cur_thread = NULL;
-static void *jcl_current_thread(void) { return jcl_cur_thread != NULL ? jcl_cur_thread : jcl_main_thread(); }
+/* The virtual thread that is mounted on this thread, else NULL: Thread.currentThread() is that one, the thread
+ * itself (the carrier) is what Thread.currentCarrierThread() and everything that blocks work on. */
+static __thread void *jcl_logical_thread = NULL;
+static void *jcl_carrier_thread(void) { return jcl_cur_thread != NULL ? jcl_cur_thread : jcl_main_thread(); }
+static void *jcl_current_thread(void) { return jcl_logical_thread != NULL ? jcl_logical_thread : jcl_carrier_thread(); }
 
 static s_thread *jcl_thread_of(void *self) {
     s_thread *st = jcl_thread_state(self);
@@ -4343,7 +4360,7 @@ BIND(void, jcl_java_lang_Object_notifyAll, "java.lang.Object_notifyAll", (void *
 BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t timeout)) {
     nabu_object *h = (nabu_object *)self;
     if (!jcl_owns_monitor(self)) jcl_throw_new("java/lang/IllegalMonitorStateException", "java/lang/RuntimeException", "current thread is not owner");
-    s_thread *cur = jcl_thread_of(jcl_current_thread());
+    s_thread *cur = jcl_thread_of(jcl_carrier_thread());
     jcl_check_interrupt(cur);
     if (!nabu_threads_active) {
         /* Nobody can notify: return as a spurious wakeup, after the time. */
@@ -4414,7 +4431,7 @@ BIND(void, jcl_ThreadSupport_setLocals0, "io.github.potjerodekool.nabu.compiler.
 }
 
 BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
-    s_thread *cur = jcl_thread_of(jcl_current_thread());
+    s_thread *cur = jcl_thread_of(jcl_carrier_thread());
     jcl_check_interrupt(cur);
     if (ms <= 0) return;
     if (!nabu_threads_active) { jcl_sleep_ms(ms); return; }
@@ -4434,7 +4451,7 @@ BIND(void, jcl_java_lang_Thread_sleep, "java.lang.Thread_sleep", (int64_t ms)) {
 
 BIND(void, jcl_Unsafe_park, "jdk.internal.misc.Unsafe_park", (void *self, int absolute, int64_t time)) {
     (void)self;
-    s_thread *cur = jcl_thread_of(jcl_current_thread());
+    s_thread *cur = jcl_thread_of(jcl_carrier_thread());
     if (__atomic_exchange_n(&cur->permit, 0, __ATOMIC_ACQ_REL)) return;
     if (cur->interrupted) return;
     int64_t ms = -1;
@@ -4546,7 +4563,7 @@ static void jcl_await_threads(void) {
 static pthread_mutex_t jcl_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void jcl_capture_hook(void) {
-    s_thread *st = jcl_thread_state(jcl_current_thread());
+    s_thread *st = jcl_thread_state(jcl_carrier_thread());
     if (st == NULL || !__atomic_load_n(&st->cap_request, __ATOMIC_SEQ_CST)) return;
     uintptr_t frames[128];
     int n = nabu_capture_frames(frames, 128);
@@ -4622,6 +4639,11 @@ static DWORD WINAPI jcl_windows_thread_main(LPVOID arg) {
 
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     s_thread *st = jcl_thread_state(self);
+    /* A virtual thread on a continuation is started by the JDK's VirtualThread (it is scheduled on a carrier). */
+    if (st != NULL && st->is_virtual && jcl_continuations_enabled() && jcl_virtual_start_fn != NULL) {
+        jcl_virtual_start_fn(self);
+        return;
+    }
     if (st == NULL || st->state != 0) jcl_throw_new("java/lang/IllegalThreadStateException", "java/lang/IllegalArgumentException", NULL);
     if (!nabu_threads_active) {
         /* Threads run in parallel; NABU_GIL=1 makes them run one at a time again (see nabu_gil_*). */
@@ -4678,12 +4700,19 @@ BIND(void, jcl_ThreadSupport_inheritBindings0, "io.github.potjerodekool.nabu.com
 BIND(void *, jcl_Thread_scopedValueBindings, "java.lang.Thread_scopedValueBindings", (void)) { return jcl_thread_of(jcl_current_thread())->sv_bindings; }
 BIND(void, jcl_Thread_setScopedValueBindings, "java.lang.Thread_setScopedValueBindings", (void *bindings)) { jcl_thread_of(jcl_current_thread())->sv_bindings = bindings; }
 BIND(void *, jcl_Thread_findScopedValueBindings, "java.lang.Thread_findScopedValueBindings", (void)) { return NULL; }
-BIND(void *, jcl_Thread_scopedValueCache, "java.lang.Thread_scopedValueCache", (void)) { return jcl_thread_of(jcl_current_thread())->sv_cache; }
-BIND(void, jcl_Thread_setScopedValueCache, "java.lang.Thread_setScopedValueCache", (void *cache)) { jcl_thread_of(jcl_current_thread())->sv_cache = cache; }
+BIND(void *, jcl_Thread_scopedValueCache, "java.lang.Thread_scopedValueCache", (void)) { return jcl_thread_of(jcl_carrier_thread())->sv_cache; }
+BIND(void, jcl_Thread_setScopedValueCache, "java.lang.Thread_setScopedValueCache", (void *cache)) { jcl_thread_of(jcl_carrier_thread())->sv_cache = cache; }
 BIND(void *, jcl_Thread_headStackableScopes, "java.lang.Thread_headStackableScopes", (void *self)) { return jcl_thread_of(self)->sv_scope; }
 BIND(void, jcl_Thread_setHeadStackableScope, "java.lang.Thread_setHeadStackableScope", (void *scope)) { jcl_thread_of(jcl_current_thread())->sv_scope = scope; }
 BIND(void, jcl_Thread_ensureMaterializedForStackWalk, "java.lang.Thread_ensureMaterializedForStackWalk", (void *o)) { (void)o; }
-BIND(void *, jcl_Thread_currentCarrierThread, "java.lang.Thread_currentCarrierThread", (void)) { return jcl_current_thread(); }
+BIND(void *, jcl_Thread_currentCarrierThread, "java.lang.Thread_currentCarrierThread", (void)) { return jcl_carrier_thread(); }
+/* carrier.setCurrentThread(thread): a virtual thread is mounted on (or unmounted from) the running thread. It takes
+ * the identity of the thread for monitors with it. */
+BIND(void, jcl_Thread_setCurrentThread, "java.lang.Thread_setCurrentThread", (void *self, void *thread)) {
+    (void)self;
+    jcl_logical_thread = thread == jcl_carrier_thread() ? NULL : thread;
+    nabu_set_current_thread_id((int)jcl_thread_of(thread)->id);
+}
 BIND(void *, jcl_Thread_getThreadGroup, "java.lang.Thread_getThreadGroup", (void *self)) { return jcl_thread_of(self)->group; }
 BIND(void, jcl_Thread_blockedOn, "java.lang.Thread_blockedOn", (void *self, void *interruptible)) { (void)self; (void)interruptible; }
 BIND(void, jcl_Thread_setDaemon, "java.lang.Thread_setDaemon", (void *self, int on)) { jcl_thread_of(self)->daemon = on; }
@@ -4708,16 +4737,7 @@ BIND(void *, jcl_Thread_getUncaughtExceptionHandler, "java.lang.Thread_getUncaug
 /* Virtual threads run on continuations only when NABU_CONTINUATIONS=1 (and the runtime has them, see
  * JCL_CONTINUATIONS); otherwise each one is bound to a native thread of its own. */
 BIND(int, jcl_ContinuationSupport_isSupported0, "jdk.internal.vm.ContinuationSupport_isSupported0", (void)) {
-#ifdef _WIN32
-#if defined(NABU_GC_BOEHM)
-    const char *on = getenv("NABU_CONTINUATIONS");
-    return on != NULL && on[0] == '1';
-#else
-    return 0;
-#endif
-#else
-    return 0;
-#endif
+    return jcl_continuations_enabled();
 }
 static void *jcl_default_handler = NULL;
 BIND(void *, jcl_Thread_getDefaultUncaughtExceptionHandler, "java.lang.Thread_getDefaultUncaughtExceptionHandler", (void)) { return __atomic_load_n(&jcl_default_handler, __ATOMIC_ACQUIRE); }
@@ -4759,6 +4779,7 @@ typedef struct jcl_cont {
     void *hi;                /* the base of the fiber stack */
     int state;               /* 0 new, 1 running, 2 suspended, 3 done */
     int pins;
+    int monitors;            /* the monitors the thread held when the continuation was run */
 } jcl_cont;
 
 static void *(*jcl_continuation_run_fn)(void *) = NULL;
@@ -4876,6 +4897,7 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
     mine->sp = JCL_CURRENT_SP();
     k->back = GetCurrentFiber();
     k->parent = outer;
+    k->monitors = nabu_held_monitors();
     k->state = 1;
     k->region->sp = NULL;
     if (k->hi != NULL) jcl_set_gc_base(jcl_gc_thread, k->hi);
@@ -4935,6 +4957,7 @@ BIND(int, jcl_Continuation_doYield, "jdk.internal.vm.Continuation_doYield", (voi
     jcl_cont *k = jcl_running;
     if (k == NULL) return 3;
     if (k->pins > 0) return 2; /* CRITICAL_SECTION */
+    if (nabu_held_monitors() != k->monitors) return 4; /* MONITOR: a monitor belongs to the thread, not to the stack */
     jcl_cont_switch_out(k);
     return 0;
 }
@@ -4980,6 +5003,36 @@ BIND(void *, jcl_VirtualThread_takeVirtualThreadListToUnblock, "java.lang.Virtua
     }
     return NULL;
 }
+
+/* The object (made by the continuation bridge) that gives ThreadSupport the methods of the JDK's VirtualThread. */
+static void *(*jcl_virtual_ops_fn)(void) = NULL;
+void nabu_set_virtual_ops_fn(void *fn) { jcl_virtual_ops_fn = (void *(*)(void))fn; }
+
+BIND(void *, jcl_ThreadSupport_virtualOps0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_virtualOps0", (void)) {
+    static void *ops = NULL;
+    if (!jcl_continuations_enabled() || jcl_virtual_ops_fn == NULL) return NULL;
+    if (ops == NULL) ops = jcl_virtual_ops_fn();
+    return ops;
+}
+
+/* Thread.inheritScopedValueBindings(container), called by VirtualThread.start: a platform thread started in a
+ * container does not inherit either (see ThreadSupport.containerInherits0). */
+BIND(void, jcl_Thread_inheritScopedValueBindings, "java.lang.Thread_inheritScopedValueBindings", (void *self, void *container)) { (void)self; (void)container; }
+
+/* Thread.clearReferences(), at the end of a virtual thread: drops what the thread kept. */
+BIND(void, jcl_Thread_clearReferences, "java.lang.Thread_clearReferences", (void *self)) {
+    s_thread *st = jcl_thread_of(self);
+    st->threadLocals = NULL;
+    st->inheritableThreadLocals = NULL;
+    st->target = NULL;
+}
+/* carrier.setInterrupt(): the interrupt of a virtual thread is passed on to its carrier. */
+BIND(void, jcl_Thread_setInterrupt, "java.lang.Thread_setInterrupt", (void *self)) {
+    s_thread *target = jcl_thread_of(self);
+    target->interrupted = 1;
+    nabu_waiter_wake(target->waiter);
+}
+BIND(void *, jcl_Thread_uncaughtExceptionHandler, "java.lang.Thread_uncaughtExceptionHandler", (void *self)) { return jcl_thread_of(self)->handler; }
 
 BIND(void, jcl_Thread_setContinuation, "java.lang.Thread_setContinuation", (void *self, void *c)) { jcl_thread_of(self)->continuation = c; }
 BIND(void *, jcl_Thread_getContinuation, "java.lang.Thread_getContinuation", (void *self)) { return jcl_thread_of(self)->continuation; }

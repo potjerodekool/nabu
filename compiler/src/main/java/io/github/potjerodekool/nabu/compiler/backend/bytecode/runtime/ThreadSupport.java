@@ -148,6 +148,11 @@ public final class ThreadSupport {
         return frames == null ? new StackTraceElement[0] : StackTraceSupport.elements(frames);
     }
 
+    /** The trace of a virtual thread that is not mounted: its frames live on a parked fiber, which is not walked. */
+    public static StackTraceElement[] unmountedStackTrace(final Thread thread) {
+        return new StackTraceElement[0];
+    }
+
     /** Thread.getAllStackTraces: the running threads, each with its stack trace (see getStackTrace). */
     public static java.util.Map<Thread, StackTraceElement[]> getAllStackTraces() {
         final java.util.HashMap<Thread, StackTraceElement[]> traces = new java.util.HashMap<>();

@@ -149,6 +149,9 @@ final class RuntimeCalls {
             // VirtualThread calls the method it inherits, with its own class as the owner.
             new Redirect("java/lang/VirtualThread", "runWith", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", false,
                     THREAD_SUPPORT, "runWith", "(Ljava/lang/Thread;Ljava/lang/Object;Ljava/lang/Runnable;)V"),
+            // The trace of an unmounted virtual thread needs StackWalker on the continuation: there is none.
+            new Redirect("java/lang/VirtualThread", "tryGetStackTrace", "()[Ljava/lang/StackTraceElement;", false,
+                    THREAD_SUPPORT, "unmountedStackTrace", "(Ljava/lang/Thread;)[Ljava/lang/StackTraceElement;"),
             new Redirect("java/lang/Thread", "sleep", "(J)V", true, THREAD_SUPPORT, "sleep"),
             new Redirect("java/lang/Thread", "getStackTrace", "()[Ljava/lang/StackTraceElement;", false, THREAD_SUPPORT,
                     "getStackTrace"),

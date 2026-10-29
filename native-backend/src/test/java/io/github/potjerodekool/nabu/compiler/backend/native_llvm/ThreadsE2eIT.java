@@ -243,6 +243,12 @@ class ThreadsE2eIT {
         assertEquals(expected("continuationStarvation"), output("continuationStarvation", CONTINUATIONS));
     }
 
+    /** Stack traces of code that runs on a continuation. */
+    @Test
+    void continuationStackTraces() throws Exception {
+        assertEquals(expected("continuationStackTraces"), output("continuationStackTraces", CONTINUATIONS));
+    }
+
     @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));

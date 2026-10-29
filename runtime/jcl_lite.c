@@ -2428,7 +2428,10 @@ BIND(void *, jcl_java_lang_System_getProperties, "java.lang.System_getProperties
 }
 static void * jcl_java_lang_System_getProperty (void *key) {
     void *p = jcl_props_table();
+    /* under the lock: System.setProperty may grow the table */
+    nabu_rt_lock();
     void *v = jcl_map_get(p, key);
+    nabu_rt_unlock();
     return v;
 }
 BIND(void *, jcl_java_lang_System_getProperty_jstr, "java.lang.System_getProperty", (void *key)) {
@@ -2444,6 +2447,31 @@ BIND(void *, jcl_java_lang_System_getProperty_P523beb0aP523beb0a_jstr, "java.lan
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 
+static void jcl_throw_new(const char *cls, const char *super, const char *msg);
+
+/* System.setProperty: the table of the runtime and, when it exists already, the compiled Properties object. */
+BIND(void *, jcl_java_lang_System_setProperty_jstr, "java.lang.System_setProperty", (void *key, void *value)) {
+    if (key == NULL || value == NULL) {
+        jcl_throw_new("java/lang/NullPointerException", "java/lang/RuntimeException", key == NULL ? "key can't be null" : "value can't be null");
+        return NULL;
+    }
+    if (jcl_str(key)[0] == ' ') {
+        jcl_throw_new("java/lang/IllegalArgumentException", "java/lang/RuntimeException", "key can't be empty");
+        return NULL;
+    }
+    void *table = jcl_props_table();
+    char *k = jcl_dup(jcl_str(key));
+    char *v = jcl_dup(jcl_str(value));
+    nabu_rt_lock();
+    const char *previous = (const char *)jcl_map_get(table, k);
+    char *old = previous != NULL ? jcl_dup(previous) : NULL;
+    jcl_map_put(table, k, v);
+    if (jcl_compiled_props != NULL) {
+        nabu_properties_meta.set_property(jcl_compiled_props, nabu_jstring_new(k), nabu_jstring_new(v));
+    }
+    nabu_rt_unlock();
+    return old == NULL ? NULL : nabu_jstring_new(old);
+}
 
 /* ShutdownSupport.targetOf0(Thread): the Runnable a Thread object was made with, or null. */
 BIND(void *, jcl_ShutdownSupport_targetOf0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ShutdownSupport_targetOf0", (void *thread)) {
@@ -3996,7 +4024,13 @@ BIND(double, jcl_java_lang_Double_longBitsToDouble, "java.lang.Double_longBitsTo
 BIND(int32_t, jcl_java_lang_Float_floatToRawIntBits, "java.lang.Float_floatToRawIntBits", (float v)) { int32_t r; memcpy(&r, &v, 4); return r; }
 BIND(float, jcl_java_lang_Float_intBitsToFloat, "java.lang.Float_intBitsToFloat", (int32_t v)) { float r; memcpy(&r, &v, 4); return r; }
 BIND(void *, jcl_java_lang_String_intern, "java.lang.String_intern", (void *self)) { return self; }
-BIND(int32_t, jcl_java_lang_Runtime_availableProcessors, "java.lang.Runtime_availableProcessors", (void *self)) { (void)self; return 1; }
+/* One processor unless NABU_CPUS says otherwise: the virtual thread scheduler and the pools size themselves by it. */
+BIND(int32_t, jcl_java_lang_Runtime_availableProcessors, "java.lang.Runtime_availableProcessors", (void *self)) {
+    (void)self;
+    const char *cpus = getenv("NABU_CPUS");
+    const int n = cpus != NULL ? atoi(cpus) : 1;
+    return n > 0 ? n : 1;
+}
 BIND(void, jcl_java_lang_Runtime_gc, "java.lang.Runtime_gc", (void *self)) {
     (void)self;
 #ifdef NABU_GC_BOEHM

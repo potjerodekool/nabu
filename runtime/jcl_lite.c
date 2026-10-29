@@ -846,6 +846,7 @@ static void jcl_props_init(void) {
 }
 static void jcl_map_put(void *map, void *k, void *v);
 static void *jcl_map_get(void *map, void *k);
+static void *jcl_map_remove(void *map, void *k);
 /* Gekopieerd naar de eigen heap: een getenv-pointer wijst in het
  * omgevingsblok, en nabu_is_jstring leest bij het herkennen 8 bytes vanaf het
  * begin — een korte waarde vlak voor een paginagrens (bv. USERPROFILE) gaf
@@ -2463,7 +2464,7 @@ static int jcl_property_key_ok(void *key) {
         jcl_throw_new("java/lang/NullPointerException", "java/lang/RuntimeException", "key can't be null");
         return 0;
     }
-    if (jcl_str(key)[0] == ' ') {
+    if (jcl_str(key)[0] == '\0') {
         jcl_throw_new("java/lang/IllegalArgumentException", "java/lang/RuntimeException", "key can't be empty");
         return 0;
     }

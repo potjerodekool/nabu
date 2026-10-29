@@ -1615,7 +1615,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
     /** A try statement with a finalizer, while its body and catch bodies are generated. */
     private static final class FinallyEntry {
-        final Tree finalizer;
+        final Runnable finalizer;
         /** The break and continue targets that exist at the start of the try: a jump to one of them leaves it. */
         final Set<IRBasicBlock> outerTargets = Collections.newSetFromMap(new IdentityHashMap<>());
         /** Per jump target the block that runs the finalizer and then continues the jump. */
@@ -1623,12 +1623,20 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         IRBasicBlock returnStub;
         IRValue returnSlot;
 
-        FinallyEntry(final Tree finalizer) {
+        FinallyEntry(final Runnable finalizer) {
             this.finalizer = finalizer;
         }
     }
 
     private FinallyEntry pushFinallyEntry(final Tree finalizer) {
+        return pushFinallyEntry(() -> {
+            scope.pushScope();
+            acceptTree(finalizer, builder);
+            scope.popScope();
+        });
+    }
+
+    private FinallyEntry pushFinallyEntry(final Runnable finalizer) {
         final var entry = new FinallyEntry(finalizer);
         entry.outerTargets.addAll(breakTargets);
         entry.outerTargets.addAll(continueTargets);
@@ -1684,9 +1692,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             final var stub = jump.getValue();
             builder.currentFunction().moveBlockToEnd(stub);
             builder.setCurrentBlock(stub);
-            scope.pushScope();
-            acceptTree(entry.finalizer, builder);
-            scope.popScope();
+            entry.finalizer.run();
             if (!builder.currentBlockTerminated()) {
                 emitJump(jump.getKey());
             }
@@ -1694,9 +1700,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (entry.returnStub != null) {
             builder.currentFunction().moveBlockToEnd(entry.returnStub);
             builder.setCurrentBlock(entry.returnStub);
-            scope.pushScope();
-            acceptTree(entry.finalizer, builder);
-            scope.popScope();
+            entry.finalizer.run();
             if (!builder.currentBlockTerminated()) {
                 emitReturnThroughFinalizers(entry.returnSlot != null ? builder.emitLoad(entry.returnSlot) : null);
             }
@@ -5488,20 +5492,67 @@ if (argVal != null) args.add(argVal);
                 synchronizedStatement.getColumnNumber()
         );
 
-        // Uitvouwen naar: monitorenter(__lock); <body>; monitorexit(__lock);
+        // Uitvouwen naar: monitorenter(lock); try { <body> } finally { monitorexit(lock); }
+        // zodat return, break, continue en exceptions de monitor ook loslaten.
 
         IRValue lockObj = acceptTree(synchronizedStatement.getExpression(), builder);
         if (lockObj == null) return null;
 
-        // monitorenter
+        final var lockSlot = builder.emitAlloca("sync.lock", lockObj.type());
+        builder.emitStore(lockSlot, lockObj);
         builder.emitMonitorEnter(lockObj);
 
-        // Body
+        final IRBasicBlock prevBlk = builder.currentBlock();
+        final IRBasicBlock tryStartBlk = builder.beginBlock("sync.body");
+        if (prevBlk != null && !prevBlk.isTerminated()) {
+            builder.setCurrentBlock(prevBlk);
+            builder.emitBranch(tryStartBlk);
+        }
+
+        final FinallyEntry entry = pushFinallyEntry(() -> builder.emitMonitorExit(builder.emitLoad(lockSlot)));
+        builder.setCurrentBlock(tryStartBlk);
         acceptTree(synchronizedStatement.getBody(), builder);
 
-        // monitorexit
-        builder.emitMonitorExit(lockObj);
+        final IRBasicBlock bodyEndBlk = builder.currentBlock();
+        final IRBasicBlock tryEndBlk = builder.beginBlock("sync.end");
+        builder.setCurrentBlock(bodyEndBlk);
+        if (!builder.currentBlockTerminated()) {
+            builder.emitBranch(tryEndBlk);
+        }
+        finallyStack.pop();
 
+        final var handlerBlk = builder.beginBlock("sync.exh");
+        handlerBlk.add(0, new IRInstruction.TryCatchRegion(
+                tryStartBlk.label(),
+                tryEndBlk.label(),
+                handlerBlk.label(),
+                null,
+                builder.currentLocation()
+        ));
+
+        final IRBasicBlock normalBlk = builder.beginBlock("sync.normal");
+        builder.setCurrentBlock(tryEndBlk);
+        if (!tryEndBlk.isTerminated()) {
+            builder.emitBranch(normalBlk);
+        }
+        builder.setCurrentBlock(normalBlk);
+        entry.finalizer.run();
+        final IRBasicBlock normalEndBlk = builder.currentBlock();
+
+        builder.setCurrentBlock(handlerBlk);
+        final var excType = new IRType.Ptr(IRType.I8, "Ljava/lang/Throwable;");
+        final var excPtr = builder.emitAlloca("sync.exc", excType);
+        builder.emitStore(excPtr, new IRValue.Temp("%exn." + handlerBlk.label(), excType));
+        entry.finalizer.run();
+        if (!builder.currentBlockTerminated()) {
+            builder.currentBlock().add(new IRInstruction.Throw(
+                    builder.emitLoad(excPtr),
+                    excType,
+                    builder.currentLocation()
+            ));
+        }
+        emitFinallyStubs(entry);
+        builder.setCurrentBlock(normalEndBlk);
         return null;
     }
 

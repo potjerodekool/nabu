@@ -13,6 +13,7 @@ public class Main {
         notifyOne();
         parkInsideMonitor();
         waitWithoutMonitor();
+        syncExits();
     }
 
     /** More waiting virtual threads than a pool could keep as pinned carriers: wait lets go of the carrier. */
@@ -206,5 +207,44 @@ public class Main {
         });
         t.join();
         System.out.println("noMonitor " + result[0]);
+    }
+
+    static int early(Object o) {
+        synchronized (o) {
+            return 7;
+        }
+    }
+
+    /** break, continue, return and an exception leave a synchronized block and release the monitor. */
+    static void syncExits() throws Exception {
+        final Object own = new Object();
+        int n = 0;
+        for (int i = 0; i < 5; i++) {
+            synchronized (own) {
+                if (i == 1) continue;
+                if (i == 3) break;
+                n++;
+            }
+        }
+        int r = early(own);
+        String ex = "none";
+        try {
+            synchronized (own) {
+                throw new IllegalStateException("x");
+            }
+        } catch (IllegalStateException e) {
+            ex = "ISE";
+        }
+        final boolean[] other = new boolean[1];
+        Thread t = new Thread(new Runnable() {
+            public void run() {
+                synchronized (own) {
+                    other[0] = true;
+                }
+            }
+        });
+        t.start();
+        t.join();
+        System.out.println("syncExits " + n + " " + r + " " + ex + " " + other[0]);
     }
 }

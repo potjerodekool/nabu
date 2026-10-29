@@ -535,6 +535,8 @@ typedef struct nabu_properties_meta_t {
     int64_t size;
     void (*init)(void *self);
     void *(*set_property)(void *self, void *key, void *value);
+    void *(*get_property)(void *self, void *key);
+    void *(*remove)(void *self, void *key);
 } nabu_properties_meta_t;
 
 extern const nabu_properties_meta_t nabu_properties_meta;

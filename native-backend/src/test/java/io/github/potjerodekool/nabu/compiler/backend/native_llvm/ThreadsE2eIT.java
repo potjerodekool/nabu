@@ -263,6 +263,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void systemProperties() throws Exception {
+        assertEquals(expected("systemProperties"), output("systemProperties"));
+    }
+
+    @Test
     void systemProperty() throws Exception {
         assertEquals(expected("systemProperty"), output("systemProperty", CONTINUATIONS));
     }

@@ -896,6 +896,11 @@ public final class BytecodeReachabilityCompiler {
         queueMethod(new MethodRef("java/util/Properties", "<init>", "()V", false));
         queueMethod(new MethodRef("java/util/Properties", "setProperty",
                 "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;", false));
+        // System.getProperty, clearProperty and setProperties work on that object once it exists.
+        queueMethod(new MethodRef("java/util/Properties", "getProperty",
+                "(Ljava/lang/String;)Ljava/lang/String;", false));
+        queueMethod(new MethodRef("java/util/Properties", "remove",
+                "(Ljava/lang/Object;)Ljava/lang/Object;", false));
         // The C runtime creates these exceptions as real objects
         // (nabu_exception_table), through their (String) constructor.
         for (final String exception : io.github.potjerodekool.nabu.backend.RuntimeExceptions.CLASSES) {

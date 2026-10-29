@@ -2426,6 +2426,12 @@ BIND(void *, jcl_java_lang_System_getProperties, "java.lang.System_getProperties
     }
     return jcl_props_table();
 }
+/* Once a java.util.Properties object stands for the system properties (System.getProperties or setProperties was
+ * called), it is the one that counts: a change through that object is a change of the system properties. Before
+ * that the table of the runtime is. */
+static int jcl_props_compiled(void) {
+    return jcl_compiled_props != NULL && nabu_properties_meta.get_property != NULL;
+}
 static void * jcl_java_lang_System_getProperty (void *key) {
     void *p = jcl_props_table();
     /* under the lock: System.setProperty may grow the table */
@@ -2435,28 +2441,39 @@ static void * jcl_java_lang_System_getProperty (void *key) {
     return v;
 }
 BIND(void *, jcl_java_lang_System_getProperty_jstr, "java.lang.System_getProperty", (void *key)) {
+    if (jcl_props_compiled()) return nabu_properties_meta.get_property(jcl_compiled_props, key);
     void *r = (void *)jcl_java_lang_System_getProperty(key);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
-static void * jcl_java_lang_System_getProperty_P523beb0aP523beb0a (void *key, void *dflt) {
-    void *v = jcl_java_lang_System_getProperty(key);
-    return v != NULL ? v : dflt;
-}
 BIND(void *, jcl_java_lang_System_getProperty_P523beb0aP523beb0a_jstr, "java.lang.System_getProperty$P523beb0aP523beb0a", (void *key, void *dflt)) {
-    void *r = (void *)jcl_java_lang_System_getProperty_P523beb0aP523beb0a(key, dflt);
+    if (jcl_props_compiled()) {
+        void *v = nabu_properties_meta.get_property(jcl_compiled_props, key);
+        return v != NULL ? v : dflt;
+    }
+    void *r = (void *)jcl_java_lang_System_getProperty(key);
+    if (r == NULL) r = dflt;
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 
 static void jcl_throw_new(const char *cls, const char *super, const char *msg);
 
-/* System.setProperty: the table of the runtime and, when it exists already, the compiled Properties object. */
-BIND(void *, jcl_java_lang_System_setProperty_jstr, "java.lang.System_setProperty", (void *key, void *value)) {
-    if (key == NULL || value == NULL) {
-        jcl_throw_new("java/lang/NullPointerException", "java/lang/RuntimeException", key == NULL ? "key can't be null" : "value can't be null");
-        return NULL;
+/* The key of System.setProperty and clearProperty: not null, not empty. */
+static int jcl_property_key_ok(void *key) {
+    if (key == NULL) {
+        jcl_throw_new("java/lang/NullPointerException", "java/lang/RuntimeException", "key can't be null");
+        return 0;
     }
     if (jcl_str(key)[0] == ' ') {
         jcl_throw_new("java/lang/IllegalArgumentException", "java/lang/RuntimeException", "key can't be empty");
+        return 0;
+    }
+    return 1;
+}
+
+BIND(void *, jcl_java_lang_System_setProperty_jstr, "java.lang.System_setProperty", (void *key, void *value)) {
+    if (!jcl_property_key_ok(key)) return NULL;
+    if (value == NULL) {
+        jcl_throw_new("java/lang/NullPointerException", "java/lang/RuntimeException", "value can't be null");
         return NULL;
     }
     void *table = jcl_props_table();
@@ -2466,11 +2483,44 @@ BIND(void *, jcl_java_lang_System_setProperty_jstr, "java.lang.System_setPropert
     const char *previous = (const char *)jcl_map_get(table, k);
     char *old = previous != NULL ? jcl_dup(previous) : NULL;
     jcl_map_put(table, k, v);
-    if (jcl_compiled_props != NULL) {
-        nabu_properties_meta.set_property(jcl_compiled_props, nabu_jstring_new(k), nabu_jstring_new(v));
+    void *result = NULL;
+    if (jcl_props_compiled()) {
+        result = nabu_properties_meta.set_property(jcl_compiled_props, nabu_jstring_new(k), nabu_jstring_new(v));
+    } else if (old != NULL) {
+        result = nabu_jstring_new(old);
     }
     nabu_rt_unlock();
-    return old == NULL ? NULL : nabu_jstring_new(old);
+    return result;
+}
+
+BIND(void *, jcl_java_lang_System_clearProperty_jstr, "java.lang.System_clearProperty", (void *key)) {
+    if (!jcl_property_key_ok(key)) return NULL;
+    void *table = jcl_props_table();
+    nabu_rt_lock();
+    const char *previous = (const char *)jcl_map_remove(table, key);
+    void *result = NULL;
+    if (jcl_props_compiled()) {
+        result = nabu_properties_meta.remove(jcl_compiled_props, key);
+    } else if (previous != NULL) {
+        result = nabu_jstring_new(previous);
+    }
+    nabu_rt_unlock();
+    return result;
+}
+
+/* System.setProperties: the given object stands for the system properties from now on; null brings back the
+ * defaults (the table is made again, and the Properties object with it when it is asked for). */
+BIND(void, jcl_java_lang_System_setProperties_jstr, "java.lang.System_setProperties", (void *props)) {
+    jcl_props_table();
+    nabu_rt_lock();
+    if (props == NULL) {
+        jcl_props = NULL;
+        jcl_props_table_populate();
+        jcl_compiled_props = NULL;
+    } else if (nabu_properties_meta.get_property != NULL) {
+        jcl_compiled_props = props;
+    }
+    nabu_rt_unlock();
 }
 
 /* ShutdownSupport.targetOf0(Thread): the Runnable a Thread object was made with, or null. */
@@ -2517,6 +2567,20 @@ static void *jcl_map_get(void *map, void *k) {
     s_map *m = (s_map *)jcl_state_kind(map, K_MAP);
     if (m == NULL) return NULL;
     for (int32_t i = 0; i < m->size; i++) if (jcl_eq(m->ks[i], k)) return m->vs[i];
+    return NULL;
+}
+/* Removes the entry (keeping the order of the others); returns its value or NULL. */
+static void *jcl_map_remove(void *map, void *k) {
+    s_map *m = (s_map *)jcl_state_kind(map, K_MAP);
+    if (m == NULL) return NULL;
+    for (int32_t i = 0; i < m->size; i++) {
+        if (jcl_eq(m->ks[i], k)) {
+            void *old = m->vs[i];
+            for (int32_t j = i + 1; j < m->size; j++) { m->ks[j - 1] = m->ks[j]; m->vs[j - 1] = m->vs[j]; }
+            m->size--;
+            return old;
+        }
+    }
     return NULL;
 }
 

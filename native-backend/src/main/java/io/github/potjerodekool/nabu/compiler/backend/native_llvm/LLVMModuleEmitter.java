@@ -358,8 +358,12 @@ public void setReflectionRegistry(
                 "java.util.Properties_init", List.of());
         final LLVMValueRef setProperty = definedFunction("java/util/Properties",
                 "java.util.Properties_setProperty", List.of("Ljava/lang/String;", "Ljava/lang/String;"));
+        final LLVMValueRef getProperty = definedFunction("java/util/Properties",
+                "java.util.Properties_getProperty", List.of("Ljava/lang/String;"));
+        final LLVMValueRef remove = definedFunction("java/util/Properties",
+                "java.util.Properties_remove", List.of("Ljava/lang/Object;"));
         final boolean compiled = layout != null && layout.vtableGlobal != null
-                && typeInfo != null && ctor != null && setProperty != null;
+                && typeInfo != null && ctor != null && setProperty != null && getProperty != null && remove != null;
 
         final LLVMValueRef nullPtr = LLVMConstNull(ptrType);
         long size = 0;
@@ -374,7 +378,9 @@ public void setReflectionRegistry(
                 compiled && layout.itableGlobal != null ? layout.itableGlobal : nullPtr,
                 LLVMConstInt(i64, size, 0),
                 compiled ? ctor : nullPtr,
-                compiled ? setProperty : nullPtr};
+                compiled ? setProperty : nullPtr,
+                compiled ? getProperty : nullPtr,
+                compiled ? remove : nullPtr};
         final LLVMValueRef init = LLVMConstStructInContext(ctx,
                 new PointerPointer<>(fields), fields.length, 0);
         final LLVMValueRef meta = LLVMAddGlobal(mod, LLVMTypeOf(init),

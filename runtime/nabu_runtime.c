@@ -2157,6 +2157,7 @@ void nabu_waiter_wake(nabu_waiter *waiter) {
 typedef struct nabu_keyq_entry {
     const void *key;
     nabu_waiter *waiter;
+    void *vthread; /* instead of a waiter: a virtual thread that is parked until it is unparked */
     struct nabu_keyq_entry *next;
 } nabu_keyq_entry;
 
@@ -2173,12 +2174,13 @@ static unsigned nabu_keyq_bucket(const void *key) {
     return (unsigned) (((uintptr_t) key >> 4) * 2654435761u) % NABU_KEYQ_BUCKETS;
 }
 
-void nabu_keyq_add(const void *key, nabu_waiter *waiter) {
+static void nabu_keyq_add_entry(const void *key, nabu_waiter *waiter, void *vthread) {
     if (!nabu_parallel) return;
     pthread_once(&nabu_keyq_once, nabu_keyq_init);
     nabu_keyq_entry *entry = (nabu_keyq_entry *) malloc(sizeof *entry);
     entry->key = key;
     entry->waiter = waiter;
+    entry->vthread = vthread;
     const unsigned bucket = nabu_keyq_bucket(key);
     entry->next = NULL;
     pthread_mutex_lock(&nabu_keyq_locks[bucket]);
@@ -2188,14 +2190,16 @@ void nabu_keyq_add(const void *key, nabu_waiter *waiter) {
     pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
 }
 
-void nabu_keyq_remove(const void *key, nabu_waiter *waiter) {
+void nabu_keyq_add(const void *key, nabu_waiter *waiter) { nabu_keyq_add_entry(key, waiter, NULL); }
+
+static void nabu_keyq_remove_entry(const void *key, nabu_waiter *waiter, void *vthread) {
     if (!nabu_parallel) return;
     pthread_once(&nabu_keyq_once, nabu_keyq_init);
     const unsigned bucket = nabu_keyq_bucket(key);
     pthread_mutex_lock(&nabu_keyq_locks[bucket]);
     nabu_keyq_entry *previous = NULL;
     for (nabu_keyq_entry *entry = nabu_keyq_heads[bucket]; entry != NULL; previous = entry, entry = entry->next) {
-        if (entry->key == key && entry->waiter == waiter) {
+        if (entry->key == key && entry->waiter == waiter && entry->vthread == vthread) {
             if (previous != NULL) previous->next = entry->next; else nabu_keyq_heads[bucket] = entry->next;
             if (nabu_keyq_tails[bucket] == entry) nabu_keyq_tails[bucket] = previous;
             free(entry);
@@ -2205,6 +2209,13 @@ void nabu_keyq_remove(const void *key, nabu_waiter *waiter) {
     pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
 }
 
+void nabu_keyq_remove(const void *key, nabu_waiter *waiter) { nabu_keyq_remove_entry(key, waiter, NULL); }
+
+/* Set by the class library: how a virtual thread that waits for a monitor is parked and unparked. */
+static void *(*nabu_monitor_current_vthread_fn)(void) = NULL;
+static void (*nabu_monitor_park_fn)(void) = NULL;
+static void (*nabu_monitor_unpark_fn)(void *) = NULL;
+
 void nabu_keyq_wake_one(const void *key) {
     if (!nabu_parallel) {
         nabu_gil_signal();
@@ -2212,14 +2223,17 @@ void nabu_keyq_wake_one(const void *key) {
     }
     pthread_once(&nabu_keyq_once, nabu_keyq_init);
     const unsigned bucket = nabu_keyq_bucket(key);
+    void *vthread = NULL;
     pthread_mutex_lock(&nabu_keyq_locks[bucket]);
     for (nabu_keyq_entry *entry = nabu_keyq_heads[bucket]; entry != NULL; entry = entry->next) {
         if (entry->key == key) {
-            nabu_waiter_wake(entry->waiter);
+            if (entry->vthread != NULL) vthread = entry->vthread; else nabu_waiter_wake(entry->waiter);
             break;
         }
     }
     pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
+    /* outside of the lock: the unpark runs Java code */
+    if (vthread != NULL && nabu_monitor_unpark_fn != NULL) nabu_monitor_unpark_fn(vthread);
 }
 
 void nabu_keyq_wake(const void *key) {
@@ -2309,11 +2323,14 @@ int nabu_held_monitors(void) { return nabu_held_monitor_count; }
  * carrier), so the count of the carrier is set back and, when it runs again, raised on another carrier. */
 void nabu_set_held_monitors(int count) { nabu_held_monitor_count = count; }
 
-/* Set by the class library when virtual threads run on continuations: for a thread that is a mounted virtual thread
- * it returns 1, and with a number of 0 or more it waits a little, by unmounting the thread. A virtual thread that
- * cannot get a monitor must not keep its carrier: the owner may be a virtual thread that needs one to go on. */
-static int (*nabu_monitor_backoff_fn)(int) = NULL;
-void nabu_set_monitor_backoff_fn(int (*fn)(int)) { nabu_monitor_backoff_fn = fn; }
+/* Set by the class library when virtual threads run on continuations. A virtual thread that cannot get a monitor
+ * must not keep its carrier (the owner may be a virtual thread that needs one to go on): it queues up with the
+ * waiters of the monitor and parks, which unmounts it, until the release of the monitor unparks it. */
+void nabu_set_monitor_virtual_fns(void *(*current)(void), void (*park)(void), void (*unpark)(void *)) {
+    nabu_monitor_current_vthread_fn = current;
+    nabu_monitor_park_fn = park;
+    nabu_monitor_unpark_fn = unpark;
+}
 
 /* Object.wait: gives up the monitor completely, returns how many times the thread held it. */
 int nabu_monitor_release_all(void *obj) {
@@ -2350,14 +2367,19 @@ void nabu_monitorenter(void *obj) {
         if (header->thread_id != me) {
             int free_word = 0;
             if (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
-                if (nabu_monitor_backoff_fn != NULL && nabu_monitor_backoff_fn(-1)) {
-                    for (int attempt = 0;; attempt++) {
+                void *vthread = nabu_monitor_current_vthread_fn != NULL ? nabu_monitor_current_vthread_fn() : NULL;
+                if (vthread != NULL) {
+                    nabu_keyq_add_entry(obj, NULL, vthread);
+                    __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
+                    for (;;) {
                         free_word = 0;
                         if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                             break;
                         }
-                        nabu_monitor_backoff_fn(attempt);
+                        nabu_monitor_park_fn();
                     }
+                    __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
+                    nabu_keyq_remove_entry(obj, NULL, vthread);
                 } else {
                 nabu_wait_mark(3);
                 nabu_waiter *waiter = nabu_waiter_self();

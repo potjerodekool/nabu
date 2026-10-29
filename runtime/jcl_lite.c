@@ -4222,12 +4222,16 @@ static int jcl_continuations_enabled(void) {
     return 0;
 #endif
 }
-/* ThreadSupport.backoffVirtual(int): a virtual thread that waits for a monitor lets go of its carrier for a while. */
+/* ThreadSupport.backoffVirtual(int): a virtual thread that waits for a monitor parks (and lets go of its carrier)
+ * until the release of the monitor unparks it, with a bound as a safety net. */
 static void (*jcl_virtual_backoff_fn)(int) = NULL;
-static int jcl_monitor_backoff(int attempt);
+static void (*jcl_virtual_unpark_fn)(void *) = NULL;
+static void *jcl_monitor_vthread(void);
+static void jcl_monitor_park(void);
+static void jcl_monitor_unpark(void *vthread);
 void nabu_set_virtual_backoff_fn(void *fn) {
     jcl_virtual_backoff_fn = (void (*)(int))fn;
-    nabu_set_monitor_backoff_fn(jcl_monitor_backoff);
+    nabu_set_monitor_virtual_fns(jcl_monitor_vthread, jcl_monitor_park, jcl_monitor_unpark);
 }
 /* ContinuationBridge.startRoot: the start() of a virtual thread on a continuation. */
 static void (*jcl_virtual_start_fn)(void *) = NULL;
@@ -4237,11 +4241,14 @@ static __thread void *jcl_cur_thread = NULL;
 /* The virtual thread that is mounted on this thread, else NULL: Thread.currentThread() is that one, the thread
  * itself (the carrier) is what Thread.currentCarrierThread() and everything that blocks work on. */
 static __thread void *jcl_logical_thread = NULL;
-static int jcl_monitor_backoff(int attempt) {
-    if (jcl_logical_thread == NULL || jcl_virtual_backoff_fn == NULL || !jcl_continuations_enabled()) return 0;
-    if (attempt >= 0) jcl_virtual_backoff_fn(attempt);
-    return 1;
+/* The virtual thread that is mounted here and may be unmounted while it waits for a monitor, else NULL. */
+static void *jcl_monitor_vthread(void) {
+    if (jcl_logical_thread == NULL || jcl_virtual_backoff_fn == NULL || jcl_virtual_unpark_fn == NULL
+            || !jcl_continuations_enabled()) return NULL;
+    return jcl_logical_thread;
 }
+static void jcl_monitor_park(void) { jcl_virtual_backoff_fn(0); }
+static void jcl_monitor_unpark(void *vthread) { jcl_virtual_unpark_fn(vthread); }
 static void *jcl_carrier_thread(void) { return jcl_cur_thread != NULL ? jcl_cur_thread : jcl_main_thread(); }
 static void *jcl_current_thread(void) { return jcl_logical_thread != NULL ? jcl_logical_thread : jcl_carrier_thread(); }
 
@@ -4337,7 +4344,6 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
 
 /* vthread: a virtual thread that waits (Object.wait on a continuation) is woken by unparking it, a thread by its waiter. */
 typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; void *vthread; int depth; } jcl_waiter;
-static void (*jcl_virtual_unpark_fn)(void *) = NULL;
 void nabu_set_virtual_unpark_fn(void *fn) { jcl_virtual_unpark_fn = (void (*)(void *))fn; }
 static jcl_waiter *jcl_waiters = NULL;
 /* The waiters list is shared by all threads; with the GIL only one thread touches it at a time, in parallel mode

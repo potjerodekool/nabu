@@ -295,12 +295,12 @@ public final class ThreadSupport {
     }
 
     /**
-     * Called by the C runtime when a virtual thread cannot get a monitor: it parks for a short, growing time, which
-     * unmounts it (the owner of the monitor may be a virtual thread that needs the carrier).
+     * Called by the C runtime when a virtual thread cannot get a monitor: it parks, which unmounts it (the owner of
+     * the monitor may be a virtual thread that needs the carrier). The release of the monitor unparks it; the bound
+     * is a safety net.
      */
     public static void backoffVirtual(final int attempt) {
-        final long micros = attempt < 4 ? 20L : Math.min(1000L, 20L << Math.min(attempt - 3, 6));
-        java.util.concurrent.locks.LockSupport.parkNanos(micros * 1000L);
+        java.util.concurrent.locks.LockSupport.parkNanos(50_000_000L);
     }
 
     public static void waitOn(final Object object) throws InterruptedException {

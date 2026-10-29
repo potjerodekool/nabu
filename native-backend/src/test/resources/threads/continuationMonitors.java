@@ -14,6 +14,7 @@ public class Main {
         parkInsideMonitor();
         waitWithoutMonitor();
         syncExits();
+        contendedHandoff();
     }
 
     /** More waiting virtual threads than a pool could keep as pinned carriers: wait lets go of the carrier. */
@@ -246,5 +247,30 @@ public class Main {
         t.start();
         t.join();
         System.out.println("syncExits " + n + " " + r + " " + ex + " " + other[0]);
+    }
+
+    /** Many virtual threads fight for one monitor; each release hands it over to a queued thread. */
+    static void contendedHandoff() throws Exception {
+        final Object own = new Object();
+        final int[] counter = new int[1];
+        Thread[] threads = new Thread[200];
+        for (int i = 0; i < threads.length; i++) {
+            threads[i] = Thread.ofVirtual().start(new Runnable() {
+                public void run() {
+                    for (int k = 0; k < 100; k++) {
+                        synchronized (own) {
+                            counter[0]++;
+                            if (k % 10 == 0) {
+                                Thread.yield();
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        for (Thread t : threads) {
+            t.join();
+        }
+        System.out.println("handoff " + counter[0]);
     }
 }

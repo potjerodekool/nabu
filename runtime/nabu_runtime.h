@@ -486,7 +486,7 @@ int nabu_held_monitors(void);
 /** Sets the count of held monitors of the running thread (a continuation takes its monitors along when it yields). */
 void nabu_set_held_monitors(int count);
 /** See nabu_monitorenter: how a virtual thread waits for a monitor (returns 1 for a mounted virtual thread). */
-void nabu_set_monitor_backoff_fn(int (*fn)(int));
+void nabu_set_monitor_virtual_fns(void *(*current)(void), void (*park)(void), void (*unpark)(void *));
 /** Object.wait: gives up the monitor completely; returns how many times it was held. */
 int nabu_monitor_release_all(void *obj);
 /** Gets a monitor back that nabu_monitor_release_all gave up. */

@@ -1036,6 +1036,18 @@ public void setReflectionRegistry(
         LLVMSetLinkage(setVirtualStartFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_set_virtual_start_fn", setVirtualStartFn);
 
+        // --- void nabu_set_virtual_unpark_fn(i8* fn), nabu_set_virtual_backoff_fn(i8* fn) ---
+        LLVMValueRef setVirtualUnparkFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_virtual_unpark_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setVirtualUnparkFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_virtual_unpark_fn", setVirtualUnparkFn);
+        LLVMValueRef setVirtualBackoffFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_virtual_backoff_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setVirtualBackoffFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_virtual_backoff_fn", setVirtualBackoffFn);
+
         // --- void nabu_register_type_infos(i8* table, i32 count) ---
         PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
         regTypesParams.put(0, i8ptr);
@@ -1224,6 +1236,21 @@ public void setReflectionRegistry(
         final LLVMValueRef startRootFn = LLVMGetNamedFunction(mod, startRootName);
         if (startRootIr != null && !startRootIr.blocks().isEmpty() && startRootFn != null && !startRootFn.isNull()) {
             callSetter(builder, "@nabu_set_virtual_start_fn", startRootFn);
+        }
+        // A notify unparks a virtual thread that waits; a virtual thread that waits for a monitor backs off.
+        final String unparkName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_unparkVirtual";
+        final IRFunction unparkIr = classLayouts.resolveFunction(unparkName);
+        final LLVMValueRef unparkFn = LLVMGetNamedFunction(mod, unparkName);
+        if (unparkIr != null && !unparkIr.blocks().isEmpty() && unparkFn != null && !unparkFn.isNull()) {
+            callSetter(builder, "@nabu_set_virtual_unpark_fn", unparkFn);
+        }
+        final String backoffName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_backoffVirtual";
+        final IRFunction backoffIr = classLayouts.resolveFunction(backoffName);
+        final LLVMValueRef backoffFn = LLVMGetNamedFunction(mod, backoffName);
+        if (backoffIr != null && !backoffIr.blocks().isEmpty() && backoffFn != null && !backoffFn.isNull()) {
+            callSetter(builder, "@nabu_set_virtual_backoff_fn", backoffFn);
         }
         for (int kind = 0; kind < boxFns.length; kind++) {
             if (boxFns[kind] == null) continue;

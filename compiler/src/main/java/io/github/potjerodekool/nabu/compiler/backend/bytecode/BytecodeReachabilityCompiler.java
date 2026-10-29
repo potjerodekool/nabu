@@ -129,7 +129,12 @@ public final class BytecodeReachabilityCompiler {
             new MethodRef("java/lang/Throwable", "printStackTrace", "()V", false),
             // The body of a started thread: the C runtime calls it (nabu_set_thread_run_fn).
             new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
-                    "runThread", "(Ljava/lang/Thread;)V", false));
+                    "runThread", "(Ljava/lang/Thread;)V", false),
+            // A notify unparks a virtual thread that waits, a virtual thread that cannot get a monitor backs off.
+            new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
+                    "unparkVirtual", "(Ljava/lang/Object;)V", false),
+            new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
+                    "backoffVirtual", "(I)V", false));
 
     /**
      * Klassen die de JDK alleen reflectief instantieert

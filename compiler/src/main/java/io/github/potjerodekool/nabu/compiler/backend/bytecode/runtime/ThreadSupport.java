@@ -228,6 +228,9 @@ public final class ThreadSupport {
             waitOn0(object, millis);
             return;
         }
+        if (virtualWait(object, millis, current)) {
+            return;
+        }
         final boolean attempted = virtual.beginBlocking();
         try {
             waitOn0(object, millis);
@@ -238,6 +241,66 @@ public final class ThreadSupport {
         } finally {
             virtual.endBlocking(attempted);
         }
+    }
+
+    /** Object.wait of a virtual thread: registers as a waiter, gives up the monitor; see the C runtime. */
+    private static native long waitEnter0(Object object, Thread thread);
+
+    private static native boolean waitDone0(long handle);
+
+    /** Takes the monitor back; tells whether the thread was notified. */
+    private static native boolean waitLeave0(long handle);
+
+    /**
+     * Object.wait in a virtual thread on a continuation: the thread parks, so it does not keep its carrier (and
+     * another virtual thread can run and notify). Returns false when that is not possible (threads run one at a
+     * time), and then the thread waits on its carrier.
+     */
+    private static boolean virtualWait(final Object object, final long millis, final Thread current)
+            throws InterruptedException {
+        if (interrupted()) {
+            throw new InterruptedException();
+        }
+        final long handle = waitEnter0(object, current);
+        if (handle == 0L) {
+            return false;
+        }
+        final long deadline = millis > 0L ? System.nanoTime() + millis * 1000000L : 0L;
+        boolean notified;
+        try {
+            while (!waitDone0(handle) && !isInterrupted(current)) {
+                if (millis > 0L) {
+                    final long left = deadline - System.nanoTime();
+                    if (left <= 0L) {
+                        break;
+                    }
+                    java.util.concurrent.locks.LockSupport.parkNanos(left);
+                } else {
+                    java.util.concurrent.locks.LockSupport.park();
+                }
+            }
+        } finally {
+            notified = waitLeave0(handle);
+        }
+        if (!notified && isInterrupted(current)) {
+            interrupted();
+            throw new InterruptedException();
+        }
+        return true;
+    }
+
+    /** Called by the C runtime when Object.notify wakes a virtual thread. */
+    public static void unparkVirtual(final Object thread) {
+        java.util.concurrent.locks.LockSupport.unpark((Thread) thread);
+    }
+
+    /**
+     * Called by the C runtime when a virtual thread cannot get a monitor: it parks for a short, growing time, which
+     * unmounts it (the owner of the monitor may be a virtual thread that needs the carrier).
+     */
+    public static void backoffVirtual(final int attempt) {
+        final long micros = attempt < 4 ? 20L : Math.min(1000L, 20L << Math.min(attempt - 3, 6));
+        java.util.concurrent.locks.LockSupport.parkNanos(micros * 1000L);
     }
 
     public static void waitOn(final Object object) throws InterruptedException {

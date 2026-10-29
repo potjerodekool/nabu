@@ -1,0 +1,7 @@
+waiters 600
+sleepers 300
+timeout true
+interrupt true true flagCleared true
+notify 1 3
+park -AB
+noMonitor IMSE

@@ -4222,6 +4222,13 @@ static int jcl_continuations_enabled(void) {
     return 0;
 #endif
 }
+/* ThreadSupport.backoffVirtual(int): a virtual thread that waits for a monitor lets go of its carrier for a while. */
+static void (*jcl_virtual_backoff_fn)(int) = NULL;
+static int jcl_monitor_backoff(int attempt);
+void nabu_set_virtual_backoff_fn(void *fn) {
+    jcl_virtual_backoff_fn = (void (*)(int))fn;
+    nabu_set_monitor_backoff_fn(jcl_monitor_backoff);
+}
 /* ContinuationBridge.startRoot: the start() of a virtual thread on a continuation. */
 static void (*jcl_virtual_start_fn)(void *) = NULL;
 void nabu_set_virtual_start_fn(void *fn) { jcl_virtual_start_fn = (void (*)(void *))fn; }
@@ -4230,6 +4237,11 @@ static __thread void *jcl_cur_thread = NULL;
 /* The virtual thread that is mounted on this thread, else NULL: Thread.currentThread() is that one, the thread
  * itself (the carrier) is what Thread.currentCarrierThread() and everything that blocks work on. */
 static __thread void *jcl_logical_thread = NULL;
+static int jcl_monitor_backoff(int attempt) {
+    if (jcl_logical_thread == NULL || jcl_virtual_backoff_fn == NULL || !jcl_continuations_enabled()) return 0;
+    if (attempt >= 0) jcl_virtual_backoff_fn(attempt);
+    return 1;
+}
 static void *jcl_carrier_thread(void) { return jcl_cur_thread != NULL ? jcl_cur_thread : jcl_main_thread(); }
 static void *jcl_current_thread(void) { return jcl_logical_thread != NULL ? jcl_logical_thread : jcl_carrier_thread(); }
 
@@ -4323,22 +4335,33 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
     nabu_throw(jcl_throw(cls, super, msg));
 }
 
-typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; } jcl_waiter;
+/* vthread: a virtual thread that waits (Object.wait on a continuation) is woken by unparking it, a thread by its waiter. */
+typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; void *vthread; int depth; } jcl_waiter;
+static void (*jcl_virtual_unpark_fn)(void *) = NULL;
+void nabu_set_virtual_unpark_fn(void *fn) { jcl_virtual_unpark_fn = (void (*)(void *))fn; }
 static jcl_waiter *jcl_waiters = NULL;
 /* The waiters list is shared by all threads; with the GIL only one thread touches it at a time, in parallel mode
  * this lock guards it. */
 static pthread_mutex_t jcl_waiters_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void jcl_notify(void *obj, int all) {
-    pthread_mutex_lock(&jcl_waiters_lock);
-    for (jcl_waiter *w = jcl_waiters; w != NULL; w = w->next) {
-        if (w->obj == obj && !w->notified) {
-            w->notified = 1;
-            nabu_waiter_wake(w->waiter);
-            if (!all) break;
+    for (;;) {
+        void *virtuals[64];
+        int woken = 0, counted = 0;
+        pthread_mutex_lock(&jcl_waiters_lock);
+        for (jcl_waiter *w = jcl_waiters; w != NULL && counted < 64; w = w->next) {
+            if (w->obj == obj && !w->notified) {
+                w->notified = 1;
+                counted++;
+                if (w->vthread != NULL) virtuals[woken++] = w->vthread; else nabu_waiter_wake(w->waiter);
+                if (!all) break;
+            }
         }
+        pthread_mutex_unlock(&jcl_waiters_lock);
+        /* unparked outside the lock: that is Java code */
+        for (int i = 0; i < woken; i++) if (jcl_virtual_unpark_fn != NULL) jcl_virtual_unpark_fn(virtuals[i]);
+        if (!all || counted < 64) break;
     }
-    pthread_mutex_unlock(&jcl_waiters_lock);
 }
 
 static int jcl_owns_monitor(void *obj) {
@@ -4376,7 +4399,7 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     const int me = nabu_current_thread_id();
     const int32_t depth = h->monitor_count;
     nabu_waiter *me_waiter = nabu_waiter_self();
-    jcl_waiter w = { self, 0, NULL, me_waiter };
+    jcl_waiter w = { self, 0, NULL, me_waiter, NULL, 0 };
     pthread_mutex_lock(&jcl_waiters_lock);
     jcl_waiter **tail = &jcl_waiters;
     while (*tail != NULL) tail = &(*tail)->next;
@@ -4418,6 +4441,39 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     nabu_wait_mark(0);
     h->monitor_count = depth;
     if (!w.notified) jcl_check_interrupt(cur);
+}
+
+/* Object.wait of a virtual thread on a continuation, in three steps (ThreadSupport.virtualWait): enter registers the
+ * thread as a waiter and gives up the monitor; the thread then parks (which unmounts it) until done says it was
+ * notified; leave takes the monitor back. Returns 0 when this cannot be done (threads are not parallel). */
+BIND(int64_t, jcl_ThreadSupport_waitEnter0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_waitEnter0", (void *object, void *thread)) {
+    if (!jcl_owns_monitor(object)) jcl_throw_new("java/lang/IllegalMonitorStateException", "java/lang/RuntimeException", "current thread is not owner");
+    if (!nabu_threads_active || !nabu_parallel) return 0;
+    jcl_waiter *w = (jcl_waiter *)calloc(1, sizeof *w);
+    w->obj = object;
+    w->vthread = thread;
+    pthread_mutex_lock(&jcl_waiters_lock);
+    jcl_waiter **tail = &jcl_waiters;
+    while (*tail != NULL) tail = &(*tail)->next;
+    *tail = w;
+    pthread_mutex_unlock(&jcl_waiters_lock);
+    w->depth = nabu_monitor_release_all(object);
+    return (int64_t)(intptr_t)w;
+}
+BIND(int, jcl_ThreadSupport_waitDone0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_waitDone0", (int64_t handle)) {
+    return ((jcl_waiter *)(intptr_t)handle)->notified;
+}
+BIND(int, jcl_ThreadSupport_waitLeave0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_waitLeave0", (int64_t handle)) {
+    jcl_waiter *w = (jcl_waiter *)(intptr_t)handle;
+    pthread_mutex_lock(&jcl_waiters_lock);
+    for (jcl_waiter **p = &jcl_waiters; *p != NULL; p = &(*p)->next) {
+        if (*p == w) { *p = w->next; break; }
+    }
+    pthread_mutex_unlock(&jcl_waiters_lock);
+    nabu_monitor_acquire_n(w->obj, w->depth);
+    const int notified = w->notified;
+    free(w);
+    return notified;
 }
 
 BIND(void, jcl_ThreadSupport_waitOn0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_waitOn0", (void *object, int64_t millis)) {
@@ -5056,17 +5112,25 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
     }
 }
 
+/* Parks the continuation. The monitors it holds are owned by the virtual thread (its id is the lock word), so they
+ * stay held while it is parked; only the count of the carrier has to follow the continuation. */
+static void jcl_cont_suspend(jcl_cont *k) {
+    const int held = nabu_held_monitors() - k->monitors;
+    nabu_set_held_monitors(k->monitors);
+    jcl_cont_switch_out(k);
+    nabu_set_held_monitors(k->monitors + held); /* k->monitors: the count of the thread that runs it now */
+}
+
 BIND(int, jcl_Continuation_doYield, "jdk.internal.vm.Continuation_doYield", (void)) {
     jcl_cont *k = jcl_running;
     if (k == NULL) return 3;
     if (k->pins > 0) return 2; /* CRITICAL_SECTION */
-    if (nabu_held_monitors() != k->monitors) return 4; /* MONITOR: a monitor belongs to the thread, not to the stack */
-    jcl_cont_switch_out(k);
+    jcl_cont_suspend(k);
     /* Resumed: either to go on, or by a thread that wants the stack of this parked continuation. */
     while (k->capture != NULL) {
         k->capture_count = nabu_capture_frames(k->capture, 128);
         k->capture = NULL;
-        jcl_cont_switch_out(k);
+        jcl_cont_suspend(k);
     }
     return 0;
 }

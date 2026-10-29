@@ -483,6 +483,18 @@ void nabu_set_virtual_ops_fn(void *fn);
 void nabu_set_virtual_start_fn(void *fn);
 /** The monitor enters of the running thread that have not been exited; a continuation cannot yield while it holds one. */
 int nabu_held_monitors(void);
+/** Sets the count of held monitors of the running thread (a continuation takes its monitors along when it yields). */
+void nabu_set_held_monitors(int count);
+/** See nabu_monitorenter: how a virtual thread waits for a monitor (returns 1 for a mounted virtual thread). */
+void nabu_set_monitor_backoff_fn(int (*fn)(int));
+/** Object.wait: gives up the monitor completely; returns how many times it was held. */
+int nabu_monitor_release_all(void *obj);
+/** Gets a monitor back that nabu_monitor_release_all gave up. */
+void nabu_monitor_acquire_n(void *obj, int depth);
+/** Registers ThreadSupport.unparkVirtual(Object), which unparks a virtual thread (a notify wakes it). */
+void nabu_set_virtual_unpark_fn(void *fn);
+/** Registers ThreadSupport.backoffVirtual(int), how a virtual thread waits for a monitor. */
+void nabu_set_virtual_backoff_fn(void *fn);
 
 /* Aangeroepen door de stub van een JDK-functie zonder implementatie (native,
  * signature-polymorf): meldt het symbool en breekt het programma af. */

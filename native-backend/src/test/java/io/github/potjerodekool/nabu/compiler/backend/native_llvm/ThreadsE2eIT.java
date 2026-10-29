@@ -256,6 +256,12 @@ class ThreadsE2eIT {
                 output("structuredTaskScopeFailureAndScopedValue", CONTINUATIONS));
     }
 
+    /** Monitors and Object.wait in virtual threads on continuations: the carrier is not kept. */
+    @Test
+    void continuationMonitors() throws Exception {
+        assertEquals(expected("continuationMonitors"), output("continuationMonitors", CONTINUATIONS));
+    }
+
     @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));

@@ -2305,6 +2305,38 @@ static __thread int nabu_held_monitor_count = 0;
 
 int nabu_held_monitors(void) { return nabu_held_monitor_count; }
 
+/* A continuation that yields takes the monitors it holds with it (their owner is the virtual thread, not the
+ * carrier), so the count of the carrier is set back and, when it runs again, raised on another carrier. */
+void nabu_set_held_monitors(int count) { nabu_held_monitor_count = count; }
+
+/* Set by the class library when virtual threads run on continuations: for a thread that is a mounted virtual thread
+ * it returns 1, and with a number of 0 or more it waits a little, by unmounting the thread. A virtual thread that
+ * cannot get a monitor must not keep its carrier: the owner may be a virtual thread that needs one to go on. */
+static int (*nabu_monitor_backoff_fn)(int) = NULL;
+void nabu_set_monitor_backoff_fn(int (*fn)(int)) { nabu_monitor_backoff_fn = fn; }
+
+/* Object.wait: gives up the monitor completely, returns how many times the thread held it. */
+int nabu_monitor_release_all(void *obj) {
+    nabu_object *header = (nabu_object *)obj;
+    const int depth = header->monitor_count;
+    header->monitor_count = 0;
+    __atomic_store_n(&header->thread_id, 0, __ATOMIC_SEQ_CST);
+    nabu_held_monitor_count -= depth;
+    if (nabu_parallel) {
+        if (__atomic_load_n(&nabu_monitor_waiters, __ATOMIC_SEQ_CST) > 0) nabu_keyq_wake_one(obj);
+    } else {
+        nabu_gil_signal();
+    }
+    return depth;
+}
+
+/* Gets the monitor back, as many times as it was held. */
+void nabu_monitor_acquire_n(void *obj, int depth) {
+    nabu_monitorenter(obj);
+    ((nabu_object *)obj)->monitor_count = depth;
+    nabu_held_monitor_count += depth - 1;
+}
+
 void nabu_monitorenter(void *obj) {
     nabu_held_monitor_count++;
     if (obj == NULL) {
@@ -2318,6 +2350,15 @@ void nabu_monitorenter(void *obj) {
         if (header->thread_id != me) {
             int free_word = 0;
             if (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                if (nabu_monitor_backoff_fn != NULL && nabu_monitor_backoff_fn(-1)) {
+                    for (int attempt = 0;; attempt++) {
+                        free_word = 0;
+                        if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                            break;
+                        }
+                        nabu_monitor_backoff_fn(attempt);
+                    }
+                } else {
                 nabu_wait_mark(3);
                 nabu_waiter *waiter = nabu_waiter_self();
                 nabu_keyq_add(obj, waiter);
@@ -2333,6 +2374,7 @@ void nabu_monitorenter(void *obj) {
                 __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
                 nabu_keyq_remove(obj, waiter);
                 nabu_wait_mark(0);
+                }
             }
             header->monitor_count = 1;
         } else {

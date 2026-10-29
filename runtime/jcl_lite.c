@@ -4210,8 +4210,8 @@ static void *jcl_main_thread(void) {
 /* The Thread object of the running thread: the thread's own, or "main". */
 static int jcl_continuations_enabled(void) {
 #if defined(_WIN32) && defined(NABU_GC_BOEHM)
-    const char *on = getenv("NABU_CONTINUATIONS");
-    return on != NULL && on[0] == '1';
+    const char *off = getenv("NABU_CONTINUATIONS");
+    return off == NULL || off[0] != '0';
 #else
     return 0;
 #endif
@@ -4734,7 +4734,7 @@ BIND(int, jcl_Thread_holdsLock, "java.lang.Thread_holdsLock", (void *obj)) {
 }
 BIND(void *, jcl_Thread_getContextClassLoader, "java.lang.Thread_getContextClassLoader", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_Thread_getUncaughtExceptionHandler, "java.lang.Thread_getUncaughtExceptionHandler", (void *self)) { return jcl_thread_of(self)->handler; }
-/* Virtual threads run on continuations only when NABU_CONTINUATIONS=1 (and the runtime has them, see
+/* Virtual threads run on continuations unless NABU_CONTINUATIONS=0 (and the runtime has them, see
  * JCL_CONTINUATIONS); otherwise each one is bound to a native thread of its own. */
 BIND(int, jcl_ContinuationSupport_isSupported0, "jdk.internal.vm.ContinuationSupport_isSupported0", (void)) {
     return jcl_continuations_enabled();

@@ -437,7 +437,8 @@ class ThreadsE2eIT {
 
     /** Runs one program of the executable and returns what it printed; the exit code must be 0. */
     private String output(final String name) throws Exception {
-        return output(name, java.util.Map.of());
+        // The programs of the tests without "OnContinuations" run virtual threads on native threads.
+        return output(name, java.util.Map.of("NABU_CONTINUATIONS", "0"));
     }
 
     /** Same, with extra environment variables for the program. */

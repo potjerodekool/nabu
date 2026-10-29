@@ -35,6 +35,19 @@ final class AccessFlags {
         return flags;
     }
 
+    /**
+     * The flags of a field. The bits of volatile and transient are those of bridge and varargs for methods, so
+     * toNabuFlags would make a volatile field a bridge; a volatile field has to stay volatile, because a volatile
+     * access is a sequentially consistent one (without it the JDK code that relies on it, like the termination
+     * of a virtual thread and a join, loses wake-ups).
+     */
+    static long toNabuFieldFlags(final int asmAccess) {
+        long flags = toNabuFlags(asmAccess & ~(Opcodes.ACC_VOLATILE | Opcodes.ACC_TRANSIENT));
+        if (has(asmAccess, Opcodes.ACC_VOLATILE)) flags |= Flags.VOLATILE;
+        if (has(asmAccess, Opcodes.ACC_TRANSIENT)) flags |= Flags.TRANSIENT;
+        return flags;
+    }
+
     private static boolean has(final int access, final int bit) {
         return (access & bit) != 0;
     }

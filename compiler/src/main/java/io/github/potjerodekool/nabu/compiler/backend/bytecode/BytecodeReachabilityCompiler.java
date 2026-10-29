@@ -1343,7 +1343,7 @@ public final class BytecodeReachabilityCompiler {
         // static velden bovendien een IRGlobal onder EXACT de key die
         // emitFieldInsn's GETSTATIC/PUTSTATIC-lowering verwacht.
         for (final FieldNode fieldNode : classNode.fields) {
-            final long fieldFlags = AccessFlags.toNabuFlags(fieldNode.access);
+            final long fieldFlags = AccessFlags.toNabuFieldFlags(fieldNode.access);
             final boolean isStatic = (fieldNode.access & Opcodes.ACC_STATIC) != 0;
             final IRType fieldType = DescriptorMapper.mapType(Type.getType(fieldNode.desc));
 

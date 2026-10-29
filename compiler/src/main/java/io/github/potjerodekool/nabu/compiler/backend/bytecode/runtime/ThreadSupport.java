@@ -81,6 +81,13 @@ public final class ThreadSupport {
         return false;
     }
 
+    /** Thread.inheritScopedValueBindings(container), called by VirtualThread.start. */
+    public static void inheritScoped(final Thread thread, final Object container) {
+        if (container != null && containerInherits0(container)) {
+            inheritBindings0(thread);
+        }
+    }
+
     /** Thread.start(ThreadContainer): starts the thread as a member of the container. */
     public static void startInContainer(final Thread thread, final Object container) {
         final VirtualThreadOps virtual = virtualOps(thread);

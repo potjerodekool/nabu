@@ -152,6 +152,13 @@ final class RuntimeCalls {
             // The trace of an unmounted virtual thread needs StackWalker on the continuation: there is none.
             new Redirect("java/lang/VirtualThread", "tryGetStackTrace", "()[Ljava/lang/StackTraceElement;", false,
                     THREAD_SUPPORT, "unmountedStackTrace", "(Ljava/lang/Thread;)[Ljava/lang/StackTraceElement;"),
+            // VirtualThread.start(container): a container with scoped values (StructuredTaskScope) passes them on.
+            new Redirect("java/lang/Thread", "inheritScopedValueBindings", "(Ljdk/internal/vm/ThreadContainer;)V",
+                    false, THREAD_SUPPORT, "inheritScoped",
+                    "(Ljava/lang/Thread;Ljava/lang/Object;)V"),
+            new Redirect("java/lang/VirtualThread", "inheritScopedValueBindings",
+                    "(Ljdk/internal/vm/ThreadContainer;)V", false, THREAD_SUPPORT, "inheritScoped",
+                    "(Ljava/lang/Thread;Ljava/lang/Object;)V"),
             new Redirect("java/lang/Thread", "sleep", "(J)V", true, THREAD_SUPPORT, "sleep"),
             new Redirect("java/lang/Thread", "getStackTrace", "()[Ljava/lang/StackTraceElement;", false, THREAD_SUPPORT,
                     "getStackTrace"),

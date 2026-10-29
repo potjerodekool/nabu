@@ -249,6 +249,13 @@ class ThreadsE2eIT {
         assertEquals(expected("continuationStackTraces"), output("continuationStackTraces", CONTINUATIONS));
     }
 
+    /** Subtasks of a StructuredTaskScope inherit the scoped values of the thread that opened it. */
+    @Test
+    void structuredTaskScopeFailureAndScopedValueOnContinuations() throws Exception {
+        assertEquals(expected("structuredTaskScopeFailureAndScopedValue"),
+                output("structuredTaskScopeFailureAndScopedValue", CONTINUATIONS));
+    }
+
     @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));

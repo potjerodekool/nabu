@@ -4,6 +4,7 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -133,6 +134,48 @@ final class ContinuationBridge {
         node.methods.add(virtualCall("alive", "(Ljava/lang/Thread;)Z", "alive", "()Z", Opcodes.IRETURN));
         node.methods.add(virtualCall("stackTrace", "(Ljava/lang/Thread;)[Ljava/lang/StackTraceElement;",
                 "asyncGetStackTrace", "()[Ljava/lang/StackTraceElement;", Opcodes.ARETURN));
+
+        node.methods.add(virtualCall("interrupt", "(Ljava/lang/Thread;)V", "interrupt", "()V", Opcodes.RETURN));
+        node.methods.add(virtualCall("isInterrupted", "(Ljava/lang/Thread;)Z", "isInterrupted", "()Z",
+                Opcodes.IRETURN));
+        node.methods.add(virtualCall("getAndClearInterrupt", "(Ljava/lang/Thread;)Z", "getAndClearInterrupt", "()Z",
+                Opcodes.IRETURN));
+
+        // Blocker.begin() only acts when VM.isBooted(), which this runtime never says; so do what it does.
+        final String carrierThread = "jdk/internal/misc/CarrierThread";
+        final MethodNode beginBlocking = new MethodNode(Opcodes.ACC_PUBLIC, "beginBlocking", "()Z", null, null);
+        final LabelNode notCarrier = new LabelNode(new Label());
+        beginBlocking.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Thread",
+                "currentCarrierThread", "()Ljava/lang/Thread;", false));
+        beginBlocking.instructions.add(new InsnNode(Opcodes.DUP));
+        beginBlocking.instructions.add(new TypeInsnNode(Opcodes.INSTANCEOF, carrierThread));
+        beginBlocking.instructions.add(new JumpInsnNode(Opcodes.IFEQ, notCarrier));
+        beginBlocking.instructions.add(new TypeInsnNode(Opcodes.CHECKCAST, carrierThread));
+        beginBlocking.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, carrierThread, "beginBlocking", "()Z",
+                false));
+        beginBlocking.instructions.add(new InsnNode(Opcodes.IRETURN));
+        beginBlocking.instructions.add(notCarrier);
+        beginBlocking.instructions.add(new InsnNode(Opcodes.POP));
+        beginBlocking.instructions.add(new InsnNode(Opcodes.ICONST_0));
+        beginBlocking.instructions.add(new InsnNode(Opcodes.IRETURN));
+        beginBlocking.maxStack = 2;
+        beginBlocking.maxLocals = 1;
+        node.methods.add(beginBlocking);
+
+        final MethodNode endBlocking = new MethodNode(Opcodes.ACC_PUBLIC, "endBlocking", "(Z)V", null, null);
+        final LabelNode notAttempted = new LabelNode(new Label());
+        endBlocking.instructions.add(new VarInsnNode(Opcodes.ILOAD, 1));
+        endBlocking.instructions.add(new JumpInsnNode(Opcodes.IFEQ, notAttempted));
+        endBlocking.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Thread",
+                "currentCarrierThread", "()Ljava/lang/Thread;", false));
+        endBlocking.instructions.add(new TypeInsnNode(Opcodes.CHECKCAST, carrierThread));
+        endBlocking.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, carrierThread, "endBlocking", "()V",
+                false));
+        endBlocking.instructions.add(notAttempted);
+        endBlocking.instructions.add(new InsnNode(Opcodes.RETURN));
+        endBlocking.maxStack = 1;
+        endBlocking.maxLocals = 2;
+        node.methods.add(endBlocking);
 
         final MethodNode join = new MethodNode(Opcodes.ACC_PUBLIC, "join", "(Ljava/lang/Thread;J)Z", null, null);
         join.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));

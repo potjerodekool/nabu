@@ -231,6 +231,12 @@ class ThreadsE2eIT {
         assertEquals(expected("scopedValues"), output("scopedValues", CONTINUATIONS));
     }
 
+    /** Blocking in virtual threads on continuations: sleep, interrupt, pinned waits, locks. */
+    @Test
+    void continuationBlocking() throws Exception {
+        assertEquals(expected("continuationBlocking"), output("continuationBlocking", CONTINUATIONS));
+    }
+
     @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));

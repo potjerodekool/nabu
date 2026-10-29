@@ -19,6 +19,21 @@ public interface VirtualThreadOps {
     /** VirtualThread.asyncGetStackTrace(). */
     StackTraceElement[] stackTrace(Thread thread);
 
+    /** VirtualThread.interrupt(). */
+    void interrupt(Thread thread);
+
+    /** VirtualThread.isInterrupted(). */
+    boolean isInterrupted(Thread thread);
+
+    /** VirtualThread.getAndClearInterrupt(). */
+    boolean getAndClearInterrupt(Thread thread);
+
+    /** jdk.internal.misc.Blocker.begin(): the carrier is about to block, the scheduler may add another. */
+    boolean beginBlocking();
+
+    /** jdk.internal.misc.Blocker.end(boolean). */
+    void endBlocking(boolean attempted);
+
     /** VirtualThread.joinNanos(long): waits until the thread has ended or the time has passed. */
     boolean join(Thread thread, long nanos) throws InterruptedException;
 }

@@ -55,6 +55,12 @@ final class RuntimeCalls {
             this(owner, name, desc, isStatic, targetClass, target, null);
         }
 
+        /** A redirect whose target calls the method again virtually, so a super call must not take it. */
+        boolean dispatches() {
+            return "java/lang/Thread".equals(owner) && !isStatic
+                    && ("interrupt".equals(name) || "isInterrupted".equals(name));
+        }
+
         String targetDesc() {
             if (explicitDesc != null) {
                 return explicitDesc;
@@ -129,6 +135,9 @@ final class RuntimeCalls {
             new Redirect("java/lang/Thread", "virtualThreadGroup", "()Ljava/lang/ThreadGroup;", true, THREAD_SUPPORT,
                     "virtualThreadGroup"),
             new Redirect("java/lang/Thread", "isAlive", "()Z", false, THREAD_SUPPORT, "isAlive"),
+            new Redirect("java/lang/Thread", "interrupt", "()V", false, THREAD_SUPPORT, "interrupt"),
+            new Redirect("java/lang/Thread", "isInterrupted", "()Z", false, THREAD_SUPPORT, "isInterrupted"),
+            new Redirect("java/lang/Thread", "interrupted", "()Z", true, THREAD_SUPPORT, "interrupted"),
             new Redirect("java/lang/Thread", "runWith", "(Ljava/lang/Object;Ljava/lang/Runnable;)V", false,
                     THREAD_SUPPORT, "runWith"),
             new Redirect("java/lang/Thread", "dispatchUncaughtException", "(Ljava/lang/Throwable;)V", false,
@@ -189,6 +198,11 @@ final class RuntimeCalls {
                         continue;
                     }
                     final Redirect redirect = find(call.owner, call.name, call.desc);
+                    if (redirect != null && call.getOpcode() == Opcodes.INVOKESPECIAL && redirect.dispatches()) {
+                        // super.interrupt() of an override: the C runtime's own method, or the redirect would call
+                        // the override again
+                        continue;
+                    }
                     if (redirect != null && (call.getOpcode() == Opcodes.INVOKESTATIC) == redirect.isStatic()) {
                         method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC,
                                 redirect.targetClass(), redirect.target(), redirect.targetDesc(), false));
@@ -267,6 +281,9 @@ final class RuntimeCalls {
 
     private static Redirect find(final IRInstruction.Call call) {
         for (final Redirect redirect : REDIRECTS) {
+            if (call.callKind() == CallKind.SPECIAL && redirect.dispatches()) {
+                continue;
+            }
             final boolean isStatic = call.callKind() == CallKind.STATIC;
             if (isStatic == redirect.isStatic()
                     && call.function().equals(redirect.owner().replace('/', '.') + "_" + redirect.name())

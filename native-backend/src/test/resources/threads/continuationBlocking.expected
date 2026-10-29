@@ -1,0 +1,6 @@
+sleepers 2000 fast true
+interrupt true flagCleared true
+monitorWait true
+pinnedSleep true
+joinPlatform 42
+reentrant 1000

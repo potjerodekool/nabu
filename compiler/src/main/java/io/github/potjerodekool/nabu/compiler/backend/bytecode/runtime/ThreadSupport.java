@@ -185,15 +185,38 @@ public final class ThreadSupport {
     /** Object.wait(long) of the C runtime. */
     private static native void waitOn0(Object object, long millis) throws InterruptedException;
 
+    /**
+     * Object.wait of the C runtime. A virtual thread that waits stays on its carrier (it is pinned); the scheduler is
+     * told, so that it can run the virtual thread that is going to notify on another carrier.
+     */
+    private static void blockingWait(final Object object, final long millis) throws InterruptedException {
+        final Thread current = Thread.currentThread();
+        final VirtualThreadOps virtual = virtualOps(current);
+        if (virtual == null) {
+            waitOn0(object, millis);
+            return;
+        }
+        final boolean attempted = virtual.beginBlocking();
+        try {
+            waitOn0(object, millis);
+        } catch (final InterruptedException e) {
+            // the interrupt status of a virtual thread is cleared when it throws
+            interrupted();
+            throw e;
+        } finally {
+            virtual.endBlocking(attempted);
+        }
+    }
+
     public static void waitOn(final Object object) throws InterruptedException {
-        waitOn0(object, 0L);
+        blockingWait(object, 0L);
     }
 
     public static void waitOn(final Object object, final long millis) throws InterruptedException {
         if (millis < 0L) {
             throw new IllegalArgumentException("timeout value is negative");
         }
-        waitOn0(object, millis);
+        blockingWait(object, millis);
     }
 
     public static void waitOn(final Object object, final long millis, final int nanos) throws InterruptedException {
@@ -203,7 +226,7 @@ public final class ThreadSupport {
         if (nanos < 0 || nanos > 999999) {
             throw new IllegalArgumentException("nanosecond timeout value out of range");
         }
-        waitOn0(object, nanos > 0 && millis < Long.MAX_VALUE ? millis + 1L : millis);
+        blockingWait(object, nanos > 0 && millis < Long.MAX_VALUE ? millis + 1L : millis);
     }
 
     public static void join(final Thread thread) throws InterruptedException {
@@ -224,7 +247,7 @@ public final class ThreadSupport {
         synchronized (thread) {
             if (millis == 0L) {
                 while (thread.isAlive()) {
-                    waitOn0(thread, 0L);
+                    blockingWait(thread, 0L);
                 }
             } else {
                 final long deadline = System.currentTimeMillis() + millis;
@@ -233,7 +256,7 @@ public final class ThreadSupport {
                     if (left <= 0L) {
                         break;
                     }
-                    waitOn0(thread, left);
+                    blockingWait(thread, left);
                 }
             }
         }
@@ -316,6 +339,29 @@ public final class ThreadSupport {
         return thread;
     }
 
+    /** Thread.interrupt(): a virtual thread on a continuation has its own interrupt status and wake-up. */
+    public static void interrupt(final Thread thread) {
+        final VirtualThreadOps virtual = virtualOps(thread);
+        if (virtual != null) {
+            virtual.interrupt(thread);
+        } else {
+            thread.interrupt();
+        }
+    }
+
+    /** Thread.isInterrupted(). */
+    public static boolean isInterrupted(final Thread thread) {
+        final VirtualThreadOps virtual = virtualOps(thread);
+        return virtual != null ? virtual.isInterrupted(thread) : thread.isInterrupted();
+    }
+
+    /** Thread.interrupted(): tests and clears the interrupt status of the current thread. */
+    public static boolean interrupted() {
+        final Thread current = Thread.currentThread();
+        final VirtualThreadOps virtual = virtualOps(current);
+        return virtual != null ? virtual.getAndClearInterrupt(current) : Thread.interrupted();
+    }
+
     /** Thread.isAlive(). */
     public static boolean isAlive(final Thread thread) {
         final VirtualThreadOps virtual = virtualOps(thread);
@@ -334,7 +380,7 @@ public final class ThreadSupport {
             Thread.sleep(millis);
             return;
         }
-        if (Thread.interrupted()) {
+        if (interrupted()) {
             throw new InterruptedException();
         }
         final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(millis);
@@ -344,7 +390,7 @@ public final class ThreadSupport {
                 return;
             }
             java.util.concurrent.locks.LockSupport.parkNanos(left);
-            if (Thread.interrupted()) {
+            if (interrupted()) {
                 throw new InterruptedException();
             }
         }

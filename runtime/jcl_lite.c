@@ -5020,6 +5020,8 @@ BIND(void *, jcl_ThreadSupport_virtualOps0, "io.github.potjerodekool.nabu.compil
 BIND(void, jcl_Thread_inheritScopedValueBindings, "java.lang.Thread_inheritScopedValueBindings", (void *self, void *container)) { (void)self; (void)container; }
 
 /* Thread.clearReferences(), at the end of a virtual thread: drops what the thread kept. */
+/* Thread.nioBlocker(): the channel an interrupt has to close; blocking NIO is not interruptible here. */
+BIND(void *, jcl_Thread_nioBlocker, "java.lang.Thread_nioBlocker", (void *self)) { (void)self; return NULL; }
 BIND(void, jcl_Thread_clearReferences, "java.lang.Thread_clearReferences", (void *self)) {
     s_thread *st = jcl_thread_of(self);
     st->threadLocals = NULL;

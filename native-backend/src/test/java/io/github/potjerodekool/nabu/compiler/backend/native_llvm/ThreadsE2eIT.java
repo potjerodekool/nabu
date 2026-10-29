@@ -237,6 +237,12 @@ class ThreadsE2eIT {
         assertEquals(expected("continuationBlocking"), output("continuationBlocking", CONTINUATIONS));
     }
 
+    /** More pinned virtual threads than carriers: the queued ones run once the pinned ones leave. */
+    @Test
+    void continuationStarvation() throws Exception {
+        assertEquals(expected("continuationStarvation"), output("continuationStarvation", CONTINUATIONS));
+    }
+
     @Test
     void concurrentCollections() throws Exception {
         assertEquals(expected("concurrentCollections"), output("concurrentCollections"));

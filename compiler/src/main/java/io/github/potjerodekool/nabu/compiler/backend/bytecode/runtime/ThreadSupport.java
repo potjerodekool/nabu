@@ -155,10 +155,30 @@ public final class ThreadSupport {
         return frames == null ? new StackTraceElement[0] : StackTraceSupport.elements(frames);
     }
 
-    /** The trace of a virtual thread that is not mounted: its frames live on a parked fiber, which is not walked. */
+    /** The trace of a virtual thread that is not mounted: the parked continuation walks its own stack. */
     public static StackTraceElement[] unmountedStackTrace(final Thread thread) {
-        return new StackTraceElement[0];
+        final VirtualThreadOps virtual = virtualOps(thread);
+        final Object continuation = virtual != null ? virtual.continuation(thread) : null;
+        final long[] frames = continuation != null ? parkedFrames0(continuation) : null;
+        if (frames == null) {
+            return new StackTraceElement[0];
+        }
+        // As on the JVM the frames of the continuation machinery are hidden.
+        final java.util.ArrayList<StackTraceElement> visible = new java.util.ArrayList<>();
+        for (final StackTraceElement element : StackTraceSupport.elements(frames)) {
+            final String className = element.getClassName();
+            if (!className.startsWith("jdk.internal.vm.Continuation")
+                    && !className.startsWith("java.lang.VirtualThread$VThreadContinuation")
+                    && !className.endsWith(".ContinuationBridge")
+                    && !className.startsWith("jcl_fiber")) {
+                visible.add(element);
+            }
+        }
+        return visible.toArray(new StackTraceElement[0]);
     }
+
+    /** The frames of a continuation that is suspended (see the C runtime), or null. */
+    private static native long[] parkedFrames0(Object continuation);
 
     /** Thread.getAllStackTraces: the running threads, each with its stack trace (see getStackTrace). */
     public static java.util.Map<Thread, StackTraceElement[]> getAllStackTraces() {

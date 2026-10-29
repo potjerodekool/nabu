@@ -19,6 +19,9 @@ public interface VirtualThreadOps {
     /** VirtualThread.asyncGetStackTrace(). */
     StackTraceElement[] stackTrace(Thread thread);
 
+    /** The continuation (jdk.internal.vm.Continuation) of the virtual thread. */
+    Object continuation(Thread thread);
+
     /** VirtualThread.interrupt(). */
     void interrupt(Thread thread);
 

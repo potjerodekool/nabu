@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.bytecode;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
@@ -134,6 +135,17 @@ final class ContinuationBridge {
         node.methods.add(virtualCall("alive", "(Ljava/lang/Thread;)Z", "alive", "()Z", Opcodes.IRETURN));
         node.methods.add(virtualCall("stackTrace", "(Ljava/lang/Thread;)[Ljava/lang/StackTraceElement;",
                 "asyncGetStackTrace", "()[Ljava/lang/StackTraceElement;", Opcodes.ARETURN));
+
+        final MethodNode continuation = new MethodNode(Opcodes.ACC_PUBLIC, "continuation",
+                "(Ljava/lang/Thread;)Ljava/lang/Object;", null, null);
+        continuation.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        continuation.instructions.add(new TypeInsnNode(Opcodes.CHECKCAST, VIRTUAL_THREAD));
+        continuation.instructions.add(new FieldInsnNode(Opcodes.GETFIELD, VIRTUAL_THREAD, "cont",
+                "Ljdk/internal/vm/Continuation;"));
+        continuation.instructions.add(new InsnNode(Opcodes.ARETURN));
+        continuation.maxStack = 1;
+        continuation.maxLocals = 2;
+        node.methods.add(continuation);
 
         node.methods.add(virtualCall("interrupt", "(Ljava/lang/Thread;)V", "interrupt", "()V", Opcodes.RETURN));
         node.methods.add(virtualCall("isInterrupted", "(Ljava/lang/Thread;)Z", "isInterrupted", "()Z",

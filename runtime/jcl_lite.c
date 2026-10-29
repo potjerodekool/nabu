@@ -4797,6 +4797,8 @@ typedef struct jcl_cont {
     int state;               /* 0 new, 1 running, 2 suspended, 3 done */
     int pins;
     int monitors;            /* the monitors the thread held when the continuation was run */
+    uintptr_t *capture;      /* set while a thread asks a parked continuation for its stack: where to put the frames */
+    int capture_count;
 } jcl_cont;
 
 static void *(*jcl_continuation_run_fn)(void *) = NULL;
@@ -4930,6 +4932,16 @@ static void jcl_fiber_main(unsigned int lo, unsigned int hi) {
 #endif
 }
 
+/* A new continuation (0) or a suspended one (2) becomes the running one (1). A thread that captures the stack of a
+ * suspended continuation holds it as running for a moment; whoever wants to run it waits for that. */
+static void jcl_cont_claim(jcl_cont *k) {
+    for (;;) {
+        int expected = k->state == 0 ? 0 : 2;
+        if (__atomic_compare_exchange_n(&k->state, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return;
+        sched_yield();
+    }
+}
+
 /* Runs the continuation until it yields or ends. Noinline: the registers are spilled into this frame, which is then
  * parked as a region while the fiber runs. */
 static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
@@ -4957,7 +4969,6 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
 #endif
     k->parent = outer;
     k->monitors = nabu_held_monitors();
-    k->state = 1;
     k->region->sp = NULL;
     if (k->hi != NULL) jcl_set_gc_base(jcl_gc_thread, k->hi);
     jcl_running = k;
@@ -4966,7 +4977,8 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
 #else
     swapcontext(&back_context, &k->uc);
 #endif
-    /* back on the stack of this thread (yield or end) */
+    /* back on the stack of this thread (yield or end); only now may another thread run or capture it */
+    if (__atomic_load_n(&k->state, __ATOMIC_ACQUIRE) == 5) __atomic_store_n(&k->state, 2, __ATOMIC_RELEASE);
     jcl_running = outer;
     jcl_set_gc_base(jcl_gc_thread, (void *)prev_hi);
     mine->sp = NULL;
@@ -4975,7 +4987,7 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
 /* Leaves the running continuation; returns when it is run again, possibly by another thread. */
 static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
     __builtin_unwind_init();
-    k->state = 2;
+    __atomic_store_n(&k->state, 5, __ATOMIC_RELEASE); /* yielding: the carrier makes it 2 when the context is saved */
     k->region->sp = JCL_CURRENT_SP();
 #ifdef _WIN32
     SwitchToFiber(k->back);
@@ -5028,6 +5040,7 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
         }
         *slot = k;
     }
+    jcl_cont_claim(k);
     jcl_cont_switch_in(k);
     if (k->state == 3) {
         void *failure = k->failure;
@@ -5049,7 +5062,37 @@ BIND(int, jcl_Continuation_doYield, "jdk.internal.vm.Continuation_doYield", (voi
     if (k->pins > 0) return 2; /* CRITICAL_SECTION */
     if (nabu_held_monitors() != k->monitors) return 4; /* MONITOR: a monitor belongs to the thread, not to the stack */
     jcl_cont_switch_out(k);
+    /* Resumed: either to go on, or by a thread that wants the stack of this parked continuation. */
+    while (k->capture != NULL) {
+        k->capture_count = nabu_capture_frames(k->capture, 128);
+        k->capture = NULL;
+        jcl_cont_switch_out(k);
+    }
     return 0;
+}
+
+/* ThreadSupport.parkedFrames0(continuation): the frames (addresses) of a suspended continuation, innermost first,
+ * or null when it is not suspended (new, running, done). The stack is walked by the continuation itself: this
+ * thread runs it up to the point where it was parked and it hands the frames back. */
+BIND(void *, jcl_ThreadSupport_parkedFrames0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_parkedFrames0", (void *c)) {
+    void **slot = jcl_cont_slot(c);
+    jcl_cont *k = slot != NULL ? (jcl_cont *)*slot : NULL;
+    if (k == NULL) return NULL;
+    for (int spins = 0; __atomic_load_n(&k->state, __ATOMIC_ACQUIRE) == 5 && spins < 1000; spins++) sched_yield();
+    int expected = 2;
+    if (!__atomic_compare_exchange_n(&k->state, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return NULL;
+    uintptr_t frames[128];
+    k->capture = frames;
+    k->capture_count = 0;
+    jcl_cont_switch_in(k);
+    k->capture = NULL;
+    const int n = k->capture_count;
+    void *arr = jcl_alloc(8 + (size_t)n * sizeof(int64_t));
+    ((int32_t *)arr)[0] = n;
+    ((int32_t *)arr)[1] = 8;
+    nabu_array_tag(arr, "[J");
+    for (int i = 0; i < n; i++) ((int64_t *)((char *)arr + 8))[i] = (int64_t)frames[i];
+    return arr;
 }
 
 BIND(void, jcl_Continuation_pin, "jdk.internal.vm.Continuation_pin", (void)) {

@@ -54,11 +54,19 @@ public class Main {
             public void run() { parkedWork(go); }
         });
         Thread.sleep(200);
-        int length = t.getStackTrace().length;
+        StackTraceElement[] parkedTrace = t.getStackTrace();
+        boolean work = false;
+        boolean park = false;
+        boolean hidden = false;
+        for (StackTraceElement e : parkedTrace) {
+            if (e.getMethodName().equals("parkedWork")) work = true;
+            if (e.getClassName().equals("java.lang.VirtualThread") && e.getMethodName().equals("park")) park = true;
+            if (e.getClassName().startsWith("jdk.internal.vm.Continuation")) hidden = true;
+        }
         go[0] = true;
         LockSupport.unpark(t);
         t.join();
-        System.out.println("parked " + (length >= 0));
+        System.out.println("parked work " + work + " park " + park + " hidden " + hidden);
     }
 
     static void parkedWork(boolean[] go) {

@@ -2283,22 +2283,35 @@ int nabu_gil_wait(int64_t timeout_ms) {
 }
 
 /*
- * A read of a volatile field. A thread that reads the same one over and over is waiting for another thread to
- * change it, and only gets a turn when it gives its own up.
+ * A read of a volatile field. A thread that reads the same one over and over, and keeps getting the same value, is
+ * waiting for another thread to change it, and only gets a turn when it gives its own up. A counter that is read
+ * in a hot loop changes every time, so it is no spin. The state is one thread-local struct: every thread-local
+ * variable costs a lookup, and this runs on every volatile read of the class library.
  */
-static __thread const void *nabu_spin_address = NULL;
-static __thread unsigned nabu_spin_count = 0;
+struct nabu_spin_state {
+    const void *address;
+    uint64_t value;
+    unsigned count;
+};
+static __thread struct nabu_spin_state nabu_spin_st;
 
-void nabu_spin_hint(const void *address) {
+void nabu_spin_hint_value(const void *address, uint64_t value) {
     if (!nabu_threads_active) return;
-    if (address != nabu_spin_address) {
-        nabu_spin_address = address;
-        nabu_spin_count = 0;
-    } else if (++nabu_spin_count >= 200) {
-        nabu_spin_count = 0;
+    struct nabu_spin_state *s = &nabu_spin_st;
+    if (address != s->address || value != s->value) {
+        s->address = address;
+        s->value = value;
+        s->count = 0;
+    } else if (++s->count >= 200) {
+        s->count = 0;
         if (nabu_wake_hook != NULL) nabu_wake_hook();
         nabu_gil_yield();
     }
+}
+
+/* The same without the value (the runtime itself polls a flag of its own). */
+void nabu_spin_hint(const void *address) {
+    nabu_spin_hint_value(address, 0);
 }
 
 /* Compiled loops look at nabu_safepoint_request on every jump back; while it is not 0 (another thread wants

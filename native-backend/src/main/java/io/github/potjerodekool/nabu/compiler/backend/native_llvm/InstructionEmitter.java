@@ -1083,14 +1083,43 @@ public class InstructionEmitter {
         }
         LLVMSetVolatile(load, 1);
         makeAtomic(load, LLVMTypeOf(load));
-        final LLVMValueRef hint = globalValueMap.get("@nabu_spin_hint");
+        final LLVMValueRef hint = globalValueMap.get("@nabu_spin_hint_value");
         if (hint == null) {
             return;
         }
-        final PointerPointer<Pointer> args = new PointerPointer<>(1);
+        final LLVMValueRef bits = spinValueBits(load);
+        if (bits == null) {
+            return;
+        }
+        final PointerPointer<Pointer> args = new PointerPointer<>(2);
         args.put(0, address);
-        LLVMBuildCall2(builder, LLVMGlobalGetValueType(hint), hint, args, 1, "");
+        args.put(1, bits);
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(hint), hint, args, 2, "");
         Reference.reachabilityFence(args);
+    }
+
+    /**
+     * The value that was read, as 64 bits: a spin keeps reading the same one, a counter does not. Null for a type
+     * that cannot be shown that way.
+     */
+    private LLVMValueRef spinValueBits(final LLVMValueRef load) {
+        final LLVMTypeRef type = LLVMTypeOf(load);
+        final LLVMTypeRef i64 = LLVMInt64TypeInContext(LLVMGetTypeContext(type));
+        final int kind = LLVMGetTypeKind(type);
+        if (kind == LLVMPointerTypeKind) {
+            return LLVMBuildPtrToInt(builder, load, i64, "");
+        }
+        if (kind == LLVMDoubleTypeKind) {
+            return LLVMBuildBitCast(builder, load, i64, "");
+        }
+        if (kind == LLVMFloatTypeKind) {
+            final LLVMValueRef asInt = LLVMBuildBitCast(builder, load, LLVMInt32TypeInContext(LLVMGetTypeContext(type)), "");
+            return LLVMBuildZExt(builder, asInt, i64, "");
+        }
+        if (kind == LLVMIntegerTypeKind) {
+            return LLVMGetIntTypeWidth(type) == 64 ? load : LLVMBuildZExt(builder, load, i64, "");
+        }
+        return null;
     }
 
     /**

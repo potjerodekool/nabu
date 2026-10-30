@@ -791,6 +791,16 @@ public void setReflectionRegistry(
         LLVMSetLinkage(spinHintFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_spin_hint", spinHintFn);
 
+        // --- void nabu_spin_hint_value(i8* address, i64 value): the same, with the value that was read ---
+        final PointerPointer<Pointer> spinValueParams = new PointerPointer<>(2);
+        spinValueParams.put(0, LLVMPointerTypeInContext(ctx, 0));
+        spinValueParams.put(1, LLVMInt64TypeInContext(ctx));
+        LLVMValueRef spinHintValueFn = LLVMAddFunction(mod, new BytePointer("nabu_spin_hint_value"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), spinValueParams, 2, 0));
+        LLVMSetLinkage(spinHintValueFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_spin_hint_value", spinHintValueFn);
+        Reference.reachabilityFence(spinValueParams);
+
         // --- A compiled loop reads nabu_safepoint_request on every jump back, and calls nabu_safepoint_poll
         // while it is not 0: that is how another thread gets the stack of a thread that never waits ---
         final LLVMValueRef safepointFlag = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx),

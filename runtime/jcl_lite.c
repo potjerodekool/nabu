@@ -4090,6 +4090,61 @@ BIND(double, jcl_java_lang_Double_longBitsToDouble, "java.lang.Double_longBitsTo
 BIND(int32_t, jcl_java_lang_Float_floatToRawIntBits, "java.lang.Float_floatToRawIntBits", (float v)) { int32_t r; memcpy(&r, &v, 4); return r; }
 BIND(float, jcl_java_lang_Float_intBitsToFloat, "java.lang.Float_intBitsToFloat", (int32_t v)) { float r; memcpy(&r, &v, 4); return r; }
 BIND(void *, jcl_java_lang_String_intern, "java.lang.String_intern", (void *self)) { return self; }
+#ifdef __linux__
+/* The processors a CPU quota allows: ceil(quota / period). `text` is the content of cgroup v2 cpu.max ("max 100000"
+ * or "200000 100000"); for cgroup v1 the quota and the period are passed on their own. 0 when there is no limit. */
+static int jcl_quota_processors(long long quota, long long period) {
+    if (quota <= 0 || period <= 0) return 0;
+    const long long n = (quota + period - 1) / period;
+    return n < 1 ? 1 : (n > 100000 ? 100000 : (int)n);
+}
+static int jcl_cpu_max_processors(const char *text) {
+    long long quota = 0, period = 0;
+    if (strncmp(text, "max", 3) == 0) return 0;
+    if (sscanf(text, "%lld %lld", &quota, &period) != 2) return 0;
+    return jcl_quota_processors(quota, period);
+}
+static int jcl_read_small_file(const char *path, char *buffer, size_t size) {
+    FILE *f = fopen(path, "r");
+    if (f == NULL) return 0;
+    const size_t n = fread(buffer, 1, size - 1, f);
+    fclose(f);
+    buffer[n] = '\0';
+    return n > 0;
+}
+/* The CPU limit of the cgroup the process runs in (0 for none): cgroup v2 first, then v1. */
+static int jcl_cgroup_processors(void) {
+    char text[256], path[512], line[512];
+    if (jcl_read_small_file("/sys/fs/cgroup/cpu.max", text, sizeof text)) {
+        const int n = jcl_cpu_max_processors(text);
+        if (n > 0) return n;
+    }
+    FILE *self = fopen("/proc/self/cgroup", "r");
+    if (self != NULL) {
+        while (fgets(line, sizeof line, self) != NULL) {
+            if (strncmp(line, "0::/", 4) != 0) continue;
+            line[strcspn(line, "\r\n")] = '\0';
+            snprintf(path, sizeof path, "/sys/fs/cgroup/%s/cpu.max", line + 4);
+            if (jcl_read_small_file(path, text, sizeof text)) {
+                const int n = jcl_cpu_max_processors(text);
+                if (n > 0) { fclose(self); return n; }
+            }
+        }
+        fclose(self);
+    }
+    static const char *const v1_dirs[] = { "/sys/fs/cgroup/cpu", "/sys/fs/cgroup/cpu,cpuacct" };
+    for (size_t i = 0; i < sizeof v1_dirs / sizeof v1_dirs[0]; i++) {
+        char quota_text[64], period_text[64];
+        snprintf(path, sizeof path, "%s/cpu.cfs_quota_us", v1_dirs[i]);
+        if (!jcl_read_small_file(path, quota_text, sizeof quota_text)) continue;
+        snprintf(path, sizeof path, "%s/cpu.cfs_period_us", v1_dirs[i]);
+        if (!jcl_read_small_file(path, period_text, sizeof period_text)) continue;
+        const int n = jcl_quota_processors(atoll(quota_text), atoll(period_text));
+        if (n > 0) return n;
+    }
+    return 0;
+}
+#endif
 /* The processors of the machine, or what NABU_CPUS says: the virtual thread scheduler and the pools size themselves
  * by it. */
 static int jcl_online_processors(void) {
@@ -4099,12 +4154,14 @@ static int jcl_online_processors(void) {
     return (int)info.dwNumberOfProcessors;
 #else
 #ifdef __linux__
-    /* the processors this process may run on (taskset, a cpuset of a container), not those of the machine */
+    /* the processors this process may run on (taskset, a cpuset of a container), not those of the machine, */
+    int allowed = 0;
     cpu_set_t set;
-    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
-        const int allowed = CPU_COUNT(&set);
-        if (allowed > 0) return allowed;
-    }
+    if (sched_getaffinity(0, sizeof(set), &set) == 0) allowed = CPU_COUNT(&set);
+    /* ... and not more than the CPU quota of its cgroup (docker --cpus, a Kubernetes limit) */
+    const int quota = jcl_cgroup_processors();
+    if (quota > 0 && (allowed <= 0 || quota < allowed)) allowed = quota;
+    if (allowed > 0) return allowed;
 #endif
 #ifdef _SC_NPROCESSORS_ONLN
     return (int)sysconf(_SC_NPROCESSORS_ONLN);

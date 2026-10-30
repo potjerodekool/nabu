@@ -22,6 +22,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <poll.h>
+#include <sched.h>
 #include <sys/syscall.h>
 #ifndef SYS_pidfd_open
 #define SYS_pidfd_open 434
@@ -4089,12 +4090,36 @@ BIND(double, jcl_java_lang_Double_longBitsToDouble, "java.lang.Double_longBitsTo
 BIND(int32_t, jcl_java_lang_Float_floatToRawIntBits, "java.lang.Float_floatToRawIntBits", (float v)) { int32_t r; memcpy(&r, &v, 4); return r; }
 BIND(float, jcl_java_lang_Float_intBitsToFloat, "java.lang.Float_intBitsToFloat", (int32_t v)) { float r; memcpy(&r, &v, 4); return r; }
 BIND(void *, jcl_java_lang_String_intern, "java.lang.String_intern", (void *self)) { return self; }
-/* One processor unless NABU_CPUS says otherwise: the virtual thread scheduler and the pools size themselves by it. */
+/* The processors of the machine, or what NABU_CPUS says: the virtual thread scheduler and the pools size themselves
+ * by it. */
+static int jcl_online_processors(void) {
+#ifdef _WIN32
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return (int)info.dwNumberOfProcessors;
+#else
+#ifdef __linux__
+    /* the processors this process may run on (taskset, a cpuset of a container), not those of the machine */
+    cpu_set_t set;
+    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
+        const int allowed = CPU_COUNT(&set);
+        if (allowed > 0) return allowed;
+    }
+#endif
+#ifdef _SC_NPROCESSORS_ONLN
+    return (int)sysconf(_SC_NPROCESSORS_ONLN);
+#else
+    return 1;
+#endif
+#endif
+}
 BIND(int32_t, jcl_java_lang_Runtime_availableProcessors, "java.lang.Runtime_availableProcessors", (void *self)) {
     (void)self;
+    static int cached = 0;
+    if (cached > 0) return cached;
     const char *cpus = getenv("NABU_CPUS");
-    const int n = cpus != NULL ? atoi(cpus) : 1;
-    return n > 0 ? n : 1;
+    const int n = cpus != NULL ? atoi(cpus) : jcl_online_processors();
+    return cached = (n > 0 ? n : 1);
 }
 BIND(void, jcl_java_lang_Runtime_gc, "java.lang.Runtime_gc", (void *self)) {
     (void)self;

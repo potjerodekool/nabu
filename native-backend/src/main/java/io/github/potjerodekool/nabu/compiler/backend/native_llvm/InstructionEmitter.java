@@ -1084,18 +1084,33 @@ public class InstructionEmitter {
         LLVMSetVolatile(load, 1);
         makeAtomic(load, LLVMTypeOf(load));
         final LLVMValueRef hint = globalValueMap.get("@nabu_spin_hint_value");
-        if (hint == null) {
+        final LLVMValueRef flag = globalValueMap.get("@nabu_spin_hints");
+        if (hint == null || flag == null) {
             return;
         }
+        // Only while the threads take turns: a load and a jump instead of a call on every volatile read.
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        branchedBlocks.add(current);
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final LLVMValueRef enabledValue = LLVMBuildLoad2(builder, i32, flag, "spinhints");
+        LLVMSetAlignment(enabledValue, 4);
+        LLVMSetOrdering(enabledValue, LLVMAtomicOrderingMonotonic);
+        final LLVMValueRef enabled = LLVMBuildICmp(builder, LLVMIntNE, enabledValue, LLVMConstInt(i32, 0, 0), "spinning");
+        final LLVMValueRef function = LLVMGetBasicBlockParent(current);
+        final LLVMBasicBlockRef hintBlock = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("spin.hint"));
+        final LLVMBasicBlockRef contBlock = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("spin.cont"));
+        LLVMBuildCondBr(builder, enabled, hintBlock, contBlock);
+        LLVMPositionBuilderAtEnd(builder, hintBlock);
         final LLVMValueRef bits = spinValueBits(load);
-        if (bits == null) {
-            return;
+        if (bits != null) {
+            final PointerPointer<Pointer> args = new PointerPointer<>(2);
+            args.put(0, address);
+            args.put(1, bits);
+            LLVMBuildCall2(builder, LLVMGlobalGetValueType(hint), hint, args, 2, "");
+            Reference.reachabilityFence(args);
         }
-        final PointerPointer<Pointer> args = new PointerPointer<>(2);
-        args.put(0, address);
-        args.put(1, bits);
-        LLVMBuildCall2(builder, LLVMGlobalGetValueType(hint), hint, args, 2, "");
-        Reference.reachabilityFence(args);
+        LLVMBuildBr(builder, contBlock);
+        LLVMPositionBuilderAtEnd(builder, contBlock);
     }
 
     /**

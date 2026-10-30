@@ -58,6 +58,13 @@ class ThreadsE2eIT {
         assertEquals(expected("spinningThreadsLetOthersRun"), output("spinningThreadsLetOthersRun"));
     }
 
+    /** With the threads taking turns (NABU_GIL=1) the spin hint of a volatile read is what gives the turn away. */
+    @Test
+    void spinningThreadsLetOthersRunWithTheGlobalLock() throws Exception {
+        assertEquals(expected("spinningThreadsLetOthersRun"),
+                output("spinningThreadsLetOthersRun", java.util.Map.of("NABU_GIL", "1")));
+    }
+
     @Test
     void executorRunsTasks() throws Exception {
         assertEquals(expected("executorRunsTasks"), output("executorRunsTasks"));

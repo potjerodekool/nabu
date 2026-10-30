@@ -4891,6 +4891,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
         /* Threads run in parallel; NABU_GIL=1 makes them run one at a time again (see nabu_gil_*). */
         const char *gil = getenv("NABU_GIL");
         nabu_parallel = !(gil != NULL && gil[0] == '1');
+        nabu_spin_hints = !nabu_parallel;
         nabu_threads_active = 1;
         nabu_set_wake_hook(jcl_capture_hook);
 #if defined(_WIN32) && defined(NABU_GC_BOEHM)

@@ -422,6 +422,7 @@ void nabu_gil_signal(void);
 /** A volatile read at the address: after many reads of one address in a row the thread lets the others run. */
 void nabu_spin_hint(const void *address);
 void nabu_spin_hint_value(const void *address, uint64_t value);
+extern volatile int nabu_spin_hints;
 extern volatile int nabu_safepoint_request;
 void nabu_safepoint_poll(void);
 /** Gives up the lock until nabu_gil_signal or the timeout (ms, negative: none); 1 when the time passed. */

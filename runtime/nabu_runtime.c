@@ -2295,6 +2295,11 @@ struct nabu_spin_state {
 };
 static __thread struct nabu_spin_state nabu_spin_st;
 
+/* 1 when the threads take turns (NABU_GIL=1): only then a thread that spins has to give its turn away. Threads that
+ * run in parallel are scheduled by the operating system, and a thread that wants the stack of another gets it at the
+ * next loop jump (nabu_safepoint_request), so compiled code skips the hint while this is 0. */
+volatile int nabu_spin_hints = 0;
+
 void nabu_spin_hint_value(const void *address, uint64_t value) {
     if (!nabu_threads_active) return;
     struct nabu_spin_state *s = &nabu_spin_st;

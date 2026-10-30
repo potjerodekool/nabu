@@ -800,6 +800,11 @@ public void setReflectionRegistry(
         LLVMSetLinkage(spinHintValueFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_spin_hint_value", spinHintValueFn);
         Reference.reachabilityFence(spinValueParams);
+        // --- nabu_spin_hints: compiled code calls the hint only while this is not 0 (threads that take turns) ---
+        final LLVMValueRef spinHintsFlag = LLVMAddGlobal(mod, LLVMInt32TypeInContext(ctx),
+                new BytePointer("nabu_spin_hints"));
+        LLVMSetLinkage(spinHintsFlag, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_spin_hints", spinHintsFlag);
 
         // --- A compiled loop reads nabu_safepoint_request on every jump back, and calls nabu_safepoint_poll
         // while it is not 0: that is how another thread gets the stack of a thread that never waits ---

@@ -4765,11 +4765,41 @@ BIND(int, jcl_java_lang_Thread_isAlive, "java.lang.Thread_isAlive", (void *self)
     return st->state == 1;
 }
 
+/* A thread that was created but has not registered itself with the collector yet is not scanned (Windows registers a
+ * thread from inside the thread), and nothing else need refer to its Thread object: a ForkJoinPool only knows its
+ * worker once the worker runs. On one core the new thread can wait a long time for its first turn, and a collection in
+ * between freed the Thread object and its state. Until the thread runs, the object is kept here, in static memory that
+ * the collector scans. */
+typedef struct jcl_starting { void *self; struct jcl_starting *next; } jcl_starting;
+static jcl_starting *jcl_starting_head = NULL;
+static pthread_mutex_t jcl_starting_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void jcl_starting_add(void *self) {
+    jcl_starting *node = (jcl_starting *)jcl_alloc(sizeof(jcl_starting));
+    node->self = self;
+    pthread_mutex_lock(&jcl_starting_lock);
+    node->next = jcl_starting_head;
+    jcl_starting_head = node;
+    pthread_mutex_unlock(&jcl_starting_lock);
+}
+
+static void jcl_starting_remove(void *self) {
+    pthread_mutex_lock(&jcl_starting_lock);
+    for (jcl_starting **link = &jcl_starting_head; *link != NULL; link = &(*link)->next) {
+        if ((*link)->self == self) {
+            *link = (*link)->next;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&jcl_starting_lock);
+}
+
 /* The body of a native thread: take the turn, run Thread.run through the program's ThreadSupport, tell the joiners. */
 static void *jcl_thread_main(void *arg) {
     s_thread *st = (s_thread *)arg;
     nabu_gil_acquire();
     jcl_cur_thread = st->self;
+    jcl_starting_remove(st->self);
     nabu_set_current_thread_id((int)st->id);
     nabu_set_wait_slot(&st->wait_state);
     __atomic_store_n(&st->waiter, nabu_waiter_self(), __ATOMIC_SEQ_CST);
@@ -4907,6 +4937,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     if (!st->daemon) __atomic_fetch_add(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
     /* A virtual thread is meant to be one of very many: a smaller stack than a platform thread. */
     const size_t stack_size = st->is_virtual ? (size_t)4 << 20 : (size_t)16 << 20;
+    jcl_starting_add(self);
 #if defined(_WIN32) && defined(NABU_GC_BOEHM)
     HANDLE created = CreateThread(NULL, stack_size, jcl_windows_thread_main, st, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
     int rc = created != NULL ? 0 : -1;
@@ -4921,6 +4952,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     pthread_attr_destroy(&attr);
 #endif
     if (rc != 0) {
+        jcl_starting_remove(self);
         st->state = 2;
         if (!st->daemon) __atomic_fetch_sub(&jcl_live_threads, 1, __ATOMIC_SEQ_CST);
         jcl_throw_new("java/lang/IllegalThreadStateException", "java/lang/IllegalArgumentException", "unable to create native thread");

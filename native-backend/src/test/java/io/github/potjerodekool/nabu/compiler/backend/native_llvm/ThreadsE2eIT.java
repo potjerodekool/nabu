@@ -65,6 +65,12 @@ class ThreadsE2eIT {
                 output("spinningThreadsLetOthersRun", java.util.Map.of("NABU_GIL", "1")));
     }
 
+    /** Threads, pools and exceptions that only the runtime refers to survive the collector (also on one core). */
+    @Test
+    void threadObjectsSurviveGc() throws Exception {
+        assertEquals(expected("threadObjectsSurviveGc"), output("threadObjectsSurviveGc"));
+    }
+
     @Test
     void executorRunsTasks() throws Exception {
         assertEquals(expected("executorRunsTasks"), output("executorRunsTasks"));

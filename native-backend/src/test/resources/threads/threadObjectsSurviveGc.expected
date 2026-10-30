@@ -1,0 +1,6 @@
+platform 200
+virtual 200
+pooled 200
+async 100
+flights 100
+sink true

@@ -4149,6 +4149,14 @@ static int jcl_cgroup_processors(void) {
  * by it. */
 static int jcl_online_processors(void) {
 #ifdef _WIN32
+    /* the processors this process may run on (start /affinity, a job object), when that is less than the machine */
+    DWORD_PTR process_mask = 0, system_mask = 0;
+    if (GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask) && process_mask != 0
+            && process_mask != system_mask) {
+        int allowed = 0;
+        for (DWORD_PTR bits = process_mask; bits != 0; bits &= bits - 1) allowed++;
+        return allowed;
+    }
     SYSTEM_INFO info;
     GetSystemInfo(&info);
     return (int)info.dwNumberOfProcessors;

@@ -54,6 +54,7 @@ jobs:
       - name: Run the kept executable under lldb
         if: always()
         run: |
+          set +e
           cd "$RUNNER_TEMP/keep" || exit 0
           ls -la
           cat threads.exe.warnings.txt 2>/dev/null | head -20

@@ -73,7 +73,8 @@ typedef struct { int kind; char *name; void *target; void *threadLocals; void *i
                  void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope;
                  nabu_waiter *waiter;
                  volatile int cap_request; volatile int cap_done; int cap_count; uintptr_t cap_frames[128];
-                 nabu_waiter *cap_requester; void *continuation; } s_thread;
+                 nabu_waiter *cap_requester; void *continuation;
+                 void *nio_blocker; /* the channel operation the thread is blocked in (Thread.blockedOn) */ } s_thread;
 typedef struct { int kind; const nabu_annotation_entry *e; } s_ann;
 typedef struct { int kind; char *msg; char *cls; void *cause; } s_throw;
 
@@ -1756,6 +1757,9 @@ BIND(int32_t, jcl_FileDispatcherImpl_read0, JCL_FDI("read0"), (void *fdObj, int6
     JCL_POSITION_LOCK(fd);
     int n = (int)JCL_READ(fd, (void *)(intptr_t)address, len);
     JCL_POSITION_UNLOCK(fd);
+#ifndef _WIN32
+    if (n < 0 && errno == EINTR) return -3; /* IOStatus.INTERRUPTED: the thread was signalled (NativeThread.signal) */
+#endif
     if (n < 0) { jcl_chan_error("Read"); return -1; }
     return n == 0 && len > 0 ? -1 : n;
 }
@@ -1776,6 +1780,9 @@ BIND(int32_t, jcl_FileDispatcherImpl_write0, JCL_FDI("write0"),
     JCL_POSITION_LOCK(fd);
     int n = (int)JCL_WRITE(fd, (const void *)(intptr_t)address, len);
     JCL_POSITION_UNLOCK(fd);
+#ifndef _WIN32
+    if (n < 0 && errno == EINTR) return -3;
+#endif
     if (n < 0) { jcl_chan_error("Write"); return -1; }
     return n;
 }
@@ -1910,17 +1917,43 @@ BIND(void, jcl_UnixFileDispatcherImpl_closeIntFD, "sun.nio.ch.UnixFileDispatcher
 #endif
     }
 }
-/* Interrupting a blocked channel operation with a signal is not supported: threads run one at a time. */
+/* A thread that is blocked in a channel operation is woken by a signal (as the JDK does): the handler does nothing and
+ * is installed without SA_RESTART, so the system call fails with EINTR and the dispatcher returns IOStatus.INTERRUPTED.
+ * Not on Windows: there a blocked operation is not interrupted. */
+#ifndef _WIN32
+static int jcl_interrupt_signal = 0;
+static void jcl_interrupt_handler(int sig) { (void)sig; }
+#endif
 BIND(void, jcl_NativeThread_init, "sun.nio.ch.NativeThread_init", (void)) {
+#ifndef _WIN32
+#ifdef SIGRTMAX
+    jcl_interrupt_signal = SIGRTMAX - 2;
+#else
+    jcl_interrupt_signal = SIGUSR2;
+#endif
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = jcl_interrupt_handler;
+    sigemptyset(&sa.sa_mask);
+    sigaction(jcl_interrupt_signal, &sa, NULL);
+#endif
 }
 BIND(uint8_t, jcl_NativeThread_supportPendingSignals0, "sun.nio.ch.NativeThread_supportPendingSignals0", (void)) {
     return 0;
 }
 BIND(int64_t, jcl_NativeThread_current0, "sun.nio.ch.NativeThread_current0", (void)) {
+#ifndef _WIN32
+    return (int64_t)(intptr_t)pthread_self();
+#else
     return 0;
+#endif
 }
 BIND(void, jcl_NativeThread_signal0, "sun.nio.ch.NativeThread_signal0", (int64_t thread)) {
+#ifndef _WIN32
+    if (thread != 0 && thread != -1 && jcl_interrupt_signal != 0) pthread_kill((pthread_t)(intptr_t)thread, jcl_interrupt_signal);
+#else
     (void)thread;
+#endif
 }
 BIND(void, jcl_IOUtil_initIDs, "sun.nio.ch.IOUtil_initIDs", (void)) {
 }
@@ -4838,10 +4871,18 @@ BIND(int, jcl_Thread_isInterrupted, "java.lang.Thread_isInterrupted", (void *sel
     return st->interrupted;
 }
 BIND(void, jcl_Thread_clearInterrupt, "java.lang.Thread_clearInterrupt", (void *self)) { jcl_thread_of(self)->interrupted = 0; }
+/* The bridge that calls Interruptible.interrupt(Thread) of the channel a thread is blocked on (see InterruptBridge). */
+static void (*jcl_nio_interrupt_fn)(void *, void *) = NULL;
+void nabu_set_nio_interrupt_fn(void *fn) { jcl_nio_interrupt_fn = (void (*)(void *, void *))fn; }
 BIND(void, jcl_Thread_interrupt, "java.lang.Thread_interrupt", (void *self)) {
     s_thread *target = jcl_thread_of(self);
     target->interrupted = 1;
     nabu_waiter_wake(target->waiter);
+    /* Like the JDK: another thread's interrupt closes the channel it is blocked on, which wakes it. */
+    void *blocker = target->nio_blocker;
+    if (blocker != NULL && jcl_nio_interrupt_fn != NULL && target != jcl_thread_of(jcl_carrier_thread())) {
+        jcl_nio_interrupt_fn(blocker, self);
+    }
 }
 BIND(int, jcl_java_lang_Thread_isAlive, "java.lang.Thread_isAlive", (void *self)) {
     s_thread *st = jcl_thread_of(self);
@@ -5073,7 +5114,9 @@ BIND(void, jcl_Thread_setCurrentThread, "java.lang.Thread_setCurrentThread", (vo
     nabu_set_current_thread_id((int)jcl_thread_of(thread)->id);
 }
 BIND(void *, jcl_Thread_getThreadGroup, "java.lang.Thread_getThreadGroup", (void *self)) { return jcl_thread_of(self)->group; }
-BIND(void, jcl_Thread_blockedOn, "java.lang.Thread_blockedOn", (void *self, void *interruptible)) { (void)self; (void)interruptible; }
+BIND(void, jcl_Thread_blockedOn, "java.lang.Thread_blockedOn", (void *self, void *interruptible)) {
+    jcl_thread_of(self)->nio_blocker = interruptible;
+}
 BIND(void, jcl_Thread_setDaemon, "java.lang.Thread_setDaemon", (void *self, int on)) { jcl_thread_of(self)->daemon = on; }
 BIND(int, jcl_Thread_isDaemon, "java.lang.Thread_isDaemon", (void *self)) { return jcl_thread_of(self)->daemon; }
 BIND(int, jcl_Thread_getPriority, "java.lang.Thread_getPriority", (void *self)) { return jcl_thread_of(self)->priority; }
@@ -5555,8 +5598,8 @@ BIND(void *, jcl_ThreadSupport_virtualOps0, "io.github.potjerodekool.nabu.compil
 BIND(void, jcl_Thread_inheritScopedValueBindings, "java.lang.Thread_inheritScopedValueBindings", (void *self, void *container)) { (void)self; (void)container; }
 
 /* Thread.clearReferences(), at the end of a virtual thread: drops what the thread kept. */
-/* Thread.nioBlocker(): the channel an interrupt has to close; blocking NIO is not interruptible here. */
-BIND(void *, jcl_Thread_nioBlocker, "java.lang.Thread_nioBlocker", (void *self)) { (void)self; return NULL; }
+/* Thread.nioBlocker(): the channel an interrupt has to close (VirtualThread.interrupt asks for it). */
+BIND(void *, jcl_Thread_nioBlocker, "java.lang.Thread_nioBlocker", (void *self)) { return jcl_thread_of(self)->nio_blocker; }
 BIND(void, jcl_Thread_clearReferences, "java.lang.Thread_clearReferences", (void *self)) {
     s_thread *st = jcl_thread_of(self);
     st->threadLocals = NULL;

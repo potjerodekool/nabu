@@ -83,6 +83,19 @@ class ThreadsE2eIT {
         assertEquals(expected("manyParkedVirtualThreads"), output("manyParkedVirtualThreads", CONTINUATIONS));
     }
 
+    /** Thread.interrupt closes the channel a thread is blocked on and wakes it (not on Windows: there nothing wakes it). */
+    @Test
+    void interruptedChannelRead() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name").startsWith("Windows"));
+        assertEquals(expected("interruptedChannelRead"), output("interruptedChannelRead"));
+    }
+
+    /** A synchronized method (of the program or of the JDK) holds the monitor while it runs. */
+    @Test
+    void synchronizedMethods() throws Exception {
+        assertEquals(expected("synchronizedMethods"), output("synchronizedMethods"));
+    }
+
     @Test
     void executorRunsTasks() throws Exception {
         assertEquals(expected("executorRunsTasks"), output("executorRunsTasks"));

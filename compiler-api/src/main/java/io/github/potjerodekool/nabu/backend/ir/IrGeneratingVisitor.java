@@ -1386,7 +1386,16 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 acceptTree(statements.get(i), builder);
             }
         } else if (function.getBody() != null) {
-            acceptTree(function.getBody(), builder);
+            if (methodSymbol.hasFlag(Flags.SYNCHRONIZED) && !methodSymbol.isAbstract()) {
+                // JLS 8.4.3.6: the monitor of this (of the class, for a static method) is held while the body runs.
+                final IRValue lock = isStatic
+                        ? new IRValue.ConstClass(new IRType.Ptr(IRType.I8,
+                                TypeMirrorToIRType.toJvmDescriptor(methodSymbol.getEnclosingElement().asType())))
+                        : params.getFirst();
+                emitSynchronized(lock, () -> acceptTree(function.getBody(), builder));
+            } else {
+                acceptTree(function.getBody(), builder);
+            }
         }
 
         // Impliciete void-return als het blok niet be├½indigd is
@@ -5498,6 +5507,15 @@ if (argVal != null) args.add(argVal);
         IRValue lockObj = acceptTree(synchronizedStatement.getExpression(), builder);
         if (lockObj == null) return null;
 
+        emitSynchronized(lockObj, () -> acceptTree(synchronizedStatement.getBody(), builder));
+        return null;
+    }
+
+    /**
+     * monitorenter(lock); try { body } finally { monitorexit(lock); }: for a synchronized statement and for the body
+     * of a synchronized method.
+     */
+    private void emitSynchronized(final IRValue lockObj, final Runnable body) {
         final var lockSlot = builder.emitAlloca("sync.lock", lockObj.type());
         builder.emitStore(lockSlot, lockObj);
         builder.emitMonitorEnter(lockObj);
@@ -5511,7 +5529,7 @@ if (argVal != null) args.add(argVal);
 
         final FinallyEntry entry = pushFinallyEntry(() -> builder.emitMonitorExit(builder.emitLoad(lockSlot)));
         builder.setCurrentBlock(tryStartBlk);
-        acceptTree(synchronizedStatement.getBody(), builder);
+        body.run();
 
         final IRBasicBlock bodyEndBlk = builder.currentBlock();
         final IRBasicBlock tryEndBlk = builder.beginBlock("sync.end");
@@ -5553,7 +5571,6 @@ if (argVal != null) args.add(argVal);
         }
         emitFinallyStubs(entry);
         builder.setCurrentBlock(normalEndBlk);
-        return null;
     }
 
     // -------------------------------------------------------

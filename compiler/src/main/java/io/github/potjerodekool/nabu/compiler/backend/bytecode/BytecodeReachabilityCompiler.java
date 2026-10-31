@@ -1310,6 +1310,13 @@ public final class BytecodeReachabilityCompiler {
                     ContinuationBridge.START_ROOT_DESC, false));
             queueInstantiate(ContinuationBridge.CLASS);
         }
+        if (InterruptBridge.INTERRUPTIBLE.equals(internalName)) {
+            // Thread.interrupt in the C runtime closes the channel a thread is blocked on, through the bridge.
+            ensureShape(InterruptBridge.CLASS);
+            queueInit(InterruptBridge.CLASS);
+            queueMethod(new MethodRef(InterruptBridge.CLASS, InterruptBridge.INTERRUPT,
+                    InterruptBridge.INTERRUPT_DESC, false));
+        }
         classesShaped++;
         if (classesShaped % 50 == 0) {
             System.err.println("[BytecodeReachability] " + classesShaped + " classes shaped, "
@@ -1680,9 +1687,14 @@ public final class BytecodeReachabilityCompiler {
 
     private ClassNode loadClassNode(final String internalName) {
         return loadedClassNodes.computeIfAbsent(internalName,
-                name -> BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
+                name -> SynchronizedMethods.apply(loadClassNodeUnlocked(name)));
+    }
+
+    private ClassNode loadClassNodeUnlocked(final String name) {
+        return (BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
                         : ThreadBridge.CLASS.equals(name) ? ThreadBridge.build()
                         : ContinuationBridge.CLASS.equals(name) ? ContinuationBridge.build()
+                        : InterruptBridge.CLASS.equals(name) ? InterruptBridge.build()
                         : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build(applicationResources)
                         : generatedClasses.containsKey(name) ? generatedClasses.get(name)
                         : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? patchRuntimeClass(EmbeddedResources.runtimeClass(name))

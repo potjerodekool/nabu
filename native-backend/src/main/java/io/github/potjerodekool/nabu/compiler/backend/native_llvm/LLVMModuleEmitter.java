@@ -1069,6 +1069,13 @@ public void setReflectionRegistry(
         LLVMSetLinkage(setVirtualBackoffFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_set_virtual_backoff_fn", setVirtualBackoffFn);
 
+        // --- void nabu_set_nio_interrupt_fn(i8* fn) ---
+        LLVMValueRef setNioInterruptFn = LLVMAddFunction(mod,
+                new BytePointer("nabu_set_nio_interrupt_fn"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), setMsgParams, 1, 0));
+        LLVMSetLinkage(setNioInterruptFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_set_nio_interrupt_fn", setNioInterruptFn);
+
         // --- void nabu_register_type_infos(i8* table, i32 count) ---
         PointerPointer<Pointer> regTypesParams = new PointerPointer<>(2);
         regTypesParams.put(0, i8ptr);
@@ -1272,6 +1279,14 @@ public void setReflectionRegistry(
         final LLVMValueRef backoffFn = LLVMGetNamedFunction(mod, backoffName);
         if (backoffIr != null && !backoffIr.blocks().isEmpty() && backoffFn != null && !backoffFn.isNull()) {
             callSetter(builder, "@nabu_set_virtual_backoff_fn", backoffFn);
+        }
+        // Thread.interrupt closes the channel a thread is blocked on.
+        final String nioInterruptName =
+                "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.InterruptBridge_interrupt";
+        final IRFunction nioInterruptIr = classLayouts.resolveFunction(nioInterruptName);
+        final LLVMValueRef nioInterruptFn = LLVMGetNamedFunction(mod, nioInterruptName);
+        if (nioInterruptIr != null && !nioInterruptIr.blocks().isEmpty() && nioInterruptFn != null && !nioInterruptFn.isNull()) {
+            callSetter(builder, "@nabu_set_nio_interrupt_fn", nioInterruptFn);
         }
         for (int kind = 0; kind < boxFns.length; kind++) {
             if (boxFns[kind] == null) continue;

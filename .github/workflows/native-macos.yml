@@ -39,13 +39,30 @@ jobs:
           clang -c -w -DNABU_GC_BOEHM -I/opt/homebrew/include nabu_runtime.c -o /dev/null
           clang -c -w -DNABU_GC_BOEHM -I/opt/homebrew/include jcl_lite.c -o /dev/null
 
+      - name: Make room for the kept executable
+        run: mkdir -p "$RUNNER_TEMP/keep"
+
       - name: Run the native tests
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
           -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64
+          -DargLine="-Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
         env:
           C_INCLUDE_PATH: /opt/homebrew/include
           LIBRARY_PATH: /opt/homebrew/lib
+
+      - name: Run the kept executable under lldb
+        if: always()
+        run: |
+          cd "$RUNNER_TEMP/keep" || exit 0
+          ls -la
+          cat threads.exe.warnings.txt 2>/dev/null | head -20
+          for conts in 0 1; do
+            echo "=== NABU_CONTINUATIONS=$conts"
+            NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
+          done
+          echo "=== lldb"
+          NABU_CONTINUATIONS=0 NABU_CPUS=3 lldb --batch -o run -o "bt 30" -o "register read" -o "image lookup -a \$pc" -- ./threads.exe cpuCount 2>&1 | head -120
 
       - name: Keep the reports
         if: always()

@@ -246,6 +246,12 @@ void nabu_reflect_set_ref(void *obj, const char *type_name, const char *field_na
 #if defined(__GNUC__) || defined(__clang__)
 
 #include <unwind.h>
+#ifdef __APPLE__
+/* libunwind's header of macOS does not have the types of the GCC one that the LSDA parser uses */
+typedef uintptr_t _uleb128_t;
+typedef intptr_t _sleb128_t;
+typedef uintptr_t _Unwind_Ptr;
+#endif
 
 /**
  * Unwind exception wrapper â€” bevat de Itanium ABI _Unwind_Exception

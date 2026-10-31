@@ -7,7 +7,7 @@ on:
     inputs:
       tests:
         description: 'Failsafe test selection (-Dit.test)'
-        default: 'ThreadsE2eIT'
+        default: 'ThreadsE2eIT#cpuCount'
 
 permissions:
   contents: read
@@ -28,6 +28,16 @@ jobs:
 
       - name: Boehm GC
         run: brew install bdw-gc
+
+      - name: Compile the runtime (quick feedback on C errors)
+        run: |
+          cd runtime
+          for f in nabu_runtime.c jcl_lite.c; do
+            clang -c -w -DNABU_GC_BOEHM -I/opt/homebrew/include "$f" -o /dev/null -ferror-limit=0 2> "$f.errors" || true
+            echo "== $f: $(grep -c 'error:' "$f.errors") errors"; grep 'error:' "$f.errors" | head -60
+          done
+          clang -c -w -DNABU_GC_BOEHM -I/opt/homebrew/include nabu_runtime.c -o /dev/null
+          clang -c -w -DNABU_GC_BOEHM -I/opt/homebrew/include jcl_lite.c -o /dev/null
 
       - name: Run the native tests
         run: >

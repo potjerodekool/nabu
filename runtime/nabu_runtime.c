@@ -514,8 +514,11 @@ void java_lang_Exception_init(void *self) {
 static void nabu_exception_cleanup(_Unwind_Reason_Code reason,
                                    struct _Unwind_Exception *exc) {
     (void)reason;
-    nabu_unwind_exception *nabu_exc = (nabu_unwind_exception *)exc;
-    free(nabu_exc);
+    (void)exc;
+#ifndef NABU_GC_BOEHM
+    free((nabu_unwind_exception *)exc);
+#endif
+    /* With the collector the wrapper is collector memory and is reclaimed there. */
 }
 
 /* -------------------------------------------------------
@@ -1001,7 +1004,15 @@ void nabu_set_throwable_print_fn(void *fn) {
 }
 
 void nabu_throw(void *exception) {
+    /* Collector memory, so that the Throwable inside stays reachable while the unwinder holds only
+     * this wrapper (malloc memory is not scanned), and so that the wrapper is not leaked: nothing
+     * calls the cleanup after a normal catch. */
+#ifdef NABU_GC_BOEHM
+    extern void *GC_malloc(size_t);
+    nabu_unwind_exception *exc = GC_malloc(sizeof(nabu_unwind_exception));
+#else
     nabu_unwind_exception *exc = malloc(sizeof(nabu_unwind_exception));
+#endif
     if (exc == NULL) {
         fprintf(stderr, "nabu: cannot allocate memory for exception\n");
         abort();

@@ -736,6 +736,298 @@ static int nabu_row_cmp(const void *a, const void *b) {
     return x->seq < y->seq ? -1 : x->seq > y->seq ? 1 : 0;
 }
 
+/* -------------------------------------------------------
+ * Inlined functions
+ *
+ * LLVM inlines small functions, and then a return address says nothing about the functions that were inlined into the
+ * one around it. The line tables of the backend come with DWARF debug info that does: a DW_TAG_inlined_subroutine for
+ * every inlined call, with the ranges of its code and the line of the call in its caller. nabu_parse_inlines reads
+ * those (DWARF 4, written by the backend: units whose producer is "nabu") into a list of address ranges.
+ * ------------------------------------------------------- */
+
+typedef struct nabu_inl { const char *name; int call_line; struct nabu_inl *parent; uint64_t origin; } nabu_inl;
+typedef struct { uintptr_t lo, hi; nabu_inl *rec; } nabu_inl_range;
+
+static nabu_inl_range *nabu_inl_ranges = NULL;
+static size_t nabu_inl_count = 0;
+static size_t nabu_inl_cap = 0;
+
+static void nabu_inl_add(uintptr_t lo, uintptr_t hi, nabu_inl *rec) {
+    if (lo >= hi) return;
+    if (nabu_inl_count == nabu_inl_cap) {
+        size_t cap = nabu_inl_cap == 0 ? 256 : nabu_inl_cap * 2;
+        nabu_inl_range *p = realloc(nabu_inl_ranges, cap * sizeof *p);
+        if (p == NULL) return;
+        nabu_inl_ranges = p;
+        nabu_inl_cap = cap;
+    }
+    nabu_inl_ranges[nabu_inl_count].lo = lo;
+    nabu_inl_ranges[nabu_inl_count].hi = hi;
+    nabu_inl_ranges[nabu_inl_count].rec = rec;
+    nabu_inl_count++;
+}
+
+typedef struct { unsigned code, tag, children; unsigned nattr; uint32_t *attr; /* pairs: name, form */ } nabu_abbrev;
+
+/* The abbreviations of the table at `offset`, indexed by code (index 0 is unused). */
+static nabu_abbrev *nabu_read_abbrevs(const unsigned char *abbrev, size_t size, size_t offset, unsigned *count) {
+    const unsigned char *p = abbrev + offset, *end = abbrev + size;
+    unsigned cap = 64, n = 1;
+    if (offset >= size) return NULL;
+    nabu_abbrev *table = calloc(cap, sizeof *table);
+    if (table == NULL) return NULL;
+    while (p < end) {
+        unsigned code = (unsigned) nabu_uleb(&p, end);
+        if (code == 0) break;
+        unsigned tag = (unsigned) nabu_uleb(&p, end);
+        unsigned children = p < end ? *p++ : 0;
+        unsigned acap = 8, na = 0;
+        uint32_t *attrs = malloc(acap * 2 * sizeof *attrs);
+        if (attrs == NULL) break;
+        for (;;) {
+            unsigned at = (unsigned) nabu_uleb(&p, end), form = (unsigned) nabu_uleb(&p, end);
+            if (at == 0 && form == 0) break;
+            if (na == acap) {
+                acap *= 2;
+                uint32_t *g = realloc(attrs, acap * 2 * sizeof *attrs);
+                if (g == NULL) { free(attrs); attrs = NULL; break; }
+                attrs = g;
+            }
+            attrs[2 * na] = at; attrs[2 * na + 1] = form; na++;
+            if (p >= end) break;
+        }
+        if (attrs == NULL) break;
+        if (code >= cap) {
+            unsigned ncap = cap;
+            while (ncap <= code) ncap *= 2;
+            nabu_abbrev *g = realloc(table, ncap * sizeof *table);
+            if (g == NULL) { free(attrs); break; }
+            memset(g + cap, 0, (ncap - cap) * sizeof *g);
+            table = g; cap = ncap;
+        }
+        table[code].code = code; table[code].tag = tag; table[code].children = children;
+        table[code].nattr = na; table[code].attr = attrs;
+        if (code >= n) n = code + 1;
+    }
+    *count = n;
+    return table;
+}
+
+static void nabu_free_abbrevs(nabu_abbrev *table, unsigned count) {
+    for (unsigned i = 1; i < count; i++) free(table[i].attr);
+    free(table);
+}
+
+/* Reads the value of an attribute of form `form`; `cstr` gets the text of a DW_FORM_string. Returns 0 when the form is
+   not known (the unit cannot be read further). */
+static int nabu_read_form(unsigned form, const unsigned char **pp, const unsigned char *end, unsigned addr_size,
+                          uint64_t *value, const char **cstr) {
+    const unsigned char *p = *pp;
+    uint64_t v = 0;
+    *cstr = NULL;
+    switch (form) {
+        case 0x01: if (p + addr_size > end) return 0; memcpy(&v, p, addr_size < 8 ? addr_size : 8); p += addr_size; break;
+        case 0x03: { if (p + 2 > end) return 0; uint16_t n; memcpy(&n, p, 2); p += 2 + n; break; }
+        case 0x04: { if (p + 4 > end) return 0; uint32_t n; memcpy(&n, p, 4); p += 4 + (size_t) n; break; }
+        case 0x05: case 0x12: { if (p + 2 > end) return 0; uint16_t x; memcpy(&x, p, 2); v = x; p += 2; break; }
+        case 0x06: case 0x13: case 0x0e: case 0x10: case 0x17:
+            { if (p + 4 > end) return 0; uint32_t x; memcpy(&x, p, 4); v = x; p += 4; break; }
+        case 0x07: case 0x14: case 0x20: if (p + 8 > end) return 0; memcpy(&v, p, 8); p += 8; break;
+        case 0x08: *cstr = (const char *) p; while (p < end && *p) p++; p++; break;
+        case 0x09: case 0x18: { uint64_t n = nabu_uleb(&p, end); p += n; break; }
+        case 0x0a: { if (p + 1 > end) return 0; unsigned n = *p++; p += n; break; }
+        case 0x0b: case 0x0c: case 0x11: if (p + 1 > end) return 0; v = *p++; break;
+        case 0x0d: v = (uint64_t) nabu_sleb(&p, end); break;
+        case 0x0f: case 0x15: v = nabu_uleb(&p, end); break;
+        case 0x16: { unsigned f = (unsigned) nabu_uleb(&p, end); *pp = p; return nabu_read_form(f, pp, end, addr_size, value, cstr); }
+        case 0x19: break;
+        default: return 0;
+    }
+    if (p > end) return 0;
+    *pp = p;
+    *value = v;
+    return 1;
+}
+
+typedef struct { uint64_t offset; const char *name; } nabu_abstract;
+
+static void nabu_parse_inlines(const unsigned char *info, size_t info_size, const unsigned char *abbrev, size_t abbrev_size,
+                               const char *str, size_t str_size, const unsigned char *ranges, size_t ranges_size,
+                               intptr_t delta) {
+    const unsigned char *p = info, *end = info + info_size;
+    while (p + 11 <= end) {
+        const unsigned char *unit = p;
+        uint32_t unit_len; memcpy(&unit_len, p, 4); p += 4;
+        if (unit_len == 0xffffffffu || p + unit_len > end) return;
+        const unsigned char *unit_end = p + unit_len;
+        uint16_t version; memcpy(&version, p, 2); p += 2;
+        uint32_t abbrev_off; memcpy(&abbrev_off, p, 4); p += 4;
+        unsigned addr_size = *p++;
+        if (version != 4 || addr_size != 8) { p = unit_end; continue; }
+        unsigned abbrev_count = 0;
+        nabu_abbrev *abbrevs = nabu_read_abbrevs(abbrev, abbrev_size, abbrev_off, &abbrev_count);
+        if (abbrevs == NULL) { p = unit_end; continue; }
+        size_t acap = 16, anum = 0, rcap = 16, rnum = 0;
+        nabu_abstract *abstracts = malloc(acap * sizeof *abstracts);
+        nabu_inl **recs = malloc(rcap * sizeof *recs);
+        size_t scap = 32, depth = 0;
+        nabu_inl **stack = malloc(scap * sizeof *stack);
+        uint64_t base = 0;
+        int ours = 0, first = 1, ok = abstracts != NULL && recs != NULL && stack != NULL;
+        while (ok && p < unit_end) {
+            const unsigned char *die = p;
+            unsigned code = (unsigned) nabu_uleb(&p, unit_end);
+            if (code == 0) { if (depth > 0) depth--; continue; }
+            if (code >= abbrev_count || abbrevs[code].code == 0) break;
+            const nabu_abbrev *ab = &abbrevs[code];
+            uint64_t low = 0, high = 0, origin = 0, call_line = 0, ranges_off = 0;
+            int has_low = 0, has_high = 0, has_ranges = 0, is_inline = 0, bad = 0;
+            const char *name = NULL, *producer = NULL;
+            for (unsigned i = 0; i < ab->nattr; i++) {
+                unsigned at = ab->attr[2 * i], form = ab->attr[2 * i + 1];
+                uint64_t v; const char *text;
+                if (!nabu_read_form(form, &p, unit_end, addr_size, &v, &text)) { bad = 1; break; }
+                const char *s = text;
+                if (form == 0x0e) s = v < str_size ? str + v : NULL;
+                switch (at) {
+                    case 0x03: name = s; break;                       /* name */
+                    case 0x25: producer = s; break;                   /* producer */
+                    case 0x11: low = v; has_low = 1; break;           /* low_pc */
+                    case 0x12: high = v; has_high = 1; break;         /* high_pc: a size (the data forms) */
+                    case 0x20: is_inline = 1; break;                  /* inline */
+                    case 0x31: origin = v; break;                     /* abstract_origin */
+                    case 0x55: ranges_off = v; has_ranges = 1; break; /* ranges */
+                    case 0x59: call_line = v; break;                  /* call_line */
+                    default: break;
+                }
+            }
+            if (bad) break;
+            if (first) {
+                first = 0;
+                if (ab->tag != 0x11 || producer == NULL || strcmp(producer, "nabu") != 0) break; /* not ours */
+                ours = 1;
+                base = has_low ? low : 0;
+            }
+            nabu_inl *current = depth > 0 ? stack[depth - 1] : NULL;
+            nabu_inl *pushed = current;
+            if (ab->tag == 0x2e && is_inline && name != NULL) {       /* subprogram: an abstract one */
+                if (anum == acap) {
+                    acap *= 2;
+                    nabu_abstract *g = realloc(abstracts, acap * sizeof *g);
+                    if (g == NULL) break;
+                    abstracts = g;
+                }
+                abstracts[anum].offset = (uint64_t) (die - unit); abstracts[anum].name = name; anum++;
+            } else if (ab->tag == 0x2e) {
+                pushed = NULL;                                        /* a function itself: the outermost */
+            } else if (ab->tag == 0x1d) {                             /* inlined_subroutine */
+                nabu_inl *rec = calloc(1, sizeof *rec);
+                if (rec == NULL) break;
+                rec->origin = origin; rec->call_line = (int) call_line; rec->parent = current;
+                if (rnum == rcap) {
+                    rcap *= 2;
+                    nabu_inl **g = realloc(recs, rcap * sizeof *g);
+                    if (g == NULL) { free(rec); break; }
+                    recs = g;
+                }
+                recs[rnum++] = rec;
+                if (has_ranges && ranges != NULL && ranges_off < ranges_size) {
+                    const unsigned char *r = ranges + ranges_off, *rend = ranges + ranges_size;
+                    uint64_t rbase = base;
+                    while (r + 16 <= rend) {
+                        uint64_t a, b; memcpy(&a, r, 8); memcpy(&b, r + 8, 8); r += 16;
+                        if (a == 0 && b == 0) break;
+                        if (a == ~(uint64_t) 0) { rbase = b; continue; }
+                        nabu_inl_add((uintptr_t) ((intptr_t) (rbase + a) + delta), (uintptr_t) ((intptr_t) (rbase + b) + delta), rec);
+                    }
+                } else if (has_low && has_high) {
+                    nabu_inl_add((uintptr_t) ((intptr_t) low + delta), (uintptr_t) ((intptr_t) (low + high) + delta), rec);
+                }
+                pushed = rec;
+            }
+            if (ab->children) {
+                if (depth == scap) {
+                    scap *= 2;
+                    nabu_inl **g = realloc(stack, scap * sizeof *g);
+                    if (g == NULL) break;
+                    stack = g;
+                }
+                stack[depth++] = pushed;
+            }
+        }
+        if (ours) {
+            for (size_t i = 0; i < rnum; i++) {
+                for (size_t k = 0; k < anum; k++) {
+                    if (abstracts[k].offset == recs[i]->origin) { recs[i]->name = abstracts[k].name; break; }
+                }
+            }
+        } else {
+            for (size_t i = 0; i < rnum; i++) free(recs[i]);
+        }
+        free(abstracts); free(recs); free(stack);
+        nabu_free_abbrevs(abbrevs, abbrev_count);
+        p = unit_end;
+    }
+}
+
+/* The debug sections of the executable, read by the platform code. */
+typedef struct {
+    unsigned char *line, *info, *abbrev, *ranges;
+    char *str;
+    size_t line_size, info_size, abbrev_size, ranges_size, str_size;
+} nabu_debug_sections;
+
+/* Parses what was read: the line tables and the inlined functions. The string section stays (names point into it). */
+static void nabu_digest_debug(nabu_debug_sections *d, intptr_t delta) {
+    if (d->line != NULL) {
+        nabu_parse_lines(d->line, d->line_size, delta);
+        qsort(nabu_rows, nabu_row_count, sizeof *nabu_rows, nabu_row_cmp);
+    }
+    char *keep = NULL;
+    if (d->info != NULL && d->abbrev != NULL && d->str != NULL) {
+        nabu_parse_inlines(d->info, d->info_size, d->abbrev, d->abbrev_size, d->str, d->str_size,
+                           d->ranges, d->ranges_size, delta);
+        keep = d->str;
+    }
+    free(d->line); free(d->info); free(d->abbrev); free(d->ranges);
+    if (d->str != keep) free(d->str);
+    memset(d, 0, sizeof *d);
+}
+
+static void nabu_ensure_debug(void);
+
+/* The inlined functions at the address, innermost first: the function and the line of the call in its caller. */
+int nabu_frame_inlines(uintptr_t addr, const char **names, int *call_lines, int max) {
+    nabu_ensure_debug();
+    const nabu_inl *innermost = NULL;
+    int best = -1;
+    for (size_t i = 0; i < nabu_inl_count; i++) {
+        if (nabu_inl_ranges[i].lo <= addr && addr < nabu_inl_ranges[i].hi) {
+            int d = 0;
+            for (const nabu_inl *r = nabu_inl_ranges[i].rec; r != NULL; r = r->parent) d++;
+            if (d > best) { best = d; innermost = nabu_inl_ranges[i].rec; }
+        }
+    }
+    int n = 0;
+    for (const nabu_inl *r = innermost; r != NULL && n < max; r = r->parent) {
+        if (r->name == NULL) break;
+        names[n] = r->name; call_lines[n] = r->call_line; n++;
+    }
+    return n;
+}
+
+/* The source file of the function with this symbol, from the line table, or NULL. */
+const char *nabu_symbol_file(const char *symbol) {
+    nabu_ensure_debug();
+    for (size_t i = 0; i < nabu_row_count; i++) {
+        if (nabu_rows[i].dir != NULL && nabu_rows[i].file != NULL && nabu_rows[i].file[0] != '<'
+                && strcmp(nabu_rows[i].dir, symbol) == 0) {
+            return nabu_rows[i].file;
+        }
+    }
+    return NULL;
+}
+
 #ifdef _WIN32
 /* Reads the COFF symbol table of the running executable: the functions in code sections. */
 static void nabu_load_symbols(void) {
@@ -803,6 +1095,8 @@ static void nabu_load_symbols(void) {
         }
         qsort(nabu_syms, nabu_sym_count, sizeof *nabu_syms, nabu_sym_cmp);
         qsort(nabu_dsyms, nabu_dsym_count, sizeof *nabu_dsyms, nabu_dsym_cmp);
+        nabu_debug_sections ds;
+        memset(&ds, 0, sizeof ds);
         for (WORD si = 0; si < nsec; si++) {
             char secname[9];
             memcpy(secname, sections[si].Name, 8);
@@ -812,17 +1106,27 @@ static void nabu_load_symbols(void) {
                 uint32_t off = (uint32_t) atoi(secname + 1);
                 if (off < strsize) sname = strings + off;
             }
-            if (strcmp(sname, ".debug_line") != 0) continue;
+            unsigned char **slot = NULL;
+            size_t *slot_size = NULL;
+            if (strcmp(sname, ".debug_line") == 0) { slot = &ds.line; slot_size = &ds.line_size; }
+            else if (strcmp(sname, ".debug_info") == 0) { slot = &ds.info; slot_size = &ds.info_size; }
+            else if (strcmp(sname, ".debug_abbrev") == 0) { slot = &ds.abbrev; slot_size = &ds.abbrev_size; }
+            else if (strcmp(sname, ".debug_ranges") == 0) { slot = &ds.ranges; slot_size = &ds.ranges_size; }
+            else if (strcmp(sname, ".debug_str") == 0) { slot = (unsigned char **) &ds.str; slot_size = &ds.str_size; }
+            if (slot == NULL) continue;
             DWORD size = sections[si].SizeOfRawData;
             if (sections[si].Misc.VirtualSize != 0 && sections[si].Misc.VirtualSize < size) size = sections[si].Misc.VirtualSize;
-            unsigned char *buf = malloc(size);
+            unsigned char *buf = malloc(size + 1);
             if (buf != NULL && fseek(f, (long) sections[si].PointerToRawData, SEEK_SET) == 0
                     && fread(buf, 1, size, f) == size) {
-                nabu_parse_lines(buf, size, (intptr_t) (base - (uintptr_t) nt.OptionalHeader.ImageBase));
-                qsort(nabu_rows, nabu_row_count, sizeof *nabu_rows, nabu_row_cmp);
+                buf[size] = 0;
+                *slot = buf;
+                *slot_size = size;
+            } else {
+                free(buf);
             }
-            free(buf);
         }
+        nabu_digest_debug(&ds, (intptr_t) (base - (uintptr_t) nt.OptionalHeader.ImageBase));
     } while (0);
     free(sections);
     free(table);
@@ -842,6 +1146,8 @@ static void nabu_ensure_symbols(void) {
     }
     nabu_rt_unlock();
 }
+
+static void nabu_ensure_debug(void) { nabu_ensure_symbols(); }
 
 /* The address of a global by its symbol name (for example "java.util.concurrent.ForkJoinPool_poolIds"), or NULL. */
 void *nabu_data_symbol(const char *name) {
@@ -924,16 +1230,30 @@ static void nabu_load_lines(void) {
         Dl_info info;
         intptr_t delta = 0;
         if (eh.e_type == ET_DYN && dladdr((void *) nabu_load_lines, &info) != 0) delta = (intptr_t) info.dli_fbase;
+        nabu_debug_sections ds;
+        memset(&ds, 0, sizeof ds);
         for (unsigned i = 0; i < eh.e_shnum; i++) {
-            if (sh[i].sh_name >= str->sh_size || strcmp(names + sh[i].sh_name, ".debug_line") != 0) continue;
-            unsigned char *buf = malloc(sh[i].sh_size);
+            if (sh[i].sh_name >= str->sh_size) continue;
+            const char *sname = names + sh[i].sh_name;
+            unsigned char **slot = NULL;
+            size_t *slot_size = NULL;
+            if (strcmp(sname, ".debug_line") == 0) { slot = &ds.line; slot_size = &ds.line_size; }
+            else if (strcmp(sname, ".debug_info") == 0) { slot = &ds.info; slot_size = &ds.info_size; }
+            else if (strcmp(sname, ".debug_abbrev") == 0) { slot = &ds.abbrev; slot_size = &ds.abbrev_size; }
+            else if (strcmp(sname, ".debug_ranges") == 0) { slot = &ds.ranges; slot_size = &ds.ranges_size; }
+            else if (strcmp(sname, ".debug_str") == 0) { slot = (unsigned char **) &ds.str; slot_size = &ds.str_size; }
+            if (slot == NULL) continue;
+            unsigned char *buf = malloc(sh[i].sh_size + 1);
             if (buf != NULL && fseek(f, (long) sh[i].sh_offset, SEEK_SET) == 0
                     && fread(buf, 1, sh[i].sh_size, f) == sh[i].sh_size) {
-                nabu_parse_lines(buf, sh[i].sh_size, delta);
-                qsort(nabu_rows, nabu_row_count, sizeof *nabu_rows, nabu_row_cmp);
+                buf[sh[i].sh_size] = 0;
+                *slot = buf;
+                *slot_size = sh[i].sh_size;
+            } else {
+                free(buf);
             }
-            free(buf);
         }
+        nabu_digest_debug(&ds, delta);
     } while (0);
     free(sh);
     free(names);
@@ -946,8 +1266,7 @@ static void nabu_load_lines(void) {
 }
 #endif
 
-/* The line of the address: its row's function symbol, file and line; 0 when there is none. */
-int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
+static void nabu_ensure_debug(void) {
     if (!__atomic_load_n(&nabu_lines_ready, __ATOMIC_ACQUIRE)) {
         nabu_rt_lock();
         if (!nabu_lines_loaded) {
@@ -956,6 +1275,11 @@ int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
         }
         nabu_rt_unlock();
     }
+}
+
+/* The line of the address: its row's function symbol, file and line; 0 when there is none. */
+int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
+    nabu_ensure_debug();
     size_t lo = 0, hi = nabu_row_count;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;

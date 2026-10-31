@@ -584,6 +584,10 @@ void *nabu_data_symbol(const char *name);
 
 /** The source line of the address (0 if unknown); scope is the symbol of the function the line belongs to. */
 int nabu_frame_line(uintptr_t addr, const char **scope, const char **file);
+/* The functions LLVM inlined at the address, innermost first (name and the line of the call in its caller); the number. */
+int nabu_frame_inlines(uintptr_t addr, const char **names, int *call_lines, int max);
+/* The source file of the function with this symbol, or NULL. */
+const char *nabu_symbol_file(const char *symbol);
 
 /** A real compiled exception of a class in nabu_exception_table, made with
  *  its (String) constructor, or NULL if the class is not in the table. */

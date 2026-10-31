@@ -327,10 +327,11 @@ public class FunctionEmitter {
      * Externe functies worden overgeslagen.
      */
     public void emitBody(IRFunction fn) {
+        debugLines.enter();
         try {
             emitBodyInner(fn);
         } finally {
-            debugLines.end();
+            debugLines.leave();
         }
     }
 

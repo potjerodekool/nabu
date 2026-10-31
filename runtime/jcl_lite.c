@@ -4275,6 +4275,44 @@ BIND(void *, jcl_stack_frameLocation0, "io.github.potjerodekool.nabu.compiler.ba
     return nabu_jstring_new(jcl_concat(jcl_concat(jcl_concat(jcl_concat(scope != NULL ? scope : "", "\t"), file), "\t"), num));
 }
 
+/* StackTraceSupport.frameInlines0(long address): the functions at the address when LLVM inlined some, innermost first,
+ * one line each "symbol<TAB>file<TAB>line<NEWLINE>" (file empty and line -1 when unknown): the innermost inlined
+ * function with the line of the address, then each function it was inlined into with the line of the call, the last
+ * one being the function around the address. Null when nothing was inlined at the address. */
+BIND(void *, jcl_stack_frameInlines0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.StackTraceSupport_frameInlines0",
+     (int64_t address)) {
+    const char *names[32];
+    int lines[32];
+    int n = nabu_frame_inlines((uintptr_t)address, names, lines, 32);
+    if (n <= 0) return NULL;
+    const char *outer = nabu_frame_name((uintptr_t)address);
+    const char *scope = NULL, *row_file = NULL;
+    const int row_line = nabu_frame_line((uintptr_t)address, &scope, &row_file);
+    char *result = jcl_dup("");
+    for (int i = 0; i <= n; i++) {
+        const char *symbol = i < n ? names[i] : outer;
+        if (symbol == NULL) break;
+        const char *file = NULL;
+        int line = -1;
+        if (i == 0 && row_line > 0 && scope != NULL && strcmp(scope, symbol) == 0 && row_file != NULL && row_file[0] != '<') {
+            file = row_file;
+            line = row_line;
+        } else if (i > 0) {
+            file = nabu_symbol_file(symbol);
+            line = lines[i - 1] > 0 ? lines[i - 1] : -1;
+        }
+        char num[16];
+        snprintf(num, sizeof num, "%d", line);
+        result = jcl_concat(result, symbol);
+        result = jcl_concat(result, "\t");
+        result = jcl_concat(result, file != NULL ? file : "");
+        result = jcl_concat(result, "\t");
+        result = jcl_concat(result, num);
+        result = jcl_concat(result, "\n");
+    }
+    return nabu_jstring_new(result);
+}
+
 /* ---------------------------------------------------------------
  * jdk.internal.misc.Unsafe-natives
  *

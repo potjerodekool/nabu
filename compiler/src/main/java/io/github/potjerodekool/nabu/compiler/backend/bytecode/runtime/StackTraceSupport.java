@@ -8,9 +8,11 @@ package io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime;
  * runtime finds the function of an address in the symbol table of the
  * executable. Functions that come from source also have a line table (see
  * {@code DebugLines}), which gives the file and line; functions compiled from
- * bytecode have none. The frames of functions that LLVM inlined are missing,
- * except for the innermost one when it has a line table. Written for bytecode
- * lowering: no string concatenation with {@code +} and no lambdas.
+ * bytecode have none. The functions that LLVM inlined into another one are frames
+ * of their own when they come from source (the debug info of the backend names
+ * them, with the line of the call); an inlined function compiled from bytecode
+ * is missing. Written for bytecode lowering: no string concatenation with
+ * {@code +} and no lambdas.
  */
 public final class StackTraceSupport {
 
@@ -36,6 +38,13 @@ public final class StackTraceSupport {
      */
     private static native String frameLocation0(long address);
 
+    /**
+     * The callers of the function at the address when it was inlined, innermost first, one line each:
+     * "symbol, file and line" separated by tabs. The line is that of the call in the caller; the last caller is the
+     * function around the address. Null when nothing was inlined there.
+     */
+    private static native String frameInlines0(long address);
+
     public static long[] capture() {
         return capture0(MAX_FRAMES);
     }
@@ -45,7 +54,7 @@ public final class StackTraceSupport {
             return new StackTraceElement[0];
         }
         final long[] addresses = (long[]) backtrace;
-        final StackTraceElement[] found = new StackTraceElement[addresses.length * 2];
+        final StackTraceElement[] found = new StackTraceElement[addresses.length * 16];
         int count = 0;
         boolean leading = true;
         for (final long address : addresses) {
@@ -68,6 +77,25 @@ public final class StackTraceSupport {
                 scope = location.substring(0, firstTab);
                 file = location.substring(firstTab + 1, lastTab);
                 line = number(location, lastTab + 1);
+            }
+            final String inlines = frameInlines0(address);
+            if (inlines != null) {
+                // The innermost inlined function, then each function it was inlined into, up to the one around the address.
+                int from = 0;
+                while (from < inlines.length() && count < found.length) {
+                    final int end = inlines.indexOf('\n', from);
+                    final int tab1 = inlines.indexOf('\t', from);
+                    final int tab2 = inlines.indexOf('\t', tab1 + 1);
+                    final String callerFile = tab2 > tab1 + 1 ? inlines.substring(tab1 + 1, tab2) : null;
+                    final StackTraceElement frame = element(inlines.substring(from, tab1), callerFile,
+                            number(inlines.substring(tab2 + 1, end), 0), leading);
+                    if (frame != null) {
+                        found[count++] = frame;
+                        leading = false;
+                    }
+                    from = end + 1;
+                }
+                continue;
             }
             // A line of an inlined function belongs to that function; the
             // symbol around the address is its caller, whose own line is lost.
@@ -116,6 +144,11 @@ public final class StackTraceSupport {
                                              final boolean leading) {
         final int split = symbol.lastIndexOf('_');
         if (split <= 0) {
+            return null;
+        }
+        // The functions of the runtime that make the exception (nabu_new.exception, jcl_throw.new) are no part of a trace.
+        final String owner = symbol.substring(0, split);
+        if ("nabu".equals(owner) || "jcl".equals(owner) || owner.startsWith("nabu_") || owner.startsWith("jcl_")) {
             return null;
         }
         String method = symbol.substring(split + 1);

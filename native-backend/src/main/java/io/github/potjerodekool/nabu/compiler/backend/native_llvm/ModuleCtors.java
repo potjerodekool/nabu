@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.PointerPointer;
+import org.bytedeco.llvm.LLVM.LLVMBuilderRef;
 import org.bytedeco.llvm.LLVM.LLVMContextRef;
 import org.bytedeco.llvm.LLVM.LLVMModuleRef;
 import org.bytedeco.llvm.LLVM.LLVMTypeRef;
@@ -88,6 +89,26 @@ final class ModuleCtors {
 
         if (ctors.isEmpty()) {
             return;
+        }
+
+        // The priorities are only a hint to the linker: on macOS the constructors ran in another order than their
+        // priorities say (the type table was not registered when the first <clinit> ran). So one constructor calls the
+        // others itself, in order of priority and then of registration, whatever the platform makes of the array.
+        if (ctors.size() > 1) {
+            final List<Ctor> ordered = new ArrayList<>(ctors);
+            ordered.sort(java.util.Comparator.comparingInt(Ctor::priority));
+            final LLVMTypeRef voidFn = LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0);
+            final LLVMValueRef driver = LLVMAddFunction(mod, new BytePointer("nabu_run_constructors"), voidFn);
+            LLVMSetLinkage(driver, LLVMExternalLinkage);
+            final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
+            LLVMPositionBuilderAtEnd(builder, LLVMAppendBasicBlock(driver, "entry"));
+            for (final Ctor ctor : ordered) {
+                LLVMBuildCall2(builder, LLVMGlobalGetValueType(ctor.fn()), ctor.fn(), new PointerPointer<>(0), 0, "");
+            }
+            LLVMBuildRetVoid(builder);
+            LLVMDisposeBuilder(builder);
+            ctors.clear();
+            ctors.add(new Ctor(CTOR_PRIORITY, driver));
         }
 
         final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);

@@ -62,9 +62,13 @@ jobs:
             echo "=== NABU_CONTINUATIONS=$conts"
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
-          echo "=== lldb"
-          { echo run; echo "thread backtrace all"; echo "frame select 1"; echo "frame info"; echo "register read"; } > lldb.cmds
-          NABU_CONTINUATIONS=0 NABU_CPUS=3 lldb --batch --source lldb.cmds -- ./threads.exe cpuCount 2>&1 | grep -v "^   *[0-9]* *BIND" | head -150
+          echo "=== probes"
+          ./threads.exe nosuch; echo "nosuch exit $?"
+          ./threads.exe pingPong | head -5; echo "pingPong exit $?"
+          ./threads.exe cpuCount > out.txt 2> err.txt; echo "cpuCount exit $?"; wc -c out.txt err.txt
+          echo "=== lldb: who calls write"
+          { echo "breakpoint set -n write"; echo run; echo "bt 10"; echo continue; echo "bt 10"; echo continue; echo "bt 10"; } > lldb.cmds
+          NABU_CPUS=3 lldb --batch --source lldb.cmds -- ./threads.exe cpuCount 2>&1 | grep -v "^   *[0-9]* *BIND" | head -80
 
       - name: Keep the reports
         if: always()

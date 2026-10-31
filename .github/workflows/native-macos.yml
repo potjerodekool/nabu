@@ -63,7 +63,13 @@ jobs:
             NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           echo "=== lldb"
-          NABU_CONTINUATIONS=0 NABU_CPUS=3 lldb --batch -o run -o "bt 30" -o "register read" -o "image lookup -a \$pc" -- ./threads.exe cpuCount 2>&1 | head -120
+          printf 'run
+thread backtrace all
+frame select 1
+frame info
+register read
+' > lldb.cmds
+          NABU_CONTINUATIONS=0 NABU_CPUS=3 lldb --batch --source lldb.cmds -- ./threads.exe cpuCount 2>&1 | grep -v "^   *[0-9]* *BIND" | head -150
 
       - name: Keep the reports
         if: always()

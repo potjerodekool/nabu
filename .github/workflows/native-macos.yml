@@ -63,12 +63,7 @@ jobs:
             NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           echo "=== lldb"
-          printf 'run
-thread backtrace all
-frame select 1
-frame info
-register read
-' > lldb.cmds
+          { echo run; echo "thread backtrace all"; echo "frame select 1"; echo "frame info"; echo "register read"; } > lldb.cmds
           NABU_CONTINUATIONS=0 NABU_CPUS=3 lldb --batch --source lldb.cmds -- ./threads.exe cpuCount 2>&1 | grep -v "^   *[0-9]* *BIND" | head -150
 
       - name: Keep the reports

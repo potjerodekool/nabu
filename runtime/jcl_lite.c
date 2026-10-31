@@ -4534,16 +4534,21 @@ static void *jcl_main_thread(void) {
 }
 
 /* The Thread object of the running thread: the thread's own, or "main". */
-/* Continuations need the Boehm collector, and fibers (Windows) or ucontext (Linux, x86-64 and aarch64). */
-#if defined(NABU_GC_BOEHM) && (defined(_WIN32) || (defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))))
+/* Continuations need the Boehm collector, and fibers (Windows) or ucontext (Linux and macOS, x86-64 and aarch64).
+ * macOS is not tested yet: there they are off unless NABU_CONTINUATIONS=1. */
+#if defined(NABU_GC_BOEHM) && (defined(_WIN32) || ((defined(__linux__) || defined(__APPLE__)) && (defined(__x86_64__) || defined(__aarch64__))))
 #define JCL_CONTINUATIONS_PLATFORM 1
 #else
 #define JCL_CONTINUATIONS_PLATFORM 0
 #endif
 static int jcl_continuations_enabled(void) {
 #if JCL_CONTINUATIONS_PLATFORM
-    const char *off = getenv("NABU_CONTINUATIONS");
-    return off == NULL || off[0] != '0';
+    const char *flag = getenv("NABU_CONTINUATIONS");
+#ifdef __APPLE__
+    return flag != NULL && flag[0] == '1';
+#else
+    return flag == NULL || flag[0] != '0';
+#endif
 #else
     return 0;
 #endif
@@ -5191,8 +5196,21 @@ BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compil
 #if JCL_CONTINUATIONS_PLATFORM
 #define JCL_CONTINUATIONS 1
 #ifndef _WIN32
+#if defined(__APPLE__) && !defined(_XOPEN_SOURCE)
+/* the deprecated ucontext routines of macOS are only declared with _XOPEN_SOURCE */
+#define _XOPEN_SOURCE 600
 #include <ucontext.h>
+#undef _XOPEN_SOURCE
+#else
+#include <ucontext.h>
+#endif
 #include <sys/mman.h>
+#ifndef MAP_STACK
+#define MAP_STACK 0
+#endif
+#ifndef MAP_NORESERVE
+#define MAP_NORESERVE 0
+#endif
 #endif
 
 struct GC_stack_base;
@@ -5314,7 +5332,11 @@ static __thread jcl_cont *jcl_running = NULL;    /* the continuation running on 
 static int jcl_on_main_thread(void) {
     static __thread int known = 0, main_thread = 0;
     if (!known) {
+#ifdef __APPLE__
+        main_thread = pthread_main_np() != 0;
+#else
         main_thread = (pid_t)syscall(SYS_gettid) == getpid();
+#endif
         known = 1;
     }
     return main_thread;
@@ -5492,7 +5514,12 @@ static long jcl_stack_limit = 0;
 static int jcl_stack_reserve(void) {
     if (jcl_stack_limit == 0) {
         long maps = 65530;
+#ifdef __APPLE__
+        maps = 1L << 30; /* no such limit: mmap fails when the address space is used up, and that is reported as well */
+        FILE *f = NULL;
+#else
         FILE *f = fopen("/proc/sys/vm/max_map_count", "r");
+#endif
         if (f != NULL) {
             long value = 0;
             if (fscanf(f, "%ld", &value) == 1 && value > 0) maps = value;

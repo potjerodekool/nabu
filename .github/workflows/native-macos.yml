@@ -1,0 +1,46 @@
+name: Native tests on macOS
+
+# macOS is not part of the release yet. This job runs the native thread tests there by hand (continuations are off by
+# default on macOS until they pass here: the tests that need them set NABU_CONTINUATIONS=1 themselves).
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: 'Failsafe test selection (-Dit.test)'
+        default: 'ThreadsE2eIT'
+
+permissions:
+  contents: read
+
+jobs:
+  threads:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: 'maven'
+
+      - name: Boehm GC
+        run: brew install bdw-gc
+
+      - name: Run the native tests
+        run: >
+          mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
+          -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64
+        env:
+          C_INCLUDE_PATH: /opt/homebrew/include
+          LIBRARY_PATH: /opt/homebrew/lib
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports
+          path: native-backend/target/failsafe-reports/*
+          if-no-files-found: ignore

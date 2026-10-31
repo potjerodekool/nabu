@@ -17,6 +17,7 @@
     <li><a href="{{ '/backends/java-backend/' | relative_url }}" {% if page.url contains 'backends/java-backend' %}class="active"{% endif %}>Java Backend</a></li>
     <li><a href="{{ '/backends/llvm/' | relative_url }}" {% if page.url == '/backends/llvm/' %}class="active"{% endif %}>LLVM Backend</a></li>
     <li class="nav-sub"><a href="{{ '/backends/llvm/installation/' | relative_url }}" {% if page.url contains 'backends/llvm/installation' %}class="active"{% endif %}>Installation</a></li>
+    <li class="nav-sub"><a href="{{ '/backends/llvm/native-image/' | relative_url }}" {% if page.url contains 'backends/llvm/native-image' %}class="active"{% endif %}>nabu-native-image</a></li>
     <li class="nav-sub"><a href="{{ '/backends/llvm/internals/' | relative_url }}" {% if page.url contains 'backends/llvm/internals' %}class="active"{% endif %}>Internals</a></li>
     <li class="nav-sub"><a href="{{ '/backends/llvm/troubleshooting/' | relative_url }}" {% if page.url contains 'backends/llvm/troubleshooting' %}class="active"{% endif %}>Troubleshooting</a></li>
     <li class="nav-section">Examples</li>

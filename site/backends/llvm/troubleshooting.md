@@ -3,7 +3,7 @@ layout: page
 title: LLVM Troubleshooting
 ---
 
-Common problems with the LLVM backend, and how to investigate a native executable that crashes or hangs.
+Common problems with the LLVM backend, and how to investigate a native executable that crashes or hangs. For problems with the toolchain itself, `nabu-native-image --doctor` checks gcc/clang, libgc and the runtime (see [nabu-native-image]({{ site.baseurl }}/backends/llvm/native-image/)).
 
 ## Build problems
 

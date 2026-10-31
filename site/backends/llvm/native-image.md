@@ -16,6 +16,8 @@ nabu-native-image -jar tool.jar -o tool -d build/bin     # Main-Class and Class-
 nabu-native-image --doctor                               # checks gcc/clang, libgc and the runtime
 ```
 
+The toolchain it needs (gcc or clang, libgc) is described in [Installing the LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/); if a build or the executable fails, see [LLVM Troubleshooting]({{ site.baseurl }}/backends/llvm/troubleshooting/). Known gaps are in [Known limitations]({{ site.baseurl }}/limitations/).
+
 ## Options
 
 | Option | Meaning |

@@ -15,6 +15,8 @@ The **LLVM backend** compiles a program to a **native executable** instead of JV
 2. Select the backend with `--backend=LLVM` and add the options below.
 3. Build. The executable appears in the class output directory (`target/classes` with Maven).
 
+To compile a program that is already built (a jar or a directory of classes) instead of building it from sources, use [nabu-native-image]({{ site.baseurl }}/backends/llvm/native-image/), which works like GraalVM's `native-image`.
+
 ## How it works
 
 ```

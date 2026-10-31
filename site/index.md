@@ -50,4 +50,4 @@ A demo application is available at the [Nabu petstore](https://github.com/potjer
 
 To use Nabu and Java together in a Maven project, see the [Maven Plugin]({{ site.baseurl }}/maven-plugin/) documentation. For IDE support, check out the [Nabu Idea](https://github.com/potjerodekool/nabu-idea) plugin for IntelliJ.
 
-To build native executables, install the [LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/) and follow the [picocli example]({{ site.baseurl }}/examples/picocli-demo/), which builds one program for the JVM, with Nabu's LLVM backend and with GraalVM. See [Known limitations]({{ site.baseurl }}/limitations/) for what does not work yet.
+To build native executables, install the [LLVM toolchain]({{ site.baseurl }}/backends/llvm/installation/), use [nabu-native-image]({{ site.baseurl }}/backends/llvm/native-image/) to compile a jar you already have, and follow the [picocli example]({{ site.baseurl }}/examples/picocli-demo/), which builds one program for the JVM, with Nabu's LLVM backend and with GraalVM. See [Known limitations]({{ site.baseurl }}/limitations/) for what does not work yet.

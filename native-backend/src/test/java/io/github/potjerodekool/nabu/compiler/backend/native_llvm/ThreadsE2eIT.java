@@ -77,6 +77,12 @@ class ThreadsE2eIT {
         assertEquals(expected("cpuCount"), output("cpuCount", java.util.Map.of("NABU_CPUS", "3")));
     }
 
+    /** Every parked virtual thread keeps a stack of its own: there can be many of them at once. */
+    @Test
+    void manyParkedVirtualThreads() throws Exception {
+        assertEquals(expected("manyParkedVirtualThreads"), output("manyParkedVirtualThreads", CONTINUATIONS));
+    }
+
     @Test
     void executorRunsTasks() throws Exception {
         assertEquals(expected("executorRunsTasks"), output("executorRunsTasks"));

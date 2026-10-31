@@ -5316,6 +5316,39 @@ static void **jcl_cont_slot(void *c) {
     return off >= 0 ? (void **)((char *)c + off) : NULL;
 }
 
+#ifndef _WIN32
+/* Every stack is two mappings (the stack and its guard page) and a process may have vm.max_map_count of them, 65530 by
+ * default: when that is used up the collector cannot map its own memory either and the program aborts. So the stacks
+ * stop at a part of the limit and the continuation that would be one too many gets an OutOfMemoryError instead. */
+static long jcl_stack_count = 0;
+static long jcl_stack_limit = 0;
+static int jcl_stack_reserve(void) {
+    if (jcl_stack_limit == 0) {
+        long maps = 65530;
+        FILE *f = fopen("/proc/sys/vm/max_map_count", "r");
+        if (f != NULL) {
+            long value = 0;
+            if (fscanf(f, "%ld", &value) == 1 && value > 0) maps = value;
+            fclose(f);
+        }
+        const long room = maps - (maps / 16 > 2048 ? maps / 16 : 2048);  /* what the rest of the process needs */
+        jcl_stack_limit = room > 2 ? room / 2 : 1;
+    }
+    if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) > jcl_stack_limit) {
+        __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
+        static int told = 0;
+        if (!__atomic_exchange_n(&told, 1, __ATOMIC_SEQ_CST)) {
+            fprintf(stderr, "nabu: no stack for another virtual thread: the limit of %ld stacks that the memory mappings "
+                    "(vm.max_map_count) allow is reached; raise it with sysctl vm.max_map_count=262144\n",
+                    jcl_stack_limit);
+        }
+        return 0;
+    }
+    return 1;
+}
+static void jcl_stack_unreserve(void) { __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST); }
+#endif
+
 BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpecial", (void *c, uint8_t isContinue, uint8_t isVirtual)) {
     (void)isVirtual;
     void **slot = jcl_cont_slot(c);
@@ -5334,11 +5367,18 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
         /* a stack of 4 MB; its pages are committed when they are used; the lowest page is a guard */
         const size_t page = (size_t)sysconf(_SC_PAGESIZE);
         k->stack_map_size = (size_t)4 << 20;
-        k->stack_map = mmap(NULL, k->stack_map_size, PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_STACK, -1, 0);
-        int created = k->stack_map != MAP_FAILED;
+        int created = jcl_stack_reserve();
         if (created) {
-            mprotect(k->stack_map, page, PROT_NONE);
+            k->stack_map = mmap(NULL, k->stack_map_size, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_STACK, -1, 0);
+            created = k->stack_map != MAP_FAILED;
+            if (created && mprotect(k->stack_map, page, PROT_NONE) != 0) {
+                munmap(k->stack_map, k->stack_map_size);
+                created = 0;
+            }
+            if (!created) jcl_stack_unreserve();
+        }
+        if (created) {
             getcontext(&k->uc);
             k->uc.uc_stack.ss_sp = (char *)k->stack_map + page;
             k->uc.uc_stack.ss_size = k->stack_map_size - page;
@@ -5364,6 +5404,7 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
         DeleteFiber(k->fiber);
 #else
         munmap(k->stack_map, k->stack_map_size);
+        jcl_stack_unreserve();
 #endif
         jcl_region_release(k->region);
         GC_free(k);

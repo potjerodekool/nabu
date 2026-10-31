@@ -83,6 +83,12 @@ class ThreadsE2eIT {
         assertEquals(expected("manyParkedVirtualThreads"), output("manyParkedVirtualThreads", CONTINUATIONS));
     }
 
+    /** Parked virtual threads that nothing refers to any more are collected: 200000 of them do not run out of stacks. */
+    @Test
+    void abandonedParkedVirtualThreads() throws Exception {
+        assertEquals(expected("abandonedParkedVirtualThreads"), output("abandonedParkedVirtualThreads", CONTINUATIONS));
+    }
+
     /** Thread.interrupt closes the channel a thread is blocked on and wakes it (not on Windows: there nothing wakes it). */
     @Test
     void interruptedChannelRead() throws Exception {

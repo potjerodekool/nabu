@@ -2489,6 +2489,11 @@ void nabu_waiter_wake(nabu_waiter *waiter) {
 /* The queues of the keys: the waiters of a monitor, of a class initializer. */
 #define NABU_KEYQ_BUCKETS 256
 
+/* collector memory that is a root: an entry holds the monitor and the virtual thread that waits for it, which nothing else
+ * may refer to */
+extern void *GC_malloc_uncollectable(size_t);
+extern void GC_free(void *);
+
 typedef struct nabu_keyq_entry {
     const void *key;
     nabu_waiter *waiter;
@@ -2512,7 +2517,7 @@ static unsigned nabu_keyq_bucket(const void *key) {
 static void nabu_keyq_add_entry(const void *key, nabu_waiter *waiter, void *vthread) {
     if (!nabu_parallel) return;
     pthread_once(&nabu_keyq_once, nabu_keyq_init);
-    nabu_keyq_entry *entry = (nabu_keyq_entry *) malloc(sizeof *entry);
+    nabu_keyq_entry *entry = (nabu_keyq_entry *) GC_malloc_uncollectable(sizeof *entry);
     entry->key = key;
     entry->waiter = waiter;
     entry->vthread = vthread;
@@ -2537,7 +2542,7 @@ static void nabu_keyq_remove_entry(const void *key, nabu_waiter *waiter, void *v
         if (entry->key == key && entry->waiter == waiter && entry->vthread == vthread) {
             if (previous != NULL) previous->next = entry->next; else nabu_keyq_heads[bucket] = entry->next;
             if (nabu_keyq_tails[bucket] == entry) nabu_keyq_tails[bucket] = previous;
-            free(entry);
+            GC_free(entry);
             break;
         }
     }

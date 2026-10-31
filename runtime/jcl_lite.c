@@ -4641,6 +4641,8 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
 }
 
 /* vthread: a virtual thread that waits (Object.wait on a continuation) is woken by unparking it, a thread by its waiter. */
+extern void *GC_malloc_uncollectable(size_t n);
+extern void GC_free(void *p);
 typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; void *vthread; int depth; } jcl_waiter;
 void nabu_set_virtual_unpark_fn(void *fn) { jcl_virtual_unpark_fn = (void (*)(void *))fn; }
 static jcl_waiter *jcl_waiters = NULL;
@@ -4753,7 +4755,8 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
 BIND(int64_t, jcl_ThreadSupport_waitEnter0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_waitEnter0", (void *object, void *thread)) {
     if (!jcl_owns_monitor(object)) jcl_throw_new("java/lang/IllegalMonitorStateException", "java/lang/RuntimeException", "current thread is not owner");
     if (!nabu_threads_active || !nabu_parallel) return 0;
-    jcl_waiter *w = (jcl_waiter *)calloc(1, sizeof *w);
+    /* a root: the waiting virtual thread may be referred to only from here */
+    jcl_waiter *w = (jcl_waiter *)GC_malloc_uncollectable(sizeof *w);
     w->obj = object;
     w->vthread = thread;
     pthread_mutex_lock(&jcl_waiters_lock);
@@ -4776,7 +4779,7 @@ BIND(int, jcl_ThreadSupport_waitLeave0, "io.github.potjerodekool.nabu.compiler.b
     pthread_mutex_unlock(&jcl_waiters_lock);
     nabu_monitor_acquire_n(w->obj, w->depth);
     const int notified = w->notified;
-    free(w);
+    GC_free(w);
     return notified;
 }
 
@@ -5173,7 +5176,8 @@ extern void GC_set_stackbottom(void *gc_thread_handle, const struct GC_stack_bas
 extern void *GC_malloc_uncollectable(size_t n);
 extern void GC_free(void *p);
 
-typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; } jcl_region;
+/* owned: the stack of a continuation; its collector object scans it (jcl_cont_mark), so the root hook skips it */
+typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; int owned; } jcl_region;
 
 typedef struct jcl_cont {
 #ifdef _WIN32
@@ -5214,7 +5218,7 @@ static void jcl_push_regions(void) {
     for (long i = 0; i < n; i++) {
         jcl_region *r = table[i];
         void *sp = r->sp;
-        if (sp != NULL && r->hi != NULL && sp < r->hi) GC_push_all_eager(sp, r->hi);
+        if (sp != NULL && !r->owned && r->hi != NULL && sp < r->hi) GC_push_all_eager(sp, r->hi);
     }
     if (jcl_old_push_other_roots != NULL) jcl_old_push_other_roots();
 }
@@ -5251,6 +5255,7 @@ static jcl_region *jcl_region_new(void *hi) {
 static void jcl_region_release(jcl_region *r) {
     r->sp = NULL;
     r->hi = NULL;
+    r->owned = 0;
     pthread_mutex_lock(&jcl_region_lock);
     r->next_free = jcl_region_free;
     jcl_region_free = r;
@@ -5392,6 +5397,59 @@ static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
 #endif
 }
 
+/* A jcl_cont is collector memory of a kind of its own: when something reachable refers to it (the Continuation, through
+ * its tail field; the thread that runs it, through its frames) the mark procedure also scans the parked stack. The
+ * stack of a continuation that nothing refers to any more (an abandoned parked virtual thread) is therefore garbage,
+ * and so is everything only that stack refers to; the finalizer gives the stack back. */
+struct GC_ms_entry;
+extern struct GC_ms_entry *GC_mark_and_push(void *obj, struct GC_ms_entry *top, struct GC_ms_entry *limit, void **src);
+extern unsigned GC_new_proc(struct GC_ms_entry *(*proc)(uintptr_t *, struct GC_ms_entry *, struct GC_ms_entry *, uintptr_t));
+extern unsigned GC_new_kind(void **free_list, uintptr_t descriptor, int add_size, int clear);
+extern void **GC_new_free_list(void);
+extern void *GC_malloc_kind(size_t n, int kind);
+extern void GC_register_finalizer_no_order(void *obj, void (*fn)(void *, void *), void *data, void (**old_fn)(void *, void *), void **old_data);
+
+static struct GC_ms_entry *jcl_cont_mark(uintptr_t *addr, struct GC_ms_entry *msp, struct GC_ms_entry *limit, uintptr_t env) {
+    (void)env;
+    jcl_cont *k = (jcl_cont *)addr;
+    uintptr_t *w = addr;
+    for (uintptr_t *end = addr + sizeof(jcl_cont) / sizeof(uintptr_t); w < end; w++) msp = GC_mark_and_push((void *)*w, msp, limit, (void **)w);
+    jcl_region *r = k->region;
+    if (r != NULL && r->sp != NULL && r->hi != NULL) {
+        uintptr_t *hi = (uintptr_t *)r->hi;
+        for (w = (uintptr_t *)(((uintptr_t)r->sp + 7) & ~(uintptr_t)7); w < hi; w++) msp = GC_mark_and_push((void *)*w, msp, limit, (void **)w);
+    }
+    return msp;
+}
+
+#ifndef _WIN32
+static void jcl_stack_unreserve(void);
+#endif
+static int jcl_cont_kind = -1;
+static void *jcl_cont_alloc(void) {
+    pthread_mutex_lock(&jcl_region_lock);
+    if (jcl_cont_kind < 0) {
+        const unsigned proc = GC_new_proc(jcl_cont_mark);
+        jcl_cont_kind = (int)GC_new_kind(GC_new_free_list(), ((uintptr_t)proc << 2) | 2 /* GC_DS_PROC */, 0, 1);
+    }
+    pthread_mutex_unlock(&jcl_region_lock);
+    return GC_malloc_kind(sizeof(jcl_cont), jcl_cont_kind);
+}
+
+/* Gives back the stack of a continuation that is done or abandoned. */
+static void jcl_cont_dispose(jcl_cont *k) {
+    if (k->region == NULL) return;
+#ifdef _WIN32
+    DeleteFiber(k->fiber);
+#else
+    munmap(k->stack_map, k->stack_map_size);
+    jcl_stack_unreserve();
+#endif
+    jcl_region_release(k->region);
+    k->region = NULL;
+}
+static void jcl_cont_finalize(void *k, void *data) { (void)data; jcl_cont_dispose((jcl_cont *)k); }
+
 static void **jcl_cont_slot(void *c) {
     intptr_t off = nabu_instance_field_offset(c, "tail");
     return off >= 0 ? (void **)((char *)c + off) : NULL;
@@ -5417,6 +5475,13 @@ static int jcl_stack_reserve(void) {
     }
     if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) > jcl_stack_limit) {
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
+        /* the stacks are not collector memory, so they do not make it collect: abandoned ones may be waiting for a cycle */
+        extern void GC_gcollect(void);
+        extern int GC_invoke_finalizers(void);
+        GC_gcollect();
+        GC_invoke_finalizers();
+        if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;
+        __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         static int told = 0;
         if (!__atomic_exchange_n(&told, 1, __ATOMIC_SEQ_CST)) {
             fprintf(stderr, "nabu: no stack for another virtual thread: the limit of %ld stacks that the memory mappings "
@@ -5437,10 +5502,11 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
     if (isContinue) {
         k = (jcl_cont *)*slot;
     } else {
-        k = (jcl_cont *)GC_malloc_uncollectable(sizeof(jcl_cont));
+        k = (jcl_cont *)jcl_cont_alloc();
         memset(k, 0, sizeof *k);
         k->obj = c;
         k->region = jcl_region_new(NULL);
+        k->region->owned = 1;
 #ifdef _WIN32
         k->fiber = CreateFiberEx(16 * 1024, (size_t)4 << 20, 0, jcl_fiber_main, k);
         const int created = k->fiber != NULL;
@@ -5470,24 +5536,21 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
 #endif
         if (!created) {
             jcl_region_release(k->region);
+            k->region = NULL;
             GC_free(k);
             jcl_throw_new("java/lang/OutOfMemoryError", "java/lang/Error", "Cannot create a stack for a continuation");
             return;
         }
         *slot = k;
+        GC_register_finalizer_no_order(k, jcl_cont_finalize, NULL, NULL, NULL);
     }
     jcl_cont_claim(k);
     jcl_cont_switch_in(k);
     if (k->state == 3) {
         void *failure = k->failure;
         *slot = NULL;
-#ifdef _WIN32
-        DeleteFiber(k->fiber);
-#else
-        munmap(k->stack_map, k->stack_map_size);
-        jcl_stack_unreserve();
-#endif
-        jcl_region_release(k->region);
+        GC_register_finalizer_no_order(k, NULL, NULL, NULL, NULL);
+        jcl_cont_dispose(k);
         GC_free(k);
         if (failure != NULL) nabu_throw(failure);
     }

@@ -97,6 +97,11 @@ class ThreadsE2eIT {
     }
 
     @Test
+    void instanceFieldInitializers() throws Exception {
+        assertEquals(expected("instanceFieldInitializers"), output("instanceFieldInitializers"));
+    }
+
+    @Test
     void executorRunsTasks() throws Exception {
         assertEquals(expected("executorRunsTasks"), output("executorRunsTasks"));
     }

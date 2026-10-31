@@ -197,6 +197,7 @@ public class FunctionEmitter {
         // horen bij de methode, anders wijst het vtable-slot naar de
         // constructor in plaats van naar de methode.
         globalValueMap.put("@" + symbol, llvmFn);
+        declared.put(fn, llvmFn);
         // Overload-sleutel: dezelfde fn onder `<naam>#<params>` registreren
         // (Range.min()/Range.min(int) deelden voorheen één LLVM-signature,
         // waardoor GetParam(i) van de latere overload garbage opleverde).
@@ -249,6 +250,9 @@ public class FunctionEmitter {
      * blijft. Overloads van methoden hebben elk hun eigen overload-sleutel en
      * raken elkaar niet.
      */
+    /** The function declared for each IRFunction instance, whatever its name is shared with. */
+    private final Map<IRFunction, LLVMValueRef> declared = new java.util.IdentityHashMap<>();
+
     private String symbolOf(final IRFunction fn) {
         final String ctorSymbol = classLayouts == null
                 ? null
@@ -358,9 +362,13 @@ public class FunctionEmitter {
         // (reeds-bezette) functie — zie declareSignature().
         final String qualified = classLayouts != null
                 ? classLayouts.qualifiedName(fn) : null;
-        LLVMValueRef llvmFn = qualified != null
-                ? globalValueMap.get("@" + qualifiedKey(fn, qualified, paramKey))
-                : null;
+        // Eerst de functie die voor precies deze IRFunction is gedeclareerd: de sleutels hieronder kunnen botsen
+        // wanneer twee klassen dezelfde simple naam hebben (`Main` in de default package en `t0.Main`: beide
+        // `Main_init#`), en dan kreeg de ene klasse de body van de andere.
+        LLVMValueRef llvmFn = declared.get(fn);
+        if ((llvmFn == null || llvmFn.isNull()) && qualified != null) {
+            llvmFn = globalValueMap.get("@" + qualifiedKey(fn, qualified, paramKey));
+        }
         final var overloadKey = FnKeys.fnKey(symbol, paramKey);
         if (llvmFn == null || llvmFn.isNull()) {
             llvmFn = globalValueMap.get("@" + overloadKey);

@@ -71,6 +71,12 @@ class ThreadsE2eIT {
         assertEquals(expected("threadObjectsSurviveGc"), output("threadObjectsSurviveGc"));
     }
 
+    /** NABU_CPUS decides the number of processors, whatever the machine, the affinity or a quota says. */
+    @Test
+    void cpuCount() throws Exception {
+        assertEquals(expected("cpuCount"), output("cpuCount", java.util.Map.of("NABU_CPUS", "3")));
+    }
+
     @Test
     void executorRunsTasks() throws Exception {
         assertEquals(expected("executorRunsTasks"), output("executorRunsTasks"));

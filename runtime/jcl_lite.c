@@ -4147,19 +4147,57 @@ static int jcl_cgroup_processors(void) {
 #endif
 /* The processors of the machine, or what NABU_CPUS says: the virtual thread scheduler and the pools size themselves
  * by it. */
+#ifdef _WIN32
+/* Windows 11 and Server 2022 (build 20348) and later let a process use the processors of all processor groups; before
+ * that its threads stay in one group of at most 64 processors. */
+static int jcl_windows_spans_groups(void) {
+    typedef LONG (WINAPI *rtl_get_version_fn)(OSVERSIONINFOW *);
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    rtl_get_version_fn get_version = ntdll == NULL ? NULL : (rtl_get_version_fn)(void *)GetProcAddress(ntdll, "RtlGetVersion");
+    OSVERSIONINFOW version;
+    memset(&version, 0, sizeof version);
+    version.dwOSVersionInfoSize = sizeof version;
+    return get_version != NULL && get_version(&version) == 0 && version.dwBuildNumber >= 20348;
+}
+
+/* The CPU rate a job object caps the process at (docker --cpus on Windows): a part of all processors of the machine,
+ * in 1/100 of a percent. Returns the number of processors that comes to, or 0 for no cap. */
+static int jcl_job_cpu_cap(int machine_processors) {
+    struct { DWORD flags; DWORD rate; } info;  /* JOBOBJECT_CPU_RATE_CONTROL_INFORMATION: a rate, a weight or min/max */
+    memset(&info, 0, sizeof info);
+    if (!QueryInformationJobObject(NULL, (JOBOBJECTINFOCLASS) 15 /* JobObjectCpuRateControlInformation */, &info, sizeof info, NULL)) {
+        return 0;
+    }
+    const DWORD enable = 0x1, hard_cap = 0x4, min_max = 0x10;
+    if (!(info.flags & enable)) return 0;
+    DWORD rate = 0;
+    if (info.flags & hard_cap) rate = info.rate;
+    else if (info.flags & min_max) rate = info.rate >> 16;  /* MaxRate is the upper word */
+    if (rate == 0 || rate >= 10000) return 0;
+    const long long n = ((long long) rate * machine_processors + 9999) / 10000;
+    return n < 1 ? 1 : (int) n;
+}
+#endif
 static int jcl_online_processors(void) {
 #ifdef _WIN32
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    int machine = (int)info.dwNumberOfProcessors;  /* the processors of the current group */
+    int allowed = machine;
     /* the processors this process may run on (start /affinity, a job object), when that is less than the machine */
     DWORD_PTR process_mask = 0, system_mask = 0;
     if (GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask) && process_mask != 0
             && process_mask != system_mask) {
-        int allowed = 0;
+        allowed = 0;
         for (DWORD_PTR bits = process_mask; bits != 0; bits &= bits - 1) allowed++;
-        return allowed;
+    } else if (GetActiveProcessorGroupCount() > 1 && jcl_windows_spans_groups()) {
+        const int all = (int)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+        if (all > 0) allowed = all;
     }
-    SYSTEM_INFO info;
-    GetSystemInfo(&info);
-    return (int)info.dwNumberOfProcessors;
+    const int total = GetActiveProcessorGroupCount() > 1 ? (int)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) : machine;
+    const int cap = jcl_job_cpu_cap(total > 0 ? total : machine);
+    if (cap > 0 && cap < allowed) allowed = cap;
+    return allowed;
 #else
 #ifdef __linux__
     /* the processors this process may run on (taskset, a cpuset of a container), not those of the machine, */

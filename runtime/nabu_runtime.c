@@ -251,6 +251,7 @@ void nabu_reflect_set_ref(void *obj, const char *type_name, const char *field_na
 typedef uintptr_t _uleb128_t;
 typedef intptr_t _sleb128_t;
 typedef uintptr_t _Unwind_Ptr;
+typedef uintptr_t _Unwind_Word;
 #endif
 
 /**

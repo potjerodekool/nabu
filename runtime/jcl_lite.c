@@ -4413,6 +4413,7 @@ BIND(int32_t, jcl_Unsafe_arrayIndexScale0, "jdk.internal.misc.Unsafe_arrayIndexS
         default: return 8;
     }
 }
+extern int32_t nabu_compiled_type_count_for_trace(void);
 BIND(int64_t, jcl_Unsafe_objectFieldOffset1, "jdk.internal.misc.Unsafe_objectFieldOffset1", (void *self, void *cls, void *name)) {
     (void)self;
     const char *cls_name = jcl_unsafe_class_name(cls);
@@ -4440,7 +4441,12 @@ BIND(int64_t, jcl_Unsafe_objectFieldOffset1, "jdk.internal.misc.Unsafe_objectFie
             }
         }
     }
-    return (int64_t)nabu_reflect_field_offset(cls_name, field);
+    const int64_t found = (int64_t)nabu_reflect_field_offset(cls_name, field);
+    if (found < 0 && getenv("NABU_TRACE_UNSAFE") != NULL) {
+        fprintf(stderr, "nabu: Unsafe.objectFieldOffset(%s, %s) not found; %d compiled types registered\n", cls_name, field,
+                (int)nabu_compiled_type_count_for_trace());
+    }
+    return found;
 }
 /* Unsafe.objectFieldOffset(Field) after its checks: the offset the Field object carries. */
 BIND(int64_t, jcl_Unsafe_objectFieldOffset0, "jdk.internal.misc.Unsafe_objectFieldOffset0", (void *self, void *field)) {

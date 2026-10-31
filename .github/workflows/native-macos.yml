@@ -60,7 +60,7 @@ jobs:
           cat threads.exe.warnings.txt 2>/dev/null | head -20
           for conts in 0 1; do
             echo "=== NABU_CONTINUATIONS=$conts"
-            NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
+            NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           echo "=== lldb"
           { echo run; echo "thread backtrace all"; echo "frame select 1"; echo "frame info"; echo "register read"; } > lldb.cmds

@@ -423,6 +423,8 @@ void nabu_register_type_infos(const void *table, int32_t count) {
     nabu_compiled_type_count = count;
 }
 
+int32_t nabu_compiled_type_count_for_trace(void) { return nabu_compiled_type_count; }
+
 const nabu_type_info *nabu_compiled_type_for(const char *internal_name) {
     if (internal_name == NULL) return NULL;
     for (int32_t i = 0; i < nabu_compiled_type_count; i++) {

@@ -53,6 +53,7 @@ jobs:
 
       - name: Run the kept executable under lldb
         if: always()
+        timeout-minutes: 8
         run: |
           set +e
           cd "$RUNNER_TEMP/keep" || exit 0
@@ -62,13 +63,16 @@ jobs:
             echo "=== NABU_CONTINUATIONS=$conts"
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
-          echo "=== probes"
-          ./threads.exe nosuch; echo "nosuch exit $?"
-          ./threads.exe pingPong | head -5; echo "pingPong exit $?"
-          ./threads.exe cpuCount > out.txt 2> err.txt; echo "cpuCount exit $?"; wc -c out.txt err.txt
+          limited() { "$@" & pid=$!; ( sleep 25; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
+          echo "=== probe: nosuch"
+          limited ./threads.exe nosuch < /dev/null 2>&1 | head -20
+          echo "=== probe: pingPong"
+          limited ./threads.exe pingPong < /dev/null 2>&1 | head -10
+          echo "=== probe: cpuCount (stdout, stderr)"
+          limited ./threads.exe cpuCount < /dev/null > out.txt 2> err.txt; wc -c out.txt err.txt; head -c 300 out.txt; head -c 300 err.txt
           echo "=== lldb: who calls write"
           { echo "breakpoint set -n write"; echo run; echo "bt 10"; echo continue; echo "bt 10"; echo continue; echo "bt 10"; } > lldb.cmds
-          NABU_CPUS=3 lldb --batch --source lldb.cmds -- ./threads.exe cpuCount 2>&1 | grep -v "^   *[0-9]* *BIND" | head -80
+          limited lldb --batch --source lldb.cmds -- ./threads.exe cpuCount < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -80
 
       - name: Keep the reports
         if: always()

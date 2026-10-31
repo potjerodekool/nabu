@@ -42,7 +42,14 @@
 #define JCL_REALLOC(p, n) realloc((p), (n))
 #endif
 
-#define BIND(ret, cname, sym, params) ret cname params __asm__(sym); ret cname params
+/* the symbol of a function the compiled code calls by its JDK name; on macOS an asm label is not given the underscore
+ * that every other symbol has */
+#ifdef __APPLE__
+#define JCL_SYM(sym) "_" sym
+#else
+#define JCL_SYM(sym) sym
+#endif
+#define BIND(ret, cname, sym, params) ret cname params __asm__(JCL_SYM(sym)); ret cname params
 
 enum {
     K_STR = 1, K_BOX, K_MAP, K_FIELD, K_ANN, K_THROW, K_CLASSOBJ, K_CTOR, K_METHOD, K_GTYPE, K_THREAD
@@ -2783,7 +2790,7 @@ BIND(void *, jcl_java_lang_Class_getCanonicalName_jstr, "java.lang.Class_getCano
     void *r = (void *)jcl_java_lang_Class_getCanonicalName(self);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
-void *jcl_java_lang_Class_getComponentType(void *self) __asm__("java.lang.Class_getComponentType");
+void *jcl_java_lang_Class_getComponentType(void *self) __asm__(JCL_SYM("java.lang.Class_getComponentType"));
 static void * jcl_java_lang_Class_getSimpleName (void *self) {
     const char *n = jcl_str(self);
     if (n[0] == '[' && n[1] != '\0') {
@@ -2910,7 +2917,7 @@ BIND(void *, jcl_java_lang_Class_getEnumConstants, "java.lang.Class_getEnumConst
 BIND(void *, jcl_java_lang_Class_getEnumConstantsShared, "java.lang.Class_getEnumConstantsShared", (void *self)) {
     return jcl_java_lang_Class_getEnumConstants(self);
 }
-void *jcl_java_lang_Class_getSuperclass(void *self) __asm__("java.lang.Class_getSuperclass");
+void *jcl_java_lang_Class_getSuperclass(void *self) __asm__(JCL_SYM("java.lang.Class_getSuperclass"));
 
 /* Class.getField: a public field of the class or of a superclass (JLS:
  * the class first). With reflection metadata generated for allPublicFields,

@@ -96,6 +96,12 @@ class ThreadsE2eIT {
         assertEquals(expected("interruptedChannelRead"), output("interruptedChannelRead"));
     }
 
+    /** The same on every platform: a read of standard input (a pipe nobody writes to) is ended by Thread.interrupt. */
+    @Test
+    void interruptedPipeRead() throws Exception {
+        assertEquals(expected("interruptedPipeRead"), output("interruptedPipeRead"));
+    }
+
     /** A synchronized method (of the program or of the JDK) holds the monitor while it runs. */
     @Test
     void synchronizedMethods() throws Exception {

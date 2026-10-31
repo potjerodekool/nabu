@@ -1755,10 +1755,18 @@ BIND(int32_t, jcl_FileDispatcherImpl_read0, JCL_FDI("read0"), (void *fdObj, int6
     int fd = jcl_chan_fd(fdObj);
     if (fd < 0) { nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "Stream Closed")); return -1; }
     JCL_POSITION_LOCK(fd);
+#ifdef _WIN32
+    SetLastError(0);
+#endif
     int n = (int)JCL_READ(fd, (void *)(intptr_t)address, len);
+#ifdef _WIN32
+    const int aborted = n < 0 && GetLastError() == ERROR_OPERATION_ABORTED;
+#endif
     JCL_POSITION_UNLOCK(fd);
 #ifndef _WIN32
     if (n < 0 && errno == EINTR) return -3; /* IOStatus.INTERRUPTED: the thread was signalled (NativeThread.signal) */
+#else
+    if (aborted) return -3; /* CancelSynchronousIo (NativeThread.signal) ended the read */
 #endif
     if (n < 0) { jcl_chan_error("Read"); return -1; }
     return n == 0 && len > 0 ? -1 : n;
@@ -1919,7 +1927,8 @@ BIND(void, jcl_UnixFileDispatcherImpl_closeIntFD, "sun.nio.ch.UnixFileDispatcher
 }
 /* A thread that is blocked in a channel operation is woken by a signal (as the JDK does): the handler does nothing and
  * is installed without SA_RESTART, so the system call fails with EINTR and the dispatcher returns IOStatus.INTERRUPTED.
- * Not on Windows: there a blocked operation is not interrupted. */
+ * On Windows the thread is identified by its id and CancelSynchronousIo ends the read it is blocked in; the dispatcher
+ * sees ERROR_OPERATION_ABORTED and returns IOStatus.INTERRUPTED as well. */
 #ifndef _WIN32
 static int jcl_interrupt_signal = 0;
 static void jcl_interrupt_handler(int sig) { (void)sig; }
@@ -1945,15 +1954,34 @@ BIND(int64_t, jcl_NativeThread_current0, "sun.nio.ch.NativeThread_current0", (vo
 #ifndef _WIN32
     return (int64_t)(intptr_t)pthread_self();
 #else
-    return 0;
+    return (int64_t)GetCurrentThreadId();
 #endif
 }
 BIND(void, jcl_NativeThread_signal0, "sun.nio.ch.NativeThread_signal0", (int64_t thread)) {
 #ifndef _WIN32
     if (thread != 0 && thread != -1 && jcl_interrupt_signal != 0) pthread_kill((pthread_t)(intptr_t)thread, jcl_interrupt_signal);
 #else
-    (void)thread;
+    if (thread != 0 && thread != -1) {
+        HANDLE h = OpenThread(THREAD_TERMINATE, FALSE, (DWORD)thread);
+        if (h != NULL) {
+            CancelSynchronousIo(h);
+            CloseHandle(h);
+        }
+    }
 #endif
+}
+/* The JDK's NativeThread of Windows only returns 0 and signals nothing, and on Linux its class initializer installs
+ * the signal handler: ThreadSupport calls these two instead (RuntimeCalls redirects NativeThread.current/signal). */
+BIND(int64_t, jcl_ThreadSupport_threadId0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_threadId0", (void)) {
+    static int installed = 0;
+    if (!__atomic_load_n(&installed, __ATOMIC_ACQUIRE)) { /* idempotent: two threads may both install it */
+        jcl_NativeThread_init();
+        __atomic_store_n(&installed, 1, __ATOMIC_RELEASE);
+    }
+    return jcl_NativeThread_current0();
+}
+BIND(void, jcl_ThreadSupport_signalThread0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_signalThread0", (int64_t thread)) {
+    jcl_NativeThread_signal0(thread);
 }
 BIND(void, jcl_IOUtil_initIDs, "sun.nio.ch.IOUtil_initIDs", (void)) {
 }

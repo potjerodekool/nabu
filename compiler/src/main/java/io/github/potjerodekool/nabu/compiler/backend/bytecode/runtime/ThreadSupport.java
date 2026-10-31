@@ -457,6 +457,29 @@ public final class ThreadSupport {
         return virtual != null ? virtual.getAndClearInterrupt(current) : Thread.interrupted();
     }
 
+    private static native long threadId0();
+
+    private static native void signalThread0(long thread);
+
+    /**
+     * NativeThread.current(): the id of the running platform thread, or -1 for a virtual thread (as the JDK does; a
+     * virtual thread in a blocking read is not interrupted). The JDK's own version of Windows always returns 0, so
+     * a blocked read is never recorded, and its signal does nothing.
+     */
+    public static long nativeThreadCurrent() {
+        return Thread.currentThread().isVirtual() ? -1L : threadId0();
+    }
+
+    /** NativeThread.isNativeThread(long). */
+    public static boolean isNativeThread(final long thread) {
+        return thread != 0L && thread != -1L;
+    }
+
+    /** NativeThread.signal(long): wakes the thread from the blocking read it is in. */
+    public static void nativeThreadSignal(final long thread) {
+        signalThread0(thread);
+    }
+
     /** Thread.isAlive(). */
     public static boolean isAlive(final Thread thread) {
         final VirtualThreadOps virtual = virtualOps(thread);

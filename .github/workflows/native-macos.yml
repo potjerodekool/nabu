@@ -64,13 +64,14 @@ jobs:
             echo "=== NABU_CONTINUATIONS=$conts"
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
-          limited() { "$@" & pid=$!; ( sleep 25; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
-          echo "=== lldb: continuationBasics, who disposes a continuation"
-          { echo "breakpoint set -n jcl_cont_dispose"; echo "breakpoint set -n jcl_Continuation_enterSpecial"; echo run; echo "bt 12"; echo "expression -- k"; echo continue; echo "bt 12"; echo "expression -- k"; echo "expression -- k->state"; echo "expression -- k->region"; echo continue; echo "bt 12"; echo "expression -- k->state"; echo "expression -- k->region"; echo continue; echo "bt 12"; echo "expression -- k->state"; echo "expression -- k->region"; } > lldb.cmds
-          NABU_CONTINUATIONS=1 limited lldb --batch --source lldb.cmds -- ./threads.exe continuationBasics < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -120
-          echo "=== lldb: manyParkedVirtualThreads, the makecontext crash"
-          { echo run; echo "bt 8"; echo "frame select 1"; echo "expression -- k->stack_map"; echo "expression -- k->stack_map_size"; echo "expression -- k->uc.uc_stack"; echo "memory region 0x17433ec30"; echo "register read x9 x10 sp"; } > lldb.cmds
-          NABU_CONTINUATIONS=1 limited lldb --batch --source lldb.cmds -- ./threads.exe manyParkedVirtualThreads < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -60
+          limited() { "$@" & pid=$!; ( sleep 40; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
+          echo "=== busy thread frames"
+          NABU_TRACE_FRAMES=1 NABU_CPUS=3 limited ./threads.exe threadStackTraceOfBusyThread 2>&1 | head -40
+          echo "=== continuationStackTraces frames"
+          NABU_TRACE_FRAMES=1 NABU_CONTINUATIONS=1 limited ./threads.exe continuationStackTraces 2>&1 | head -60
+          echo "=== abandoned: memory over time"
+          ( for i in 1 2 3 4 5 6 7 8 9 10; do sleep 4; ps -o rss=,vsz= -p $(pgrep -f 'threads.exe abandoned' | head -1) 2>/dev/null; done ) &
+          NABU_CONTINUATIONS=1 limited ./threads.exe abandonedParkedVirtualThreads 2>&1 | tail -8
           exit 0
 
       - name: Keep the reports

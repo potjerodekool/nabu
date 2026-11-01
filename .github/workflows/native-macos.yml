@@ -64,7 +64,7 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 25; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
-          show() { echo "[out $(wc -c < out.txt) bytes]"; cat -v out.txt | head -20; echo "[err $(wc -c < err.txt) bytes]"; cat -v err.txt | head -20; }
+          show() { echo "[out $(wc -c < out.txt) bytes]"; od -c out.txt | head -12; echo "[err $(wc -c < err.txt) bytes]"; od -c err.txt | head -20; }
           echo "=== probe: cpuCount, stdin /dev/null"
           limited ./threads.exe cpuCount < /dev/null > out.txt 2> err.txt; show
           echo "=== probe: cpuCount, NABU_CPUS=3, stdin a pipe like the test"

@@ -65,18 +65,11 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 25; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
-          show() { echo "[out $(wc -c < out.txt) bytes]"; od -c out.txt | head -12; echo "[err $(wc -c < err.txt) bytes]"; od -c err.txt | head -20; }
-          echo "=== probe: cpuCount, stdin /dev/null"
-          limited ./threads.exe cpuCount < /dev/null > out.txt 2> err.txt; show
-          echo "=== probe: cpuCount, NABU_CPUS=3, stdin a pipe like the test"
-          sleep 40 | NABU_CPUS=3 limited ./threads.exe cpuCount > out.txt 2> err.txt; show
-          echo "=== probe: nosuch"
-          limited ./threads.exe nosuch < /dev/null > out.txt 2> err.txt; show
-          echo "=== probe: pingPong (killed after 25 s when it hangs)"
-          limited ./threads.exe pingPong < /dev/null > out.txt 2> err.txt; show
-          echo "=== lldb: pingPong, where is the main thread"
-          { echo run; } > lldb.cmds
-          ( ./threads.exe pingPong < /dev/null > /dev/null 2>&1 & pid=$!; sleep 8; lldb --batch -p $pid -o "thread backtrace all" -o detach 2>&1 | grep -v "^   *[0-9]* *BIND" | head -70; kill -9 $pid )
+          for prog in continuationBasics systemProperty manyParkedVirtualThreads; do
+            echo "=== lldb: $prog"
+            { echo run; echo "bt 25"; echo "register read pc sp lr"; } > lldb.cmds
+            NABU_CONTINUATIONS=1 limited lldb --batch --source lldb.cmds -- ./threads.exe $prog < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -60
+          done
           exit 0
 
       - name: Keep the reports

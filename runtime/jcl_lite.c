@@ -5865,6 +5865,11 @@ static void **jcl_referent_slot(void *ref) {
     intptr_t off = ref != NULL ? nabu_instance_field_offset(ref, "referent") : -1;
     return off >= 0 ? (void **)((char *)ref + off) : NULL;
 }
+/* Reference.get() of newer JDK builds calls this native. */
+BIND(void *, jcl_Reference_get0, "java.lang.ref.Reference_get0", (void *self)) {
+    void **slot = jcl_referent_slot(self);
+    return slot != NULL ? *slot : NULL;
+}
 BIND(int, jcl_Reference_refersTo0, "java.lang.ref.Reference_refersTo0", (void *self, void *obj)) {
     void **slot = jcl_referent_slot(self);
     return slot != NULL && *slot == obj;

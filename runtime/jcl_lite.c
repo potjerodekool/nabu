@@ -5608,6 +5608,10 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
             if (!created) jcl_stack_unreserve();
         }
         if (created) {
+            /* Known before the first switch: jcl_cont_switch_in then sets the stack end of the collector for this thread
+             * before it moves to the new stack. Otherwise a collection that stops the thread in between scans from the
+             * new stack up to the end of the old one, which is across memory that is not mapped. */
+            k->hi = (char *)k->stack_map + k->stack_map_size;
             getcontext(&k->uc);
 #ifdef __APPLE__
             /* makecontext of macOS makes the whole stack resident (4 MB each). It only needs the top of the stack to

@@ -1,0 +1,46 @@
+name: Native tests on Linux aarch64
+
+# Linux on arm64 is not part of the release yet. This job runs the native thread tests there by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: 'Failsafe test selection (-Dit.test)'
+        default: 'ThreadsE2eIT'
+      forks:
+        description: 'Test processes in parallel (-Dit.forks)'
+        default: '1'
+
+permissions:
+  contents: read
+
+jobs:
+  threads:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: 'maven'
+
+      - name: C toolchain and libgc
+        run: sudo apt-get update && sudo apt-get install -y gcc libgc-dev unzip
+
+      - name: Run the native tests
+        timeout-minutes: 120
+        run: >
+          mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
+          -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=linux-arm64 -Dit.forks=${{ inputs.forks }}
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports
+          path: native-backend/target/failsafe-reports/*
+          if-no-files-found: ignore

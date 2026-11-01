@@ -4690,8 +4690,14 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
 }
 
 /* vthread: a virtual thread that waits (Object.wait on a continuation) is woken by unparking it, a thread by its waiter. */
+#ifdef NABU_GC_BOEHM
 extern void *GC_malloc_uncollectable(size_t n);
 extern void GC_free(void *p);
+#else
+/* without the collector nothing is collected: plain memory is as good as a root */
+#define GC_malloc_uncollectable(n) calloc(1, (n))
+#define GC_free(p) free(p)
+#endif
 typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; void *vthread; int depth; } jcl_waiter;
 void nabu_set_virtual_unpark_fn(void *fn) { jcl_virtual_unpark_fn = (void (*)(void *))fn; }
 static jcl_waiter *jcl_waiters = NULL;
@@ -5237,8 +5243,10 @@ extern void GC_set_push_other_roots(void (*proc)(void));
 extern void (*GC_get_push_other_roots(void))(void);
 extern void *GC_get_my_stackbottom(struct GC_stack_base *sb);
 extern void GC_set_stackbottom(void *gc_thread_handle, const struct GC_stack_base *sb);
+#ifdef NABU_GC_BOEHM
 extern void *GC_malloc_uncollectable(size_t n);
 extern void GC_free(void *p);
+#endif
 
 /* owned: the stack of a continuation; its collector object scans it (jcl_cont_mark), so the root hook skips it */
 typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; int owned; } jcl_region;

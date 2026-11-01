@@ -2542,8 +2542,14 @@ void nabu_waiter_wake(nabu_waiter *waiter) {
 
 /* collector memory that is a root: an entry holds the monitor and the virtual thread that waits for it, which nothing else
  * may refer to */
+#ifdef NABU_GC_BOEHM
 extern void *GC_malloc_uncollectable(size_t);
 extern void GC_free(void *);
+#else
+/* without the collector nothing is collected: plain memory is as good as a root */
+#define GC_malloc_uncollectable(n) calloc(1, (n))
+#define GC_free(p) free(p)
+#endif
 
 typedef struct nabu_keyq_entry {
     const void *key;

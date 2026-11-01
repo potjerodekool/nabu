@@ -163,6 +163,9 @@ class NativeExceptionEndToEndTest {
     @Test
     void probeForEachWithOrAssign() throws Exception {
         NativeToolchain.assumeGcc();
+        // the target triple below is the MinGW one: the object file it makes cannot be linked on another system
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                System.getProperty("os.name", "").toLowerCase().contains("win"), "needs Windows (MinGW target)");
         IRModule module = generateIr(
                 "class Main { " +
                 "static boolean f(Object o) { return o != null; } " +
@@ -201,6 +204,9 @@ class NativeExceptionEndToEndTest {
     @Test
     void fullSourceToExeCatchesException() throws Exception {
         NativeToolchain.assumeGcc();
+        // the target triple below is the MinGW one: the object file it makes cannot be linked on another system
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                System.getProperty("os.name", "").toLowerCase().contains("win"), "needs Windows (MinGW target)");
 
         var root = new File(".").getAbsoluteFile();
         while (!root.isDirectory() || !"nabu".equals(root.getName())) {

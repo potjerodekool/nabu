@@ -140,8 +140,17 @@ public final class StackTraceSupport {
     }
 
     /** The element for a symbol "package.Owner_member", or null for a frame that is not part of the trace. */
-    private static StackTraceElement element(final String symbol, final String file, final int line,
+    private static StackTraceElement element(final String name, final String file, final int line,
                                              final boolean leading) {
+        // An overload index "$_25" at the end belongs to the method name (not a second "_" separator).
+        String symbol = name;
+        int digits = symbol.length();
+        while (digits > 0 && symbol.charAt(digits - 1) >= '0' && symbol.charAt(digits - 1) <= '9') {
+            digits--;
+        }
+        if (digits < symbol.length() && digits >= 2 && symbol.charAt(digits - 1) == '_' && symbol.charAt(digits - 2) == '$') {
+            symbol = symbol.substring(0, digits - 2);
+        }
         final int split = symbol.lastIndexOf('_');
         if (split <= 0) {
             return null;

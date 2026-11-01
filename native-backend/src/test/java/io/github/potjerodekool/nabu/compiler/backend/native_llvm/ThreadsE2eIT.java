@@ -301,6 +301,8 @@ class ThreadsE2eIT {
     /** Stack traces of code that runs on a continuation. */
     @Test
     void continuationStackTraces() throws Exception {
+        // The frames of methods that LLVM inlined come from the DWARF in the executable; macOS keeps that in the object files.
+        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name").startsWith("Mac"));
         assertEquals(expected("continuationStackTraces"), output("continuationStackTraces", CONTINUATIONS));
     }
 

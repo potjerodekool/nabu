@@ -5549,6 +5549,10 @@ static int jcl_stack_reserve(void) {
         const long room = maps - (maps / 16 > 2048 ? maps / 16 : 2048);  /* what the rest of the process needs */
         jcl_stack_limit = room > 2 ? room / 2 : 1;
     }
+    if (getenv("NABU_TRACE_STACKS") != NULL && jcl_stack_count % 2000 == 0) {
+        extern size_t GC_get_heap_size(void);
+        fprintf(stderr, "stacks %ld limit %ld heap %zu\n", jcl_stack_count, jcl_stack_limit, GC_get_heap_size());
+    }
     if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) > jcl_stack_limit) {
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         /* the stacks are not collector memory, so they do not make it collect: abandoned ones may be waiting for a cycle */

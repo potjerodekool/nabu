@@ -11,6 +11,9 @@ on:
       forks:
         description: 'Test processes in parallel (-Dit.forks)'
         default: '1'
+      hanghunt:
+        description: 'Name of a program to run 8 at a time; a program that is still running after 40 s gets a backtrace of all threads'
+        default: ''
       crashhunt:
         description: 'Run the kept executable many times in parallel under lldb and show the crashes'
         default: 'false'
@@ -96,6 +99,37 @@ jobs:
           done
           for f in $(grep -l "stop reason" hunt.*.txt | head -3); do echo "=== $f"; grep -v '^$' "$f" | head -120; done
           echo "lldb crashes: $(grep -l 'stop reason' hunt.*.txt | wc -l) of $(ls hunt.*.txt | wc -l)"
+          exit 0
+
+      - name: Hang hunt
+        if: always() && inputs.hanghunt != ''
+        timeout-minutes: 40
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/keep" || exit 0
+          hangs=0
+          for round in $(seq 1 8); do
+            pids=""
+            for i in 1 2 3 4 5 6 7 8; do
+              NABU_CONTINUATIONS=1 ./threads.exe "${{ inputs.hanghunt }}" > "hang.$round.$i.out" 2>&1 &
+              pids="$pids $!"
+            done
+            sleep 40
+            n=0
+            for pid in $pids; do
+              if kill -0 $pid 2>/dev/null; then
+                n=$((n+1)); hangs=$((hangs+1))
+                if [ $hangs -le 3 ]; then
+                  echo "=== hang $hangs (round $round, pid $pid)"
+                  sudo lldb -p $pid -b -o "thread backtrace all" -o "detach" 2>&1 | grep -v '^$' | cut -c1-200 | head -250
+                fi
+                kill -9 $pid 2>/dev/null
+              fi
+            done
+            wait
+            echo "round $round: $n of 8 still running after 40 s"
+          done
+          echo "hangs: $hangs of 64"
           exit 0
 
       - name: Keep the reports

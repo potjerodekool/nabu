@@ -5543,8 +5543,7 @@ static void jcl_cont_dispose(jcl_cont *k) {
 static void jcl_cont_finalize(void *k, void *data) {
     (void)data;
     static long finalized = 0;
-    if (getenv("NABU_TRACE_STACKS") != NULL && __atomic_add_fetch(&finalized, 1, __ATOMIC_RELAXED) % 500 == 1) fprintf(stderr, "finalizer %ld
-", finalized);
+    if (getenv("NABU_TRACE_STACKS") != NULL && __atomic_add_fetch(&finalized, 1, __ATOMIC_RELAXED) % 500 == 1) fprintf(stderr, "finalizer %ld\n", finalized);
     jcl_cont_dispose((jcl_cont *)k);
 }
 
@@ -5597,8 +5596,7 @@ static int jcl_stack_reserve(void) {
         const int finalized = GC_invoke_finalizers();
         if (getenv("NABU_TRACE_STACKS") != NULL) {
             GC_gcollect();
-            fprintf(stderr, "gc no %lu -> %lu, second collection: %d finalizers, %ld stacks
-", gcs_before, GC_get_gc_no(), GC_invoke_finalizers(), jcl_stack_count);
+            fprintf(stderr, "gc no %lu -> %lu, second collection: %d finalizers, %ld stacks\n", gcs_before, GC_get_gc_no(), GC_invoke_finalizers(), jcl_stack_count);
         }
         if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "collected at %ld stacks: %d finalizers run, now %ld\n", jcl_stack_limit, finalized, jcl_stack_count);
         if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;

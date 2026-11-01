@@ -5247,6 +5247,21 @@ extern void GC_free(void *p);
 /* owned: the stack of a continuation; its collector object scans it (jcl_cont_mark), so the root hook skips it */
 typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; int owned; } jcl_region;
 
+/* The collector scans a thread from its stack pointer up to the stack end it has recorded for the thread. Moving from one
+ * stack to another changes both, one after the other, and a collection that stops the thread in between would scan
+ * from the one stack up to the end of the other: across memory that is not mapped (a crash), or nothing at all (the stack
+ * of the running fiber goes unscanned and its objects are freed). So no collection starts while a thread is on its way:
+ * every switch disables the collector before it changes the stack end, and the code that the switch lands in enables it. */
+#ifdef _WIN32
+#define JCL_SWITCH_BEGIN() ((void)0)
+#define JCL_SWITCH_END() ((void)0)
+#else
+extern void GC_disable(void);
+extern void GC_enable(void);
+#define JCL_SWITCH_BEGIN() GC_disable()
+#define JCL_SWITCH_END() GC_enable()
+#endif
+
 typedef struct jcl_cont {
 #ifdef _WIN32
     LPVOID fiber;
@@ -5395,9 +5410,11 @@ static void jcl_fiber_main(unsigned int lo, unsigned int hi) {
 #endif
     k->region->hi = k->hi;
     jcl_set_gc_base(jcl_gc_thread, k->hi);
+    JCL_SWITCH_END();
     k->failure = jcl_continuation_run_fn != NULL ? jcl_continuation_run_fn(k->obj) : NULL;
     k->state = 3;
     k->region->sp = NULL;
+    JCL_SWITCH_BEGIN();
 #ifdef _WIN32
     SwitchToFiber(k->back);
 #else
@@ -5443,6 +5460,7 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
     k->parent = outer;
     k->monitors = nabu_held_monitors();
     k->region->sp = NULL;
+    JCL_SWITCH_BEGIN();
     if (k->hi != NULL) jcl_set_gc_base(jcl_gc_thread, k->hi);
     jcl_running = k;
 #ifdef _WIN32
@@ -5454,6 +5472,7 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
     if (__atomic_load_n(&k->state, __ATOMIC_ACQUIRE) == 5) __atomic_store_n(&k->state, 2, __ATOMIC_RELEASE);
     jcl_running = outer;
     jcl_set_gc_base(jcl_gc_thread, (void *)prev_hi);
+    JCL_SWITCH_END();
     mine->sp = NULL;
 }
 
@@ -5462,11 +5481,13 @@ static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
     __builtin_unwind_init();
     __atomic_store_n(&k->state, 5, __ATOMIC_RELEASE); /* yielding: the carrier makes it 2 when the context is saved */
     k->region->sp = JCL_CURRENT_SP();
+    JCL_SWITCH_BEGIN();
 #ifdef _WIN32
     SwitchToFiber(k->back);
 #else
     swapcontext(&k->uc, k->back);
 #endif
+    JCL_SWITCH_END();
 }
 
 /* A jcl_cont is collector memory of a kind of its own: when something reachable refers to it (the Continuation, through

@@ -12,7 +12,7 @@ on:
         description: 'Test processes in parallel (-Dit.forks)'
         default: '1'
       hanghunt:
-        description: 'Name of a program to run 8 at a time; a program that is still running after 40 s gets a backtrace of all threads'
+        description: 'Names of programs (separated by spaces) to run 8 at a time; one that is still running after 30 s gets a backtrace of all threads'
         default: ''
       crashhunt:
         description: 'Run the kept executable many times in parallel under lldb and show the crashes'
@@ -107,29 +107,29 @@ jobs:
         run: |
           set +e
           cd "$RUNNER_TEMP/keep" || exit 0
-          hangs=0
-          for round in $(seq 1 8); do
-            pids=""
-            for i in 1 2 3 4 5 6 7 8; do
-              NABU_CONTINUATIONS=1 ./threads.exe "${{ inputs.hanghunt }}" > "hang.$round.$i.out" 2>&1 &
-              pids="$pids $!"
-            done
-            sleep 40
-            n=0
-            for pid in $pids; do
-              if kill -0 $pid 2>/dev/null; then
-                n=$((n+1)); hangs=$((hangs+1))
-                if [ $hangs -le 3 ]; then
-                  echo "=== hang $hangs (round $round, pid $pid)"
-                  sudo lldb -p $pid -b -o "thread backtrace all" -o "detach" 2>&1 | grep -v '^$' | cut -c1-200 | head -250
+          for prog in ${{ inputs.hanghunt }}; do
+            hangs=0
+            for round in $(seq 1 4); do
+              pids=""
+              for i in 1 2 3 4 5 6 7 8; do
+                NABU_CONTINUATIONS=1 ./threads.exe "$prog" > "hang.$prog.$round.$i.out" 2>&1 &
+                pids="$pids $!"
+              done
+              sleep 30
+              for pid in $pids; do
+                if kill -0 $pid 2>/dev/null; then
+                  hangs=$((hangs+1))
+                  if [ $hangs -le 1 ]; then
+                    echo "=== $prog: hang $hangs (round $round, pid $pid)"
+                    sudo lldb -p $pid -b -o "thread backtrace all" -o "detach" 2>&1 | grep -v '^$' | cut -c1-200 | head -250
+                  fi
+                  kill -9 $pid 2>/dev/null
                 fi
-                kill -9 $pid 2>/dev/null
-              fi
+              done
+              wait
             done
-            wait
-            echo "round $round: $n of 8 still running after 40 s"
+            echo "RESULT $prog: $hangs of 32 still running after 30 s"
           done
-          echo "hangs: $hangs of 64"
           exit 0
 
       - name: Keep the reports

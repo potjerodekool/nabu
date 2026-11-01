@@ -292,6 +292,24 @@ class ThreadsE2eIT {
         assertEquals(expected("continuationBlocking"), output("continuationBlocking", CONTINUATIONS));
     }
 
+    /** A ReentrantLock that 100 virtual threads fight for, without yielding. */
+    @Test
+    void lockContention() throws Exception {
+        assertEquals(expected("lockContention"), output("lockContention", CONTINUATIONS));
+    }
+
+    /** 100 virtual threads that yield, with no lock. */
+    @Test
+    void yieldContention() throws Exception {
+        assertEquals(expected("yieldContention"), output("yieldContention", CONTINUATIONS));
+    }
+
+    /** A ReentrantLock with a yield inside the critical section. */
+    @Test
+    void lockYieldContention() throws Exception {
+        assertEquals(expected("lockYieldContention"), output("lockYieldContention", CONTINUATIONS));
+    }
+
     /** More pinned virtual threads than carriers: the queued ones run once the pinned ones leave. */
     @Test
     void continuationStarvation() throws Exception {

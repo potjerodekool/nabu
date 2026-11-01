@@ -82,7 +82,7 @@ jobs:
           echo "== plain, 8 at a time"
           for round in $(seq 1 25); do
             for i in 1 2 3 4 5 6 7 8; do
-              ( ./threads.exe > "plain.$round.$i.txt" 2>&1; echo "$?" > "plain.$round.$i.exit" ) &
+              ( NABU_CONTINUATIONS=1 ./threads.exe abandonedParkedVirtualThreads > "plain.$round.$i.txt" 2>&1; echo "$?" > "plain.$round.$i.exit" ) &
             done
             wait
           done
@@ -90,7 +90,7 @@ jobs:
           echo "== under lldb, 8 at a time"
           for round in $(seq 1 15); do
             for i in 1 2 3 4 5 6 7 8; do
-              ( lldb -b -o run -k "thread backtrace all" -k "register read" -k "quit" ./threads.exe > "hunt.$round.$i.txt" 2>&1 ) &
+              ( NABU_CONTINUATIONS=1 lldb -b -o run -k "thread backtrace all" -k "register read" -k "quit" -- ./threads.exe abandonedParkedVirtualThreads > "hunt.$round.$i.txt" 2>&1 ) &
             done
             wait
           done

@@ -68,6 +68,20 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 100; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
+          echo "=== hang hunt: parallel continuationMonitors"
+          for round in 1 2 3; do
+            pids=""
+            for n in 1 2 3 4 5 6; do NABU_CONTINUATIONS=1 ./threads.exe continuationMonitors > out.$round.$n 2>&1 & pids="$pids $!"; done
+            sleep 45
+            for pid in $pids; do
+              if kill -0 $pid 2>/dev/null; then
+                echo "--- round $round: pid $pid hangs"
+                lldb --batch -p $pid -o "thread backtrace all" < /dev/null 2>&1 | grep -vE "^\s*$" | head -150
+                kill -9 $pid
+              fi
+            done
+            wait
+          done
           exit 0
 
       - name: Keep the reports

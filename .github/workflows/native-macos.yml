@@ -64,15 +64,18 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 25; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
+          show() { echo "[out $(wc -c < out.txt) bytes]"; cat -v out.txt | head -20; echo "[err $(wc -c < err.txt) bytes]"; cat -v err.txt | head -20; }
+          echo "=== probe: cpuCount, stdin /dev/null"
+          limited ./threads.exe cpuCount < /dev/null > out.txt 2> err.txt; show
+          echo "=== probe: cpuCount, NABU_CPUS=3, stdin a pipe like the test"
+          sleep 40 | NABU_CPUS=3 limited ./threads.exe cpuCount > out.txt 2> err.txt; show
           echo "=== probe: nosuch"
-          limited ./threads.exe nosuch < /dev/null 2>&1 | head -20
-          echo "=== probe: pingPong"
-          limited ./threads.exe pingPong < /dev/null 2>&1 | head -10
-          echo "=== probe: cpuCount (stdout, stderr)"
-          limited ./threads.exe cpuCount < /dev/null > out.txt 2> err.txt; wc -c out.txt err.txt; head -c 300 out.txt; head -c 300 err.txt
-          echo "=== lldb: who calls write"
-          { echo "breakpoint set -n write"; echo run; echo "bt 10"; echo continue; echo "bt 10"; echo continue; echo "bt 10"; } > lldb.cmds
-          limited lldb --batch --source lldb.cmds -- ./threads.exe cpuCount < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -80
+          limited ./threads.exe nosuch < /dev/null > out.txt 2> err.txt; show
+          echo "=== probe: pingPong (killed after 25 s when it hangs)"
+          limited ./threads.exe pingPong < /dev/null > out.txt 2> err.txt; show
+          echo "=== lldb: pingPong, where is the main thread"
+          { echo run; } > lldb.cmds
+          ( ./threads.exe pingPong < /dev/null > /dev/null 2>&1 & pid=$!; sleep 8; lldb --batch -p $pid -o "thread backtrace all" -o detach 2>&1 | grep -v "^   *[0-9]* *BIND" | head -70; kill -9 $pid )
 
       - name: Keep the reports
         if: always()

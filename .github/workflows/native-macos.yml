@@ -65,11 +65,12 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 25; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
-          for prog in continuationBasics systemProperty manyParkedVirtualThreads; do
-            echo "=== lldb: $prog"
-            { echo run; echo "bt 25"; echo "register read pc sp lr"; } > lldb.cmds
-            NABU_CONTINUATIONS=1 limited lldb --batch --source lldb.cmds -- ./threads.exe $prog < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -60
-          done
+          echo "=== lldb: continuationBasics, who disposes a continuation"
+          { echo "breakpoint set -n jcl_cont_dispose"; echo "breakpoint set -n jcl_Continuation_enterSpecial"; echo run; echo "bt 12"; echo "expression -- k"; echo continue; echo "bt 12"; echo "expression -- k"; echo "expression -- k->state"; echo "expression -- k->region"; echo continue; echo "bt 12"; echo "expression -- k->state"; echo "expression -- k->region"; echo continue; echo "bt 12"; echo "expression -- k->state"; echo "expression -- k->region"; } > lldb.cmds
+          NABU_CONTINUATIONS=1 limited lldb --batch --source lldb.cmds -- ./threads.exe continuationBasics < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -120
+          echo "=== lldb: manyParkedVirtualThreads, the makecontext crash"
+          { echo run; echo "bt 8"; echo "frame select 1"; echo "expression -- k->stack_map"; echo "expression -- k->stack_map_size"; echo "expression -- k->uc.uc_stack"; echo "memory region 0x17433ec30"; echo "register read x9 x10 sp"; } > lldb.cmds
+          NABU_CONTINUATIONS=1 limited lldb --batch --source lldb.cmds -- ./threads.exe manyParkedVirtualThreads < /dev/null 2>&1 | grep -v "^   *[0-9]* *BIND" | head -60
           exit 0
 
       - name: Keep the reports

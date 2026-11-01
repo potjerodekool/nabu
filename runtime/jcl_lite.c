@@ -4984,9 +4984,9 @@ static void *jcl_thread_main(void *arg) {
     nabu_set_current_thread_id((int)st->id);
     nabu_set_wait_slot(&st->wait_state);
     __atomic_store_n(&st->waiter, nabu_waiter_self(), __ATOMIC_SEQ_CST);
-    if (getenv("NABU_TRACE_THREADS") != NULL) fprintf(stderr, "thread %ld starts\n", (long)st->id);
+    if (getenv("NABU_TRACE_THREADS") != NULL) fprintf(stderr, "thread %ld starts at %ld\n", (long)st->id, (long)jcl_now_ms());
     if (jcl_thread_run_fn != NULL) jcl_thread_run_fn(st->self);
-    if (getenv("NABU_TRACE_THREADS") != NULL) fprintf(stderr, "thread %ld ends\n", (long)st->id);
+    if (getenv("NABU_TRACE_THREADS") != NULL) fprintf(stderr, "thread %ld ends at %ld\n", (long)st->id, (long)jcl_now_ms());
     /* Under the monitor of the thread, as the JVM does: Thread.join holds it from its look at isAlive until it
      * waits, so the end of the thread cannot come in between and its notification be missed. */
     nabu_monitorenter(st->self);

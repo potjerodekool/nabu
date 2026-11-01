@@ -2,6 +2,7 @@
 #define _DARWIN_C_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <ucontext.h>
 #include <sys/mman.h>
@@ -15,30 +16,31 @@ static size_t resident(void *p, size_t size) {
     return r;
 }
 
-static void body(void) {}
+static ucontext_t main_uc, uc;
+static int depth_result;
+
+static int deep(int n) {
+    volatile char buf[8192];
+    memset((void *)buf, n, sizeof buf);
+    return n == 0 ? buf[0] : deep(n - 1) + buf[100];
+}
+
+static void body(void) {
+    depth_result = deep(100); /* about 800 KB of stack */
+}
 
 int main(void) {
     size_t page = (size_t)sysconf(_SC_PAGESIZE), size = (size_t)4 << 20;
-    int flags[2] = { MAP_PRIVATE | MAP_ANONYMOUS, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE };
-    for (int f = 0; f < 2; f++) {
-        void *m = mmap(NULL, size, PROT_READ | PROT_WRITE, flags[f], -1, 0);
-        printf("flags %d: after mmap %zu of %zu pages\n", f, resident(m, size), size / page);
-        mprotect(m, page, PROT_NONE);
-        printf("  after mprotect %zu\n", resident(m, size));
-        ucontext_t uc;
-        getcontext(&uc);
-        printf("  after getcontext %zu\n", resident(m, size));
-        uc.uc_stack.ss_sp = (char *)m + page;
-        uc.uc_stack.ss_size = size - page;
-        uc.uc_link = NULL;
-        makecontext(&uc, body, 0);
-        printf("  after makecontext %zu\n", resident(m, size));
-        /* a read of the top page */
-        volatile char c = ((char *)m)[size - 1];
-        (void)c;
-        printf("  after read of last byte %zu\n", resident(m, size));
-        ((char *)m)[size - 1] = 1;
-        printf("  after write of last byte %zu\n", resident(m, size));
-    }
+    void *m = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    mprotect(m, page, PROT_NONE);
+    getcontext(&uc);
+    /* makecontext only gets the top window of the stack */
+    uc.uc_stack.ss_sp = (char *)m + size - 2 * page;
+    uc.uc_stack.ss_size = 2 * page;
+    uc.uc_link = &main_uc;
+    makecontext(&uc, body, 0);
+    printf("window: after makecontext %zu of %zu pages resident\n", resident(m, size), size / page);
+    swapcontext(&main_uc, &uc);
+    printf("window: ran deep(100) = %d, resident now %zu\n", depth_result, resident(m, size));
     return 0;
 }

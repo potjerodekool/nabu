@@ -5573,15 +5573,20 @@ static int jcl_trace_hits = 0;
 typedef void (*jcl_reachable_proc)(void *obj, size_t size, void *cd);
 extern void GC_enumerate_reachable_objects_inner(jcl_reachable_proc proc, void *cd);
 extern void *GC_call_with_alloc_lock(void *(*fn)(void *), void *arg);
+static void *jcl_trace_target = NULL;
+static size_t jcl_trace_target_size = 0;
+static void *jcl_trace_found = NULL;
 static void jcl_trace_ref_cb(void *obj, size_t size, void *cd) {
     (void)cd;
     uintptr_t *w = (uintptr_t *)obj;
     for (size_t i = 0; i < size / sizeof(uintptr_t); i++) {
-        if (w[i] >= (uintptr_t)jcl_trace_k0 && w[i] < (uintptr_t)jcl_trace_k0 + sizeof(jcl_cont) && obj != jcl_trace_k0) {
-            if (jcl_trace_hits++ < 12) {
+        if (w[i] >= (uintptr_t)jcl_trace_target && w[i] < (uintptr_t)jcl_trace_target + jcl_trace_target_size && obj != jcl_trace_target) {
+            if (jcl_trace_hits++ < 4) {
                 const char *t = nabu_compiled_type_name(obj);
-                fprintf(stderr, "ref to the first continuation: object %p size %zu word %zu type %s\n", obj, size, i, t != NULL ? t : "?");
+                fprintf(stderr, "  referrer %p size %zu word %zu type %s\n", obj, size, i, t != NULL ? t : "?");
+                if (jcl_trace_found == NULL || (t != NULL && nabu_compiled_type_name(jcl_trace_found) == NULL)) jcl_trace_found = obj;
             }
+            return;
         }
     }
 }
@@ -5627,7 +5632,20 @@ static int jcl_stack_reserve(void) {
             GC_gcollect();
             fprintf(stderr, "gc no %lu -> %lu, second collection: %d finalizers, %ld stacks\n", gcs_before, GC_get_gc_no(), GC_invoke_finalizers(), jcl_stack_count);
         }
-        if (getenv("NABU_TRACE_STACKS") != NULL && jcl_trace_k0 != NULL) { jcl_trace_hits = 0; GC_call_with_alloc_lock(jcl_trace_refs, NULL); fprintf(stderr, "%d objects refer to the first continuation\n", jcl_trace_hits); }
+        if (getenv("NABU_TRACE_STACKS") != NULL && jcl_trace_k0 != NULL) {
+            extern size_t GC_size(const void *);
+            jcl_trace_target = jcl_trace_k0;
+            for (int depth = 0; depth < 12 && jcl_trace_target != NULL; depth++) {
+                jcl_trace_target_size = GC_size(jcl_trace_target);
+                const char *tt = nabu_compiled_type_name(jcl_trace_target);
+                fprintf(stderr, "who refers to %p (size %zu, type %s)?\n", jcl_trace_target, jcl_trace_target_size, tt != NULL ? tt : "?");
+                jcl_trace_hits = 0;
+                jcl_trace_found = NULL;
+                GC_call_with_alloc_lock(jcl_trace_refs, NULL);
+                if (jcl_trace_hits == 0) fprintf(stderr, "  nothing in the heap: a root (stack, registers or static data)\n");
+                jcl_trace_target = jcl_trace_found;
+            }
+        }
         if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "canaries: kind %d plain %d\n", jcl_canary_kind_done, jcl_canary_plain_done);
         if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "collected at %ld stacks: %d finalizers run, now %ld\n", jcl_stack_limit, finalized, jcl_stack_count);
         if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;

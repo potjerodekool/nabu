@@ -300,7 +300,7 @@ public final class ThreadSupport {
      * is a safety net.
      */
     public static void backoffVirtual(final int attempt) {
-        Thread.yield();
+        java.util.concurrent.locks.LockSupport.parkNanos(50_000_000L);
     }
 
     public static void waitOn(final Object object) throws InterruptedException {

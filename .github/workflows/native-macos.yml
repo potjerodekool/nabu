@@ -8,6 +8,9 @@ on:
       tests:
         description: 'Failsafe test selection (-Dit.test)'
         default: 'ThreadsE2eIT#cpuCount'
+      forks:
+        description: 'Test processes in parallel (-Dit.forks)'
+        default: '3'
 
 permissions:
   contents: read
@@ -46,7 +49,7 @@ jobs:
         timeout-minutes: 120
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
-          -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64
+          -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
           -DargLine="-Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
         env:
           C_INCLUDE_PATH: /opt/homebrew/include

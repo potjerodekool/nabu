@@ -5634,8 +5634,15 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
         }
         if (created) {
             getcontext(&k->uc);
+#ifdef __APPLE__
+            /* makecontext of macOS makes the whole stack resident (4 MB each). It only needs the top of the stack to
+             * start on; the stack grows down into the rest of the mapping, whose pages are used when it gets there. */
+            k->uc.uc_stack.ss_sp = (char *)k->stack_map + k->stack_map_size - 2 * page;
+            k->uc.uc_stack.ss_size = 2 * page;
+#else
             k->uc.uc_stack.ss_sp = (char *)k->stack_map + page;
             k->uc.uc_stack.ss_size = k->stack_map_size - page;
+#endif
             k->uc.uc_link = NULL;
             makecontext(&k->uc, (void (*)(void))jcl_fiber_main, 2, (unsigned int)((uintptr_t)k & 0xffffffffu),
                     (unsigned int)((uintptr_t)k >> 32));

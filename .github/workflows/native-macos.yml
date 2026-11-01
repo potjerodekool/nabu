@@ -65,8 +65,6 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 100; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
-          echo "=== probe"
-          clang -o stackprobe "$GITHUB_WORKSPACE/runtime/probe/stackprobe.c" && ./stackprobe
           exit 0
 
       - name: Keep the reports

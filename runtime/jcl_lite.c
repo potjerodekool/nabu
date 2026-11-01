@@ -5510,15 +5510,19 @@ static void *jcl_cont_alloc(void) {
 
 /* Gives back the stack of a continuation that is done or abandoned. */
 static void jcl_cont_dispose(jcl_cont *k) {
-    if (k->region == NULL) return;
+    jcl_region *r = k->region;
+    if (r == NULL) return;
+    /* First hide the stack from the collector (jcl_cont_mark scans it from r->sp up), then give it back: a collection
+     * that stops this thread in between must not scan a stack that is already unmapped. */
+    __atomic_store_n(&r->sp, NULL, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&k->region, NULL, __ATOMIC_SEQ_CST);
 #ifdef _WIN32
     DeleteFiber(k->fiber);
 #else
     munmap(k->stack_map, k->stack_map_size);
     jcl_stack_unreserve();
 #endif
-    jcl_region_release(k->region);
-    k->region = NULL;
+    jcl_region_release(r);
 }
 static void jcl_cont_finalize(void *k, void *data) { (void)data; jcl_cont_dispose((jcl_cont *)k); }
 

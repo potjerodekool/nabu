@@ -5576,15 +5576,19 @@ extern void *GC_call_with_alloc_lock(void *(*fn)(void *), void *arg);
 static void *jcl_trace_target = NULL;
 static size_t jcl_trace_target_size = 0;
 static void *jcl_trace_found = NULL;
+static void *jcl_trace_visited[64];
+static int jcl_trace_visited_count = 0;
 static void jcl_trace_ref_cb(void *obj, size_t size, void *cd) {
     (void)cd;
     uintptr_t *w = (uintptr_t *)obj;
     for (size_t i = 0; i < size / sizeof(uintptr_t); i++) {
         if (w[i] >= (uintptr_t)jcl_trace_target && w[i] < (uintptr_t)jcl_trace_target + jcl_trace_target_size && obj != jcl_trace_target) {
-            if (jcl_trace_hits++ < 4) {
+            if (jcl_trace_hits++ < 8) {
                 const char *t = nabu_compiled_type_name(obj);
                 fprintf(stderr, "  referrer %p size %zu word %zu type %s\n", obj, size, i, t != NULL ? t : "?");
-                if (jcl_trace_found == NULL || (t != NULL && nabu_compiled_type_name(jcl_trace_found) == NULL)) jcl_trace_found = obj;
+                int seen = 0;
+                for (int v = 0; v < jcl_trace_visited_count; v++) if (jcl_trace_visited[v] == obj) seen = 1;
+                if (!seen && (jcl_trace_found == NULL || (t != NULL && strstr(t, "ConcurrentHashMap") != NULL))) jcl_trace_found = obj;
             }
             return;
         }
@@ -5635,12 +5639,13 @@ static int jcl_stack_reserve(void) {
         if (getenv("NABU_TRACE_STACKS") != NULL && jcl_trace_k0 != NULL) {
             extern size_t GC_size(const void *);
             jcl_trace_target = jcl_trace_k0;
-            for (int depth = 0; depth < 12 && jcl_trace_target != NULL; depth++) {
+            for (int depth = 0; depth < 30 && jcl_trace_target != NULL; depth++) {
                 jcl_trace_target_size = GC_size(jcl_trace_target);
                 const char *tt = nabu_compiled_type_name(jcl_trace_target);
                 fprintf(stderr, "who refers to %p (size %zu, type %s)?\n", jcl_trace_target, jcl_trace_target_size, tt != NULL ? tt : "?");
                 jcl_trace_hits = 0;
                 jcl_trace_found = NULL;
+                if (jcl_trace_visited_count < 64) jcl_trace_visited[jcl_trace_visited_count++] = jcl_trace_target;
                 GC_call_with_alloc_lock(jcl_trace_refs, NULL);
                 if (jcl_trace_hits == 0) fprintf(stderr, "  nothing in the heap: a root (stack, registers or static data)\n");
                 jcl_trace_target = jcl_trace_found;

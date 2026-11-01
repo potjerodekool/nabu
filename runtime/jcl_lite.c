@@ -5047,14 +5047,16 @@ BIND(void *, jcl_ThreadSupport_stackTrace0, "io.github.potjerodekool.nabu.compil
     st->cap_done = 0;
     st->cap_requester = self;
     __atomic_store_n(&st->cap_request, 1, __ATOMIC_SEQ_CST);
-    nabu_waiter_wake(__atomic_load_n(&st->waiter, __ATOMIC_SEQ_CST));
-    const int64_t until = jcl_now_ms() + 200;
+    const int64_t until = jcl_now_ms() + 1000;
     for (;;) {
         const unsigned long ticket = nabu_waiter_ticket(self);
         if (__atomic_load_n(&st->cap_done, __ATOMIC_SEQ_CST)) { found = 1; break; }
         const int64_t left = until - jcl_now_ms();
         if (left <= 0) break;
-        nabu_waiter_wait(self, ticket, left);
+        /* wake again and again: a wake just before the thread reads its ticket is not seen by the wait, and the hook
+         * runs only when a wait returns */
+        nabu_waiter_wake(__atomic_load_n(&st->waiter, __ATOMIC_SEQ_CST));
+        nabu_waiter_wait(self, ticket, left < 5 ? left : 5);
     }
     __atomic_store_n(&st->cap_request, 0, __ATOMIC_SEQ_CST);
     __atomic_sub_fetch(&nabu_safepoint_request, 1, __ATOMIC_SEQ_CST);

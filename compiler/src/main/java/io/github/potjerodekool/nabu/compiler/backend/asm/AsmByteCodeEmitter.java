@@ -364,7 +364,12 @@ public class AsmByteCodeEmitter {
             // proloog-default (0/null) op ieder basisblok veilig is en de
             // exception-edge altijd een gedefinieerd frame heeft.
             var blocks = pruneUnreachable(Linearizer.linearize(function.blocks()));
-            final var prologueSkip = collectPrologueLiveInSlots(blocks, slots, paramSlotCount(function, isStatic));
+            final var prologueSkip = new java.util.HashSet<>(
+                    collectPrologueLiveInSlots(blocks, slots, paramSlotCount(function, isStatic)));
+            if (handlerEntrySlots.isEmpty() && !blocks.isEmpty()) {
+                // Without handlers no frame has to know the slot before its first write: see the method.
+                prologueSkip.addAll(collectLeadingConstantWrites(blocks.getFirst(), slots));
+            }
             final var emitter = new FunctionEmitter(methodVisitor, this, slots, ownerInternalName, blocks);
             activeFunctionEmitter = emitter;
 
@@ -849,6 +854,44 @@ private static void resolveSlotTypeConflicts(final Map<Integer, IRType> slotType
 
         liveIn.retainAll(written);
         return liveIn;
+    }
+
+    /**
+     * The slots that the entry block writes with a constant before anything else can happen: the prologue need not give
+     * them a default first (that would be a second ACONST_NULL/ASTORE, ICONST_0/ISTORE, ... for the same slot, right
+     * before the real one).
+     *
+     * Only the leading stores of constants count: they cannot throw or branch, so nothing sees the slot before this write,
+     * and every other instruction of the method comes after it. That is only enough without exception handlers: a
+     * handler's frame merges the frame of every instruction it covers, and a slot that is still undefined at the first
+     * of them stays undefined there.
+     */
+    private static java.util.Set<Integer> collectLeadingConstantWrites(final IRBasicBlock entry,
+                                                                         final SlotAllocator slots) {
+        final var written = new java.util.HashSet<Integer>();
+        for (final var instr : entry.instructions()) {
+            final IRValue target;
+            final IRValue value;
+            if (instr instanceof IRInstruction.Move move) {
+                target = move.result();
+                value = move.value();
+            } else if (instr instanceof IRInstruction.Store store && store.ptr() instanceof IRValue.Temp) {
+                target = store.ptr();
+                value = store.value();
+            } else {
+                break;
+            }
+            if (!(value instanceof IRValue.ConstInt || value instanceof IRValue.ConstFloat
+                    || value instanceof IRValue.ConstBool || value instanceof IRValue.ConstNull
+                    || value instanceof IRValue.ConstString)) {
+                break;
+            }
+            final var slot = slotIndexOf(target, slots);
+            if (slot >= 0) {
+                written.add(slot);
+            }
+        }
+        return written;
     }
 
     private static List<IRValue> readValues(final IRInstruction instr) {

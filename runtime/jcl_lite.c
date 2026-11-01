@@ -5558,8 +5558,19 @@ static void **jcl_cont_slot(void *c) {
  * stop at a part of the limit and the continuation that would be one too many gets an OutOfMemoryError instead. */
 static long jcl_stack_count = 0;
 static long jcl_stack_limit = 0;
+static volatile int jcl_canary_kind_done = 0, jcl_canary_plain_done = 0;
+static void jcl_canary_kind_fin(void *o, void *d) { (void)o; (void)d; jcl_canary_kind_done = 1; }
+static void jcl_canary_plain_fin(void *o, void *d) { (void)o; (void)d; jcl_canary_plain_done = 1; }
+/* NABU_TRACE_STACKS: two objects nothing refers to, one of the kind of the continuations and one plain, with finalizers */
+static __attribute__((noinline)) void jcl_canary_make(void) {
+    void *a = jcl_cont_alloc();
+    GC_register_finalizer_no_order(a, jcl_canary_kind_fin, NULL, NULL, NULL);
+    void *b = GC_malloc(sizeof(jcl_cont));
+    GC_register_finalizer_no_order(b, jcl_canary_plain_fin, NULL, NULL, NULL);
+}
 static int jcl_stack_reserve(void) {
     if (jcl_stack_limit == 0) {
+        if (getenv("NABU_TRACE_STACKS") != NULL) jcl_canary_make();
         long maps = 65530;
 #ifdef __APPLE__
         /* No vm.max_map_count, but also no MAP_NORESERVE: every touched stack costs real memory, and 200000 abandoned
@@ -5598,6 +5609,7 @@ static int jcl_stack_reserve(void) {
             GC_gcollect();
             fprintf(stderr, "gc no %lu -> %lu, second collection: %d finalizers, %ld stacks\n", gcs_before, GC_get_gc_no(), GC_invoke_finalizers(), jcl_stack_count);
         }
+        if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "canaries: kind %d plain %d\n", jcl_canary_kind_done, jcl_canary_plain_done);
         if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "collected at %ld stacks: %d finalizers run, now %ld\n", jcl_stack_limit, finalized, jcl_stack_count);
         if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);

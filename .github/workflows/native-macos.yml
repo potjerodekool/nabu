@@ -43,6 +43,7 @@ jobs:
         run: mkdir -p "$RUNNER_TEMP/keep"
 
       - name: Run the native tests
+        timeout-minutes: 120
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
           -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64
@@ -76,6 +77,7 @@ jobs:
           echo "=== lldb: pingPong, where is the main thread"
           { echo run; } > lldb.cmds
           ( ./threads.exe pingPong < /dev/null > /dev/null 2>&1 & pid=$!; sleep 8; lldb --batch -p $pid -o "thread backtrace all" -o detach 2>&1 | grep -v "^   *[0-9]* *BIND" | head -70; kill -9 $pid )
+          exit 0
 
       - name: Keep the reports
         if: always()

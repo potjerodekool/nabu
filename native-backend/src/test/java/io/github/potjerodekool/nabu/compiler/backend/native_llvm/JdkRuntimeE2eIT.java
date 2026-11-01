@@ -336,6 +336,7 @@ class JdkRuntimeE2eIT {
         Path out = tempDir.resolve("out");
         Files.createDirectories(out);
         var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SOURCE_PATH, srcDir.toString())
                 .option(CompilerOption.CLASS_OUTPUT, out.toString())
                 .option(CompilerOption.BACKEND, "LLVM")

@@ -49,7 +49,7 @@ The same frontend and IR can be targeted to multiple backends:
 
 The compiler is extended through a plugin system. `PluginRegistry` discovers plugins from the classpath and from a user directory, reading each plugin's `plugin.xml` manifest. Extension points include:
 
-- **`language-parser` / `language-support`** — add a new input language
+- **`language-parser` / `language-support`** — add a new input language: a language parser is compiled by Nabu, a language support (Java, Kotlin) is only read, for the symbols of its sources, unless the option `--compile-language-support` is given
 - **`backend`** — add a new output backend
 - **`element-resolver`** — add DSL element resolution
 - **`code-transformer`** — transform a DSL AST into a normal AST

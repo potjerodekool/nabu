@@ -153,6 +153,7 @@ The base build compiles `src/main/nabu` with the [Nabu Maven plugin]({{ site.bas
                 </annotationProcessorPaths>
                 <compilerArgs>
                     <arg>--backend=ASM</arg>
+                    <arg>--compile-language-support</arg>
                 </compilerArgs>
             </configuration>
             <executions>
@@ -161,7 +162,7 @@ The base build compiles `src/main/nabu` with the [Nabu Maven plugin]({{ site.bas
                 </execution>
             </executions>
         </plugin>
-        <!-- Nabu compiles everything, including Main.java -->
+        <!-- Nabu compiles everything, including Main.java (--compile-language-support above) -->
         <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-compiler-plugin</artifactId>

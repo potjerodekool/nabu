@@ -22,6 +22,11 @@ public record CompilerOption(String optionName) {
     public static final CompilerOption MAIN_CLASS = new CompilerOption("--main-class");
     /** The name of the executable, without extension. */
     public static final CompilerOption IMAGE_NAME = new CompilerOption("--image-name");
+    /**
+     * "true": the sources of a LanguageSupport (Java, Kotlin) are compiled too. By default they are only read, for their
+     * symbols (a .nabu file can use them), and compiling them is left to their own compiler (javac).
+     */
+    public static final CompilerOption COMPILE_LANGUAGE_SUPPORT = new CompilerOption("--compile-language-support");
 
     public static final List<CompilerOption> COMPILER_OPTIONS = List.of(
             SOURCE_PATH,
@@ -39,7 +44,8 @@ public record CompilerOption(String optionName) {
             INCREMENTAL,
             BYTECODE_JDK_HOME,
             MAIN_CLASS,
-            IMAGE_NAME
+            IMAGE_NAME,
+            COMPILE_LANGUAGE_SUPPORT
     );
 
     public static final List<CompilerOption> INCREMENTAL_FINGERPRINT_OPTIONS = List.of(
@@ -56,7 +62,8 @@ public record CompilerOption(String optionName) {
             GC,
             OPT,
             MAIN_CLASS,
-            IMAGE_NAME
+            IMAGE_NAME,
+            COMPILE_LANGUAGE_SUPPORT
     );
 
     @Override

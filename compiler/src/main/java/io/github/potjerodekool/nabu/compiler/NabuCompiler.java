@@ -61,15 +61,16 @@ public class NabuCompiler implements Compiler {
 
             final var fileManager = compilerContext.getFileManager();
 
-            final var allSourceKinds = new ArrayList<FileObject.Kind>();
-            allSourceKinds.addAll(compilerContext.getPluginRegistry()
-                    .getLanguageParserManager()
-                    .getSourceKinds());
-            allSourceKinds.addAll(compilerContext.getPluginRegistry()
-                    .getLanguageSupportManager()
-                    .getSourceKinds());
-
-            final var sourceFileKinds = allSourceKinds.toArray(FileObject.Kind[]::new);
+            // Only what a LanguageParser reads is compiled. A LanguageSupport (Java, Kotlin) is there to read source files
+            // for their symbols (see ClassFinder), so that a .nabu file can use them, not to compile them.
+            final var kindsToCompile = new ArrayList<>(compilerContext.getPluginRegistry()
+                    .getSourceKindsForCompilation());
+            if (fullOptions.getOption(CompilerOption.COMPILE_LANGUAGE_SUPPORT).map("true"::equals).orElse(false)) {
+                kindsToCompile.addAll(compilerContext.getPluginRegistry()
+                        .getLanguageSupportManager()
+                        .getSourceKinds());
+            }
+            final var sourceFileKinds = kindsToCompile.toArray(FileObject.Kind[]::new);
             final var sourceFiles = resolveSourceFiles(fileManager, sourceFileKinds);
 
             final var incremental = isIncremental(fullOptions);

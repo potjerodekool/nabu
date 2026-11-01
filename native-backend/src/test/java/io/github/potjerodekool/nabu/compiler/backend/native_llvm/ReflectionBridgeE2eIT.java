@@ -94,6 +94,7 @@ class ReflectionBridgeE2eIT {
                 new File(root, "runtime/nabu_runtime.c").toPath().toAbsolutePath().toString());
 
         var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SOURCE_PATH, src.toAbsolutePath().toString())
                 .option(CompilerOption.CLASS_OUTPUT, out.toAbsolutePath().toString())
                 .option(CompilerOption.BACKEND, "LLVM")

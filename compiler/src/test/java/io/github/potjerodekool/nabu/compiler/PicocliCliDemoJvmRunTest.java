@@ -36,6 +36,7 @@ class PicocliCliDemoJvmRunTest {
                 "cli-demo niet aanwezig");
         final var out = tempDir.resolve("out");
         final var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SYSTEM, "C:\\projects\\nabu\\compiler\\src\\test\\resources")
                 .option(CompilerOption.SOURCE_PATH, PICOCLI_SRC + ";" + DEMO.resolve("src/main/nabu"))
                 .option(CompilerOption.CLASS_OUTPUT, out.toString())

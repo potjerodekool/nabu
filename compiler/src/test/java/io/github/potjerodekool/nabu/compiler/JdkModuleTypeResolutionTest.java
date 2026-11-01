@@ -46,6 +46,7 @@ class JdkModuleTypeResolutionTest {
         final var outDir = tempDir.resolve("out");
 
         final var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SOURCE_PATH, tempDir.resolve("src").toString())
                 .option(CompilerOption.CLASS_OUTPUT, outDir.toString())
                 .option(CompilerOption.SOURCE_OUTPUT, tempDir.resolve("generated").toString())

@@ -29,6 +29,7 @@ class InterfaceInitNameProbeTest {
         while (!root.isDirectory() || !"nabu".equals(root.getName())) root = root.getParentFile();
         String rootPath = new File(root, "compiler").getAbsolutePath();
         CompilerOptions options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, rootPath + "/src/test/resources/classes")
                 .build();

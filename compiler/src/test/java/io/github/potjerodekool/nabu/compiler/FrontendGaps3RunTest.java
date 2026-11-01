@@ -42,6 +42,7 @@ class FrontendGaps3RunTest {
         final var outDir = tempDir.resolve("out");
         final var rootPath = "C:\\projects\\nabu\\compiler";
         final var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SYSTEM, rootPath + "\\src\\test\\resources")
                 .option(CompilerOption.SOURCE_PATH, srcDir.toString())
                 .option(CompilerOption.CLASS_OUTPUT, outDir.toString())

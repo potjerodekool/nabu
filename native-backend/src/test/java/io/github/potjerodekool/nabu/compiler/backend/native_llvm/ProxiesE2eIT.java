@@ -106,6 +106,7 @@ class ProxiesE2eIT {
         System.setProperty("nabu.runtime",
                 new File(root, "runtime/nabu_runtime.c").toPath().toAbsolutePath().toString());
         final var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SOURCE_PATH, srcDir.toString())
                 .option(CompilerOption.CLASS_OUTPUT, out.toString())
                 .option(CompilerOption.BACKEND, "LLVM")

@@ -38,7 +38,7 @@ The compiler options for the LLVM backend (`--gc`, `--opt`, …) are described o
 
 ## Mixing Nabu and Java
 
-Nabu compiles Java sources itself (see [Java Interop]({{ site.baseurl }}/languages/java/)), so the simplest setup is to let the `nabu-maven-plugin` compile everything and switch off `javac` for the main sources:
+By default `javac` compiles the Java sources and the `nabu-maven-plugin` the Nabu sources; Nabu only reads the Java sources, for the classes a `.nabu` file uses (see [Java Interop]({{ site.baseurl }}/languages/java/)). To let the `nabu-maven-plugin` compile the Java sources as well, add `<arg>--compile-language-support</arg>` to its `compilerArgs`, and switch off `javac` for the main sources:
 
 ```xml
 <plugin>
@@ -51,7 +51,7 @@ Nabu compiles Java sources itself (see [Java Interop]({{ site.baseurl }}/languag
 </plugin>
 ```
 
-If you want `javac` to compile the Java sources as well, place the `nabu-maven-plugin` **before** the `maven-compiler-plugin`, as described below. The `build-helper-maven-plugin` adds `src/main/nabu` as a source directory.
+In the default setup, where `javac` compiles the Java sources, place the `nabu-maven-plugin` **before** the `maven-compiler-plugin`, as described below. The `build-helper-maven-plugin` adds `src/main/nabu` as a source directory.
 
 ```xml
 <plugin>

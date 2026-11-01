@@ -59,6 +59,7 @@ public abstract class AbstractCompilerTest {
         final var rootPath = rootDirectory.getAbsolutePath();
 
         final var optionBuilder = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, rootPath + "/src/test/resources/classes");
 

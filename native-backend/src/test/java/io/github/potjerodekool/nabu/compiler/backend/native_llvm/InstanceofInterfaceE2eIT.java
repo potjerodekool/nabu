@@ -96,6 +96,7 @@ class InstanceofInterfaceE2eIT {
         Files.createDirectories(out);
 
         var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SOURCE_PATH, src.getParent().toAbsolutePath().toString())
                 .option(CompilerOption.CLASS_OUTPUT, out.toAbsolutePath().toString())
                 .option(CompilerOption.BACKEND, "LLVM")

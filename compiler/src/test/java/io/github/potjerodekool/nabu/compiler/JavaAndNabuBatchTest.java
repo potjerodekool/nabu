@@ -53,6 +53,7 @@ class JavaAndNabuBatchTest {
         final var rootPath = rootDirectory.getAbsolutePath();
 
         final var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
                 .option(CompilerOption.SYSTEM, rootPath + "/src/test/resources")
                 .option(CompilerOption.SOURCE_PATH, srcDir.toString())
                 .option(CompilerOption.CLASS_OUTPUT, outDir.toString())

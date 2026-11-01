@@ -4,7 +4,7 @@ title: Installing Nabu
 ---
 
 <div class="callout callout-info" markdown="1">
-**Only a pre-release exists so far: `v0.1.0-rc1`.** GitHub does not count a pre-release as the "latest" release, so the commands below with `/releases/latest` work from the first stable release on. Until then give the version: `--version 0.1.0-rc1` (`-Version 0.1.0-rc1` on Windows), with the URL `https://github.com/potjerodekool/nabu/releases/download/v0.1.0-rc1/install.sh` (or `install.ps1`). The release has been built and tried on GitHub Actions for Windows x64 and Linux x64, and installed from GitHub on Windows x64. It has not been tried on macOS or Linux arm64.
+**Only pre-releases exist so far; the newest is `v0.1.0-rc4`.** GitHub does not count a pre-release as the "latest" release, so the commands below with `/releases/latest` work from the first stable release on. Until then give the version: `--version 0.1.0-rc4` (`-Version 0.1.0-rc4` on Windows), with the URL `https://github.com/potjerodekool/nabu/releases/download/v0.1.0-rc4/install.sh` (or `install.ps1`). The release is built and tried on GitHub Actions for Linux x64, Linux arm64, macOS (Apple Silicon) and Windows x64: the install script installs it and a program is built to a native executable. It has been installed from GitHub itself on Windows x64 only; macOS and Linux arm64 are tested on CI runners only, not on a machine of our own (see [limitations]({{ site.baseurl }}/limitations/)).
 </div>
 
 Nabu comes in two parts that you install separately:

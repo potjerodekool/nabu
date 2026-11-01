@@ -1,0 +1,79 @@
+name: Verify a release
+
+# Installs a published release the way a user does (the install script from the release page, over the network) on every
+# platform that has a native file, and tries it: nabu doctor, and a native build of a small program.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to install (without the v)'
+        required: true
+        default: '0.1.0-rc4'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-latest
+            platform: macosx-arm64
+          - os: windows-latest
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout code (for the smoke test script only)
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+
+      - name: C toolchain and libgc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgc-dev unzip
+
+      - name: C toolchain and libgc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install bdw-gc
+
+      - name: C toolchain and libgc (Windows)
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gc
+
+      - name: Put the MinGW tools on the PATH (Windows)
+        if: runner.os == 'Windows'
+        run: echo "${{ steps.msys2.outputs.msys2-location }}/ucrt64/bin" >> "$GITHUB_PATH"
+
+      - name: Install the release from GitHub, and try it
+        run: |
+          version="${{ inputs.version }}"
+          tmp="$RUNNER_TEMP"
+          if command -v cygpath >/dev/null 2>&1; then tmp=$(cygpath -m "$RUNNER_TEMP"); fi
+          url="https://github.com/potjerodekool/nabu/releases/download/v$version"
+          if [ "$RUNNER_OS" = Windows ]; then
+            curl -fsSL -o "$tmp/install.ps1" "$url/install.ps1"
+            powershell -NoProfile -ExecutionPolicy Bypass -File "$tmp/install.ps1" -Native -Version "$version" -NabuHome "$tmp/nabu" -NoModifyPath
+          else
+            curl -fsSL -o "$tmp/install.sh" "$url/install.sh"
+            sh "$tmp/install.sh" --native --version "$version" --home "$tmp/nabu" --no-modify-path
+          fi
+          sh install/smoke-test.sh "$tmp/nabu"

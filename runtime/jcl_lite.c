@@ -5456,9 +5456,30 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
     mine->sp = NULL;
 }
 
+#ifndef _WIN32
+/* NABU_TRACE_STACKS: how much of the stack of a continuation is resident, against how much it uses. */
+static void jcl_trace_resident(jcl_cont *k, const char *what) {
+    static int enabled = -1;
+    static int shown = 0;
+    if (enabled < 0) enabled = getenv("NABU_TRACE_STACKS") != NULL;
+    if (!enabled || __atomic_add_fetch(&shown, 1, __ATOMIC_RELAXED) > 40) return;
+    const size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    char vec[4096];
+    size_t pages = k->stack_map_size / page, resident = 0;
+    if (pages > sizeof vec || mincore(k->stack_map, k->stack_map_size, vec) != 0) return;
+    for (size_t i = 0; i < pages; i++) resident += vec[i] & 1;
+    fprintf(stderr, "stack %s: %zu of %zu pages resident, used %ld bytes\n", what, resident, pages,
+            k->region != NULL && k->region->sp != NULL ? (long)((char *)k->hi - (char *)k->region->sp) : -1L);
+}
+#endif
+
 /* Leaves the running continuation; returns when it is run again, possibly by another thread. */
 static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
     __builtin_unwind_init();
+#ifndef _WIN32
+    k->region->sp = JCL_CURRENT_SP();
+    jcl_trace_resident(k, "parked");
+#endif
     __atomic_store_n(&k->state, 5, __ATOMIC_RELEASE); /* yielding: the carrier makes it 2 when the context is saved */
     k->region->sp = JCL_CURRENT_SP();
 #ifdef _WIN32

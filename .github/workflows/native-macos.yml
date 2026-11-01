@@ -7,10 +7,10 @@ on:
     inputs:
       tests:
         description: 'Failsafe test selection (-Dit.test)'
-        default: 'ThreadsE2eIT#cpuCount'
+        default: 'ThreadsE2eIT'
       forks:
         description: 'Test processes in parallel (-Dit.forks)'
-        default: '3'
+        default: '1'
 
 permissions:
   contents: read

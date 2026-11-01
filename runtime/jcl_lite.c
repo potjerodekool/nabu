@@ -1,6 +1,13 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#ifdef __APPLE__
+/* Before any include: without _XOPEN_SOURCE the ucontext_t of macOS has no room for the machine context that
+ * getcontext/makecontext/swapcontext write (the struct is about 50 bytes instead of 900) and they overwrite what follows
+ * it. _DARWIN_C_SOURCE keeps the rest of the system interface visible. */
+#define _XOPEN_SOURCE 600
+#define _DARWIN_C_SOURCE
+#endif
 #include "nabu_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>

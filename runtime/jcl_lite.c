@@ -5586,7 +5586,8 @@ static int jcl_stack_reserve(void) {
         extern void GC_gcollect(void);
         extern int GC_invoke_finalizers(void);
         GC_gcollect();
-        GC_invoke_finalizers();
+        const int finalized = GC_invoke_finalizers();
+        if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "collected at %ld stacks: %d finalizers run, now %ld\n", jcl_stack_limit, finalized, jcl_stack_count);
         if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         static int told = 0;

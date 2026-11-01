@@ -65,6 +65,8 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 100; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
+          echo "=== abandoned"
+          NABU_TRACE_STACKS=1 NABU_CONTINUATIONS=1 limited ./threads.exe abandonedParkedVirtualThreads 2>&1 | grep -E "^collected|^stacks|exit|parked" | awk 'NR%3==1 || /collected|exit|parked/' | head -60
           exit 0
 
       - name: Keep the reports

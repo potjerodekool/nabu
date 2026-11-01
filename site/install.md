@@ -78,9 +78,9 @@ export PATH="$HOME/.nabu/bin:$PATH"          # in your shell profile (Linux and 
 
 | Platform | You need |
 |---|---|
-| Linux x64 | `gcc` and the Boehm GC (Debian and Ubuntu: `sudo apt install build-essential libgc-dev`) |
+| Linux x64 and arm64 | `gcc` and the Boehm GC (Debian and Ubuntu: `sudo apt install build-essential libgc-dev`) |
 | Windows x64 | MinGW-w64 `gcc` with `libgc`, and the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
-| macOS | `clang` (`xcode-select --install`) and the Boehm GC (`brew install bdw-gc`); tested on a CI runner only, see [limitations]({{ site.baseurl }}/limitations/) |
+| macOS (Apple Silicon) | `clang` (`xcode-select --install`) and the Boehm GC (`brew install bdw-gc`, found in `/opt/homebrew` without any setting); tested on a CI runner only, see [limitations]({{ site.baseurl }}/limitations/) |
 
 Nabu does not ship the Microsoft runtime that its LLVM libraries need on Windows: Microsoft's terms for redistributing it are not those of Nabu. Many machines have it already; `nabu doctor` tells you if yours does not.
 
@@ -139,4 +139,4 @@ To remove Nabu, delete `~/.nabu` and the PATH line you added.
 
 ## The release files
 
-A release has `nabu-<version>.zip` (core), `nabu-native-<version>-<platform>.zip` for each platform (`linux-x86_64`, `windows-x86_64`), `SHA256SUMS`, `install.sh` and `install.ps1`. What the executables you build contain, and under which licenses, is in [Licenses]({{ site.baseurl }}/backends/llvm/native-image/#licenses) and in the files `NOTICE`, `THIRD-PARTY-NOTICES.md` and `licenses/` of the core archive.
+A release has `nabu-<version>.zip` (core), `nabu-native-<version>-<platform>.zip` for each platform (`linux-x86_64`, `linux-arm64`, `macosx-arm64`, `windows-x86_64`), `SHA256SUMS`, `install.sh` and `install.ps1`. What the executables you build contain, and under which licenses, is in [Licenses]({{ site.baseurl }}/backends/llvm/native-image/#licenses) and in the files `NOTICE`, `THIRD-PARTY-NOTICES.md` and `licenses/` of the core archive.

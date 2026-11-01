@@ -306,6 +306,12 @@ class ThreadsE2eIT {
         assertEquals(expected("continuationStackTraces"), output("continuationStackTraces", CONTINUATIONS));
     }
 
+    /** Carriers that were idle for 30 seconds have ended; the next virtual thread gets a new one. */
+    @Test
+    void carrierRespawn() throws Exception {
+        assertEquals(expected("carrierRespawn"), output("carrierRespawn", CONTINUATIONS));
+    }
+
     /** Subtasks of a StructuredTaskScope inherit the scoped values of the thread that opened it. */
     @Test
     void structuredTaskScopeFailureAndScopedValueOnContinuations() throws Exception {

@@ -66,6 +66,8 @@ public class InstructionEmitter {
     private String currentFunctionName;
     // Naam van de 'this'-parameter van de huidige constructor.
     private String thisParameterName;
+    // Of de huidige functie een constructor is.
+    private boolean inConstructor;
 
     // Velden waarvan al gemeld is dat ze niet benaderbaar zijn (eenmalig
     // waarschuwen per veld).
@@ -76,6 +78,7 @@ public class InstructionEmitter {
         this.currentFunctionName = fn != null ? fn.name : null;
         this.pendingConstructorAllocs.clear();
         this.lastAllocatedObject = null;
+        this.inConstructor = fn != null && fn.isConstructor();
         this.thisParameterName = fn != null && fn.isConstructor() && !fn.params.isEmpty()
                 ? nameOf(fn.params.get(0))
                 : null;
@@ -2362,6 +2365,11 @@ public class InstructionEmitter {
     }
 
     private void emitReturn(IRInstruction.Return ret) {
+        if (inConstructor) {
+            // Zoals de JVM bij final-velden: de velden zijn geschreven voordat het object via een gewone store
+            // (zonder volatile) voor een andere thread zichtbaar kan worden. Nodig op arm64.
+            LLVMBuildFence(builder, LLVMAtomicOrderingRelease, 0, "");
+        }
         if (ret.value() == null)
             LLVMBuildRetVoid(builder);
         else {

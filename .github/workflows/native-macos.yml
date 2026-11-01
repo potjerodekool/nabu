@@ -69,7 +69,7 @@ jobs:
           done
           limited() { "$@" & pid=$!; ( sleep 100; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
           echo "=== hang hunt: 6 parallel continuationMonitors per configuration"
-          for cfg in "X=1" "NABU_CPUS=1" "NABU_CPUS=2" "NABU_CPUS=8" "NABU_GIL=1" "NABU_CONTINUATIONS=0"; do
+          for cfg in "X=1" "NABU_EXPERIMENT_YIELD=1" "X=2" "NABU_EXPERIMENT_YIELD=1"; do
             rm -f out.*
             for n in 1 2 3 4 5 6; do env NABU_CONTINUATIONS=1 $cfg ./threads.exe continuationMonitors > out.$n 2>&1 & done
             sleep 50

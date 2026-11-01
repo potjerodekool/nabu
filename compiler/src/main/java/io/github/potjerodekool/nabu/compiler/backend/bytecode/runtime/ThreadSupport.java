@@ -300,6 +300,10 @@ public final class ThreadSupport {
      * is a safety net.
      */
     public static void backoffVirtual(final int attempt) {
+        if (System.getenv("NABU_EXPERIMENT_YIELD") != null) {
+            Thread.yield();
+            return;
+        }
         java.util.concurrent.locks.LockSupport.parkNanos(50_000_000L);
     }
 

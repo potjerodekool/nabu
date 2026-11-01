@@ -1678,6 +1678,10 @@ gebruik MinGW/gcc met target x86_64-w64-windows-gnu."
  * InstanceOf
  * ------------------------------------------------------- */
 
+#ifdef __APPLE__
+#include <mach-o/loader.h>
+extern const struct mach_header_64 _mh_execute_header;
+#endif
 const char *nabu_compiled_type_name(const void *p) {
 #ifdef _WIN32
     static const char *image_lo = NULL, *image_hi = NULL;
@@ -1710,6 +1714,39 @@ const char *nabu_compiled_type_name(const void *p) {
     if (t < &__executable_start || t >= &end) return NULL;
     const char *name = ((const nabu_type_info *) t)->name;
     if (name < &__executable_start || name >= &end) return NULL;
+    return name;
+#elif defined(__APPLE__)
+    /* Same idea: the type info is part of the executable's own segments, from the Mach-O header to the end of the
+       last segment (the slide of ASLR is the difference between the header and where __TEXT asks to be). */
+    static const char *volatile image_hi = NULL;
+    static const char *volatile image_lo = NULL;
+    if (p == NULL) return NULL;
+    if (image_lo == NULL) {
+        const struct mach_header_64 *mh = &_mh_execute_header;
+        const struct load_command *lc = (const struct load_command *)(mh + 1);
+        intptr_t slide = 0;
+        for (uint32_t i = 0; i < mh->ncmds; i++, lc = (const struct load_command *)((const char *)lc + lc->cmdsize)) {
+            if (lc->cmd == LC_SEGMENT_64) {
+                const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+                if (strcmp(seg->segname, "__TEXT") == 0) slide = (intptr_t)((uintptr_t)mh - seg->vmaddr);
+            }
+        }
+        lc = (const struct load_command *)(mh + 1);
+        const char *hi = (const char *)mh;
+        for (uint32_t i = 0; i < mh->ncmds; i++, lc = (const struct load_command *)((const char *)lc + lc->cmdsize)) {
+            if (lc->cmd == LC_SEGMENT_64) {
+                const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+                const char *end = (const char *)(seg->vmaddr + slide + seg->vmsize);
+                if (seg->vmsize > 0 && strcmp(seg->segname, "__PAGEZERO") != 0 && end > hi) hi = end;
+            }
+        }
+        image_hi = hi;
+        image_lo = (const char *)mh;
+    }
+    const char *t = ((const char *const *) p)[0];
+    if (t < image_lo || t >= image_hi) return NULL;
+    const char *name = ((const nabu_type_info *) t)->name;
+    if (name < image_lo || name >= image_hi) return NULL;
     return name;
 #else
     (void) p;

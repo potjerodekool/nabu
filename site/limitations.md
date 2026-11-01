@@ -24,7 +24,7 @@ This page lists what does not work yet, as far as it is known. It is updated as 
 
 - **Windows x64 with MinGW-w64** is the only verified platform.
 - **Linux** (Ubuntu on WSL2, gcc and `libgc-dev`, built with `-Djavacpp.platform=linux-x86_64`) runs the whole integration test suite (`ThreadsE2eIT` included). Stack traces have file and line numbers there too (read from the `.debug_line` section of the executable). macOS has not been tried; there the stack traces have no file and line numbers (the Mach-O format is not read).
-- **macOS** is supported by the code but has not been tested.
+- **macOS** (Apple Silicon) is tested only on a GitHub Actions runner (clang, `brew install bdw-gc`; the manual workflow `native-macos.yml`), not on a Mac of our own. There 64 of the 67 tests of `ThreadsE2eIT` pass. Three do not: the stack of a thread that is busy (`Thread.getStackTrace()`) comes back empty, the frames of some stack traces of virtual threads are missing, and a program that abandons 200000 parked virtual threads is killed (exit 137). Stack traces have no file and line numbers (the Mach-O line tables are not read). Virtual threads on continuations are **off by default** on macOS: set `NABU_CONTINUATIONS=1` to use them; otherwise every virtual thread gets a native thread.
 - **MSVC** is not supported: the exception handling needs DWARF/LSDA unwind data, which the MSVC runtime does not provide.
 
 ### Run time

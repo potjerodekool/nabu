@@ -2614,17 +2614,26 @@ void nabu_keyq_wake_one(const void *key) {
     }
     pthread_once(&nabu_keyq_once, nabu_keyq_init);
     const unsigned bucket = nabu_keyq_bucket(key);
-    void *vthread = NULL;
+    void *vthreads[32];
+    int count = 0;
+    int woken = 0;
     pthread_mutex_lock(&nabu_keyq_locks[bucket]);
+    /* all the waiters of the key, not only the first: the first may already be woken (by an earlier unlock) and
+     * not have left the queue yet, which would lose this wake-up. The waiters check their condition again. */
     for (nabu_keyq_entry *entry = nabu_keyq_heads[bucket]; entry != NULL; entry = entry->next) {
-        if (entry->key == key) {
-            if (entry->vthread != NULL) vthread = entry->vthread; else nabu_waiter_wake(entry->waiter);
-            break;
+        if (entry->key != key) continue;
+        if (entry->vthread != NULL) {
+            if (count < 32) vthreads[count++] = entry->vthread;
+        } else if (!woken) {
+            nabu_waiter_wake(entry->waiter);
+            woken = 1;
         }
     }
     pthread_mutex_unlock(&nabu_keyq_locks[bucket]);
     /* outside of the lock: the unpark runs Java code */
-    if (vthread != NULL && nabu_monitor_unpark_fn != NULL) nabu_monitor_unpark_fn(vthread);
+    if (nabu_monitor_unpark_fn != NULL) {
+        for (int i = 0; i < count; i++) nabu_monitor_unpark_fn(vthreads[i]);
+    }
 }
 
 void nabu_keyq_wake(const void *key) {

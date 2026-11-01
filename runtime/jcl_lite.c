@@ -5225,7 +5225,6 @@ BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compil
 #include <ucontext.h>
 #endif
 #include <sys/mman.h>
-#include <sys/resource.h>
 #ifndef MAP_STACK
 #define MAP_STACK 0
 #endif
@@ -5456,30 +5455,9 @@ static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
     mine->sp = NULL;
 }
 
-#ifndef _WIN32
-/* NABU_TRACE_STACKS: how much of the stack of a continuation is resident, against how much it uses. */
-static void jcl_trace_resident(jcl_cont *k, const char *what) {
-    static int enabled = -1;
-    static int shown = 0;
-    if (enabled < 0) enabled = getenv("NABU_TRACE_STACKS") != NULL;
-    if (!enabled || __atomic_add_fetch(&shown, 1, __ATOMIC_RELAXED) > 40) return;
-    const size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    char vec[4096];
-    size_t pages = k->stack_map_size / page, resident = 0;
-    if (pages > sizeof vec || mincore(k->stack_map, k->stack_map_size, vec) != 0) return;
-    for (size_t i = 0; i < pages; i++) resident += vec[i] & 1;
-    fprintf(stderr, "stack %s: %zu of %zu pages resident, used %ld bytes\n", what, resident, pages,
-            k->region != NULL && k->region->sp != NULL ? (long)((char *)k->hi - (char *)k->region->sp) : -1L);
-}
-#endif
-
 /* Leaves the running continuation; returns when it is run again, possibly by another thread. */
 static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
     __builtin_unwind_init();
-#ifndef _WIN32
-    k->region->sp = JCL_CURRENT_SP();
-    jcl_trace_resident(k, "parked");
-#endif
     __atomic_store_n(&k->state, 5, __ATOMIC_RELEASE); /* yielding: the carrier makes it 2 when the context is saved */
     k->region->sp = JCL_CURRENT_SP();
 #ifdef _WIN32
@@ -5540,12 +5518,7 @@ static void jcl_cont_dispose(jcl_cont *k) {
     jcl_region_release(k->region);
     k->region = NULL;
 }
-static void jcl_cont_finalize(void *k, void *data) {
-    (void)data;
-    static long finalized = 0;
-    if (getenv("NABU_TRACE_STACKS") != NULL && __atomic_add_fetch(&finalized, 1, __ATOMIC_RELAXED) % 500 == 1) fprintf(stderr, "finalizer %ld\n", finalized);
-    jcl_cont_dispose((jcl_cont *)k);
-}
+static void jcl_cont_finalize(void *k, void *data) { (void)data; jcl_cont_dispose((jcl_cont *)k); }
 
 static void **jcl_cont_slot(void *c) {
     intptr_t off = nabu_instance_field_offset(c, "tail");
@@ -5558,46 +5531,8 @@ static void **jcl_cont_slot(void *c) {
  * stop at a part of the limit and the continuation that would be one too many gets an OutOfMemoryError instead. */
 static long jcl_stack_count = 0;
 static long jcl_stack_limit = 0;
-static volatile int jcl_canary_kind_done = 0, jcl_canary_plain_done = 0;
-static void jcl_canary_kind_fin(void *o, void *d) { (void)o; (void)d; jcl_canary_kind_done = 1; }
-static void jcl_canary_plain_fin(void *o, void *d) { (void)o; (void)d; jcl_canary_plain_done = 1; }
-/* NABU_TRACE_STACKS: two objects nothing refers to, one of the kind of the continuations and one plain, with finalizers */
-static __attribute__((noinline)) void jcl_canary_make(void) {
-    void *a = jcl_cont_alloc();
-    GC_register_finalizer_no_order(a, jcl_canary_kind_fin, NULL, NULL, NULL);
-    void *b = GC_malloc(sizeof(jcl_cont));
-    GC_register_finalizer_no_order(b, jcl_canary_plain_fin, NULL, NULL, NULL);
-}
-static void *jcl_trace_k0 = NULL;
-static int jcl_trace_hits = 0;
-typedef void (*jcl_reachable_proc)(void *obj, size_t size, void *cd);
-extern void GC_enumerate_reachable_objects_inner(jcl_reachable_proc proc, void *cd);
-extern void *GC_call_with_alloc_lock(void *(*fn)(void *), void *arg);
-static void *jcl_trace_target = NULL;
-static size_t jcl_trace_target_size = 0;
-static void *jcl_trace_found = NULL;
-static void *jcl_trace_visited[64];
-static int jcl_trace_visited_count = 0;
-static void jcl_trace_ref_cb(void *obj, size_t size, void *cd) {
-    (void)cd;
-    uintptr_t *w = (uintptr_t *)obj;
-    for (size_t i = 0; i < size / sizeof(uintptr_t); i++) {
-        if (w[i] >= (uintptr_t)jcl_trace_target && w[i] < (uintptr_t)jcl_trace_target + jcl_trace_target_size && obj != jcl_trace_target) {
-            if (jcl_trace_hits++ < 8) {
-                const char *t = nabu_compiled_type_name(obj);
-                fprintf(stderr, "  referrer %p size %zu word %zu type %s\n", obj, size, i, t != NULL ? t : "?");
-                int seen = 0;
-                for (int v = 0; v < jcl_trace_visited_count; v++) if (jcl_trace_visited[v] == obj) seen = 1;
-                if (!seen && (jcl_trace_found == NULL || (t != NULL && strstr(t, "ConcurrentHashMap") != NULL))) jcl_trace_found = obj;
-            }
-            return;
-        }
-    }
-}
-static void *jcl_trace_refs(void *arg) { (void)arg; GC_enumerate_reachable_objects_inner(jcl_trace_ref_cb, NULL); return NULL; }
 static int jcl_stack_reserve(void) {
     if (jcl_stack_limit == 0) {
-        if (getenv("NABU_TRACE_STACKS") != NULL) jcl_canary_make();
         long maps = 65530;
 #ifdef __APPLE__
         /* No vm.max_map_count, but also no MAP_NORESERVE: every touched stack costs real memory, and 200000 abandoned
@@ -5614,45 +5549,13 @@ static int jcl_stack_reserve(void) {
         const long room = maps - (maps / 16 > 2048 ? maps / 16 : 2048);  /* what the rest of the process needs */
         jcl_stack_limit = room > 2 ? room / 2 : 1;
     }
-    if (getenv("NABU_TRACE_STACKS") != NULL && jcl_stack_count % 1000 == 0) {
-        extern size_t GC_get_heap_size(void);
-        struct rusage ru;
-        getrusage(RUSAGE_SELF, &ru);
-        struct timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        fprintf(stderr, "stacks %ld limit %ld heap %zu maxrss %ld t %ld.%03ld\n", jcl_stack_count, jcl_stack_limit,
-                GC_get_heap_size(), (long)ru.ru_maxrss, (long)ts.tv_sec % 1000, ts.tv_nsec / 1000000);
-    }
     if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) > jcl_stack_limit) {
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         /* the stacks are not collector memory, so they do not make it collect: abandoned ones may be waiting for a cycle */
         extern void GC_gcollect(void);
         extern int GC_invoke_finalizers(void);
         GC_gcollect();
-        extern unsigned long GC_get_gc_no(void);
-        const unsigned long gcs_before = GC_get_gc_no();
-        const int finalized = GC_invoke_finalizers();
-        if (getenv("NABU_TRACE_STACKS") != NULL) {
-            GC_gcollect();
-            fprintf(stderr, "gc no %lu -> %lu, second collection: %d finalizers, %ld stacks\n", gcs_before, GC_get_gc_no(), GC_invoke_finalizers(), jcl_stack_count);
-        }
-        if (getenv("NABU_TRACE_STACKS") != NULL && jcl_trace_k0 != NULL) {
-            extern size_t GC_size(const void *);
-            jcl_trace_target = jcl_trace_k0;
-            for (int depth = 0; depth < 30 && jcl_trace_target != NULL; depth++) {
-                jcl_trace_target_size = GC_size(jcl_trace_target);
-                const char *tt = nabu_compiled_type_name(jcl_trace_target);
-                fprintf(stderr, "who refers to %p (size %zu, type %s)?\n", jcl_trace_target, jcl_trace_target_size, tt != NULL ? tt : "?");
-                jcl_trace_hits = 0;
-                jcl_trace_found = NULL;
-                if (jcl_trace_visited_count < 64) jcl_trace_visited[jcl_trace_visited_count++] = jcl_trace_target;
-                GC_call_with_alloc_lock(jcl_trace_refs, NULL);
-                if (jcl_trace_hits == 0) fprintf(stderr, "  nothing in the heap: a root (stack, registers or static data)\n");
-                jcl_trace_target = jcl_trace_found;
-            }
-        }
-        if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "canaries: kind %d plain %d\n", jcl_canary_kind_done, jcl_canary_plain_done);
-        if (getenv("NABU_TRACE_STACKS") != NULL) fprintf(stderr, "collected at %ld stacks: %d finalizers run, now %ld\n", jcl_stack_limit, finalized, jcl_stack_count);
+        GC_invoke_finalizers();
         if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         static int told = 0;
@@ -5722,7 +5625,6 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
             return;
         }
         *slot = k;
-        if (jcl_trace_k0 == NULL && getenv("NABU_TRACE_STACKS") != NULL) jcl_trace_k0 = k;
         GC_register_finalizer_no_order(k, jcl_cont_finalize, NULL, NULL, NULL);
     }
     jcl_cont_claim(k);

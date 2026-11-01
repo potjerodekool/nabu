@@ -878,6 +878,9 @@ static const char *jcl_env_or(const char *name, const char *fallback) {
  * een native programma heeft geen JDK-installatie. De encodings zijn UTF-8:
  * de runtime werkt met UTF-8-C-strings, en zo blijven extra charset-klassen
  * (Cp1252) buiten de sluiting. */
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 static void jcl_props_put_system(void) {
     char buf[1024];
 #ifdef _WIN32
@@ -900,7 +903,15 @@ static void jcl_props_put_system(void) {
     jcl_map_put(jcl_props, (void *)"os.version", (void *)"10.0");
 #else
     /* The directory of the program: the lib directory with the JDK's data files lies next to it. */
+#ifdef __APPLE__
+    /* no /proc on macOS: the dyld call gives the path, which may be a symbolic link or relative */
+    char raw[1024];
+    uint32_t raw_size = sizeof raw;
+    ssize_t exe_len = -1;
+    if (_NSGetExecutablePath(raw, &raw_size) == 0 && realpath(raw, buf) != NULL) exe_len = (ssize_t)strlen(buf);
+#else
     ssize_t exe_len = readlink("/proc/self/exe", buf, sizeof buf - 1);
+#endif
     if (exe_len > 0) {
         buf[exe_len] = '\0';
         char *slash = strrchr(buf, '/');

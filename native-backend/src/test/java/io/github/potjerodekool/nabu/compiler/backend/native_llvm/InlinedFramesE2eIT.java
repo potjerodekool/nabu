@@ -27,6 +27,9 @@ class InlinedFramesE2eIT {
     @Test
     void inlinedMethodsAreFramesOfTheTrace() throws Exception {
         NativeToolchain.assumeGcc();
+        // macOS: the Mach-O line tables are not read, so a stack trace has no file and line numbers
+        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name", "").startsWith("Mac"),
+                "stack traces have no line numbers on macOS");
         var root = new File(".").getAbsoluteFile();
         while (!root.isDirectory() || !"nabu".equals(root.getName())) root = root.getParentFile();
         Path srcDir = tempDir.resolve("src");

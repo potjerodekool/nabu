@@ -50,7 +50,8 @@ class FileSystemE2eIT {
                         new java.io.FileOutputStream(c).close();
                         String canonical = new java.io.File("work/../work/CASE.TXT").getCanonicalPath();
                         System.out.println(canonical.endsWith(java.io.File.separator + "work" + java.io.File.separator
-                                + (java.io.File.separatorChar == '\\\\' ? "Case.txt" : "CASE.TXT")) + " " + c.delete());
+                                + (java.io.File.separatorChar == '\\\\' || new java.io.File(dir, "CASE.TXT").exists()
+                                        ? "Case.txt" : "CASE.TXT")) + " " + c.delete());
                         // More unclosed streams than a process can have descriptors: the garbage
                         // collector has to close them. The last ones can still be referenced.
                         java.io.File leak = new java.io.File("leak.txt");

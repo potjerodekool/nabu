@@ -36,7 +36,10 @@ class PluginJarIT {
                 + "/native_llvm/NativeLLVMBackend.class";
 
         try (var jars = Files.list(Path.of("target"))) {
-            for (final var jar : jars.filter(p -> p.getFileName().toString().endsWith(".jar")).toList()) {
+            // not original-*.jar (the jar before shading, without the dependencies): the order of a directory is not defined
+            for (final var jar : jars.filter(p -> p.getFileName().toString().endsWith(".jar"))
+                    .filter(p -> !p.getFileName().toString().startsWith("original-"))
+                    .sorted().toList()) {
                 try (var zip = new ZipFile(jar.toFile())) {
                     if (zip.getEntry(backendClass) != null && zip.getEntry("plugin.xml") != null) {
                         return jar;

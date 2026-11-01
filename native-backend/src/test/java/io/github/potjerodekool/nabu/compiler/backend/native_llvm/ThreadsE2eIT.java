@@ -83,6 +83,15 @@ class ThreadsE2eIT {
         assertEquals(expected("manyParkedVirtualThreads"), output("manyParkedVirtualThreads", CONTINUATIONS));
     }
 
+    /**
+     * Without any setting virtual threads run on continuations: 20000 parked ones would not work on a native thread
+     * each (this program is the one of manyParkedVirtualThreads).
+     */
+    @Test
+    void continuationsAreTheDefault() throws Exception {
+        assertEquals(expected("manyParkedVirtualThreads"), output("manyParkedVirtualThreads", java.util.Map.of()));
+    }
+
     /** Parked virtual threads that nothing refers to any more are collected: 200000 of them do not run out of stacks. */
     @Test
     void abandonedParkedVirtualThreads() throws Exception {

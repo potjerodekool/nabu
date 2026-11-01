@@ -4555,7 +4555,7 @@ static void *jcl_main_thread(void) {
 
 /* The Thread object of the running thread: the thread's own, or "main". */
 /* Continuations need the Boehm collector, and fibers (Windows) or ucontext (Linux and macOS, x86-64 and aarch64).
- * macOS is not tested yet: there they are off unless NABU_CONTINUATIONS=1. */
+ * They are on unless NABU_CONTINUATIONS=0. */
 #if defined(NABU_GC_BOEHM) && (defined(_WIN32) || ((defined(__linux__) || defined(__APPLE__)) && (defined(__x86_64__) || defined(__aarch64__))))
 #define JCL_CONTINUATIONS_PLATFORM 1
 #else
@@ -4564,11 +4564,7 @@ static void *jcl_main_thread(void) {
 static int jcl_continuations_enabled(void) {
 #if JCL_CONTINUATIONS_PLATFORM
     const char *flag = getenv("NABU_CONTINUATIONS");
-#ifdef __APPLE__
-    return flag != NULL && flag[0] == '1';
-#else
     return flag == NULL || flag[0] != '0';
-#endif
 #else
     return 0;
 #endif

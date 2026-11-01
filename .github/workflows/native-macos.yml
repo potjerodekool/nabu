@@ -1,7 +1,6 @@
 name: Native tests on macOS
 
-# macOS is not part of the release yet. This job runs the native thread tests there by hand (continuations are off by
-# default on macOS until they pass here: the tests that need them set NABU_CONTINUATIONS=1 themselves).
+# macOS is not part of the release yet. This job runs the native thread tests there by hand.
 on:
   workflow_dispatch:
     inputs:

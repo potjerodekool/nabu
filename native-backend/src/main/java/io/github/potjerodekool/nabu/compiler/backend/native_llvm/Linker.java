@@ -164,6 +164,7 @@ public class Linker {
         }
         if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
             flags.add("-DNABU_GC_BOEHM");
+            homebrewPrefix().ifPresent(prefix -> flags.add("-I" + prefix + "/include"));
         }
         return RuntimeObjects.get(runtimeSources(), compiler, flags, triple);
     }
@@ -172,6 +173,7 @@ public class Linker {
                                           CompileOptions.GcStrategy gcStrategy) {
         if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
             cmd.add("-DNABU_GC_BOEHM");
+            homebrewPrefix().ifPresent(prefix -> cmd.add("-I" + prefix + "/include"));
         }
         runtimeSources().forEach(src -> cmd.add(src.toString()));
     }
@@ -366,9 +368,27 @@ public class Linker {
     private static void addGcLibraries(List<String> cmd,
                                         CompileOptions.GcStrategy gcStrategy) {
         if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
+            homebrewPrefix().ifPresent(prefix -> cmd.add("-L" + prefix + "/lib"));
             cmd.add("-lgc");
             cmd.add("-lpthread");
         }
+    }
+
+    /**
+     * On macOS Homebrew keeps libgc outside the directories the compiler searches (/opt/homebrew on Apple Silicon,
+     * /usr/local on Intel). The prefix that holds gc.h, when there is one, so that no one has to set C_INCLUDE_PATH
+     * and LIBRARY_PATH.
+     */
+    public static java.util.Optional<String> homebrewPrefix() {
+        if (!System.getProperty("os.name", "").toLowerCase().contains("mac")) {
+            return java.util.Optional.empty();
+        }
+        for (String prefix : new String[] {"/opt/homebrew", "/usr/local"}) {
+            if (java.nio.file.Files.isRegularFile(Path.of(prefix, "include", "gc.h"))) {
+                return java.util.Optional.of(prefix);
+            }
+        }
+        return java.util.Optional.empty();
     }
 
     /**

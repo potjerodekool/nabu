@@ -52,10 +52,7 @@ jobs:
 
       - name: C toolchain and libgc (macOS)
         if: runner.os == 'macOS'
-        run: |
-          brew install bdw-gc
-          echo "C_INCLUDE_PATH=/opt/homebrew/include" >> "$GITHUB_ENV"
-          echo "LIBRARY_PATH=/opt/homebrew/lib" >> "$GITHUB_ENV"
+        run: brew install bdw-gc
 
       - name: C toolchain and libgc (Windows)
         if: runner.os == 'Windows'

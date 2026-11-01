@@ -36,8 +36,11 @@ final class Doctor {
             final boolean libgcFound = libgc != null && !libgc.equals("libgc.a") && !libgc.equals("libgc.so");
             final String shared = firstLine(List.of(compiler, "-print-file-name=libgc.so"));
             final boolean sharedFound = shared != null && !shared.equals("libgc.so");
+            final java.util.Optional<String> brew = io.github.potjerodekool.nabu.compiler.backend.native_llvm.Linker.homebrewPrefix();
             if (libgcFound || sharedFound) {
                 out.println("  libgc     " + (libgcFound ? libgc : shared));
+            } else if (brew.isPresent()) {
+                out.println("  libgc     " + brew.get() + "/lib (Homebrew)");
             } else {
                 ok = false;
                 out.println("  libgc     MISSING: the Boehm collector (--gc BOEHM) cannot be linked; install it "

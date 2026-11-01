@@ -996,7 +996,7 @@ public class InstructionEmitter {
             LLVMTypeRef pointee = types.map(objectFieldPointeeType(target));
             LLVMValueRef val = LLVMBuildLoad2(builder, pointee, llvmPtr,
                     new BytePointer(nameOf(load.result())));
-            markVolatileLoad(val, (IRValue.Named) ((IRValue.Values) target).values().getLast(), llvmPtr);
+            val = markVolatileLoad(val, (IRValue.Named) ((IRValue.Values) target).values().getLast(), llvmPtr);
             storeLocal(load.result(), val);
             return;
         }
@@ -1033,7 +1033,7 @@ public class InstructionEmitter {
             }
             LLVMValueRef val = LLVMBuildLoad2(builder, valueType, global,
                     new BytePointer(nameOf(load.result())));
-            markVolatileLoad(val, namedStatic, global);
+            val = markVolatileLoad(val, namedStatic, global);
             storeLocal(load.result(), val);
             return;
         }
@@ -1078,18 +1078,30 @@ public class InstructionEmitter {
      * A load of a volatile field must not be hoisted out of a loop, and a thread that spins on it must let
      * the others run: threads run one at a time (see nabu_gil_*), so the runtime is told about each such read.
      */
-    private void markVolatileLoad(final LLVMValueRef load, final IRValue.Named field, final LLVMValueRef address) {
+    private LLVMValueRef markVolatileLoad(final LLVMValueRef plainLoad, final IRValue.Named field, final LLVMValueRef address) {
         final boolean isVolatile = (field.ownerType() != null && classLayouts.isVolatileField(field.ownerType(), field.name()))
                 || (field.isStatic() && classLayouts.isVolatileStatic(field.name()));
         if (!isVolatile) {
-            return;
+            return plainLoad;
         }
-        LLVMSetVolatile(load, 1);
-        makeAtomic(load, LLVMTypeOf(load));
+        final LLVMValueRef load;
+        final LLVMTypeRef loadedType = LLVMTypeOf(plainLoad);
+        if (LLVMGetTypeKind(loadedType) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(loadedType) == 1) {
+            // A boolean is an i1, which has no atomic access: read the byte, atomically, and cut it back to a bit.
+            // (A plain read here would let the Dekker pattern of VirtualThread park/unpark lose a wake-up on arm64.)
+            final LLVMValueRef wide = LLVMBuildLoad2(builder, LLVMInt8TypeInContext(ctx), address, "volatile.byte");
+            LLVMSetVolatile(wide, 1);
+            makeAtomic(wide, LLVMTypeOf(wide));
+            load = LLVMBuildTrunc(builder, wide, loadedType, "volatile.bool");
+        } else {
+            LLVMSetVolatile(plainLoad, 1);
+            makeAtomic(plainLoad, loadedType);
+            load = plainLoad;
+        }
         final LLVMValueRef hint = globalValueMap.get("@nabu_spin_hint_value");
         final LLVMValueRef flag = globalValueMap.get("@nabu_spin_hints");
         if (hint == null || flag == null) {
-            return;
+            return load;
         }
         // Only while the threads take turns: a load and a jump instead of a call on every volatile read.
         final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
@@ -1114,6 +1126,7 @@ public class InstructionEmitter {
         }
         LLVMBuildBr(builder, contBlock);
         LLVMPositionBuilderAtEnd(builder, contBlock);
+        return load;
     }
 
     /**
@@ -1203,8 +1216,14 @@ public class InstructionEmitter {
                 value = coerceTo(value, types.map(objectFieldPointeeType(target)), isUnsigned(store.value()));
             }
         }
+        final boolean isVolatileStore = isVolatileTarget(target);
+        final LLVMTypeRef valueType = LLVMTypeOf(value);
+        if (isVolatileStore && LLVMGetTypeKind(valueType) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(valueType) == 1) {
+            // A boolean is an i1, which has no atomic access: write the byte.
+            value = LLVMBuildZExt(builder, value, LLVMInt8TypeInContext(ctx), "volatile.byte");
+        }
         final LLVMValueRef storeInstruction = LLVMBuildStore(builder, value, ptr);
-        if (isVolatileTarget(target)) {
+        if (isVolatileStore) {
             LLVMSetVolatile(storeInstruction, 1);
             makeAtomic(storeInstruction, LLVMTypeOf(value));
         }

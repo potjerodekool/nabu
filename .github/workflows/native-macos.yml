@@ -76,11 +76,10 @@ jobs:
             for pid in $pids; do
               if kill -0 $pid 2>/dev/null; then
                 echo "--- round $round: pid $pid hangs"
-                echo "output so far:"; grep -v "^thread" out.$round.* | tail -4; grep -h "^thread" out.$round.1 | head -30; grep "failed" out.$round.* | head
-                lldb --batch -p $pid -o "thread backtrace all" < /dev/null 2>&1 | grep -E "^  *(thread|frame #[0-9]+: .*threads.exe)" | head -60
                 kill -9 $pid
               fi
             done
+            for f in out.$round.*; do grep -q "^handoff" $f || { echo "== $f did not finish"; grep "^thread" $f | head -20; }; done
             wait
           done
           exit 0

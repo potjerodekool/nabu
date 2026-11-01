@@ -10,6 +10,9 @@ on:
       forks:
         description: 'Test processes in parallel (-Dit.forks)'
         default: '1'
+      unit:
+        description: 'Surefire test selection (-Dtest); NoSuch runs none'
+        default: 'NoSuch'
       hanghunt:
         description: 'Names of programs (separated by spaces) to run 8 at a time; one that is still running after 30 s gets a backtrace of all threads'
         default: ''
@@ -54,7 +57,7 @@ jobs:
         timeout-minutes: 120
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
-          -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
+          -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
           -DargLine="-Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
         env:
           C_INCLUDE_PATH: /opt/homebrew/include

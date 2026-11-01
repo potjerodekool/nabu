@@ -10,6 +10,9 @@ on:
       forks:
         description: 'Test processes in parallel (-Dit.forks)'
         default: '1'
+      unit:
+        description: 'Surefire test selection (-Dtest); NoSuch runs none'
+        default: 'NoSuch'
 
 permissions:
   contents: read
@@ -35,7 +38,7 @@ jobs:
         timeout-minutes: 120
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
-          -Dtest=NoSuch -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=linux-arm64 -Dit.forks=${{ inputs.forks }}
+          -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=linux-arm64 -Dit.forks=${{ inputs.forks }}
 
       - name: Keep the reports
         if: always()

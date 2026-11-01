@@ -65,11 +65,13 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 100; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
-          echo "=== resident size of a trivial program"
-          /usr/bin/time -l ./threads.exe cpuCount 2>&1 | grep -E "maximum resident|real|peak memory"
-          NABU_CONTINUATIONS=1 /usr/bin/time -l ./threads.exe cpuCount 2>&1 | grep -E "maximum resident|real|peak memory"
-          echo "=== abandoned"
-          NABU_TRACE_STACKS=1 NABU_CONTINUATIONS=1 limited ./threads.exe abandonedParkedVirtualThreads 2>&1 | awk 'NR%4==1 || /exit|parked/'
+          echo "=== abandoned, vmmap"
+          NABU_CONTINUATIONS=1 ./threads.exe abandonedParkedVirtualThreads > /dev/null 2>&1 &
+          vpid=$!
+          sleep 6
+          vmmap -summary $vpid 2>&1 | head -40
+          vmmap $vpid 2>&1 | grep -E "^(VM_ALLOCATE|Stack|STACK|MALLOC_LARGE|mapped)" | awk '{print $1, $2, $3, $4, $5}' | sort | uniq -c | sort -rn | head -15
+          kill -9 $vpid
           exit 0
 
       - name: Keep the reports

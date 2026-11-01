@@ -5225,6 +5225,7 @@ BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compil
 #include <ucontext.h>
 #endif
 #include <sys/mman.h>
+#include <sys/resource.h>
 #ifndef MAP_STACK
 #define MAP_STACK 0
 #endif
@@ -5549,9 +5550,14 @@ static int jcl_stack_reserve(void) {
         const long room = maps - (maps / 16 > 2048 ? maps / 16 : 2048);  /* what the rest of the process needs */
         jcl_stack_limit = room > 2 ? room / 2 : 1;
     }
-    if (getenv("NABU_TRACE_STACKS") != NULL && jcl_stack_count % 2000 == 0) {
+    if (getenv("NABU_TRACE_STACKS") != NULL && jcl_stack_count % 1000 == 0) {
         extern size_t GC_get_heap_size(void);
-        fprintf(stderr, "stacks %ld limit %ld heap %zu\n", jcl_stack_count, jcl_stack_limit, GC_get_heap_size());
+        struct rusage ru;
+        getrusage(RUSAGE_SELF, &ru);
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        fprintf(stderr, "stacks %ld limit %ld heap %zu maxrss %ld t %ld.%03ld\n", jcl_stack_count, jcl_stack_limit,
+                GC_get_heap_size(), (long)ru.ru_maxrss, (long)ts.tv_sec % 1000, ts.tv_nsec / 1000000);
     }
     if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) > jcl_stack_limit) {
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);

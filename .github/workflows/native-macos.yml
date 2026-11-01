@@ -121,8 +121,7 @@ jobs:
                   hangs=$((hangs+1))
                   if [ $hangs -le 1 ]; then
                     echo "=== $prog: hang $hangs (round $round, pid $pid)"
-                    idx=$(echo $pids | tr ' ' '
-' | grep -n "^$pid$" | cut -d: -f1)
+                    idx=$(echo $pids | tr ' ' '\n' | grep -n "^$pid$" | cut -d: -f1)
                     echo "--- output of the program:"; cat "hang.$prog.$round.$idx.out" | head -20
                     sudo lldb -p $pid -b -o "thread backtrace all" -o "detach" 2>&1 | grep -v '^$' | cut -c1-200 | head -250
                   fi

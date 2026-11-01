@@ -11,6 +11,9 @@ on:
       forks:
         description: 'Test processes in parallel (-Dit.forks)'
         default: '1'
+      crashhunt:
+        description: 'Run the kept executable many times in parallel under lldb and show the crashes'
+        default: 'false'
 
 permissions:
   contents: read
@@ -68,6 +71,24 @@ jobs:
             NABU_TRACE_UNSAFE=1 NABU_CONTINUATIONS=$conts NABU_CPUS=3 ./threads.exe cpuCount; echo "exit $?"
           done
           limited() { "$@" & pid=$!; ( sleep 100; kill -9 $pid 2>/dev/null ) & watcher=$!; wait $pid; code=$?; kill $watcher 2>/dev/null; echo "[exit $code]"; }
+          exit 0
+
+      - name: Crash hunt
+        if: always() && inputs.crashhunt == 'true'
+        timeout-minutes: 30
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/keep" || exit 0
+          for round in 1 2 3 4 5 6 7 8 9 10; do
+            for i in 1 2 3 4 5 6; do
+              ( lldb -b -o run -k "thread backtrace all" -k "register read" -k "quit" ./threads.exe > "hunt.$round.$i.txt" 2>&1 ) &
+            done
+            wait
+          done
+          for f in hunt.*.txt; do
+            if grep -q "stop reason" "$f"; then echo "=== $f"; grep -v '^$' "$f" | head -150; fi
+          done
+          echo "crashes: $(grep -l 'stop reason' hunt.*.txt | wc -l) of $(ls hunt.*.txt | wc -l)"
           exit 0
 
       - name: Keep the reports

@@ -5535,7 +5535,8 @@ static int jcl_stack_reserve(void) {
     if (jcl_stack_limit == 0) {
         long maps = 65530;
 #ifdef __APPLE__
-        maps = 1L << 30; /* no such limit: mmap fails when the address space is used up, and that is reported as well */
+        /* No vm.max_map_count, but also no MAP_NORESERVE: every touched stack costs real memory, and 200000 abandoned
+         * ones got a CI runner's process killed. Keep the Linux default as the bound, collecting before giving up. */
         FILE *f = NULL;
 #else
         FILE *f = fopen("/proc/sys/vm/max_map_count", "r");

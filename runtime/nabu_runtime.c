@@ -1202,7 +1202,12 @@ int nabu_frame_line(uintptr_t addr, const char **scope, const char **file) {
 #include <dlfcn.h>
 const char *nabu_frame_name(uintptr_t addr) {
     Dl_info info;
-    return dladdr((void *) addr, &info) != 0 ? info.dli_sname : NULL;
+    if (dladdr((void *) addr, &info) == 0 || info.dli_sname == NULL) return NULL;
+#ifdef __APPLE__
+    /* Mach-O symbols carry a leading underscore that the ELF/COFF names (and everything that matches them) lack. */
+    if (info.dli_sname[0] == '_') return info.dli_sname + 1;
+#endif
+    return info.dli_sname;
 }
 /* A data symbol is found through the dynamic symbol table, which the link command fills with -rdynamic (this is
    also what gives dladdr above the names of the functions). */

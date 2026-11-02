@@ -44,6 +44,9 @@ public class AsmBackend implements Backend {
      */
     private java.util.Map<String, String> compilationClasses = java.util.Map.of();
 
+    /** Interface check for the classes on the class path; see {@link ClassPathInterfaces}. */
+    private ClassPathInterfaces classPathInterfaces;
+
     @Override
     public void compileAll(final java.util.List<IRModule> modules,
                            final CompileOptions opts,
@@ -61,9 +64,12 @@ public class AsmBackend implements Backend {
             classes.put(module.name.replace('.', '_'), module.name.replace('.', '/'));
         }
         compilationClasses = java.util.Map.copyOf(classes);
+        classPathInterfaces = new ClassPathInterfaces(opts != null ? opts.classPath() : java.util.List.of());
         try {
             Backend.super.compileAll(modules, opts, output);
         } finally {
+            classPathInterfaces.close();
+            classPathInterfaces = null;
             compilationInterfaces = java.util.Set.of();
             compilationClasses = java.util.Map.of();
         }
@@ -90,7 +96,8 @@ public class AsmBackend implements Backend {
             }
         }
 
-        final var emitter = new AsmByteCodeEmitter(compilationInterfaces, compilationClasses);
+        final var emitter = new AsmByteCodeEmitter(compilationInterfaces, compilationClasses,
+                classPathInterfaces != null ? classPathInterfaces::isInterface : name -> false);
         emitter.emit(module, opts);
         final var bytecode = emitter.getBytecode();
 

@@ -910,7 +910,7 @@ private void emitUnreachable() {
         if (owner.startsWith("[")) {
             return false;
         }
-        return INTERFACE_OWNERS.computeIfAbsent(owner, name -> {
+        final boolean platformInterface = INTERFACE_OWNERS.computeIfAbsent(owner, name -> {
             try {
                 return Class.forName(name.replace('/', '.'), false,
                         ClassLoader.getPlatformClassLoader()).isInterface();
@@ -918,6 +918,7 @@ private void emitUnreachable() {
                 return false;
             }
         });
+        return platformInterface || codeEmitter.isClassPathInterface(owner);
     }
 
     private static final java.util.Map<String, Boolean> INTERFACE_OWNERS =

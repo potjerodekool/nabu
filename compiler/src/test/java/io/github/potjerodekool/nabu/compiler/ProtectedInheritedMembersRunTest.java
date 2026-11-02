@@ -358,6 +358,48 @@ class ProtectedInheritedMembersRunTest {
         assertEquals("abc ABC abcsb", cls.getMethod("run").invoke(null));
     }
 
+    /**
+     * A static method of an interface that only exists on the class path (Spring AOT calls
+     * <code>InstanceSupplier.using(...)</code>) needs an InterfaceMethodref; the call failed with an
+     * IncompatibleClassChangeError.
+     */
+    @Test
+    void staticMethodOfInterfaceOnTheClassPath() throws Exception {
+        compileAndLoad("libs", "mini.api.Maker", java.util.Map.of(
+                "mini/api/Maker.java", """
+                        package mini.api;
+                        public interface Maker {
+                            static Maker of(String name) {
+                                return new NamedMaker(name);
+                            }
+                            String name();
+                        }
+                        """,
+                "mini/api/NamedMaker.java", """
+                        package mini.api;
+                        class NamedMaker implements Maker {
+                            private final String name;
+                            NamedMaker(String name) {
+                                this.name = name;
+                            }
+                            public String name() {
+                                return name;
+                            }
+                        }
+                        """), null);
+        final var cls = compileAndLoad("app", "mini.UseMaker", java.util.Map.of(
+                "mini/UseMaker.java", """
+                        package mini;
+                        import mini.api.Maker;
+                        public class UseMaker {
+                            public static String run() {
+                                return Maker.of("made").name();
+                            }
+                        }
+                        """), tempDir.resolve("libs-out"));
+        assertEquals("made", cls.getMethod("run").invoke(null));
+    }
+
     /** The same, but the class only exists as a class file on the class path (what Spring AOT leaves behind). */
     @Test
     void classNamesWithDollarSignsResolveFromClassFiles() throws Exception {

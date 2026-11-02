@@ -51,6 +51,8 @@ public class AsmByteCodeEmitter {
 
     private final java.util.Map<String, String> compilationClasses;
 
+    private final java.util.function.Predicate<String> classPathInterface;
+
     public AsmByteCodeEmitter() {
         this(java.util.Set.of());
     }
@@ -61,6 +63,13 @@ public class AsmByteCodeEmitter {
 
     public AsmByteCodeEmitter(final java.util.Set<String> compilationInterfaces,
                               final java.util.Map<String, String> compilationClasses) {
+        this(compilationInterfaces, compilationClasses, name -> false);
+    }
+
+    public AsmByteCodeEmitter(final java.util.Set<String> compilationInterfaces,
+                              final java.util.Map<String, String> compilationClasses,
+                              final java.util.function.Predicate<String> classPathInterface) {
+        this.classPathInterface = classPathInterface;
         this.compilationClasses = compilationClasses;
         this.compilationInterfaces = compilationInterfaces;
         cw = new ClassWriter(
@@ -85,6 +94,11 @@ public class AsmByteCodeEmitter {
     /** Of een klasse uit de huidige compilatie (interne naam) een interface is. */
     boolean isCompilationInterface(final String internalName) {
         return compilationInterfaces.contains(internalName);
+    }
+
+    /** Whether a class on the class path (internal name) is an interface. */
+    boolean isClassPathInterface(final String internalName) {
+        return classPathInterface.test(internalName);
     }
 
     /** Internal name of a class of this compilation by its mangled name, or null. */

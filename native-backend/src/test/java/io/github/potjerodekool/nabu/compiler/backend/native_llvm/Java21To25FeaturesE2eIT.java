@@ -93,6 +93,29 @@ class Java21To25FeaturesE2eIT {
                         }
                     }
 
+                    sealed interface Card permits Suit, Joker {}
+                    enum Suit implements Card { CLUBS, HEARTS }
+                    record Joker() implements Card {}
+
+                    static String card(Card c) {
+                        return switch (c) {
+                            case Suit.CLUBS -> "c";
+                            case Suit.HEARTS -> "h";
+                            case Joker j -> "j";
+                        };
+                    }
+
+                    sealed interface Implicit {}
+                    record One() implements Implicit {}
+                    record Two() implements Implicit {}
+
+                    static String implicit(Implicit i) {
+                        return switch (i) {
+                            case One o -> "one";
+                            case Two t -> "two";
+                        };
+                    }
+
                     static int sum(Object o) {
                         return o instanceof Rect(int w, int h) ? w + h : -1;
                     }
@@ -141,6 +164,8 @@ class Java21To25FeaturesE2eIT {
                         System.out.println(list.get(0));
                         System.out.println(text(null) + " " + text("a") + " " + text("c") + " " + text("z") + " "
                                 + npe(null) + " " + npe("x"));
+                        System.out.println(card(Suit.CLUBS) + " " + card(Suit.HEARTS) + " " + card(new Joker()) + " "
+                                + implicit(new One()) + " " + implicit(new Two()));
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -188,6 +213,7 @@ class Java21To25FeaturesE2eIT {
                 neg
                 done
                 null A BC other npe s
+                c h j one two
                 """, output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

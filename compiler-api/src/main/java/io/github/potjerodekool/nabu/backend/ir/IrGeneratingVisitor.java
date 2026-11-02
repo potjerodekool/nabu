@@ -583,6 +583,14 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                         .toList());
             }
 
+            // A sealed class lists its permitted subclasses (the PermittedSubclasses attribute).
+            if (Flags.hasFlag(classSymbol.getFlags(), Flags.SEALED)
+                    && !classSymbol.getPermittedSubclasses().isEmpty()) {
+                module.sealedClass(true);
+                classSymbol.getPermittedSubclasses().forEach(permitted ->
+                        module.addPermittedSubclass(TypeMirrorToIRType.map(permitted)));
+            }
+
             // Generate class-level generic signature
             final var classSignature = JvmSignatureBuilder.buildClassSignature(classSymbol);
             if (classSignature != null) {

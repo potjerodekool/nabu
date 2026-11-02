@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Does a switch cover all possible values of its selector (JLS 14.11.1.1)? A default label does, so does a
@@ -40,6 +41,7 @@ final class SwitchExhaustiveness {
 
     private final Types types;
     private boolean unknown = false;
+    private final Set<String> coveredEnums = new HashSet<>();
 
     SwitchExhaustiveness(final Types types) {
         this.types = types;
@@ -87,7 +89,28 @@ final class SwitchExhaustiveness {
             }
         }
 
-        final var covered = covers(List.of(selectorType), rows);
+        // case Suit.CLUBS, case Suit.HEARTS: an enum that is a permitted subtype is covered by all its constants.
+        final var usedConstants = new java.util.HashMap<String, Set<String>>();
+        for (final var label : labels) {
+            if (label instanceof ConstantCaseLabel constantLabel
+                    && constantLabel.getExpression().getType() != null
+                    && constantLabel.getExpression().getType().asElement() instanceof TypeElement constantEnum
+                    && constantEnum.getKind() == ElementKind.ENUM
+                    && constantName(constantLabel.getExpression()) instanceof String name) {
+                usedConstants.computeIfAbsent(constantEnum.getQualifiedName(), key -> new HashSet<>()).add(name);
+            }
+        }
+        coveredEnums.clear();
+        usedConstants.forEach((enumName, used) -> {
+            final var enumType = findEnum(selectorType, enumName);
+            if (enumType != null && used.containsAll(ElementFilter.enumValuesIn(enumType.getEnclosedElements()).stream()
+                    .map(element -> element.getSimpleName().toString())
+                    .collect(java.util.stream.Collectors.toSet()))) {
+                coveredEnums.add(enumName);
+            }
+        });
+
+        final var covered = covers(List.of(selectorType), rows, true);
         return covered || unknown;
     }
 
@@ -106,20 +129,36 @@ final class SwitchExhaustiveness {
      * @param rows For every case one pattern per column; null matches everything.
      */
     private boolean covers(final List<TypeMirror> columns,
-                           final List<List<Pattern>> rows) {
-        if (rows.isEmpty()) {
-            return false;
-        }
+                           final List<List<Pattern>> rows,
+                           final boolean topLevel) {
         if (columns.isEmpty()) {
-            return true;
+            return !rows.isEmpty();
+        }
+        if (rows.isEmpty() && !topLevel) {
+            return false;
         }
 
         for (final var leaf : leaves(columns.getFirst())) {
+            if (topLevel && elementOf(leaf) != null && coveredEnums.contains(elementOf(leaf).getQualifiedName())) {
+                continue;
+            }
             if (!coversLeaf(leaf, columns, rows)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /** The enum with this name among the selector type and its permitted subtypes. */
+    private TypeElement findEnum(final TypeMirror type,
+                                 final String name) {
+        for (final var leaf : leaves(type)) {
+            final var element = elementOf(leaf);
+            if (element != null && element.getKind() == ElementKind.ENUM && element.getQualifiedName().equals(name)) {
+                return element;
+            }
+        }
+        return null;
     }
 
     private boolean coversLeaf(final TypeMirror leaf,
@@ -166,7 +205,7 @@ final class SwitchExhaustiveness {
                 newRow.addAll(row.subList(1, row.size()));
                 newRows.add(newRow);
             }
-            return covers(newColumns, newRows);
+            return covers(newColumns, newRows, false);
         }
 
         final var newRows = new ArrayList<List<Pattern>>();
@@ -175,7 +214,7 @@ final class SwitchExhaustiveness {
                 newRows.add(new ArrayList<>(row.subList(1, row.size())));
             }
         }
-        return covers(new ArrayList<>(restColumns), newRows);
+        return covers(new ArrayList<>(restColumns), newRows, false);
     }
 
     /** The type of a component as a member of the type of the pattern: {@code T value} of {@code Some<String>}. */

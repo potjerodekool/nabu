@@ -1360,6 +1360,14 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
             }
             equal = TreeMaker.binaryExpressionTree(enumOrdinalSelector(selected.ref(), enumElement), Tag.EQ,
                     intLiteral(constants.indexOf(name), line, column), line, column);
+        } else if (constant.getType() != null
+                && constant.getType().asElement() instanceof TypeElement constantEnum
+                && constantEnum.getKind() == ElementKind.ENUM) {
+            // case Suit.CLUBS for a selector of a sealed interface that the enum implements.
+            equal = TreeMaker.binaryExpressionTree(selected.ref(), Tag.EQ,
+                    (ExpressionTree) acceptTree(constant, scope), line, column);
+            equal.setType(booleanType);
+            return TreeMaker.ifStatementTree(equal, choose, null, line, column);
         } else if (types.isBoxType(selectorType)) {
             final var value = (ExpressionTree) acceptTree(constant, scope);
             equal = TreeMaker.binaryExpressionTree(unboxIfNeeded(selected.ref(), value), Tag.EQ, value, line, column);

@@ -485,6 +485,13 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitClassPermits(final Java20Parser.ClassPermitsContext ctx) {
+        return ctx.typeName().stream()
+                .map(typeName -> typeName.accept(this))
+                .toList();
+    }
+
+    @Override
     public Object visitInterfacePermits(final Java20Parser.InterfacePermitsContext ctx) {
         return ctx.typeName().stream()
                 .map(typeName -> typeName.accept(this))

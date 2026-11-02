@@ -615,4 +615,106 @@ class PatternSwitchRunTest {
                     static void g(int i) { switch (i) { case 1: break; } }
                 """);
     }
+
+    @Test
+    void qualifiedEnumConstantsForASealedSelector() throws Exception {
+        assertEquals("c h j", run("Cards", """
+                package mini;
+                public class Cards {
+                    sealed interface Card permits Suit, Joker {}
+                    enum Suit implements Card { CLUBS, HEARTS }
+                    record Joker() implements Card {}
+                    static String f(Card c) {
+                        return switch (c) {
+                            case Suit.CLUBS -> "c";
+                            case Suit.HEARTS -> "h";
+                            case Joker j -> "j";
+                        };
+                    }
+                    public static String run() {
+                        return f(Suit.CLUBS) + " " + f(Suit.HEARTS) + " " + f(new Joker());
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void qualifiedEnumConstantsMustCoverTheEnum() throws Exception {
+        assertNotExhaustive("Ex12", """
+                    sealed interface Card permits Suit, Joker {}
+                    enum Suit implements Card { CLUBS, HEARTS }
+                    record Joker() implements Card {}
+                    static String f(Card c) {
+                        return switch (c) {
+                            case Suit.CLUBS -> "c";
+                            case Joker j -> "j";
+                        };
+                    }
+                """);
+    }
+
+    @Test
+    void aSealedTypeWithoutPermitsPermitsTheSubtypesOfTheFile() throws Exception {
+        assertEquals("circle 2 square 3 sealed 2", run("Implicit", """
+                package mini;
+                public class Implicit {
+                    sealed interface Shape {}
+                    record Circle(int r) implements Shape {}
+                    record Square(int s) implements Shape {}
+                    static String f(Shape shape) {
+                        return switch (shape) {
+                            case Circle c -> "circle " + c.r();
+                            case Square s -> "square " + s.s();
+                        };
+                    }
+                    public static String run() {
+                        return f(new Circle(2)) + " " + f(new Square(3)) + " sealed "
+                                + Shape.class.getPermittedSubclasses().length;
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void aSealedTypeWithoutPermitsMustBeCovered() throws Exception {
+        assertNotExhaustive("Ex13", """
+                    sealed interface Shape {}
+                    record Circle(int r) implements Shape {}
+                    record Square(int s) implements Shape {}
+                    static int f(Shape shape) {
+                        return switch (shape) {
+                            case Circle c -> 1;
+                        };
+                    }
+                """);
+    }
+
+    @Test
+    void everyPermittedSubtypeCountsNotOnlyTheLastOne() throws Exception {
+        assertNotExhaustive("Ex14", """
+                    sealed interface Base permits X, Y, Z {}
+                    record X() implements Base {}
+                    record Y() implements Base {}
+                    record Z() implements Base {}
+                    static int f(Base b) {
+                        return switch (b) {
+                            case X x -> 1;
+                            case Z z -> 3;
+                        };
+                    }
+                """);
+        assertExhaustive("Ex15", """
+                    sealed interface Base permits X, Y, Z {}
+                    record X() implements Base {}
+                    record Y() implements Base {}
+                    record Z() implements Base {}
+                    static int f(Base b) {
+                        return switch (b) {
+                            case X x -> 1;
+                            case Y y -> 2;
+                            case Z z -> 3;
+                        };
+                    }
+                """);
+    }
 }

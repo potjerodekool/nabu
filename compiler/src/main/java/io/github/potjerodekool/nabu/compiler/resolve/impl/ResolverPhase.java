@@ -54,7 +54,56 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                                                final CompilerContext compilerContext) {
         final var resolverPhase = new ResolverPhase((CompilerContextImpl) compilerContext);
         resolverPhase.acceptTree(compilationUnit, null);
+        inferPermittedSubclasses(compilationUnit);
         return compilationUnit;
+    }
+
+    /**
+     * A sealed class without permits clause permits the classes of the same compilation unit that extend or
+     * implement it directly (JLS 8.1.6).
+     */
+    private static void inferPermittedSubclasses(final CompilationUnit compilationUnit) {
+        final var declarations = new java.util.ArrayList<ClassDeclaration>();
+        collectClasses(compilationUnit.getClasses(), declarations);
+
+        for (final var declaration : declarations) {
+            if (!declaration.getPermits().isEmpty()
+                    || !(declaration.getClassSymbol() instanceof ClassSymbol sealed)
+                    || !io.github.potjerodekool.nabu.lang.Flags.hasFlag(sealed.getFlags(),
+                    io.github.potjerodekool.nabu.lang.Flags.SEALED)) {
+                continue;
+            }
+
+            final var permitted = new java.util.ArrayList<Symbol>();
+            for (final var other : declarations) {
+                if (other != declaration
+                        && other.getClassSymbol() instanceof ClassSymbol subclass
+                        && extendsDirectly(subclass, sealed)) {
+                    permitted.add(subclass);
+                }
+            }
+            sealed.setPermitted(permitted);
+        }
+    }
+
+    private static void collectClasses(final java.util.List<? extends Tree> trees,
+                                       final java.util.List<ClassDeclaration> result) {
+        for (final var tree : trees) {
+            if (tree instanceof ClassDeclaration classDeclaration) {
+                result.add(classDeclaration);
+                collectClasses(classDeclaration.getEnclosedElements(), result);
+            }
+        }
+    }
+
+    private static boolean extendsDirectly(final ClassSymbol subclass,
+                                           final ClassSymbol superType) {
+        final var superclass = subclass.getSuperclass();
+        if (superclass != null && superclass.asElement() == superType) {
+            return true;
+        }
+        return subclass.getInterfaces().stream()
+                .anyMatch(type -> type.asElement() == superType);
     }
 
     @Override

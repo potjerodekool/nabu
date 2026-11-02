@@ -401,6 +401,50 @@ class ProtectedInheritedMembersRunTest {
     }
 
     /**
+     * Spring AOT: <code>new BasePackages(args.get(0))</code>, a varargs constructor (<code>String...</code>) and a
+     * generic result that is the String[] itself. It was packed into a new array (ArrayStoreException).
+     */
+    @Test
+    void genericReturnValueIsTheVarargsArray() throws Exception {
+        final var cls = compileAndLoad("mini.UseArray", java.util.Map.of(
+                "mini/ArraySource.java", """
+                        package mini;
+                        public class ArraySource {
+                            private final Object value;
+                            public ArraySource(Object value) {
+                                this.value = value;
+                            }
+                            @SuppressWarnings("unchecked")
+                            public <T> T get() {
+                                return (T) value;
+                            }
+                        }
+                        """,
+                "mini/Names.java", """
+                        package mini;
+                        public class Names {
+                            private final String[] names;
+                            public Names(String... names) {
+                                this.names = names;
+                            }
+                            public String joined() {
+                                return String.join(",", names);
+                            }
+                        }
+                        """,
+                "mini/UseArray.java", """
+                        package mini;
+                        public class UseArray {
+                            public static String run() {
+                                ArraySource source = new ArraySource(new String[]{"a", "b"});
+                                return new Names(source.get()).joined();
+                            }
+                        }
+                        """));
+        assertEquals("a,b", cls.getMethod("run").invoke(null));
+    }
+
+    /**
      * A static member class that only exists as a class file: `static` is only in its InnerClasses attribute, so it
      * looked like an inner class and `Outer.Nested::new` got an enclosing-instance argument that does not exist
      * (Spring AOT: NoSuchMethodError ...DependsOnDatabaseInitializationPostProcessor.<init>(Outer)).

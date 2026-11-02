@@ -1980,6 +1980,13 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (argVal instanceof IRValue.ConstClass) {
             return false;
         }
+        // A generic call that is not inferred (`new BasePackages(args.get(0))`, `<T> T get(int)`) takes its type from
+        // the parameter: javac infers T as the array type in the first phase (no varargs), so the result is the
+        // array itself. A plain variable of type T is not, it is one element.
+        if (arg instanceof MethodInvocationTree
+                && arg.getType() instanceof io.github.potjerodekool.nabu.type.TypeVariable) {
+            return true;
+        }
         String argDescriptor = argVal.type() instanceof IRType.Ptr argPtr ? argPtr.jvmDescriptor() : null;
         if ((argDescriptor == null || !argDescriptor.startsWith("["))
                 && arg.getType() != null && arg.getType().getKind() == TypeKind.ARRAY) {

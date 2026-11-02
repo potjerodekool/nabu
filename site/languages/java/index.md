@@ -42,7 +42,7 @@ What is checked, besides everything up to Java 17 (which is always allowed):
 | 22 | unnamed variables and patterns (`_`) |
 | 25 | statements before `this(...)` or `super(...)` in a constructor, `import module` |
 
-The check covers the Java sources that Nabu compiles (`--compile-language-support`) and the `.nabu` sources, where a construct has the version of its Java counterpart and a construct without a counterpart is always allowed. The Java sources that are only read for their symbols are not checked, and neither is the use of JDK classes and methods: a class that a newer JDK added still compiles. Without `--release` nothing is checked.
+The check covers the Java sources that Nabu compiles (`--compile-language-support`) and the `.nabu` sources, where a construct has the version of its Java counterpart and a construct without a counterpart is always allowed. The Nabu grammar is still at the level of Java 17 plus `case null`, so `case null` is the one Nabu construct that is checked today. The Java sources that are only read for their symbols are not checked, and neither is the use of JDK classes and methods: a class that a newer JDK added still compiles. Without `--release` nothing is checked.
 
 The Java parser reads these constructs up to Java 25. Not everything that is read is compiled yet:
 

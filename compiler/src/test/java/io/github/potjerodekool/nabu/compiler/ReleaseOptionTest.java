@@ -38,8 +38,15 @@ class ReleaseOptionTest {
     private Result compile(final String release,
                            final String target,
                            final String code) throws IOException {
+        return compile(release, target, "Sample.java", code);
+    }
+
+    private Result compile(final String release,
+                           final String target,
+                           final String fileName,
+                           final String code) throws IOException {
         final var srcDir = tempDir.resolve("src");
-        final var javaFile = srcDir.resolve("mini/Sample.java");
+        final var javaFile = srcDir.resolve("mini/" + fileName);
         Files.createDirectories(javaFile.getParent());
         Files.writeString(javaFile, code);
 
@@ -211,6 +218,54 @@ class ReleaseOptionTest {
                 """;
         assertTrue(errors(compile("24", null, code)).contains("Module import declarations requires Java 25"), "24");
         assertFalse(errors(compile("25", null, code)).contains("requires Java"), "25");
+    }
+
+    private static final String NABU_CASE_NULL = """
+            package mini;
+            public class Sample {
+                public fun pick(s : java.lang.String): int {
+                    switch (s) {
+                        case null: return 0;
+                        default: return 1;
+                    }
+                }
+            }
+            """;
+
+    private static final String NABU_PLAIN = """
+            package mini;
+            public class Sample {
+                public fun pick(s : java.lang.String): int {
+                    switch (s) {
+                        case "a": return 0;
+                        default: return 1;
+                    }
+                }
+            }
+            """;
+
+    /**
+     * A .nabu source becomes the same trees as a Java source, so a construct has the version of its Java counterpart.
+     * The Nabu grammar has no pattern switch, record pattern or '_': 'case null' is the one construct to check.
+     */
+    @Test
+    void nabuSourceIsCheckedToo() throws IOException {
+        final var old = compile("17", null, "Sample.nabu", NABU_CASE_NULL);
+        assertNotEquals(0, old.rc());
+        assertTrue(errors(old).contains("'case null' requires Java 21, but the release is 17"), errors(old));
+
+        final var current = compile("21", null, "Sample.nabu", NABU_CASE_NULL);
+        assertFalse(errors(current).contains("requires Java"), errors(current));
+    }
+
+    @Test
+    void nabuSourceWithoutNewConstructsCompilesForTheOldestRelease() throws IOException {
+        final var result = compile("17", null, "Sample.nabu", NABU_PLAIN);
+        assertEquals(0, result.rc(), errors(result));
+        assertTrue(Files.exists(tempDir.resolve("out/mini/Sample.class")));
+
+        assertFalse(errors(compile(null, null, "Sample.nabu", NABU_CASE_NULL)).contains("requires Java"),
+                "without a release nothing is checked");
     }
 
     @Test

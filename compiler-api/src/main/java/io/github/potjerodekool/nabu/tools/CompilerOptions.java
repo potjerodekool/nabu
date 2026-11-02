@@ -28,7 +28,33 @@ public interface CompilerOptions {
         return getPathOption(CompilerOption.CLASS_OUTPUT);
     }
 
+    /**
+     * @return Returns the class file version: the release if there is one, else {@code --target}.
+     */
     JavaVersion getTargetVersion();
+
+    /**
+     * @return Returns the release ({@code --release}) that is also the language level, or empty if there is none.
+     * An unsupported value is an {@link IllegalArgumentException}, see {@link #validateVersions()}.
+     */
+    Optional<JavaVersion> getRelease();
+
+    /**
+     * @return Returns the error messages of the version options: an unsupported {@code --release}, or
+     * {@code --release} together with {@code --target}. Empty if the options are correct.
+     */
+    default java.util.List<String> validateVersions() {
+        final var errors = new java.util.ArrayList<String>();
+        getOption(CompilerOption.RELEASE).ifPresent(release -> {
+            if (JavaVersion.find(release).isEmpty()) {
+                errors.add(JavaVersion.unsupportedMessage("--release", release));
+            }
+            if (hasOption(CompilerOption.TARGET_VERSION)) {
+                errors.add("--release cannot be combined with --target");
+            }
+        });
+        return errors;
+    }
 
     void forEach(final BiConsumer<CompilerOption, String> consumer);
 
@@ -116,11 +142,17 @@ public interface CompilerOptions {
 
         @Override
         public JavaVersion getTargetVersion() {
-            return getOptionalOrDefault(
+            return getRelease().orElseGet(() -> getOptionalOrDefault(
                     CompilerOption.TARGET_VERSION,
                     JavaVersion.MINIMAL_VERSION,
                     JavaVersion::parseFromName
-            );
+            ));
+        }
+
+        @Override
+        public Optional<JavaVersion> getRelease() {
+            return getOption(CompilerOption.RELEASE)
+                    .map(JavaVersion::parseStrict);
         }
 
         @Override

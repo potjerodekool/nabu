@@ -23,3 +23,23 @@ Nabu can still compile the Java sources of a language support itself, together w
 ## Reference language level
 
 The reference language level for the frontend is **Java 20** (JLS SE 20). Interop and mixed input languages support both Nabu and Java 20 features.
+
+## Release
+
+With `--release <version>` (Maven plugin: `release` or `maven.compiler.release`) the compiler checks the language level of the sources it compiles and writes class files for that version. The supported versions are 17 up to 25; another value is an error, and so is `--release` together with `--target`.
+
+A language construct of a newer version than the release is an error, with the file and the line:
+
+```
+Pattern matching for switch requires Java 21, but the release is 17 (line 5)
+```
+
+What is checked, besides everything up to Java 17 (which is always allowed):
+
+| Since | Construct |
+|---|---|
+| 21 | pattern matching for `switch` (with a `when` guard), `case null`, record patterns |
+| 22 | unnamed variables (`_`), in Java sources |
+| 25 | statements before `this(...)` or `super(...)` in a constructor |
+
+The check covers the Java sources that Nabu compiles (`--compile-language-support`) and the `.nabu` sources, where a construct has the version of its Java counterpart and a construct without a counterpart is always allowed. The Java sources that are only read for their symbols are not checked, and neither is the use of JDK classes and methods: a class that a newer JDK added still compiles. Without `--release` nothing is checked.

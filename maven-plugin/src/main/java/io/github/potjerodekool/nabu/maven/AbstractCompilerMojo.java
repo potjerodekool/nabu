@@ -42,6 +42,13 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
     @Parameter(property = "maven.compiler.target", defaultValue = "1.8")
     protected String targetVersion;
 
+    /**
+     * The Java version (17 up to 25) for the language level and the class file version. A language feature of a newer
+     * version is an error. Replaces {@code target}.
+     */
+    @Parameter(property = "maven.compiler.release")
+    protected String release;
+
     @Parameter(property = "maven.compiler.verbose", defaultValue = "false")
     protected boolean verbose;
 
@@ -170,7 +177,10 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
                 String.valueOf(incremental)
         );
 
-        if (targetVersion != null) {
+        if (release != null && !release.isBlank()) {
+            // --release replaces --target (target has a default, so it is skipped here).
+            compilerOptionsBuilder.option(CompilerOption.RELEASE, release.trim());
+        } else if (targetVersion != null) {
             compilerOptionsBuilder.option(
                     CompilerOption.TARGET_VERSION,
                     targetVersion

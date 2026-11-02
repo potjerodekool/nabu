@@ -13,6 +13,7 @@ import io.github.potjerodekool.nabu.compiler.extension.PluginRegistry;
 import io.github.potjerodekool.nabu.compiler.impl.AnnotatePhase;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerDiagnosticListener;
 import io.github.potjerodekool.nabu.compiler.impl.LambdaToMethodPhase;
+import io.github.potjerodekool.nabu.compiler.impl.LanguageLevelChecker;
 import io.github.potjerodekool.nabu.compiler.incremental.IncrementalBuildState;
 import io.github.potjerodekool.nabu.compiler.resolve.asm.AsmClassElementLoader;
 import io.github.potjerodekool.nabu.compiler.backend.bytecode.BytecodeReachabilityCompiler;
@@ -60,6 +61,13 @@ public class NabuCompiler implements Compiler {
             final var fullOptions = compilerContext.getCompilerOptions();
 
             final var fileManager = compilerContext.getFileManager();
+
+            final var versionErrors = fullOptions.validateVersions();
+            if (!versionErrors.isEmpty()) {
+                versionErrors.forEach(message -> compilerDiagnosticListener.report(
+                        new DefaultDiagnostic(Diagnostic.Kind.ERROR, message, null)));
+                return -1;
+            }
 
             // Only what a LanguageParser reads is compiled. A LanguageSupport (Java, Kotlin) is there to read source files
             // for their symbols (see ClassFinder), so that a .nabu file can use them, not to compile them.
@@ -415,6 +423,16 @@ public class NabuCompiler implements Compiler {
     private List<CompilationUnit> processFiles(final List<FileObject> files,
                                                final CompilerContextImpl compilerContext) {
         var compilationUnits = new ArrayList<>(parseFiles(files, compilerContext));
+
+        final var release = compilerContext.getCompilerOptions().getRelease();
+        if (release.isPresent()) {
+            for (final var unit : compilationUnits) {
+                LanguageLevelChecker.check(unit, release.get(), compilerDiagnosticListener);
+            }
+        }
+        if (compilerDiagnosticListener.getErrorCount() > 0) {
+            return List.of();
+        }
 
         // Systeemmodules moeten bekend zijn vóór er een package/import wordt
         // opgezocht: het completeren van de unnamed module vult de zichtbare

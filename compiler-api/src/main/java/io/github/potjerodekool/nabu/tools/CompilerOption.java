@@ -9,6 +9,11 @@ public record CompilerOption(String optionName) {
     public static final CompilerOption CLASS_PATH = new CompilerOption("--class-path");
     public static final CompilerOption SYSTEM = new CompilerOption("--system");
     public static final CompilerOption TARGET_VERSION = new CompilerOption("--target");
+    /**
+     * The Java version for the language level and the class file version (17 up to 25). A language feature of a newer
+     * version is an error in the Java and Nabu sources that are compiled. Cannot be combined with {@code --target}.
+     */
+    public static final CompilerOption RELEASE = new CompilerOption("--release");
     public static final CompilerOption SOURCE_OUTPUT = new CompilerOption("-s");
     public static final CompilerOption CLASS_OUTPUT = new CompilerOption("-d");
     public static final CompilerOption ANNOTATION_PROCESSOR_PATH = new CompilerOption("--processor-path");
@@ -34,6 +39,7 @@ public record CompilerOption(String optionName) {
             CLASS_PATH,
             SYSTEM,
             TARGET_VERSION,
+            RELEASE,
             SOURCE_OUTPUT,
             CLASS_OUTPUT,
             ANNOTATION_PROCESSOR_PATH,
@@ -54,6 +60,7 @@ public record CompilerOption(String optionName) {
             CLASS_PATH,
             SYSTEM,
             TARGET_VERSION,
+            RELEASE,
             SOURCE_OUTPUT,
             CLASS_OUTPUT,
             ANNOTATION_PROCESSOR_PATH,

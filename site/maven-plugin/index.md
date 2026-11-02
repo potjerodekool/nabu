@@ -21,6 +21,7 @@ The plugin is not published to Maven Central yet; build Nabu from source (`mvn i
 | `annotationProcessorPaths` | | | Annotation processors to run, as Maven coordinates (`groupId`, `artifactId`, `version`) |
 | `generatedSourcesDirectory` | | `target/generated-sources/annotations` | Where annotation processors write generated sources |
 | `targetVersion` | `maven.compiler.target` | `1.8` | Target Java version |
+| `release` | `maven.compiler.release` | | Java version 17 to 25 for the language level and the class file version. A language feature of a newer version is an error (see [Release]({{ site.baseurl }}/languages/java/#release)); an unsupported value is an error too. Replaces `targetVersion` |
 | `failOnError` | `maven.compiler.failOnError` | `true` | Fail the build on compilation errors |
 
 The plugin compiles every source root of the project (`src/main/java` and any root added with `build-helper-maven-plugin`), both `.java` and `.nabu` files.

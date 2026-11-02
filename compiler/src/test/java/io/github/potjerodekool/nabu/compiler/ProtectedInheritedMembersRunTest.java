@@ -302,6 +302,62 @@ class ProtectedInheritedMembersRunTest {
         assertEquals(1, cls.getMethod("run").invoke(null));
     }
 
+    /**
+     * Spring AOT: <code>dispatcherServlet(args.get(0))</code>, a generic result passed to a parameter of a
+     * reference type. The erased Object must be cast to the parameter type (VerifyError: Object is not
+     * assignable to WebMvcProperties).
+     */
+    @Test
+    void genericReturnValueIsCastForReferenceParameter() throws Exception {
+        final var cls = compileAndLoad("mini.UseReference", java.util.Map.of(
+                "mini/Source.java", """
+                        package mini;
+                        public class Source {
+                            private final Object value;
+                            public Source(Object value) {
+                                this.value = value;
+                            }
+                            @SuppressWarnings("unchecked")
+                            public <T> T get() {
+                                return (T) value;
+                            }
+                        }
+                        """,
+                "mini/Holder.java", """
+                        package mini;
+                        public class Holder {
+                            private final String text;
+                            public Holder(String text) {
+                                this.text = text;
+                            }
+                            public String text() {
+                                return text;
+                            }
+                            public static String shout(String text) {
+                                return text.toUpperCase();
+                            }
+                            public String join(String first, StringBuilder second) {
+                                return first + second;
+                            }
+                        }
+                        """,
+                "mini/UseReference.java", """
+                        package mini;
+                        import java.util.function.Function;
+                        public class UseReference {
+                            public static String run() {
+                                Source text = new Source("abc");
+                                Source builder = new Source(new StringBuilder("sb"));
+                                Function<Source, Holder> viaLambda = s -> new Holder(s.get());
+                                Holder holder = new Holder(text.get());
+                                return viaLambda.apply(text).text() + " " + Holder.shout(text.get()) + " "
+                                        + holder.join(text.get(), builder.get());
+                            }
+                        }
+                        """));
+        assertEquals("abc ABC abcsb", cls.getMethod("run").invoke(null));
+    }
+
     /** The same, but the class only exists as a class file on the class path (what Spring AOT leaves behind). */
     @Test
     void classNamesWithDollarSignsResolveFromClassFiles() throws Exception {

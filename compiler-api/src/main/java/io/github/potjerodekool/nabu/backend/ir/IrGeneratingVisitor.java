@@ -1848,7 +1848,27 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
 
         // Alleen boksen wanneer het argument momenteel een primitieve
         // waarde is en de parameter een referentie verwacht.
-        return boxPrimitive(value, argTypeMirror);
+        return castErasedToParameter(boxPrimitive(value, argTypeMirror), TypeMirrorToIRType.map(paramType), argTypeMirror);
+    }
+
+    /**
+     * The result of a generic call (<code>args.get(0)</code>, <code>&lt;T&gt; T get(int)</code>) is the erased bound
+     * (Object) while T is inferred from the parameter it is passed to. The JVM verifier needs the value cast to
+     * that parameter type.
+     */
+    private IRValue castErasedToParameter(final IRValue value,
+                                          final IRType parameter,
+                                          final TypeMirror argTypeMirror) {
+        if (value == null
+                || !(argTypeMirror instanceof io.github.potjerodekool.nabu.type.TypeVariable)
+                || !(value.type() instanceof IRType.Ptr valuePtr)
+                || !"Ljava/lang/Object;".equals(valuePtr.jvmDescriptor())
+                || !(parameter instanceof IRType.Ptr parameterPtr)
+                || parameterPtr.jvmDescriptor() == null
+                || "Ljava/lang/Object;".equals(parameterPtr.jvmDescriptor())) {
+            return value;
+        }
+        return builder.emitCast(value, parameterPtr);
     }
 
     /**
@@ -3589,7 +3609,7 @@ if (argVal != null) args.add(argVal);
         }
         IRValue value = argValue;
         if (paramType instanceof IRType.Ptr) {
-            return boxIfNeeded(value, paramType);
+            return castErasedToParameter(boxIfNeeded(value, paramType), paramType, argTypeMirror);
         }
         value = unboxIfNeeded(castErasedToWrapper(value, argTypeMirror, null, paramType), paramType);
         if (isWideningNeeded(value.type(), paramType)) {

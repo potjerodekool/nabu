@@ -2336,9 +2336,18 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         final var typeName = (IdentifierTree) ctx.typeName().accept(this);
         final var elementValue = (ExpressionTree) ctx.elementValue().accept(this);
 
+        // `@X(v)` is `@X(value = v)`, like the Java frontend does. The bare value was no name/value pair:
+        // a literal was dropped silently and a class literal crashed TypeEnter (ClassCastException).
+        final var argument = TreeMaker.assignmentExpression(
+                IdentifierTree.create("value"),
+                elementValue,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+
         return TreeMaker.annotationTree(
                 typeName,
-                List.of(elementValue),
+                List.of(argument),
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine()
         );

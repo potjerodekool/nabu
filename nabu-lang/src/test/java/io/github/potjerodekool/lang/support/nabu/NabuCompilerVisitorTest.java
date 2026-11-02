@@ -221,7 +221,9 @@ class NabuCompilerVisitorTest {
 
     @Test
     void singleElementAnnotation() {
-        parseAndAssert("@Value(\"Hello world!\")", NabuParser::singleElementAnnotation);
+        // `@Value(v)` is the tree of `@Value(value = v)`, as in the Java frontend; print it in the short form.
+        parseAndAssert("@Value(\"Hello world!\")", NabuParser::singleElementAnnotation,
+                (java.util.function.Function<String, String>) actual -> actual.replace("(value = ", "("));
     }
 
     @Test

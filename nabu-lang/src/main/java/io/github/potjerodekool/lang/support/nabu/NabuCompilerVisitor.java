@@ -1494,13 +1494,15 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
         } else if (ctx.StringLiteral() != null) {
             node = ctx.StringLiteral();
             var text = node.getText();
-            value = text.substring(1, text.length() - 1);
+            // Escape sequences (backslash-n, backslash-quote, unicode escapes) were left in the string as written.
+            value = unescapeJava(text.substring(1, text.length() - 1));
         } else if (ctx.NullLiteral() != null) {
             node = ctx.NullLiteral();
             value = null;
         } else if (ctx.CharacterLiteral() != null) {
             node = ctx.CharacterLiteral();
-            value = ctx.CharacterLiteral().getText().charAt(1);
+            final var charText = ctx.CharacterLiteral().getText();
+            value = unescapeJava(charText.substring(1, charText.length() - 1)).charAt(0);
         } else {
             return null;
         }

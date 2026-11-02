@@ -2417,45 +2417,9 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
         return TreeMaker.literalExpressionTree(value, node.getSymbol().getLine(), node.getSymbol().getCharPositionInLine());
     }
 
-    /**
-     * De waarde van de tekst tussen de quotes van een string- of char-literal:
-     * eerst unicode-escapes (JLS 3.3), dan de escape-sequenties van JLS 3.10.7
-     * (newline, tab, octaal, ...). Ontbrak: een char-literal met een
-     * escape werd de backslash zelf, en picocli's ESC-teken (CSI) kwam
-     * letterlijk als escape-tekst in de uitvoer.
-     */
+    /** Zie {@code CompilerVisitorHelper.unescapeJava}. */
     static String unescapeJava(final String raw) {
-        if (raw.indexOf('\\') < 0) {
-            return raw;
-        }
-        final StringBuilder sb = new StringBuilder(raw.length());
-        int i = 0;
-        while (i < raw.length()) {
-            final char c = raw.charAt(i);
-            if (c == '\\' && i + 1 < raw.length() && raw.charAt(i + 1) == 'u' && isUnicodeEscapeStart(raw, i)) {
-                int j = i + 1;
-                while (j < raw.length() && raw.charAt(j) == 'u') {
-                    j++;
-                }
-                if (j + 4 <= raw.length()) {
-                    sb.append((char) Integer.parseInt(raw.substring(j, j + 4), 16));
-                    i = j + 4;
-                    continue;
-                }
-            }
-            sb.append(c);
-            i++;
-        }
-        return sb.toString().translateEscapes();
-    }
-
-    /** Een backslash begint alleen een unicode-escape als hij zelf niet ge-escaped is (oneven aantal). */
-    private static boolean isUnicodeEscapeStart(final String raw, final int index) {
-        int backslashes = 0;
-        for (int k = index; k >= 0 && raw.charAt(k) == '\\'; k--) {
-            backslashes++;
-        }
-        return backslashes % 2 == 1;
+        return io.github.potjerodekool.nabu.lang.CompilerVisitorHelper.unescapeJava(raw);
     }
 
     /**

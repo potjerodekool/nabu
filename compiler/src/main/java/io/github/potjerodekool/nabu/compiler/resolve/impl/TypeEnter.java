@@ -1002,6 +1002,27 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         return false;
     }
 
+    private Object findConstantInEnclosingClasses(final Element start, final String fieldName) {
+        for (var element = start; element != null; element = element.getEnclosingElement()) {
+            if (!(element instanceof TypeElement typeElement)) {
+                continue;
+            }
+            for (final var member : typeElement.getEnclosedElements()) {
+                if (member.getKind() == ElementKind.FIELD
+                        && member.getSimpleName().equals(fieldName)
+                        && member instanceof VariableElement variable
+                        && variable.getConstantValue() != null) {
+                    return variable.getConstantValue();
+                }
+            }
+            final var constant = sourceConstantValue(typeElement, fieldName);
+            if (constant != null) {
+                return constant;
+            }
+        }
+        return null;
+    }
+
     private Object sourceConstantValue(final TypeElement typeElement, final String fieldName) {
         final var declaration = sourceDeclaration(typeElement);
         if (declaration == null) {
@@ -1464,6 +1485,11 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                 } else {
                     yield AnnotationBuilder.createClassAttribute(fieldAccessExpressionTree.getSelected().getType());
                 }
+            }
+            // A bare constant of the current class or an enclosing class (`name = NAME`). It was dropped silently.
+            case IdentifierTree identifierTree -> {
+                final var constant = findConstantInEnclosingClasses(scope.getCurrentClass(), identifierTree.getName());
+                yield constant != null ? AnnotationBuilder.createConstantValue(constant) : null;
             }
             case NewArrayExpression newArrayExpression -> {
                 final var type = newArrayExpression.getType();

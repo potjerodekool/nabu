@@ -131,6 +131,37 @@ class AnnotationRuntimeRunTest {
     }
 
     /**
+     * A bare constant as annotation value (`name = NAME`, not `Fields.NAME`) was dropped silently.
+     */
+    @Test
+    void bareConstantAsAnnotationValue() throws Exception {
+        final var cls = compileAndLoad("Bare", """
+                package mini;
+                import java.lang.annotation.Retention;
+                import java.lang.annotation.RetentionPolicy;
+                public class Bare {
+                    static final String NAME = "on-field";
+                    static final int LIMIT = 5;
+                    @Tag(name = NAME, number = LIMIT)
+                    private String value;
+                    @Tag(name = NAME)
+                    public void method() { }
+                    public static String run() throws Exception {
+                        Tag onField = Bare.class.getDeclaredField("value").getAnnotation(Tag.class);
+                        Tag onMethod = Bare.class.getMethod("method").getAnnotation(Tag.class);
+                        return onField.name() + " " + onField.number() + " " + onMethod.name();
+                    }
+                }
+                @Retention(RetentionPolicy.RUNTIME)
+                @interface Tag {
+                    String name() default "";
+                    int number() default 0;
+                }
+                """);
+        assertEquals("on-field 5 on-field", cls.getMethod("run").invoke(null));
+    }
+
+    /**
      * A class literal of a primitive type or an array (`implementation = int.class`), also inside a nested
      * annotation, crashed TypeEnter with a ClassCastException (CPrimitiveType -> VariableType) found while
      * compiling the generated petstore API (`@Header(schema = @Schema(implementation = int.class))`).

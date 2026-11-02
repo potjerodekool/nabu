@@ -255,4 +255,58 @@ class RecordPatternRunTest {
                 """);
         assertEquals("7 -1 10 -2 -1", cls.getMethod("run").invoke(null));
     }
+
+    @Test
+    void recordPatternUnderOrAndInConditionalExpressions() throws Exception {
+        final var cls = compileAndLoad("Ors", """
+                package mini;
+                public class Ors {
+                    record Point(int x, int y) {}
+                    static int calls = 0;
+                    static boolean tick() { calls++; return false; }
+                    static String or(Object o, boolean flag) {
+                        if (flag || o instanceof Point(int x, int y) && x > 1) {
+                            return "yes";
+                        }
+                        return "no";
+                    }
+                    static String orAfter(Object o) {
+                        if (!(o instanceof Point(int x, int y)) || x > y) {
+                            return "bad";
+                        }
+                        return "ok" + (x + y);
+                    }
+                    static int ternary(Object o) {
+                        return o instanceof Point(int x, int y) ? x * 10 + y : -1;
+                    }
+                    static int nested(Object o, Object p) {
+                        int r = o instanceof Point(int x, int y)
+                                ? (p instanceof Point(int a, int b) ? x + y + a + b : x + y)
+                                : 0;
+                        return r;
+                    }
+                    static int assigned(Object o) {
+                        int r = 5;
+                        r = o instanceof Point(int x, int y) ? x - y : 0;
+                        return r;
+                    }
+                    static String shortCircuit(Object o) {
+                        calls = 0;
+                        boolean b = true || o instanceof Point(int x, int y) && tick();
+                        boolean c = o instanceof Point(int x, int y) || tick();
+                        return b + " " + c + " " + calls;
+                    }
+                    public static String run() {
+                        return or("s", true) + " " + or(new Point(2, 0), false) + " " + or(new Point(1, 0), false) + " "
+                                + or("s", false) + " " + orAfter("s") + " " + orAfter(new Point(5, 1)) + " "
+                                + orAfter(new Point(1, 2)) + " " + ternary(new Point(3, 4)) + " " + ternary("s") + " "
+                                + nested(new Point(1, 2), new Point(3, 4)) + " " + nested(new Point(1, 2), "s") + " "
+                                + nested("s", "s") + " " + assigned(new Point(9, 4)) + " " + assigned("s") + " "
+                                + shortCircuit(new Point(1, 1)) + " " + shortCircuit("s");
+                    }
+                }
+                """);
+        assertEquals("yes yes no no bad bad ok3 34 -1 10 3 0 5 0 true true 0 true false 1",
+                cls.getMethod("run").invoke(null));
+    }
 }

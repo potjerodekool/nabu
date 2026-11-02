@@ -378,7 +378,17 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         final var symbol = (VariableSymbol) variableDeclaratorStatement.getName().getSymbol();
 
-        if (symbol != null) {
+        // TypeEnter already built the annotations of a field, enum constant or record component, including
+        // enum constants (`@ManyToOne(fetch = FetchType.EAGER)`), nested annotations and constants. The attribute
+        // values built below only know literals, arrays of literals and class literals, so they dropped the rest.
+        final boolean enteredByTypeEnter = symbol != null
+                && (symbol.getKind() == ElementKind.FIELD
+                || symbol.getKind() == ElementKind.ENUM_CONSTANT
+                || symbol.getKind() == ElementKind.RECORD_COMPONENT)
+                && !variableDeclaratorStatement.getAnnotations().isEmpty()
+                && symbol.getAnnotationMirrors().size() == variableDeclaratorStatement.getAnnotations().size();
+
+        if (symbol != null && !enteredByTypeEnter) {
             // Filter null-annotaties (optredend bij niet-resolvebare annotaties)
             final var annotations = variableDeclaratorStatement.getAnnotations().stream()
                     .map(annotation -> (CompoundAttribute)

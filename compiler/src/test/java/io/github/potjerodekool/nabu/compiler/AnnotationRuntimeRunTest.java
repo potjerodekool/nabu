@@ -95,6 +95,42 @@ class AnnotationRuntimeRunTest {
     }
 
     /**
+     * The annotation of a field lost its enum constants, nested annotations and constants: ResolverPhase replaced
+     * the annotations TypeEnter had built with attribute values that only knew literals. A JPA entity then had
+     * `@ManyToOne(fetch = FetchType.EAGER)` without the fetch type (LazyInitializationException).
+     */
+    @Test
+    void fieldAnnotationKeepsEnumNestedAnnotationAndConstant() throws Exception {
+        final var cls = compileAndLoad("Fields", """
+                package mini;
+                import java.lang.annotation.ElementType;
+                import java.lang.annotation.Retention;
+                import java.lang.annotation.RetentionPolicy;
+                public class Fields {
+                    static final String NAME = "constant";
+                    @Marker(kind = ElementType.FIELD, inner = @Inner(label = "in"), name = Fields.NAME, number = 7)
+                    private String value;
+                    public static String run() throws Exception {
+                        Marker marker = Fields.class.getDeclaredField("value").getAnnotation(Marker.class);
+                        return marker.kind() + " " + marker.inner().label() + " " + marker.name() + " " + marker.number();
+                    }
+                }
+                @Retention(RetentionPolicy.RUNTIME)
+                @interface Inner {
+                    String label();
+                }
+                @Retention(RetentionPolicy.RUNTIME)
+                @interface Marker {
+                    ElementType kind() default ElementType.TYPE;
+                    Inner inner();
+                    String name() default "";
+                    int number() default 0;
+                }
+                """);
+        assertEquals("FIELD in constant 7", cls.getMethod("run").invoke(null));
+    }
+
+    /**
      * A class literal of a primitive type or an array (`implementation = int.class`), also inside a nested
      * annotation, crashed TypeEnter with a ClassCastException (CPrimitiveType -> VariableType) found while
      * compiling the generated petstore API (`@Header(schema = @Schema(implementation = int.class))`).

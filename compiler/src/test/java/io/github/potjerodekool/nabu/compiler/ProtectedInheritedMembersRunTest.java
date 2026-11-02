@@ -269,6 +269,42 @@ class ProtectedInheritedMembersRunTest {
         assertEquals("x:0:false -:7:true -:7:true", cls.getMethod("run").invoke(null));
     }
 
+    /**
+     * Spring AOT: <code>BeanInstanceSupplier.&lt;T&gt;forConstructor(String[].class)</code>, a static generic
+     * varargs method called with one array class literal. The argument must be wrapped in a Class[]; it was passed
+     * as it is (VerifyError: Class is not assignable to Class[]).
+     */
+    @Test
+    @Disabled("Known bug G14: a varargs call with one array class literal is not packed into the varargs array")
+    void varargsCallWithOneArrayClassLiteral() throws Exception {
+        final var cls = compileAndLoad("mini.UseVarargs", java.util.Map.of(
+                "mini/Supplier2.java", """
+                        package mini;
+                        public class Supplier2<T> {
+                            private final int count;
+                            private Supplier2(int count) {
+                                this.count = count;
+                            }
+                            public static <T> Supplier2<T> forConstructor(Class<?>... parameterTypes) {
+                                return new Supplier2<T>(parameterTypes.length);
+                            }
+                            public int count() {
+                                return count;
+                            }
+                        }
+                        """,
+                "mini/UseVarargs.java", """
+                        package mini;
+                        public class UseVarargs {
+                            public static int run() {
+                                Supplier2<String> supplier = Supplier2.<String>forConstructor(String[].class);
+                                return supplier.count();
+                            }
+                        }
+                        """));
+        assertEquals(1, cls.getMethod("run").invoke(null));
+    }
+
     /** The same, but the class only exists as a class file on the class path (what Spring AOT leaves behind). */
     @Test
     void classNamesWithDollarSignsResolveFromClassFiles() throws Exception {

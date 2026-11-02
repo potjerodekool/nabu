@@ -141,6 +141,22 @@ class ReleaseOptionTest {
     }
 
     @Test
+    void unsupportedTargetIsAnError() throws IOException {
+        for (final var target : List.of("abc", "1.8", "16", "26", "")) {
+            final var result = compile(null, target, SIMPLE);
+            assertNotEquals(0, result.rc(), "target '" + target + "'");
+            assertTrue(errors(result).contains("Unsupported value '" + target + "' for --target"),
+                    "target '" + target + "': " + errors(result));
+        }
+    }
+
+    @Test
+    void supportedTargetIsAccepted() throws IOException {
+        final var result = compile(null, "21", SIMPLE);
+        assertEquals(0, result.rc(), errors(result));
+    }
+
+    @Test
     void releaseAndTargetCannotBeCombined() throws IOException {
         final var result = compile("21", "21", SIMPLE);
         assertNotEquals(0, result.rc());

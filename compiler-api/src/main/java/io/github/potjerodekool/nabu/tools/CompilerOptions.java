@@ -40,11 +40,16 @@ public interface CompilerOptions {
     Optional<JavaVersion> getRelease();
 
     /**
-     * @return Returns the error messages of the version options: an unsupported {@code --release}, or
-     * {@code --release} together with {@code --target}. Empty if the options are correct.
+     * @return Returns the error messages of the version options: an unsupported {@code --release} or
+     * {@code --target}, or {@code --release} together with {@code --target}. Empty if the options are correct.
      */
     default java.util.List<String> validateVersions() {
         final var errors = new java.util.ArrayList<String>();
+        getOption(CompilerOption.TARGET_VERSION).ifPresent(target -> {
+            if (JavaVersion.find(target).isEmpty()) {
+                errors.add(JavaVersion.unsupportedMessage("--target", target));
+            }
+        });
         getOption(CompilerOption.RELEASE).ifPresent(release -> {
             if (JavaVersion.find(release).isEmpty()) {
                 errors.add(JavaVersion.unsupportedMessage("--release", release));
@@ -145,7 +150,7 @@ public interface CompilerOptions {
             return getRelease().orElseGet(() -> getOptionalOrDefault(
                     CompilerOption.TARGET_VERSION,
                     JavaVersion.MINIMAL_VERSION,
-                    JavaVersion::parseFromName
+                    JavaVersion::parseStrict
             ));
         }
 

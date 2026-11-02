@@ -26,7 +26,7 @@ The reference language level for the frontend is **Java 20** (JLS SE 20). Intero
 
 ## Release
 
-With `--release <version>` (Maven plugin: `release` or `maven.compiler.release`) the compiler checks the language level of the sources it compiles and writes class files for that version. The supported versions are 17 up to 25; another value is an error, and so is `--release` together with `--target`.
+With `--release <version>` (Maven plugin: `release` or `maven.compiler.release`) the compiler checks the language level of the sources it compiles and writes class files for that version. The supported versions are 17 up to 25; another value is an error, for `--target` too, and so is `--release` together with `--target`.
 
 A language construct of a newer version than the release is an error, with the file and the line:
 

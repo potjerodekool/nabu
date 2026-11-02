@@ -218,7 +218,7 @@ class IncrementalCompilationIntegrationTest {
                 .option(CompilerOption.CLASS_PATH, locationOf(Entity.class))
                 .option(CompilerOption.ANNOTATION_PROCESSOR_PATH, locationOf(HibernateProcessor.class))
                 .option(CompilerOption.BACKEND, "ASM")
-                .option(CompilerOption.TARGET_VERSION, "1.8")
+                .option(CompilerOption.TARGET_VERSION, "21")
                 .build();
 
         final var thirdDiagnostics = diagnostics(changedOptions);

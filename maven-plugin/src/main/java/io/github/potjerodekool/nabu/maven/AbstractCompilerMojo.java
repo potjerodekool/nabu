@@ -39,7 +39,7 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
     @Parameter(defaultValue = "${session}", readonly = true, required = true)
     private MavenSession session;
 
-    @Parameter(property = "maven.compiler.target", defaultValue = "1.8")
+    @Parameter(property = "maven.compiler.target", defaultValue = "17")
     protected String targetVersion;
 
     /**

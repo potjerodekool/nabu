@@ -10,7 +10,7 @@ The Nabu compiler provides **Java interoperability out of the box**. Java 20 is 
 - **Nabu can call Java** code and **Java can call Nabu** code.
 - Java and Nabu sources can be mixed in one project.
 - The compiler reads Java class files, including generics and modules, through its `resolve/asm` package (ASM 9.8). It runs against the class library of the JDK it runs on; JDK 25 is verified.
-- Java **sources** (up to Java 20) are parsed with the ANTLR `Java20Parser.g4` grammar and the `JavaCompilerVisitor`. By default Nabu only reads them, for their classes and methods, so that a `.nabu` file can use them; `javac` compiles them (see below).
+- Java **sources** (up to Java 25) are parsed with the ANTLR `Java25Parser.g4` grammar and the `JavaCompilerVisitor`. By default Nabu only reads them, for their classes and methods, so that a `.nabu` file can use them; `javac` compiles them (see below).
 
 ## How Java sources are used
 

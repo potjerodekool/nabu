@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.backend.ir.Optimizer;
 import io.github.potjerodekool.nabu.compiler.impl.EnterPhase;
 import io.github.potjerodekool.nabu.lang.model.element.ElementFilter;
 import io.github.potjerodekool.nabu.lang.model.element.ExecutableElement;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.ResolverPhase;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
@@ -41,7 +41,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -63,7 +63,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -92,7 +92,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                        }
                        """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -146,7 +146,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -173,7 +173,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -199,7 +199,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -222,7 +222,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -255,7 +255,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -278,7 +278,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -306,7 +306,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);
@@ -329,7 +329,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         compilationUnit = process(compilationUnit);
         final var actual = compile(compilationUnit);
@@ -348,7 +348,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         compilationUnit = process(compilationUnit);
         final var actual = compile(compilationUnit);
@@ -367,7 +367,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         compilationUnit = process(compilationUnit);
         final var actual = compile(compilationUnit);
@@ -386,7 +386,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         compilationUnit = process(compilationUnit);
         final var actual = compile(compilationUnit);
@@ -405,7 +405,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         compilationUnit = process(compilationUnit);
         final var actual = compile(compilationUnit);
@@ -424,7 +424,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         compilationUnit = process(compilationUnit);
         final var actual = compile(compilationUnit);
@@ -443,7 +443,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         compilationUnit = process(compilationUnit);
         final var actual = compile(compilationUnit);
@@ -463,7 +463,7 @@ class InstructionEmitterTest extends BackendTest {
                             }
                         }
                         """,
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
 
         compilationUnit = process(compilationUnit);

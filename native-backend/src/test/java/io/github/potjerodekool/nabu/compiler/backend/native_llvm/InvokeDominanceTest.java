@@ -7,8 +7,8 @@ import io.github.potjerodekool.nabu.backend.ir.Optimizer;
 import io.github.potjerodekool.nabu.backend.ir.SsaBuilder;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.compiler.impl.EnterPhase;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Lexer;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.ResolverPhase;
 import io.github.potjerodekool.nabu.tools.Compiler;
@@ -69,8 +69,8 @@ class InvokeDominanceTest {
         FileObject fo = new PathFileObject(new FileObject.Kind("java", true), tmp);
         try (var in = fo.openInputStream()) {
             var text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            var parser = new Java20Parser(new org.antlr.v4.runtime.CommonTokenStream(
-                    new Java20Lexer(CharStreams.fromString(text))));
+            var parser = new Java25Parser(new org.antlr.v4.runtime.CommonTokenStream(
+                    new Java25Lexer(CharStreams.fromString(text))));
             var cu = (io.github.potjerodekool.nabu.tree.CompilationUnit)
                     parser.compilationUnit().accept(new JavaCompilerVisitor(fo, false));
 

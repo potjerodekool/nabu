@@ -4,7 +4,7 @@ import io.github.potjerodekool.nabu.compiler.CompilerPhase;
 import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
 import io.github.potjerodekool.nabu.compiler.NabuCompilerTest;
 import io.github.potjerodekool.nabu.compiler.TreePrinter;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
 import org.junit.jupiter.api.Test;
 
@@ -17,7 +17,7 @@ class LowerPhaseTest extends NabuCompilerTest {
     private CompilationUnit parseAndLower(String source) throws IOException {
         var cu = (CompilationUnit) parse(
                 new InMemoryFileObject(source, "Test.java"),
-                Java20Parser::compilationUnit
+                Java25Parser::compilationUnit
         );
         return process(cu, CompilerPhase.LOWER);
     }

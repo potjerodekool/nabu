@@ -3,7 +3,7 @@ package io.github.potjerodekool.nabu.compiler.resolve.method.impl;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.*;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
 import io.github.potjerodekool.nabu.compiler.type.impl.CArrayType;
 import io.github.potjerodekool.nabu.compiler.type.impl.CMethodType;
 import io.github.potjerodekool.nabu.compiler.type.impl.UndetVarType;
@@ -41,7 +41,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     void resolveSimpleMethodInCurrentClass() throws IOException {
         final MethodInvocationTree methodInvocationTree = parseJavaCode("""
                 hello("Evert")
-                """, Java20Parser::methodInvocation);
+                """, Java25Parser::methodInvocation);
 
         final var stringType = parseType("java.lang.String");
         methodInvocationTree.getArguments().getFirst().setType(stringType);
@@ -78,7 +78,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveGetOnParameterizedType() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("list.get(1)", Java20Parser::expression);
+        final MethodInvocationTree invocation = parseJavaCode("list.get(1)", Java25Parser::expression);
         final DeclaredType listOfStringType = parseType("java.util.ArrayList<java.lang.String>");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -102,7 +102,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveForEachWithConsumer() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("list.forEach(consumer)", Java20Parser::methodInvocation);
+        final MethodInvocationTree invocation = parseJavaCode("list.forEach(consumer)", Java25Parser::methodInvocation);
         final var listOfStringType = parseType("java.util.ArrayList<java.lang.String>");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -179,7 +179,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveMethodWithPrimitiveArg() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("list.indexOf(42)", Java20Parser::methodInvocation);
+        final MethodInvocationTree invocation = parseJavaCode("list.indexOf(42)", Java25Parser::methodInvocation);
         final var listOfIntegerType = parseType("java.util.ArrayList<java.lang.Integer>");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -200,7 +200,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveLengthOnString() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("\"hello\".length()", Java20Parser::expression);
+        final MethodInvocationTree invocation = parseJavaCode("\"hello\".length()", Java25Parser::expression);
         final var stringType = parseType("java.lang.String");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -220,7 +220,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveSizeOnList() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("list.size()", Java20Parser::methodInvocation);
+        final MethodInvocationTree invocation = parseJavaCode("list.size()", Java25Parser::methodInvocation);
         final var listType = parseType("java.util.ArrayList<java.lang.String>");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -240,7 +240,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveToStringOnList() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("list.toString()", Java20Parser::methodInvocation);
+        final MethodInvocationTree invocation = parseJavaCode("list.toString()", Java25Parser::methodInvocation);
         final var listType = parseType("java.util.ArrayList<java.lang.String>");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -261,7 +261,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveWithExplicitTypeArgument() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "list.<String>get(1)", Java20Parser::methodInvocation
+                "list.<String>get(1)", Java25Parser::methodInvocation
         );
 
         final var typeArg = invocation.getTypeArguments().getFirst();
@@ -387,7 +387,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveAddOnCollectionOfStrings() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("list.add(\"hello\")", Java20Parser::expression);
+        final MethodInvocationTree invocation = parseJavaCode("list.add(\"hello\")", Java25Parser::expression);
         final var collectionType = parseType("java.util.Collection<java.lang.String>");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -458,7 +458,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
 
     @Test
     void resolveMethodWithMethodTypeVariableAsParam() throws IOException {
-        final MethodInvocationTree invocation = parseJavaCode("list.add(\"hello\")", Java20Parser::expression);
+        final MethodInvocationTree invocation = parseJavaCode("list.add(\"hello\")", Java25Parser::expression);
         final DeclaredType listOfStringType = parseType("java.util.ArrayList<java.lang.String>");
 
         final var selector = (FieldAccessExpressionTree) invocation.getMethodSelector();
@@ -506,7 +506,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveStringValueOfIntOverload() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "String.valueOf(42)", Java20Parser::expression
+                "String.valueOf(42)", Java25Parser::expression
         );
 
         final var stringType = parseType("java.lang.String");
@@ -534,7 +534,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveStringValueOfLongOverload() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "String.valueOf(42L)", Java20Parser::expression
+                "String.valueOf(42L)", Java25Parser::expression
         );
 
         final var stringType = parseType("java.lang.String");
@@ -562,7 +562,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveStringValueOfBooleanOverload() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "String.valueOf(true)", Java20Parser::expression
+                "String.valueOf(true)", Java25Parser::expression
         );
 
         final var stringType = parseType("java.lang.String");
@@ -590,7 +590,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveStringValueOfObjectOverload() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "String.valueOf(obj)", Java20Parser::expression
+                "String.valueOf(obj)", Java25Parser::expression
         );
 
         final var stringType = parseType("java.lang.String");
@@ -617,7 +617,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveArraysAsListWithImplicitVarArgs() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "Arrays.asList(\"a\", \"b\", \"c\")", Java20Parser::expression
+                "Arrays.asList(\"a\", \"b\", \"c\")", Java25Parser::expression
         );
 
         final var arraysType = parseType("java.util.Arrays");
@@ -648,7 +648,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveStringFormatWithVarArgs() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "String.format(\"%s\", \"x\")", Java20Parser::expression
+                "String.format(\"%s\", \"x\")", Java25Parser::expression
         );
 
         final var stringType = parseType("java.lang.String");
@@ -676,7 +676,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveMathMaxChoosingMostSpecificOverload() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "Math.max(1, 2)", Java20Parser::expression
+                "Math.max(1, 2)", Java25Parser::expression
         );
 
         final var mathType = parseType("java.lang.Math");
@@ -707,7 +707,7 @@ class CompleteMethodResolverTest extends JavaCompilerTest {
     @Test
     void resolveCollectionsEmptyListWithExplicitBound() throws IOException {
         final MethodInvocationTree invocation = parseJavaCode(
-                "Collections.<String>emptyList()", Java20Parser::methodInvocation
+                "Collections.<String>emptyList()", Java25Parser::methodInvocation
         );
 
         final var typeArg = invocation.getTypeArguments().getFirst();

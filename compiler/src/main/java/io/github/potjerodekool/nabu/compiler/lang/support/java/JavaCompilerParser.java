@@ -11,11 +11,11 @@ public final class JavaCompilerParser {
     private JavaCompilerParser() {
     }
 
-    public static Java20Parser.CompilationUnitContext parse(final InputStream inputStream) throws IOException {
+    public static Java25Parser.CompilationUnitContext parse(final InputStream inputStream) throws IOException {
         final var inputSteam = CharStreams.fromStream(inputStream);
-        final var lexer = new Java20Lexer(inputSteam);
+        final var lexer = new Java25Lexer(inputSteam);
         final var tokens = new CommonTokenStream(lexer);
-        final var parser = new Java20Parser(tokens);
+        final var parser = new Java25Parser(tokens);
         return parser.compilationUnit();
     }
 }

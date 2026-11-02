@@ -1,8 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.frontend.parser.java;
 
 import io.github.potjerodekool.nabu.compiler.frontend.parser.ASTPrinter;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Lexer;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
 import io.github.potjerodekool.nabu.test.JavaLangTreeAssert;
 import io.github.potjerodekool.nabu.tools.FileObject;
@@ -57,18 +57,18 @@ class JavaCompilerVisitorTest {
     }
 
     protected void parseAndAssert(final String code,
-                                  final Function<Java20Parser, ParseTree> parseTreeBuilder) {
+                                  final Function<Java25Parser, ParseTree> parseTreeBuilder) {
         JavaLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder);
     }
 
     public void parseAndAssert(final String code,
-                               final Function<Java20Parser, ParseTree> parseTreeBuilder,
+                               final Function<Java25Parser, ParseTree> parseTreeBuilder,
                                final String actualPrefix) {
         JavaLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder, actual -> actualPrefix + actual);
     }
 
     public void parseAndAssert(final String code,
-                               final Function<Java20Parser, ParseTree> parseTreeBuilder,
+                               final Function<Java25Parser, ParseTree> parseTreeBuilder,
                                final Function<String, String> actualTransformer) {
         JavaLangTreeAssert.INSTANCE.parseAndAssert(code, parseTreeBuilder, actualTransformer);
     }
@@ -82,7 +82,7 @@ class JavaCompilerVisitorTest {
                         return null;
                     }
                 }
-                """, Java20Parser::normalClassDeclaration);
+                """, Java25Parser::normalClassDeclaration);
     }
 
     @Test
@@ -91,7 +91,7 @@ class JavaCompilerVisitorTest {
         Files.walkFileTree(root, new SimplePathVisitor(path -> {
             try {
                 final var data = new String(Files.readAllBytes(path));
-                parse(data, Java20Parser::start_);
+                parse(data, Java25Parser::start_);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -111,7 +111,7 @@ class JavaCompilerVisitorTest {
                         return null;
                     }
                 }
-                """, Java20Parser::normalClassDeclaration);
+                """, Java25Parser::normalClassDeclaration);
 
         final var astText = ASTPrinter.print(tree);
         System.out.println(astText);
@@ -121,7 +121,7 @@ class JavaCompilerVisitorTest {
     void testPrimaryNoNewArrayParenthesizedExpression() {
         final var tree = parse("""
                 ((Integer) list.get(0)).intValue()
-                """, Java20Parser::expression);
+                """, Java25Parser::expression);
 
         final var astText = ASTPrinter.print(tree);
         System.out.println(astText);
@@ -131,7 +131,7 @@ class JavaCompilerVisitorTest {
     void testPrimaryNoNewArrayLiteral() {
         final var tree = parse("""
                 "".length()
-                """, Java20Parser::expression);
+                """, Java25Parser::expression);
 
         final var astText = ASTPrinter.print(tree);
         System.out.println(astText);
@@ -141,7 +141,7 @@ class JavaCompilerVisitorTest {
     void testMethodInvocationFollowedByArrayAccess() {
         final var tree = parse("""
                 param.typeInfo().getAuxiliaryTypes()[0]
-                """, Java20Parser::expression);
+                """, Java25Parser::expression);
 
         assertNotNull(tree);
         final var expression = (ExpressionTree) tree;
@@ -239,7 +239,7 @@ class JavaCompilerVisitorTest {
     @Test
     void arrayAccessStacktrace() {
         try {
-            parse("a[0]", Java20Parser::expression);
+            parse("a[0]", Java25Parser::expression);
             System.out.println("no exception");
         } catch (final Throwable t) {
             final var cause = t.getCause() != null ? t.getCause() : t;
@@ -251,7 +251,7 @@ class JavaCompilerVisitorTest {
 
     private String tryParse(final String code) {
         try {
-            final var tree = parse(code, Java20Parser::expression);
+            final var tree = parse(code, Java25Parser::expression);
             return tree == null ? "NULL" : "OK";
         } catch (final Throwable t) {
             final var cause = t.getCause() != null ? t.getCause() : t;
@@ -261,7 +261,7 @@ class JavaCompilerVisitorTest {
 
     @Test
     void ternaryResultIsOnlyLastOperand() {
-        final var tree = (ExpressionTree) parse("a ? b : c", Java20Parser::expression);
+        final var tree = (ExpressionTree) parse("a ? b : c", Java25Parser::expression);
         System.out.println("TERNARY TREE = " + tree.getClass().getSimpleName());
         final var isBinary = tree instanceof io.github.potjerodekool.nabu.tree.expression.BinaryExpressionTree;
         System.out.println("  isBinaryExpression = " + isBinary);
@@ -314,7 +314,7 @@ class JavaCompilerVisitorTest {
 
     private String tryParseStatement(final String code) {
         try {
-            final var tree = parse(code, Java20Parser::compilationUnit);
+            final var tree = parse(code, Java25Parser::compilationUnit);
             return tree == null ? "NULL" : "OK";
         } catch (final Throwable t) {
             final var cause = t.getCause() != null ? t.getCause() : t;
@@ -327,9 +327,9 @@ class JavaCompilerVisitorTest {
         final var source = readPicocliSource();
         final var start = System.currentTimeMillis();
         final var input = CharStreams.fromString(source);
-        final var lexer = new Java20Lexer(input);
+        final var lexer = new Java25Lexer(input);
         final var tokens = new CommonTokenStream(lexer);
-        final var parser = new Java20Parser(tokens);
+        final var parser = new Java25Parser(tokens);
         parser.setBuildParseTree(false);
         parser.compilationUnit();
         final var elapsed = System.currentTimeMillis() - start;
@@ -363,7 +363,7 @@ class JavaCompilerVisitorTest {
                         for (Iterator<Pattern> iter = replacements.keySet().iterator(); iter.hasNext(); ) { }
                     }
                 }
-                """, Java20Parser::compilationUnit);
+                """, Java25Parser::compilationUnit);
         assertNotNull(tree);
     }
 
@@ -381,14 +381,14 @@ class JavaCompilerVisitorTest {
                     interface IStyle {
                         %s
                     }
-                    """.formatted(field), Java20Parser::compilationUnit);
+                    """.formatted(field), Java25Parser::compilationUnit);
             assertNotNull(tree);
         }
     }
 
     @Test
     void arrayCreationWithInitializer() {
-        final var tree = (ExpressionTree) parse("new String[]{\"A\", \"B\"}", Java20Parser::primary);
+        final var tree = (ExpressionTree) parse("new String[]{\"A\", \"B\"}", Java25Parser::primary);
         assertNotNull(tree);
         assertInstanceOf(io.github.potjerodekool.nabu.tree.expression.NewArrayExpression.class, tree);
         final var newArray = (io.github.potjerodekool.nabu.tree.expression.NewArrayExpression) tree;
@@ -398,7 +398,7 @@ class JavaCompilerVisitorTest {
 
     @Test
     void arrayCreationWithSize() {
-        final var tree = (ExpressionTree) parse("new int[10]", Java20Parser::primary);
+        final var tree = (ExpressionTree) parse("new int[10]", Java25Parser::primary);
         assertNotNull(tree);
         assertInstanceOf(io.github.potjerodekool.nabu.tree.expression.NewArrayExpression.class, tree);
         final var newArray = (io.github.potjerodekool.nabu.tree.expression.NewArrayExpression) tree;
@@ -407,7 +407,7 @@ class JavaCompilerVisitorTest {
 
     @Test
     void hexLiteralValue() {
-        final var tree = (ExpressionTree) parse("0xFF61", Java20Parser::literal);
+        final var tree = (ExpressionTree) parse("0xFF61", Java25Parser::literal);
         assertNotNull(tree);
         final var literal = (io.github.potjerodekool.nabu.tree.expression.LiteralExpressionTree) tree;
         assertEquals(0xFF61, literal.getLiteral());
@@ -420,8 +420,8 @@ class JavaCompilerVisitorTest {
                 import static java.util.Locale.ENGLISH;
                 class A { }
                 """;
-        final var tokens = new CommonTokenStream(new Java20Lexer(CharStreams.fromString(source)));
-        final var parser = new Java20Parser(tokens);
+        final var tokens = new CommonTokenStream(new Java25Lexer(CharStreams.fromString(source)));
+        final var parser = new Java25Parser(tokens);
         parser.setBuildParseTree(true);
         parser.getInterpreter().setPredictionMode(org.antlr.v4.runtime.atn.PredictionMode.SLL);
         parser.compilationUnit();
@@ -431,8 +431,8 @@ class JavaCompilerVisitorTest {
     @Test
     void fullPicocliCommandLineFileVisitorPasses() throws IOException {
         final var source = readPicocliSource();
-        final var parser = new Java20Parser(
-                new CommonTokenStream(new Java20Lexer(CharStreams.fromString(source))));
+        final var parser = new Java25Parser(
+                new CommonTokenStream(new Java25Lexer(CharStreams.fromString(source))));
         parser.setBuildParseTree(true);
         parser.removeErrorListeners();
         final var syntaxErrors = new java.util.ArrayList<String>();
@@ -467,7 +467,7 @@ class JavaCompilerVisitorTest {
 
     private void collectClassNodes(final org.antlr.v4.runtime.tree.ParseTree tree,
                                    final StringBuilder builder) {
-        if (tree instanceof Java20Parser.NormalClassDeclarationContext classDecl) {
+        if (tree instanceof Java25Parser.NormalClassDeclarationContext classDecl) {
             final int line = classDecl.getStart().getLine();
             final var bodyDecl = classDecl.classBody().classBodyDeclaration();
             final int lastMemberStop = bodyDecl == null || bodyDecl.isEmpty()
@@ -506,7 +506,7 @@ class JavaCompilerVisitorTest {
         final var builder = new StringBuilder();
         for (final var form : forms) {
             try {
-                final var tree = (ExpressionTree) parse(form, Java20Parser::expression);
+                final var tree = (ExpressionTree) parse(form, Java25Parser::expression);
                 builder.append(form).append("\t").append(tree.getClass().getSimpleName());
                 if (tree instanceof io.github.potjerodekool.nabu.tree.expression.BinaryExpressionTree b) {
                     builder.append("\tleft=").append(b.getLeft().getClass().getSimpleName())
@@ -523,7 +523,7 @@ class JavaCompilerVisitorTest {
     }
 
     private Tree parse(final String code,
-                       final Function<Java20Parser, ParseTree> function1) {
+                       final Function<Java25Parser, ParseTree> function1) {
         final var parser = createParser(code);
         final var fileObject = new PathFileObject(
                 new FileObject.Kind(".nabu", true),
@@ -535,11 +535,11 @@ class JavaCompilerVisitorTest {
         return (Tree) functionResult.accept(visitor);
     }
 
-    private static Java20Parser createParser(final String code) {
+    private static Java25Parser createParser(final String code) {
         final var inputSteam = CharStreams.fromString(code);
-        final var lexer = new Java20Lexer(inputSteam);
+        final var lexer = new Java25Lexer(inputSteam);
         final var tokens = new CommonTokenStream(lexer);
-        return new Java20Parser(tokens);
+        return new Java25Parser(tokens);
     }
 
 }
@@ -553,7 +553,7 @@ class FieldAccessSuffixProbeVisitor extends JavaCompilerVisitor {
     }
 
     @Override
-    public Object visitPrimaryNoNewArray(final Java20Parser.PrimaryNoNewArrayContext ctx) {
+    public Object visitPrimaryNoNewArray(final Java25Parser.PrimaryNoNewArrayContext ctx) {
         lastPrimaryLine = ctx.getStart().getLine();
         return super.visitPrimaryNoNewArray(ctx);
     }

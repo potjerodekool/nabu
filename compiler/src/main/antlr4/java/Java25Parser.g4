@@ -1,10 +1,10 @@
 // $antlr-format alignTrailingComments true, columnLimit 150, minEmptyLines 1, maxEmptyLinesToKeep 1, reflowComments false, useTab false
 // $antlr-format allowShortRulesOnASingleLine false, allowShortBlocksOnASingleLine true, alignSemicolons hanging, alignColons hanging
 
-parser grammar Java20Parser;
+parser grammar Java25Parser;
 
 options {
-    tokenVocab = Java20Lexer;
+    tokenVocab = Java25Lexer;
 }
 
 @header {

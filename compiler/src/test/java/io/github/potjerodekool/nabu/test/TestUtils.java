@@ -2,8 +2,8 @@ package io.github.potjerodekool.nabu.test;
 
 
 import io.github.potjerodekool.nabu.compiler.InMemoryFileObject;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Lexer;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -39,11 +39,11 @@ public final class TestUtils {
     }
 
     public static <T> T parseJavaCode(final String code,
-                                      final Function<Java20Parser, ParserRuleContext> parserInvoker) throws IOException {
+                                      final Function<Java25Parser, ParserRuleContext> parserInvoker) throws IOException {
         final var inputSteam = CharStreams.fromStream(new ByteArrayInputStream(code.getBytes()));
-        final var lexer = new Java20Lexer(inputSteam);
+        final var lexer = new Java25Lexer(inputSteam);
         final var tokens = new CommonTokenStream(lexer);
-        final var parser = new Java20Parser(tokens);
+        final var parser = new Java25Parser(tokens);
         final var tree = parserInvoker.apply(parser);
 
         final var visitor = new JavaCompilerVisitor(new InMemoryFileObject(code, "MyClass.java"));
@@ -52,9 +52,9 @@ public final class TestUtils {
 
     public static Object parseType(final String type) throws IOException {
         final var inputSteam = CharStreams.fromStream(new ByteArrayInputStream(type.getBytes()));
-        final var lexer = new Java20Lexer(inputSteam);
+        final var lexer = new Java25Lexer(inputSteam);
         final var tokens = new CommonTokenStream(lexer);
-        final var parser = new Java20Parser(tokens);
+        final var parser = new Java25Parser(tokens);
         final var referenceType = parser.referenceType();
 
         return referenceType;

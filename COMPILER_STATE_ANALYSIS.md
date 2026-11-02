@@ -126,7 +126,7 @@ Legend: ✅ implemented · 🟡 partial (parsed/modeled but incomplete) · ❌ n
 | Area | Status | Notes |
 |---|---|---|
 | Reading Java 17–23 class files (generics, modules) | ✅ | `resolve/asm` package incl. mutable types |
-| Parsing Java 20 sources | ✅ | ANTLR `Java20Parser.g4` + `JavaCompilerVisitor` (2,303 lines, zero unsupported constructs) — used to mix Java+Nabu sources |
+| Parsing Java 20 sources | ✅ | ANTLR `Java25Parser.g4` + `JavaCompilerVisitor` (2,303 lines, zero unsupported constructs) — used to mix Java+Nabu sources |
 | Compiling Java sources to bytecode | ❌ (by design) | Delegated to `javac` in the Maven flow; `backend/java/JavaBackend` is a commented-out experiment using the JDK classfile API |
 | Annotation processing (`javax.annotation.processing`) | 🟡 | `JavacProcessingEnvironment/Filer/Messager/Elements/Types`, round handling, Lombok-style handlers (Getter/Setter/Data/Constructors); `ToNabuMapper` still throws for ERROR/UNION/INTERSECTION/unknown types (`ToNabuMapper.java:73–108`) |
 | Compiler plugins / DSL SPI | ✅ | `extension.PluginRegistry` (service-loaded `plugin.xml`), `CodeTransformer`; JPA plugin demonstrates join-cast DSL + operator overloading |
@@ -201,7 +201,7 @@ Legend: ✅ implemented · 🟡 partial (parsed/modeled but incomplete) · ❌ n
 | Topic | File |
 |---|---|
 | Nabu grammar | `nabu-lang/src/main/antlr4/nabu/NabuParser.g4` |
-| Java 20 grammar | `compiler/src/main/antlr4/java/Java20Parser.g4` |
+| Java 20 grammar | `compiler/src/main/antlr4/java/Java25Parser.g4` |
 | Nabu AST builder | `nabu-lang/.../lang/support/nabu/NabuCompilerVisitor.java` |
 | Java AST builder | `compiler/.../lang/support/java/JavaCompilerVisitor.java` |
 | Class-file version policy | `compiler/.../tools/JavaVersion.java` (`MINIMAL_VERSION = V17`) |

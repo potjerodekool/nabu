@@ -5,9 +5,9 @@ import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.lang.model.element.ElementKind;
 import io.github.potjerodekool.nabu.lang.model.element.VariableElement;
 import io.github.potjerodekool.nabu.lang.model.element.builder.ElementBuilders;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20ParserBaseVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Lexer;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25ParserBaseVisitor;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeKind;
@@ -32,9 +32,9 @@ public final class SourceToSymbol {
                                             final CompilerContext compilerContext) throws IOException {
         final var inputStream = new ByteArrayInputStream(code.getBytes());
         final var inputSteam = CharStreams.fromStream(inputStream);
-        final var lexer = new Java20Lexer(inputSteam);
+        final var lexer = new Java25Lexer(inputSteam);
         final var tokens = new CommonTokenStream(lexer);
-        final var parser = new Java20Parser(tokens);
+        final var parser = new Java25Parser(tokens);
         final var methodDeclaration = parser.methodDeclaration();
         final var visitor = new SimpleParseTreeVisitor(compilerContext);
         return (MethodSymbol) methodDeclaration.accept(visitor);
@@ -42,7 +42,7 @@ public final class SourceToSymbol {
 }
 
 
-class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
+class SimpleParseTreeVisitor extends Java25ParserBaseVisitor<Object> {
 
     private final Types types;
     private final ClassElementLoader loader;
@@ -55,7 +55,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMethodDeclaration(final Java20Parser.MethodDeclarationContext ctx) {
+    public Object visitMethodDeclaration(final Java25Parser.MethodDeclarationContext ctx) {
         final var modifiers = new SimpleModifiers();
 
         ctx.methodModifier().forEach(modifier -> {
@@ -73,7 +73,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMethodDeclarator(final Java20Parser.MethodDeclaratorContext ctx) {
+    public Object visitMethodDeclarator(final Java25Parser.MethodDeclaratorContext ctx) {
         final var ident = (String) ctx.identifier().accept(this);
         final List<VariableElement> params;
 
@@ -91,7 +91,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitBlock(final Java20Parser.BlockContext ctx) {
+    public Object visitBlock(final Java25Parser.BlockContext ctx) {
         if (ctx.blockStatements() != null) {
             return ctx.blockStatements().accept(this);
         } else {
@@ -100,14 +100,14 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitFormalParameterList(final Java20Parser.FormalParameterListContext ctx) {
+    public Object visitFormalParameterList(final Java25Parser.FormalParameterListContext ctx) {
         return ctx.formalParameter().stream()
                 .map(param -> param.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitFormalParameter(final Java20Parser.FormalParameterContext ctx) {
+    public Object visitFormalParameter(final Java25Parser.FormalParameterContext ctx) {
         final var type = (TypeMirror) ctx.unannType().accept(this);
         final var name = (String) ctx.variableDeclaratorId().accept(this);
 
@@ -119,7 +119,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitResult(final Java20Parser.ResultContext ctx) {
+    public Object visitResult(final Java25Parser.ResultContext ctx) {
         if (ctx.VOID() != null) {
             return types.getNoType(TypeKind.VOID);
         }
@@ -128,7 +128,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
+    public Object visitMethodHeader(final Java25Parser.MethodHeaderContext ctx) {
         if (ctx.typeParameters() != null) {
             throw new UnsupportedOperationException("Generic methods not supported in test parser");
         }
@@ -158,16 +158,16 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     @Override
     public Object visitTerminal(final TerminalNode node) {
         return switch (node.getSymbol().getType()) {
-            case Java20Lexer.PUBLIC -> Flags.PUBLIC;
-            case Java20Lexer.STATIC -> Flags.STATIC;
-            case Java20Lexer.FINAL -> Flags.FINAL;
-            case Java20Lexer.Identifier -> node.getText();
+            case Java25Lexer.PUBLIC -> Flags.PUBLIC;
+            case Java25Lexer.STATIC -> Flags.STATIC;
+            case Java25Lexer.FINAL -> Flags.FINAL;
+            case Java25Lexer.Identifier -> node.getText();
             default -> throw new UnsupportedOperationException("Unsupported token type: " + node.getSymbol().getType());
         };
     }
 
     @Override
-    public Object visitUnannArrayType(final Java20Parser.UnannArrayTypeContext ctx) {
+    public Object visitUnannArrayType(final Java25Parser.UnannArrayTypeContext ctx) {
         final TypeMirror type;
 
         if (ctx.unannPrimitiveType() != null) {
@@ -182,7 +182,7 @@ class SimpleParseTreeVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUnannClassOrInterfaceType(final Java20Parser.UnannClassOrInterfaceTypeContext ctx) {
+    public Object visitUnannClassOrInterfaceType(final Java25Parser.UnannClassOrInterfaceTypeContext ctx) {
         final var className = new StringBuilder();
 
         if (ctx.packageName() != null) {

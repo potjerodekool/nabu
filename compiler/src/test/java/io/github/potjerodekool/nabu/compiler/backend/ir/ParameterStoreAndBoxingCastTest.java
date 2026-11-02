@@ -298,9 +298,9 @@ class ParameterStoreAndBoxingCastTest {
             text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
 
-        final var parser = new io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser(
+        final var parser = new io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser(
                 new CommonTokenStream(
-                        new io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer(
+                        new io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Lexer(
                                 CharStreams.fromString(text))));
         final var cu = (io.github.potjerodekool.nabu.tree.CompilationUnit)
                 parser.compilationUnit().accept(

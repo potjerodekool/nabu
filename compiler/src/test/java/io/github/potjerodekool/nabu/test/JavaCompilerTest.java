@@ -1,9 +1,9 @@
 package io.github.potjerodekool.nabu.test;
 
 import io.github.potjerodekool.nabu.compiler.AbstractCompilerTest;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20ParserVisitor;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Lexer;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25ParserVisitor;
 import io.github.potjerodekool.nabu.tools.CompilerContext;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 import org.antlr.v4.runtime.CharStreams;
@@ -20,15 +20,15 @@ public class JavaCompilerTest extends AbstractCompilerTest {
 
     public <T extends TypeMirror> T parseType(final String type) throws IOException {
         final var inputSteam = CharStreams.fromStream(new ByteArrayInputStream(type.getBytes()));
-        final var lexer = new Java20Lexer(inputSteam);
+        final var lexer = new Java25Lexer(inputSteam);
         final var tokens = new CommonTokenStream(lexer);
-        final var parser = new Java20Parser(tokens);
+        final var parser = new Java25Parser(tokens);
         final var referenceType = parser.referenceType();
         return (T) referenceType.accept(new TypeParser(getCompilerContext()));
     }
 }
 
-class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20ParserVisitor<Object> {
+class TypeParser extends AbstractParseTreeVisitor<Object> implements Java25ParserVisitor<Object> {
 
     private final CompilerContext context;
 
@@ -46,7 +46,7 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
         final var type = node.getSymbol().getType();
 
         return switch (type) {
-            case Java20Parser.Identifier, Java20Parser.DOT -> node.getText();
+            case Java25Parser.Identifier, Java25Parser.DOT -> node.getText();
             default -> null;
         };
     }
@@ -57,17 +57,17 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
-    public Object visitStart_(final Java20Parser.Start_Context ctx) {
+    public Object visitStart_(final Java25Parser.Start_Context ctx) {
         return null;
     }
 
     @Override
-    public Object visitIdentifier(final Java20Parser.IdentifierContext ctx) {
+    public Object visitIdentifier(final Java25Parser.IdentifierContext ctx) {
         return ctx.getText();
     }
 
     @Override
-    public Object visitTypeIdentifier(final Java20Parser.TypeIdentifierContext ctx) {
+    public Object visitTypeIdentifier(final Java25Parser.TypeIdentifierContext ctx) {
         if (ctx.Identifier() != null) {
             return ctx.Identifier().accept(this);
         } else {
@@ -76,62 +76,62 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
-    public Object visitUnqualifiedMethodIdentifier(final Java20Parser.UnqualifiedMethodIdentifierContext ctx) {
+    public Object visitUnqualifiedMethodIdentifier(final Java25Parser.UnqualifiedMethodIdentifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitContextualKeyword(final Java20Parser.ContextualKeywordContext ctx) {
+    public Object visitContextualKeyword(final Java25Parser.ContextualKeywordContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitContextualKeywordMinusForTypeIdentifier(final Java20Parser.ContextualKeywordMinusForTypeIdentifierContext ctx) {
+    public Object visitContextualKeywordMinusForTypeIdentifier(final Java25Parser.ContextualKeywordMinusForTypeIdentifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitContextualKeywordMinusForUnqualifiedMethodIdentifier(final Java20Parser.ContextualKeywordMinusForUnqualifiedMethodIdentifierContext ctx) {
+    public Object visitContextualKeywordMinusForUnqualifiedMethodIdentifier(final Java25Parser.ContextualKeywordMinusForUnqualifiedMethodIdentifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLiteral(final Java20Parser.LiteralContext ctx) {
+    public Object visitLiteral(final Java25Parser.LiteralContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPrimitiveType(final Java20Parser.PrimitiveTypeContext ctx) {
+    public Object visitPrimitiveType(final Java25Parser.PrimitiveTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitNumericType(final Java20Parser.NumericTypeContext ctx) {
+    public Object visitNumericType(final Java25Parser.NumericTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitIntegralType(final Java20Parser.IntegralTypeContext ctx) {
+    public Object visitIntegralType(final Java25Parser.IntegralTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitFloatingPointType(final Java20Parser.FloatingPointTypeContext ctx) {
+    public Object visitFloatingPointType(final Java25Parser.FloatingPointTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitReferenceType(final Java20Parser.ReferenceTypeContext ctx) {
+    public Object visitReferenceType(final Java25Parser.ReferenceTypeContext ctx) {
         return ctx.getChild(0).accept(this);
     }
 
     @Override
-    public Object visitCoit(final Java20Parser.CoitContext ctx) {
+    public Object visitCoit(final Java25Parser.CoitContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassOrInterfaceType(final Java20Parser.ClassOrInterfaceTypeContext ctx) {
+    public Object visitClassOrInterfaceType(final Java25Parser.ClassOrInterfaceTypeContext ctx) {
         final var packageName = (String) accept(ctx.packageName());
         final var typeIdentifier = (String) ctx.typeIdentifier().accept(this);
         final var typeArguments = (List<TypeMirror>) accept(ctx.typeArguments());
@@ -170,57 +170,57 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
-    public Object visitClassType(final Java20Parser.ClassTypeContext ctx) {
+    public Object visitClassType(final Java25Parser.ClassTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceType(final Java20Parser.InterfaceTypeContext ctx) {
+    public Object visitInterfaceType(final Java25Parser.InterfaceTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeVariable(final Java20Parser.TypeVariableContext ctx) {
+    public Object visitTypeVariable(final Java25Parser.TypeVariableContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitArrayType(final Java20Parser.ArrayTypeContext ctx) {
+    public Object visitArrayType(final Java25Parser.ArrayTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitDims(final Java20Parser.DimsContext ctx) {
+    public Object visitDims(final Java25Parser.DimsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeParameter(final Java20Parser.TypeParameterContext ctx) {
+    public Object visitTypeParameter(final Java25Parser.TypeParameterContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeParameterModifier(final Java20Parser.TypeParameterModifierContext ctx) {
+    public Object visitTypeParameterModifier(final Java25Parser.TypeParameterModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeBound(final Java20Parser.TypeBoundContext ctx) {
+    public Object visitTypeBound(final Java25Parser.TypeBoundContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAdditionalBound(final Java20Parser.AdditionalBoundContext ctx) {
+    public Object visitAdditionalBound(final Java25Parser.AdditionalBoundContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeArguments(final Java20Parser.TypeArgumentsContext ctx) {
+    public Object visitTypeArguments(final Java25Parser.TypeArgumentsContext ctx) {
         return ctx.typeArgumentList().accept(this);
     }
 
     @Override
-    public Object visitTypeArgumentList(final Java20Parser.TypeArgumentListContext ctx) {
+    public Object visitTypeArgumentList(final Java25Parser.TypeArgumentListContext ctx) {
         return ctx.typeArgument().stream()
                 .map(typeArg -> typeArg.accept(this))
                 .peek(Objects::requireNonNull)
@@ -228,27 +228,27 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
-    public Object visitTypeArgument(final Java20Parser.TypeArgumentContext ctx) {
+    public Object visitTypeArgument(final Java25Parser.TypeArgumentContext ctx) {
         return ctx.getChild(0).accept(this);
     }
 
     @Override
-    public Object visitWildcard(final Java20Parser.WildcardContext ctx) {
+    public Object visitWildcard(final Java25Parser.WildcardContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitWildcardBounds(final Java20Parser.WildcardBoundsContext ctx) {
+    public Object visitWildcardBounds(final Java25Parser.WildcardBoundsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitModuleName(final Java20Parser.ModuleNameContext ctx) {
+    public Object visitModuleName(final Java25Parser.ModuleNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPackageName(final Java20Parser.PackageNameContext ctx) {
+    public Object visitPackageName(final Java25Parser.PackageNameContext ctx) {
         final var identifier = (String) ctx.identifier().accept(this);
 
         if (ctx.packageName() != null) {
@@ -260,1142 +260,1142 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
-    public Object visitTypeName(final Java20Parser.TypeNameContext ctx) {
+    public Object visitTypeName(final Java25Parser.TypeNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPackageOrTypeName(final Java20Parser.PackageOrTypeNameContext ctx) {
+    public Object visitPackageOrTypeName(final Java25Parser.PackageOrTypeNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitExpressionName(final Java20Parser.ExpressionNameContext ctx) {
+    public Object visitExpressionName(final Java25Parser.ExpressionNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodName(final Java20Parser.MethodNameContext ctx) {
+    public Object visitMethodName(final Java25Parser.MethodNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAmbiguousName(final Java20Parser.AmbiguousNameContext ctx) {
+    public Object visitAmbiguousName(final Java25Parser.AmbiguousNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCompilationUnit(final Java20Parser.CompilationUnitContext ctx) {
+    public Object visitCompilationUnit(final Java25Parser.CompilationUnitContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitOrdinaryCompilationUnit(final Java20Parser.OrdinaryCompilationUnitContext ctx) {
+    public Object visitOrdinaryCompilationUnit(final Java25Parser.OrdinaryCompilationUnitContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitModularCompilationUnit(final Java20Parser.ModularCompilationUnitContext ctx) {
+    public Object visitModularCompilationUnit(final Java25Parser.ModularCompilationUnitContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPackageDeclaration(final Java20Parser.PackageDeclarationContext ctx) {
+    public Object visitPackageDeclaration(final Java25Parser.PackageDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPackageModifier(final Java20Parser.PackageModifierContext ctx) {
+    public Object visitPackageModifier(final Java25Parser.PackageModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitImportDeclaration(final Java20Parser.ImportDeclarationContext ctx) {
+    public Object visitImportDeclaration(final Java25Parser.ImportDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSingleTypeImportDeclaration(final Java20Parser.SingleTypeImportDeclarationContext ctx) {
+    public Object visitSingleTypeImportDeclaration(final Java25Parser.SingleTypeImportDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeImportOnDemandDeclaration(final Java20Parser.TypeImportOnDemandDeclarationContext ctx) {
+    public Object visitTypeImportOnDemandDeclaration(final Java25Parser.TypeImportOnDemandDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitImportStaticBody(final Java20Parser.ImportStaticBodyContext ctx) {
+    public Object visitImportStaticBody(final Java25Parser.ImportStaticBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTopLevelClassOrInterfaceDeclaration(final Java20Parser.TopLevelClassOrInterfaceDeclarationContext ctx) {
+    public Object visitTopLevelClassOrInterfaceDeclaration(final Java25Parser.TopLevelClassOrInterfaceDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitModuleDeclaration(final Java20Parser.ModuleDeclarationContext ctx) {
+    public Object visitModuleDeclaration(final Java25Parser.ModuleDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitModuleDirective(final Java20Parser.ModuleDirectiveContext ctx) {
+    public Object visitModuleDirective(final Java25Parser.ModuleDirectiveContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRequiresModifier(final Java20Parser.RequiresModifierContext ctx) {
+    public Object visitRequiresModifier(final Java25Parser.RequiresModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassDeclaration(final Java20Parser.ClassDeclarationContext ctx) {
+    public Object visitClassDeclaration(final Java25Parser.ClassDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitNormalClassDeclaration(final Java20Parser.NormalClassDeclarationContext ctx) {
+    public Object visitNormalClassDeclaration(final Java25Parser.NormalClassDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassModifier(final Java20Parser.ClassModifierContext ctx) {
+    public Object visitClassModifier(final Java25Parser.ClassModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeParameters(final Java20Parser.TypeParametersContext ctx) {
+    public Object visitTypeParameters(final Java25Parser.TypeParametersContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeParameterList(final Java20Parser.TypeParameterListContext ctx) {
+    public Object visitTypeParameterList(final Java25Parser.TypeParameterListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassExtends(final Java20Parser.ClassExtendsContext ctx) {
+    public Object visitClassExtends(final Java25Parser.ClassExtendsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassImplements(final Java20Parser.ClassImplementsContext ctx) {
+    public Object visitClassImplements(final Java25Parser.ClassImplementsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceTypeList(final Java20Parser.InterfaceTypeListContext ctx) {
+    public Object visitInterfaceTypeList(final Java25Parser.InterfaceTypeListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassPermits(final Java20Parser.ClassPermitsContext ctx) {
+    public Object visitClassPermits(final Java25Parser.ClassPermitsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassBody(final Java20Parser.ClassBodyContext ctx) {
+    public Object visitClassBody(final Java25Parser.ClassBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassBodyDeclaration(final Java20Parser.ClassBodyDeclarationContext ctx) {
+    public Object visitClassBodyDeclaration(final Java25Parser.ClassBodyDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassMemberDeclaration(final Java20Parser.ClassMemberDeclarationContext ctx) {
+    public Object visitClassMemberDeclaration(final Java25Parser.ClassMemberDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitFieldDeclaration(final Java20Parser.FieldDeclarationContext ctx) {
+    public Object visitFieldDeclaration(final Java25Parser.FieldDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitFieldModifier(final Java20Parser.FieldModifierContext ctx) {
+    public Object visitFieldModifier(final Java25Parser.FieldModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableDeclaratorList(final Java20Parser.VariableDeclaratorListContext ctx) {
+    public Object visitVariableDeclaratorList(final Java25Parser.VariableDeclaratorListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableDeclarator(final Java20Parser.VariableDeclaratorContext ctx) {
+    public Object visitVariableDeclarator(final Java25Parser.VariableDeclaratorContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableDeclaratorId(final Java20Parser.VariableDeclaratorIdContext ctx) {
+    public Object visitVariableDeclaratorId(final Java25Parser.VariableDeclaratorIdContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableInitializer(final Java20Parser.VariableInitializerContext ctx) {
+    public Object visitVariableInitializer(final Java25Parser.VariableInitializerContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannType(final Java20Parser.UnannTypeContext ctx) {
+    public Object visitUnannType(final Java25Parser.UnannTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannPrimitiveType(final Java20Parser.UnannPrimitiveTypeContext ctx) {
+    public Object visitUnannPrimitiveType(final Java25Parser.UnannPrimitiveTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannReferenceType(final Java20Parser.UnannReferenceTypeContext ctx) {
+    public Object visitUnannReferenceType(final Java25Parser.UnannReferenceTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannClassOrInterfaceType(final Java20Parser.UnannClassOrInterfaceTypeContext ctx) {
+    public Object visitUnannClassOrInterfaceType(final Java25Parser.UnannClassOrInterfaceTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUCOIT(final Java20Parser.UCOITContext ctx) {
+    public Object visitUCOIT(final Java25Parser.UCOITContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannClassType(final Java20Parser.UnannClassTypeContext ctx) {
+    public Object visitUnannClassType(final Java25Parser.UnannClassTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannInterfaceType(final Java20Parser.UnannInterfaceTypeContext ctx) {
+    public Object visitUnannInterfaceType(final Java25Parser.UnannInterfaceTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannTypeVariable(final Java20Parser.UnannTypeVariableContext ctx) {
+    public Object visitUnannTypeVariable(final Java25Parser.UnannTypeVariableContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnannArrayType(final Java20Parser.UnannArrayTypeContext ctx) {
+    public Object visitUnannArrayType(final Java25Parser.UnannArrayTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodDeclaration(final Java20Parser.MethodDeclarationContext ctx) {
+    public Object visitMethodDeclaration(final Java25Parser.MethodDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodModifier(final Java20Parser.MethodModifierContext ctx) {
+    public Object visitMethodModifier(final Java25Parser.MethodModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
+    public Object visitMethodHeader(final Java25Parser.MethodHeaderContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitResult(final Java20Parser.ResultContext ctx) {
+    public Object visitResult(final Java25Parser.ResultContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodDeclarator(final Java20Parser.MethodDeclaratorContext ctx) {
+    public Object visitMethodDeclarator(final Java25Parser.MethodDeclaratorContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitReceiverParameter(final Java20Parser.ReceiverParameterContext ctx) {
+    public Object visitReceiverParameter(final Java25Parser.ReceiverParameterContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitFormalParameterList(final Java20Parser.FormalParameterListContext ctx) {
+    public Object visitFormalParameterList(final Java25Parser.FormalParameterListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitFormalParameter(final Java20Parser.FormalParameterContext ctx) {
+    public Object visitFormalParameter(final Java25Parser.FormalParameterContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableArityParameter(final Java20Parser.VariableArityParameterContext ctx) {
+    public Object visitVariableArityParameter(final Java25Parser.VariableArityParameterContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableModifier(final Java20Parser.VariableModifierContext ctx) {
+    public Object visitVariableModifier(final Java25Parser.VariableModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitThrowsT(final Java20Parser.ThrowsTContext ctx) {
+    public Object visitThrowsT(final Java25Parser.ThrowsTContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitExceptionTypeList(final Java20Parser.ExceptionTypeListContext ctx) {
+    public Object visitExceptionTypeList(final Java25Parser.ExceptionTypeListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitExceptionType(final Java20Parser.ExceptionTypeContext ctx) {
+    public Object visitExceptionType(final Java25Parser.ExceptionTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodBody(final Java20Parser.MethodBodyContext ctx) {
+    public Object visitMethodBody(final Java25Parser.MethodBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInstanceInitializer(final Java20Parser.InstanceInitializerContext ctx) {
+    public Object visitInstanceInitializer(final Java25Parser.InstanceInitializerContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitStaticInitializer(final Java20Parser.StaticInitializerContext ctx) {
+    public Object visitStaticInitializer(final Java25Parser.StaticInitializerContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstructorDeclaration(final Java20Parser.ConstructorDeclarationContext ctx) {
+    public Object visitConstructorDeclaration(final Java25Parser.ConstructorDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstructorModifier(final Java20Parser.ConstructorModifierContext ctx) {
+    public Object visitConstructorModifier(final Java25Parser.ConstructorModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstructorDeclarator(final Java20Parser.ConstructorDeclaratorContext ctx) {
+    public Object visitConstructorDeclarator(final Java25Parser.ConstructorDeclaratorContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSimpleTypeName(final Java20Parser.SimpleTypeNameContext ctx) {
+    public Object visitSimpleTypeName(final Java25Parser.SimpleTypeNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstructorBody(final Java20Parser.ConstructorBodyContext ctx) {
+    public Object visitConstructorBody(final Java25Parser.ConstructorBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitExplicitConstructorInvocation(final Java20Parser.ExplicitConstructorInvocationContext ctx) {
+    public Object visitExplicitConstructorInvocation(final Java25Parser.ExplicitConstructorInvocationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnumDeclaration(final Java20Parser.EnumDeclarationContext ctx) {
+    public Object visitEnumDeclaration(final Java25Parser.EnumDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnumBody(final Java20Parser.EnumBodyContext ctx) {
+    public Object visitEnumBody(final Java25Parser.EnumBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnumConstantList(final Java20Parser.EnumConstantListContext ctx) {
+    public Object visitEnumConstantList(final Java25Parser.EnumConstantListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnumConstant(final Java20Parser.EnumConstantContext ctx) {
+    public Object visitEnumConstant(final Java25Parser.EnumConstantContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnumConstantModifier(final Java20Parser.EnumConstantModifierContext ctx) {
+    public Object visitEnumConstantModifier(final Java25Parser.EnumConstantModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnumBodyDeclarations(final Java20Parser.EnumBodyDeclarationsContext ctx) {
+    public Object visitEnumBodyDeclarations(final Java25Parser.EnumBodyDeclarationsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordDeclaration(final Java20Parser.RecordDeclarationContext ctx) {
+    public Object visitRecordDeclaration(final Java25Parser.RecordDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordHeader(final Java20Parser.RecordHeaderContext ctx) {
+    public Object visitRecordHeader(final Java25Parser.RecordHeaderContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordComponentList(final Java20Parser.RecordComponentListContext ctx) {
+    public Object visitRecordComponentList(final Java25Parser.RecordComponentListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordComponent(final Java20Parser.RecordComponentContext ctx) {
+    public Object visitRecordComponent(final Java25Parser.RecordComponentContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableArityRecordComponent(final Java20Parser.VariableArityRecordComponentContext ctx) {
+    public Object visitVariableArityRecordComponent(final Java25Parser.VariableArityRecordComponentContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordComponentModifier(final Java20Parser.RecordComponentModifierContext ctx) {
+    public Object visitRecordComponentModifier(final Java25Parser.RecordComponentModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordBody(final Java20Parser.RecordBodyContext ctx) {
+    public Object visitRecordBody(final Java25Parser.RecordBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordBodyDeclaration(final Java20Parser.RecordBodyDeclarationContext ctx) {
+    public Object visitRecordBodyDeclaration(final Java25Parser.RecordBodyDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCompactConstructorDeclaration(final Java20Parser.CompactConstructorDeclarationContext ctx) {
+    public Object visitCompactConstructorDeclaration(final Java25Parser.CompactConstructorDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceDeclaration(final Java20Parser.InterfaceDeclarationContext ctx) {
+    public Object visitInterfaceDeclaration(final Java25Parser.InterfaceDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitNormalInterfaceDeclaration(final Java20Parser.NormalInterfaceDeclarationContext ctx) {
+    public Object visitNormalInterfaceDeclaration(final Java25Parser.NormalInterfaceDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceModifier(final Java20Parser.InterfaceModifierContext ctx) {
+    public Object visitInterfaceModifier(final Java25Parser.InterfaceModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceExtends(final Java20Parser.InterfaceExtendsContext ctx) {
+    public Object visitInterfaceExtends(final Java25Parser.InterfaceExtendsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfacePermits(final Java20Parser.InterfacePermitsContext ctx) {
+    public Object visitInterfacePermits(final Java25Parser.InterfacePermitsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceBody(final Java20Parser.InterfaceBodyContext ctx) {
+    public Object visitInterfaceBody(final Java25Parser.InterfaceBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceMemberDeclaration(final Java20Parser.InterfaceMemberDeclarationContext ctx) {
+    public Object visitInterfaceMemberDeclaration(final Java25Parser.InterfaceMemberDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstantDeclaration(final Java20Parser.ConstantDeclarationContext ctx) {
+    public Object visitConstantDeclaration(final Java25Parser.ConstantDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstantModifier(final Java20Parser.ConstantModifierContext ctx) {
+    public Object visitConstantModifier(final Java25Parser.ConstantModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceMethodDeclaration(final Java20Parser.InterfaceMethodDeclarationContext ctx) {
+    public Object visitInterfaceMethodDeclaration(final Java25Parser.InterfaceMethodDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInterfaceMethodModifier(final Java20Parser.InterfaceMethodModifierContext ctx) {
+    public Object visitInterfaceMethodModifier(final Java25Parser.InterfaceMethodModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAnnotationInterfaceDeclaration(final Java20Parser.AnnotationInterfaceDeclarationContext ctx) {
+    public Object visitAnnotationInterfaceDeclaration(final Java25Parser.AnnotationInterfaceDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAnnotationInterfaceBody(final Java20Parser.AnnotationInterfaceBodyContext ctx) {
+    public Object visitAnnotationInterfaceBody(final Java25Parser.AnnotationInterfaceBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAnnotationInterfaceMemberDeclaration(final Java20Parser.AnnotationInterfaceMemberDeclarationContext ctx) {
+    public Object visitAnnotationInterfaceMemberDeclaration(final Java25Parser.AnnotationInterfaceMemberDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAnnotationInterfaceElementDeclaration(final Java20Parser.AnnotationInterfaceElementDeclarationContext ctx) {
+    public Object visitAnnotationInterfaceElementDeclaration(final Java25Parser.AnnotationInterfaceElementDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAnnotationInterfaceElementModifier(final Java20Parser.AnnotationInterfaceElementModifierContext ctx) {
+    public Object visitAnnotationInterfaceElementModifier(final Java25Parser.AnnotationInterfaceElementModifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitDefaultValue(final Java20Parser.DefaultValueContext ctx) {
+    public Object visitDefaultValue(final Java25Parser.DefaultValueContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAnnotation(final Java20Parser.AnnotationContext ctx) {
+    public Object visitAnnotation(final Java25Parser.AnnotationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitNormalAnnotation(final Java20Parser.NormalAnnotationContext ctx) {
+    public Object visitNormalAnnotation(final Java25Parser.NormalAnnotationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitElementValuePairList(final Java20Parser.ElementValuePairListContext ctx) {
+    public Object visitElementValuePairList(final Java25Parser.ElementValuePairListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitElementValuePair(final Java20Parser.ElementValuePairContext ctx) {
+    public Object visitElementValuePair(final Java25Parser.ElementValuePairContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitElementValue(final Java20Parser.ElementValueContext ctx) {
+    public Object visitElementValue(final Java25Parser.ElementValueContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitElementValueArrayInitializer(final Java20Parser.ElementValueArrayInitializerContext ctx) {
+    public Object visitElementValueArrayInitializer(final Java25Parser.ElementValueArrayInitializerContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitElementValueList(final Java20Parser.ElementValueListContext ctx) {
+    public Object visitElementValueList(final Java25Parser.ElementValueListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMarkerAnnotation(final Java20Parser.MarkerAnnotationContext ctx) {
+    public Object visitMarkerAnnotation(final Java25Parser.MarkerAnnotationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSingleElementAnnotation(final Java20Parser.SingleElementAnnotationContext ctx) {
+    public Object visitSingleElementAnnotation(final Java25Parser.SingleElementAnnotationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitArrayInitializer(final Java20Parser.ArrayInitializerContext ctx) {
+    public Object visitArrayInitializer(final Java25Parser.ArrayInitializerContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableInitializerList(final Java20Parser.VariableInitializerListContext ctx) {
+    public Object visitVariableInitializerList(final Java25Parser.VariableInitializerListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitBlock(final Java20Parser.BlockContext ctx) {
+    public Object visitBlock(final Java25Parser.BlockContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitBlockStatements(final Java20Parser.BlockStatementsContext ctx) {
+    public Object visitBlockStatements(final Java25Parser.BlockStatementsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitBlockStatement(final Java20Parser.BlockStatementContext ctx) {
+    public Object visitBlockStatement(final Java25Parser.BlockStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLocalClassOrInterfaceDeclaration(final Java20Parser.LocalClassOrInterfaceDeclarationContext ctx) {
+    public Object visitLocalClassOrInterfaceDeclaration(final Java25Parser.LocalClassOrInterfaceDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLocalVariableDeclaration(final Java20Parser.LocalVariableDeclarationContext ctx) {
+    public Object visitLocalVariableDeclaration(final Java25Parser.LocalVariableDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLocalVariableType(final Java20Parser.LocalVariableTypeContext ctx) {
+    public Object visitLocalVariableType(final Java25Parser.LocalVariableTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLocalVariableDeclarationStatement(final Java20Parser.LocalVariableDeclarationStatementContext ctx) {
+    public Object visitLocalVariableDeclarationStatement(final Java25Parser.LocalVariableDeclarationStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitStatement(final Java20Parser.StatementContext ctx) {
+    public Object visitStatement(final Java25Parser.StatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitStatementNoShortIf(final Java20Parser.StatementNoShortIfContext ctx) {
+    public Object visitStatementNoShortIf(final Java25Parser.StatementNoShortIfContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitStatementWithoutTrailingSubstatement(final Java20Parser.StatementWithoutTrailingSubstatementContext ctx) {
+    public Object visitStatementWithoutTrailingSubstatement(final Java25Parser.StatementWithoutTrailingSubstatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEmptyStatement_(final Java20Parser.EmptyStatement_Context ctx) {
+    public Object visitEmptyStatement_(final Java25Parser.EmptyStatement_Context ctx) {
         return null;
     }
 
     @Override
-    public Object visitLabeledStatement(final Java20Parser.LabeledStatementContext ctx) {
+    public Object visitLabeledStatement(final Java25Parser.LabeledStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLabeledStatementNoShortIf(final Java20Parser.LabeledStatementNoShortIfContext ctx) {
+    public Object visitLabeledStatementNoShortIf(final Java25Parser.LabeledStatementNoShortIfContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitExpressionStatement(final Java20Parser.ExpressionStatementContext ctx) {
+    public Object visitExpressionStatement(final Java25Parser.ExpressionStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitStatementExpression(final Java20Parser.StatementExpressionContext ctx) {
+    public Object visitStatementExpression(final Java25Parser.StatementExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitIfThenStatement(final Java20Parser.IfThenStatementContext ctx) {
+    public Object visitIfThenStatement(final Java25Parser.IfThenStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitIfThenElseStatement(final Java20Parser.IfThenElseStatementContext ctx) {
+    public Object visitIfThenElseStatement(final Java25Parser.IfThenElseStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitIfThenElseStatementNoShortIf(final Java20Parser.IfThenElseStatementNoShortIfContext ctx) {
+    public Object visitIfThenElseStatementNoShortIf(final Java25Parser.IfThenElseStatementNoShortIfContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAssertStatement(final Java20Parser.AssertStatementContext ctx) {
+    public Object visitAssertStatement(final Java25Parser.AssertStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSwitchStatement(final Java20Parser.SwitchStatementContext ctx) {
+    public Object visitSwitchStatement(final Java25Parser.SwitchStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSwitchBlock(final Java20Parser.SwitchBlockContext ctx) {
+    public Object visitSwitchBlock(final Java25Parser.SwitchBlockContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSwitchRule(final Java20Parser.SwitchRuleContext ctx) {
+    public Object visitSwitchRule(final Java25Parser.SwitchRuleContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSwitchBlockStatementGroup(final Java20Parser.SwitchBlockStatementGroupContext ctx) {
+    public Object visitSwitchBlockStatementGroup(final Java25Parser.SwitchBlockStatementGroupContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSwitchLabel(final Java20Parser.SwitchLabelContext ctx) {
+    public Object visitSwitchLabel(final Java25Parser.SwitchLabelContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCaseConstant(final Java20Parser.CaseConstantContext ctx) {
+    public Object visitCaseConstant(final Java25Parser.CaseConstantContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitWhileStatement(final Java20Parser.WhileStatementContext ctx) {
+    public Object visitWhileStatement(final Java25Parser.WhileStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitWhileStatementNoShortIf(final Java20Parser.WhileStatementNoShortIfContext ctx) {
+    public Object visitWhileStatementNoShortIf(final Java25Parser.WhileStatementNoShortIfContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitDoStatement(final Java20Parser.DoStatementContext ctx) {
+    public Object visitDoStatement(final Java25Parser.DoStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitForStatement(final Java20Parser.ForStatementContext ctx) {
+    public Object visitForStatement(final Java25Parser.ForStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitForStatementNoShortIf(final Java20Parser.ForStatementNoShortIfContext ctx) {
+    public Object visitForStatementNoShortIf(final Java25Parser.ForStatementNoShortIfContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitBasicForStatement(final Java20Parser.BasicForStatementContext ctx) {
+    public Object visitBasicForStatement(final Java25Parser.BasicForStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitBasicForStatementNoShortIf(final Java20Parser.BasicForStatementNoShortIfContext ctx) {
+    public Object visitBasicForStatementNoShortIf(final Java25Parser.BasicForStatementNoShortIfContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitForInit(final Java20Parser.ForInitContext ctx) {
+    public Object visitForInit(final Java25Parser.ForInitContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitForUpdate(final Java20Parser.ForUpdateContext ctx) {
+    public Object visitForUpdate(final Java25Parser.ForUpdateContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitStatementExpressionList(final Java20Parser.StatementExpressionListContext ctx) {
+    public Object visitStatementExpressionList(final Java25Parser.StatementExpressionListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnhancedForStatement(final Java20Parser.EnhancedForStatementContext ctx) {
+    public Object visitEnhancedForStatement(final Java25Parser.EnhancedForStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEnhancedForStatementNoShortIf(final Java20Parser.EnhancedForStatementNoShortIfContext ctx) {
+    public Object visitEnhancedForStatementNoShortIf(final Java25Parser.EnhancedForStatementNoShortIfContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitBreakStatement(final Java20Parser.BreakStatementContext ctx) {
+    public Object visitBreakStatement(final Java25Parser.BreakStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitContinueStatement(final Java20Parser.ContinueStatementContext ctx) {
+    public Object visitContinueStatement(final Java25Parser.ContinueStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitReturnStatement(final Java20Parser.ReturnStatementContext ctx) {
+    public Object visitReturnStatement(final Java25Parser.ReturnStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitThrowStatement(final Java20Parser.ThrowStatementContext ctx) {
+    public Object visitThrowStatement(final Java25Parser.ThrowStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSynchronizedStatement(final Java20Parser.SynchronizedStatementContext ctx) {
+    public Object visitSynchronizedStatement(final Java25Parser.SynchronizedStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTryStatement(final Java20Parser.TryStatementContext ctx) {
+    public Object visitTryStatement(final Java25Parser.TryStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCatches(final Java20Parser.CatchesContext ctx) {
+    public Object visitCatches(final Java25Parser.CatchesContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCatchClause(final Java20Parser.CatchClauseContext ctx) {
+    public Object visitCatchClause(final Java25Parser.CatchClauseContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCatchFormalParameter(final Java20Parser.CatchFormalParameterContext ctx) {
+    public Object visitCatchFormalParameter(final Java25Parser.CatchFormalParameterContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCatchType(final Java20Parser.CatchTypeContext ctx) {
+    public Object visitCatchType(final Java25Parser.CatchTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitFinallyBlock(final Java20Parser.FinallyBlockContext ctx) {
+    public Object visitFinallyBlock(final Java25Parser.FinallyBlockContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTryWithResourcesStatement(final Java20Parser.TryWithResourcesStatementContext ctx) {
+    public Object visitTryWithResourcesStatement(final Java25Parser.TryWithResourcesStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitResourceSpecification(final Java20Parser.ResourceSpecificationContext ctx) {
+    public Object visitResourceSpecification(final Java25Parser.ResourceSpecificationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitResourceList(final Java20Parser.ResourceListContext ctx) {
+    public Object visitResourceList(final Java25Parser.ResourceListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitResource(final Java20Parser.ResourceContext ctx) {
+    public Object visitResource(final Java25Parser.ResourceContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitVariableAccess(final Java20Parser.VariableAccessContext ctx) {
+    public Object visitVariableAccess(final Java25Parser.VariableAccessContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitYieldStatement(final Java20Parser.YieldStatementContext ctx) {
+    public Object visitYieldStatement(final Java25Parser.YieldStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPattern(final Java20Parser.PatternContext ctx) {
+    public Object visitPattern(final Java25Parser.PatternContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitGuardedPattern(final Java20Parser.GuardedPatternContext ctx) {
+    public Object visitGuardedPattern(final Java25Parser.GuardedPatternContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitGuard(final Java20Parser.GuardContext ctx) {
+    public Object visitGuard(final Java25Parser.GuardContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPrimaryPattern(final Java20Parser.PrimaryPatternContext ctx) {
+    public Object visitPrimaryPattern(final Java25Parser.PrimaryPatternContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypePattern(final Java20Parser.TypePatternContext ctx) {
+    public Object visitTypePattern(final Java25Parser.TypePatternContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRecordPattern(final Java20Parser.RecordPatternContext ctx) {
+    public Object visitRecordPattern(final Java25Parser.RecordPatternContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPatternList(final Java20Parser.PatternListContext ctx) {
+    public Object visitPatternList(final Java25Parser.PatternListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCaseLabelElement(final Java20Parser.CaseLabelElementContext ctx) {
+    public Object visitCaseLabelElement(final Java25Parser.CaseLabelElementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitExpression(final Java20Parser.ExpressionContext ctx) {
+    public Object visitExpression(final Java25Parser.ExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPrimary(final Java20Parser.PrimaryContext ctx) {
+    public Object visitPrimary(final Java25Parser.PrimaryContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPrimaryNoNewArray(final Java20Parser.PrimaryNoNewArrayContext ctx) {
+    public Object visitPrimaryNoNewArray(final Java25Parser.PrimaryNoNewArrayContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPNNA(final Java20Parser.PNNAContext ctx) {
+    public Object visitPNNA(final Java25Parser.PNNAContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassLiteral(final Java20Parser.ClassLiteralContext ctx) {
+    public Object visitClassLiteral(final Java25Parser.ClassLiteralContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassInstanceCreationExpression(final Java20Parser.ClassInstanceCreationExpressionContext ctx) {
+    public Object visitClassInstanceCreationExpression(final Java25Parser.ClassInstanceCreationExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnqualifiedClassInstanceCreationExpression(final Java20Parser.UnqualifiedClassInstanceCreationExpressionContext ctx) {
+    public Object visitUnqualifiedClassInstanceCreationExpression(final Java25Parser.UnqualifiedClassInstanceCreationExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitClassOrInterfaceTypeToInstantiate(final Java20Parser.ClassOrInterfaceTypeToInstantiateContext ctx) {
+    public Object visitClassOrInterfaceTypeToInstantiate(final Java25Parser.ClassOrInterfaceTypeToInstantiateContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitTypeArgumentsOrDiamond(final Java20Parser.TypeArgumentsOrDiamondContext ctx) {
+    public Object visitTypeArgumentsOrDiamond(final Java25Parser.TypeArgumentsOrDiamondContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitArrayCreationExpression(final Java20Parser.ArrayCreationExpressionContext ctx) {
+    public Object visitArrayCreationExpression(final Java25Parser.ArrayCreationExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitArrayCreationExpressionWithoutInitializer(final Java20Parser.ArrayCreationExpressionWithoutInitializerContext ctx) {
+    public Object visitArrayCreationExpressionWithoutInitializer(final Java25Parser.ArrayCreationExpressionWithoutInitializerContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitArrayCreationExpressionWithInitializer(final Java20Parser.ArrayCreationExpressionWithInitializerContext ctx) {
+    public Object visitArrayCreationExpressionWithInitializer(final Java25Parser.ArrayCreationExpressionWithInitializerContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitDimExprs(final Java20Parser.DimExprsContext ctx) {
+    public Object visitDimExprs(final Java25Parser.DimExprsContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitDimExpr(final Java20Parser.DimExprContext ctx) {
+    public Object visitDimExpr(final Java25Parser.DimExprContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitArrayAccess(final Java20Parser.ArrayAccessContext ctx) {
+    public Object visitArrayAccess(final Java25Parser.ArrayAccessContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitFieldAccess(final Java20Parser.FieldAccessContext ctx) {
+    public Object visitFieldAccess(final Java25Parser.FieldAccessContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodInvocation(final Java20Parser.MethodInvocationContext ctx) {
+    public Object visitMethodInvocation(final Java25Parser.MethodInvocationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitArgumentList(final Java20Parser.ArgumentListContext ctx) {
+    public Object visitArgumentList(final Java25Parser.ArgumentListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMethodReference(final Java20Parser.MethodReferenceContext ctx) {
+    public Object visitMethodReference(final Java25Parser.MethodReferenceContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPostfixExpression(final Java20Parser.PostfixExpressionContext ctx) {
+    public Object visitPostfixExpression(final Java25Parser.PostfixExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPfE(final Java20Parser.PfEContext ctx) {
+    public Object visitPfE(final Java25Parser.PfEContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPostIncrementExpression(final Java20Parser.PostIncrementExpressionContext ctx) {
+    public Object visitPostIncrementExpression(final Java25Parser.PostIncrementExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPostDecrementExpression(final Java20Parser.PostDecrementExpressionContext ctx) {
+    public Object visitPostDecrementExpression(final Java25Parser.PostDecrementExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnaryExpression(final Java20Parser.UnaryExpressionContext ctx) {
+    public Object visitUnaryExpression(final Java25Parser.UnaryExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPreIncrementExpression(final Java20Parser.PreIncrementExpressionContext ctx) {
+    public Object visitPreIncrementExpression(final Java25Parser.PreIncrementExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitPreDecrementExpression(final Java20Parser.PreDecrementExpressionContext ctx) {
+    public Object visitPreDecrementExpression(final Java25Parser.PreDecrementExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnaryExpressionNotPlusMinus(final Java20Parser.UnaryExpressionNotPlusMinusContext ctx) {
+    public Object visitUnaryExpressionNotPlusMinus(final Java25Parser.UnaryExpressionNotPlusMinusContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCastExpression(final Java20Parser.CastExpressionContext ctx) {
+    public Object visitCastExpression(final Java25Parser.CastExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitMultiplicativeExpression(final Java20Parser.MultiplicativeExpressionContext ctx) {
+    public Object visitMultiplicativeExpression(final Java25Parser.MultiplicativeExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAdditiveExpression(final Java20Parser.AdditiveExpressionContext ctx) {
+    public Object visitAdditiveExpression(final Java25Parser.AdditiveExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitShiftExpression(final Java20Parser.ShiftExpressionContext ctx) {
+    public Object visitShiftExpression(final Java25Parser.ShiftExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitRelationalExpression(final Java20Parser.RelationalExpressionContext ctx) {
+    public Object visitRelationalExpression(final Java25Parser.RelationalExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitEqualityExpression(final Java20Parser.EqualityExpressionContext ctx) {
+    public Object visitEqualityExpression(final Java25Parser.EqualityExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAndExpression(final Java20Parser.AndExpressionContext ctx) {
+    public Object visitAndExpression(final Java25Parser.AndExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitExclusiveOrExpression(final Java20Parser.ExclusiveOrExpressionContext ctx) {
+    public Object visitExclusiveOrExpression(final Java25Parser.ExclusiveOrExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitInclusiveOrExpression(final Java20Parser.InclusiveOrExpressionContext ctx) {
+    public Object visitInclusiveOrExpression(final Java25Parser.InclusiveOrExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConditionalAndExpression(final Java20Parser.ConditionalAndExpressionContext ctx) {
+    public Object visitConditionalAndExpression(final Java25Parser.ConditionalAndExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConditionalOrExpression(final Java20Parser.ConditionalOrExpressionContext ctx) {
+    public Object visitConditionalOrExpression(final Java25Parser.ConditionalOrExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConditionalExpression(final Java20Parser.ConditionalExpressionContext ctx) {
+    public Object visitConditionalExpression(final Java25Parser.ConditionalExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAssignmentExpressionTree(final Java20Parser.AssignmentExpressionTreeContext ctx) {
+    public Object visitAssignmentExpressionTree(final Java25Parser.AssignmentExpressionTreeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAssignment(final Java20Parser.AssignmentContext ctx) {
+    public Object visitAssignment(final Java25Parser.AssignmentContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLeftHandSide(final Java20Parser.LeftHandSideContext ctx) {
+    public Object visitLeftHandSide(final Java25Parser.LeftHandSideContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitAssignmentOperator(final Java20Parser.AssignmentOperatorContext ctx) {
+    public Object visitAssignmentOperator(final Java25Parser.AssignmentOperatorContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLambdaExpression(final Java20Parser.LambdaExpressionContext ctx) {
+    public Object visitLambdaExpression(final Java25Parser.LambdaExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLambdaParameters(final Java20Parser.LambdaParametersContext ctx) {
+    public Object visitLambdaParameters(final Java25Parser.LambdaParametersContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLambdaIdentifier(final Java20Parser.LambdaIdentifierContext ctx) {
+    public Object visitLambdaIdentifier(final Java25Parser.LambdaIdentifierContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitModuleImportName(final Java20Parser.ModuleImportNameContext ctx) {
+    public Object visitModuleImportName(final Java25Parser.ModuleImportNameContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstructorBodyStatement(final Java20Parser.ConstructorBodyStatementContext ctx) {
+    public Object visitConstructorBodyStatement(final Java25Parser.ConstructorBodyStatementContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitUnnamedPattern(final Java20Parser.UnnamedPatternContext ctx) {
+    public Object visitUnnamedPattern(final Java25Parser.UnnamedPatternContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitCompactMemberDeclaration(final Java20Parser.CompactMemberDeclarationContext ctx) {
+    public Object visitCompactMemberDeclaration(final Java25Parser.CompactMemberDeclarationContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLambdaParameterList(final Java20Parser.LambdaParameterListContext ctx) {
+    public Object visitLambdaParameterList(final Java25Parser.LambdaParameterListContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLambdaParameter(final Java20Parser.LambdaParameterContext ctx) {
+    public Object visitLambdaParameter(final Java25Parser.LambdaParameterContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLambdaParameterType(final Java20Parser.LambdaParameterTypeContext ctx) {
+    public Object visitLambdaParameterType(final Java25Parser.LambdaParameterTypeContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitLambdaBody(final Java20Parser.LambdaBodyContext ctx) {
+    public Object visitLambdaBody(final Java25Parser.LambdaBodyContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitSwitchExpression(final Java20Parser.SwitchExpressionContext ctx) {
+    public Object visitSwitchExpression(final Java25Parser.SwitchExpressionContext ctx) {
         return null;
     }
 
     @Override
-    public Object visitConstantExpression(final Java20Parser.ConstantExpressionContext ctx) {
+    public Object visitConstantExpression(final Java25Parser.ConstantExpressionContext ctx) {
         return null;
     }
 }

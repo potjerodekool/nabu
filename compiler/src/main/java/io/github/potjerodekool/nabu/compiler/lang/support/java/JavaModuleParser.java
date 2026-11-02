@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class JavaModuleParser extends Java20ParserBaseVisitor<Object> {
+public class JavaModuleParser extends Java25ParserBaseVisitor<Object> {
 
     private final SymbolTable symbolTable;
     private final ModuleSymbol moduleSymbol;
@@ -39,7 +39,7 @@ public class JavaModuleParser extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitModuleDirective(final Java20Parser.ModuleDirectiveContext ctx) {
+    public Object visitModuleDirective(final Java25Parser.ModuleDirectiveContext ctx) {
         final var directiveType = ctx.directiveType.getText();
 
         final var modules = ctx.moduleName().stream()
@@ -67,7 +67,7 @@ public class JavaModuleParser extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPackageName(final Java20Parser.PackageNameContext ctx) {
+    public Object visitPackageName(final Java25Parser.PackageNameContext ctx) {
         final var identifier = (String) ctx.identifier().accept(this);
 
         if (ctx.packageName() != null) {
@@ -79,7 +79,7 @@ public class JavaModuleParser extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitIdentifier(final Java20Parser.IdentifierContext ctx) {
+    public Object visitIdentifier(final Java25Parser.IdentifierContext ctx) {
         if (ctx.Identifier() != null) {
             return ctx.Identifier().getText();
         } else {
@@ -88,7 +88,7 @@ public class JavaModuleParser extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRequiresModifier(final Java20Parser.RequiresModifierContext ctx) {
+    public Object visitRequiresModifier(final Java25Parser.RequiresModifierContext ctx) {
         final var text = ctx.getText();
 
         if ("transitive".equals(text)) {

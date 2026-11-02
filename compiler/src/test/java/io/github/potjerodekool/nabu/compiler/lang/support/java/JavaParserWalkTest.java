@@ -17,7 +17,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Walks the ANTLR-generated Java20Parser tree so that generated parser,
+ * Walks the ANTLR-generated Java25Parser tree so that generated parser,
  * context and listener/visitor base classes are exercised even when the
  * higher level JavaCompilerVisitor does not support every construct yet.
  */
@@ -55,10 +55,10 @@ class JavaParserWalkTest {
     private void walkJava(final String source) throws IOException {
         final var ctx = JavaCompilerParser.parse(new ByteArrayInputStream(source.getBytes(StandardCharsets.UTF_8)));
 
-        ParseTreeWalker.DEFAULT.walk(new Java20ParserBaseListener() {
+        ParseTreeWalker.DEFAULT.walk(new Java25ParserBaseListener() {
         }, ctx);
 
-        ctx.accept(new Java20ParserBaseVisitor<>() {
+        ctx.accept(new Java25ParserBaseVisitor<>() {
         });
 
         try {

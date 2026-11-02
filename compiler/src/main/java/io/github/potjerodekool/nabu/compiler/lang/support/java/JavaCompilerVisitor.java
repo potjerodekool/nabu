@@ -46,7 +46,7 @@ import static io.github.potjerodekool.nabu.compiler.frontend.parser.SourceVisito
 import static io.github.potjerodekool.nabu.compiler.frontend.parser.SourceVisitor.processImportExpression;
 import static io.github.potjerodekool.nabu.compiler.lang.support.shared.CompilerVisitorHelper.*;
 
-public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
+public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
 
     private final FileObject fileObject;
     private final boolean skipBody;
@@ -63,7 +63,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitOrdinaryCompilationUnit(final Java20Parser.OrdinaryCompilationUnitContext ctx) {
+    public Object visitOrdinaryCompilationUnit(final Java25Parser.OrdinaryCompilationUnitContext ctx) {
         final var declarations = new ArrayList<Tree>();
 
         if (ctx.packageDeclaration() != null) {
@@ -72,7 +72,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         final var importItems = new ArrayList<>(parseImports(ctx.importDeclaration()));
 
-        if (ctx.children.stream().anyMatch(Java20Parser.CompactMemberDeclarationContext.class::isInstance)) {
+        if (ctx.children.stream().anyMatch(Java25Parser.CompactMemberDeclarationContext.class::isInstance)) {
             declarations.add(compactClass(ctx, importItems));
         } else {
             declarations.addAll(ctx.topLevelClassOrInterfaceDeclaration()
@@ -96,7 +96,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * imports module java.base and the static members of java.io.IO. The class gets a
      * {@code static void main(String[])} to start from if the launch method is another form of main.
      */
-    private Tree compactClass(final Java20Parser.OrdinaryCompilationUnitContext ctx,
+    private Tree compactClass(final Java25Parser.OrdinaryCompilationUnitContext ctx,
                               final List<ImportItem> importItems) {
         final var line = ctx.start.getLine();
         final var column = ctx.start.getCharPositionInLine();
@@ -123,8 +123,8 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         isTopLevel = false;
         final var members = new ArrayList<Tree>();
         for (final var child : ctx.children) {
-            if (child instanceof Java20Parser.TopLevelClassOrInterfaceDeclarationContext
-                    || child instanceof Java20Parser.CompactMemberDeclarationContext) {
+            if (child instanceof Java25Parser.TopLevelClassOrInterfaceDeclarationContext
+                    || child instanceof Java25Parser.CompactMemberDeclarationContext) {
                 asStream(((ParseTree) child).accept(this)).forEach(it -> members.add((Tree) it));
             }
         }
@@ -201,7 +201,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     private static final String INSTANCE_MAIN = "main$instance";
 
     @Override
-    public Object visitPackageDeclaration(final Java20Parser.PackageDeclarationContext ctx) {
+    public Object visitPackageDeclaration(final Java25Parser.PackageDeclarationContext ctx) {
         final var annotations = ctx.packageModifier().stream()
                 .map(it -> (AnnotationTree) it.accept(this))
                 .toList();
@@ -239,14 +239,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         );
     }
 
-    private List<ImportItem> parseImports(final List<Java20Parser.ImportDeclarationContext> importsDeclarations) {
+    private List<ImportItem> parseImports(final List<Java25Parser.ImportDeclarationContext> importsDeclarations) {
         return importsDeclarations.stream()
                 .map(importDeclaration -> ((ImportItem) importDeclaration.accept(this)))
                 .toList();
     }
 
     @Override
-    public Object visitImportDeclaration(final Java20Parser.ImportDeclarationContext ctx) {
+    public Object visitImportDeclaration(final Java25Parser.ImportDeclarationContext ctx) {
         if (ctx.moduleImportName() != null) {
             ExpressionTree name = null;
             for (final var part : ctx.moduleImportName().identifier()) {
@@ -276,7 +276,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTypeImportOnDemandDeclaration(final Java20Parser.TypeImportOnDemandDeclarationContext ctx) {
+    public Object visitTypeImportOnDemandDeclaration(final Java25Parser.TypeImportOnDemandDeclarationContext ctx) {
         final var packageOrTypeName = (ExpressionTree) ctx.packageOrTypeName().accept(this);
         final var qualified = new FieldAccessExpressionBuilder()
                 .selected(packageOrTypeName)
@@ -296,7 +296,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitImportStaticBody(final Java20Parser.ImportStaticBodyContext ctx) {
+    public Object visitImportStaticBody(final Java25Parser.ImportStaticBodyContext ctx) {
         final var packageOrTypeName = (ExpressionTree) ctx.packageOrTypeName().accept(this);
 
         final ExpressionTree selected;
@@ -335,7 +335,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitSingleTypeImportDeclaration(final Java20Parser.SingleTypeImportDeclarationContext ctx) {
+    public Object visitSingleTypeImportDeclaration(final Java25Parser.SingleTypeImportDeclarationContext ctx) {
         final var qualified = processImportExpression((ExpressionTree) ctx.typeName().accept(this));
         return TreeMaker.importItem(
                 qualified,
@@ -345,7 +345,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTypeName(final Java20Parser.TypeNameContext ctx) {
+    public Object visitTypeName(final Java25Parser.TypeNameContext ctx) {
         final var pckName = (ExpressionTree) ctx.packageName().accept(this);
 
         if (ctx.typeIdentifier() == null) {
@@ -362,7 +362,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPackageName(final Java20Parser.PackageNameContext ctx) {
+    public Object visitPackageName(final Java25Parser.PackageNameContext ctx) {
         final IdentifierTree identifier = (IdentifierTree) ctx.identifier().accept(this);
         final ExpressionTree packageName = accept(ctx.packageName());
 
@@ -380,7 +380,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         }
     }
 
-    public Object visitPackageOrTypeName(final Java20Parser.PackageOrTypeNameContext ctx) {
+    public Object visitPackageOrTypeName(final Java25Parser.PackageOrTypeNameContext ctx) {
         final IdentifierTree identifier = (IdentifierTree) ctx.identifier().accept(this);
         final ExpressionTree packageOrTypeName = accept(ctx.packageOrTypeName());
 
@@ -444,7 +444,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitNormalInterfaceDeclaration(final Java20Parser.NormalInterfaceDeclarationContext ctx) {
+    public Object visitNormalInterfaceDeclaration(final Java25Parser.NormalInterfaceDeclarationContext ctx) {
         final NestingKind nestingKind;
 
         if (isTopLevel) {
@@ -480,33 +480,33 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitInterfaceExtends(final Java20Parser.InterfaceExtendsContext ctx) {
+    public Object visitInterfaceExtends(final Java25Parser.InterfaceExtendsContext ctx) {
         return ctx.interfaceTypeList().accept(this);
     }
 
     @Override
-    public Object visitClassPermits(final Java20Parser.ClassPermitsContext ctx) {
+    public Object visitClassPermits(final Java25Parser.ClassPermitsContext ctx) {
         return ctx.typeName().stream()
                 .map(typeName -> typeName.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitInterfacePermits(final Java20Parser.InterfacePermitsContext ctx) {
+    public Object visitInterfacePermits(final Java25Parser.InterfacePermitsContext ctx) {
         return ctx.typeName().stream()
                 .map(typeName -> typeName.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitInterfaceBody(final Java20Parser.InterfaceBodyContext ctx) {
+    public Object visitInterfaceBody(final Java25Parser.InterfaceBodyContext ctx) {
         return ctx.interfaceMemberDeclaration().stream()
                 .flatMap(decl -> asStream(decl.accept(this)))
                 .toList();
     }
 
     @Override
-    public Object visitAnnotationInterfaceDeclaration(final Java20Parser.AnnotationInterfaceDeclarationContext ctx) {
+    public Object visitAnnotationInterfaceDeclaration(final Java25Parser.AnnotationInterfaceDeclarationContext ctx) {
         final NestingKind nestingKind;
 
         if (isTopLevel) {
@@ -542,14 +542,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitAnnotationInterfaceBody(final Java20Parser.AnnotationInterfaceBodyContext ctx) {
+    public Object visitAnnotationInterfaceBody(final Java25Parser.AnnotationInterfaceBodyContext ctx) {
         return ctx.annotationInterfaceMemberDeclaration().stream()
                 .flatMap(decl -> asStream(decl.accept(this)))
                 .toList();
     }
 
     @Override
-    public Object visitAnnotationInterfaceElementDeclaration(final Java20Parser.AnnotationInterfaceElementDeclarationContext ctx) {
+    public Object visitAnnotationInterfaceElementDeclaration(final Java25Parser.AnnotationInterfaceElementDeclarationContext ctx) {
         var modifiers = parseModifiers(ctx.annotationInterfaceElementModifier());
 
         if (!modifiers.hasFlag(Flags.ABSTRACT)) {
@@ -581,7 +581,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitInterfaceMethodDeclaration(final Java20Parser.InterfaceMethodDeclarationContext ctx) {
+    public Object visitInterfaceMethodDeclaration(final Java25Parser.InterfaceMethodDeclarationContext ctx) {
         var modifiers = parseModifiers(ctx.interfaceMethodModifier());
 
         // JLS 9.4: alleen een interfacemethode zonder body is abstract; een
@@ -614,7 +614,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitNormalClassDeclaration(final Java20Parser.NormalClassDeclarationContext ctx) {
+    public Object visitNormalClassDeclaration(final Java25Parser.NormalClassDeclarationContext ctx) {
         final NestingKind nestingKind;
 
         final var simpleNameForProbe = ctx.typeIdentifier().getText();
@@ -649,7 +649,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitClassBody(final Java20Parser.ClassBodyContext ctx) {
+    public Object visitClassBody(final Java25Parser.ClassBodyContext ctx) {
         return ctx.classBodyDeclaration().stream()
                 .flatMap(it -> asStream(it.accept(this)))
                 .toList();
@@ -668,7 +668,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * De statements draaien in elke constructor, na de veld-initializers.
      */
     @Override
-    public Object visitInstanceInitializer(final Java20Parser.InstanceInitializerContext ctx) {
+    public Object visitInstanceInitializer(final Java25Parser.InstanceInitializerContext ctx) {
         return createInitializer(Kind.INSTANCE_INIT, ctx.block(), ctx);
     }
 
@@ -677,12 +677,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * bij het initialiseren van de klasse (in {@code <clinit>}).
      */
     @Override
-    public Object visitStaticInitializer(final Java20Parser.StaticInitializerContext ctx) {
+    public Object visitStaticInitializer(final Java25Parser.StaticInitializerContext ctx) {
         return createInitializer(Kind.STATIC_INIT, ctx.block(), ctx);
     }
 
     private Function createInitializer(final Kind kind,
-                                       final Java20Parser.BlockContext blockContext,
+                                       final Java25Parser.BlockContext blockContext,
                                        final ParserRuleContext ctx) {
         final BlockStatementTree body;
         if (skipBody) {
@@ -713,7 +713,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitFieldDeclaration(final Java20Parser.FieldDeclarationContext ctx) {
+    public Object visitFieldDeclaration(final Java25Parser.FieldDeclarationContext ctx) {
         final var fieldModifiers = parseModifiers(ctx.fieldModifier());
         final var type = (ExpressionTree) ctx.unannType().accept(this);
         final List<VariableDeclaratorTree> variableDeclarators = acceptList(ctx.variableDeclaratorList());
@@ -728,7 +728,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitConstantDeclaration(final Java20Parser.ConstantDeclarationContext ctx) {
+    public Object visitConstantDeclaration(final Java25Parser.ConstantDeclarationContext ctx) {
         // JLS §9.3: een interface-veld is impliciet public static final. Zonder
         // die vlaggen werd picocli's IStyle.CSI als instantieveld van `this`
         // gelezen (Style.on() gaf "fg_red31m" i.p.v. de escape-code).
@@ -752,14 +752,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitVariableDeclaratorList(final Java20Parser.VariableDeclaratorListContext ctx) {
+    public Object visitVariableDeclaratorList(final Java25Parser.VariableDeclaratorListContext ctx) {
         return ctx.variableDeclarator().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitVariableDeclarator(final Java20Parser.VariableDeclaratorContext ctx) {
+    public Object visitVariableDeclarator(final Java25Parser.VariableDeclaratorContext ctx) {
         final var variableDeclaratorId = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
         final var init = (ExpressionTree) accept(ctx.variableInitializer());
 
@@ -776,7 +776,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitIdentifier(final Java20Parser.IdentifierContext ctx) {
+    public Object visitIdentifier(final Java25Parser.IdentifierContext ctx) {
         if (ctx.Identifier() != null) {
             return ctx.Identifier().accept(this);
         } else {
@@ -785,7 +785,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUnannPrimitiveType(final Java20Parser.UnannPrimitiveTypeContext ctx) {
+    public Object visitUnannPrimitiveType(final Java25Parser.UnannPrimitiveTypeContext ctx) {
         if (ctx.numericType() != null) {
             return ctx.numericType().accept(this);
         } else {
@@ -796,7 +796,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUnannClassOrInterfaceType(final Java20Parser.UnannClassOrInterfaceTypeContext ctx) {
+    public Object visitUnannClassOrInterfaceType(final Java25Parser.UnannClassOrInterfaceTypeContext ctx) {
         ExpressionTree packageName = accept(ctx.packageName());
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
         final var identifier = (Tree) ctx.typeIdentifier().accept(this);
@@ -843,7 +843,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     private ExpressionTree processUCOIT(ExpressionTree base,
-                                        final Java20Parser.UCOITContext ctx) {
+                                        final Java25Parser.UCOITContext ctx) {
         final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
         ExpressionTree result = TreeMaker.fieldAccessExpressionTree(
                 base,
@@ -870,7 +870,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTypeIdentifier(final Java20Parser.TypeIdentifierContext ctx) {
+    public Object visitTypeIdentifier(final Java25Parser.TypeIdentifierContext ctx) {
         final String text;
 
         if (ctx.Identifier() != null) {
@@ -887,7 +887,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMethodDeclaration(final Java20Parser.MethodDeclarationContext ctx) {
+    public Object visitMethodDeclaration(final Java25Parser.MethodDeclarationContext ctx) {
         final var modifiers = parseModifiers(ctx.methodModifier());
         final var functionHeader = (MethodHeader) ctx.methodHeader().accept(this);
         final BlockStatementTree body;
@@ -907,7 +907,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMethodHeader(final Java20Parser.MethodHeaderContext ctx) {
+    public Object visitMethodHeader(final Java25Parser.MethodHeaderContext ctx) {
         List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
 
         final var annotations = ctx.annotation().stream()
@@ -929,12 +929,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMethodBody(final Java20Parser.MethodBodyContext ctx) {
+    public Object visitMethodBody(final Java25Parser.MethodBodyContext ctx) {
         return accept(ctx.block());
     }
 
     @Override
-    public Object visitBlock(final Java20Parser.BlockContext ctx) {
+    public Object visitBlock(final Java25Parser.BlockContext ctx) {
         final List<StatementTree> statements = acceptList(ctx.blockStatements());
         return TreeMaker.blockStatement(
                 statements,
@@ -949,7 +949,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * geruisloos (o.a. picocli's TextTable.putValue).
      */
     @Override
-    public Object visitSwitchStatement(final Java20Parser.SwitchStatementContext ctx) {
+    public Object visitSwitchStatement(final Java25Parser.SwitchStatementContext ctx) {
         final var selector = (ExpressionTree) ctx.expression().accept(this);
         final var cases = switchCases(ctx.switchBlock(), false);
 
@@ -966,7 +966,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * §15.28). Ontbrak: een switch in expressiepositie verdween geruisloos.
      */
     @Override
-    public Object visitSwitchExpression(final Java20Parser.SwitchExpressionContext ctx) {
+    public Object visitSwitchExpression(final Java25Parser.SwitchExpressionContext ctx) {
         final var selector = (ExpressionTree) ctx.expression().accept(this);
         final var cases = switchCases(ctx.switchBlock(), true);
 
@@ -979,14 +979,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitYieldStatement(final Java20Parser.YieldStatementContext ctx) {
+    public Object visitYieldStatement(final Java25Parser.YieldStatementContext ctx) {
         return io.github.potjerodekool.nabu.tree.statement.YieldStatement.create(
                 (ExpressionTree) ctx.expression().accept(this),
                 ctx.getStart().getLine(),
                 ctx.getStart().getCharPositionInLine());
     }
 
-    private List<CaseStatement> switchCases(final Java20Parser.SwitchBlockContext block,
+    private List<CaseStatement> switchCases(final Java25Parser.SwitchBlockContext block,
                                             final boolean isExpression) {
         final List<CaseStatement> cases = new ArrayList<>();
 
@@ -1043,51 +1043,51 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     // een `break` in een lus deed niets, een synchronized-blok verloor zijn body.
 
     @Override
-    public Object visitBreakStatement(final Java20Parser.BreakStatementContext ctx) {
+    public Object visitBreakStatement(final Java25Parser.BreakStatementContext ctx) {
         return io.github.potjerodekool.nabu.tree.statement.BreakStatement.create(
                 labelTarget(ctx.identifier()), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
     @Override
-    public Object visitContinueStatement(final Java20Parser.ContinueStatementContext ctx) {
+    public Object visitContinueStatement(final Java25Parser.ContinueStatementContext ctx) {
         return io.github.potjerodekool.nabu.tree.statement.ContinueStatement.create(
                 labelTarget(ctx.identifier()), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
-    private Tree labelTarget(final Java20Parser.IdentifierContext identifier) {
+    private Tree labelTarget(final Java25Parser.IdentifierContext identifier) {
         return identifier != null ? IdentifierTree.create(identifier.getText()) : null;
     }
 
     @Override
-    public Object visitLabeledStatement(final Java20Parser.LabeledStatementContext ctx) {
+    public Object visitLabeledStatement(final Java25Parser.LabeledStatementContext ctx) {
         return io.github.potjerodekool.nabu.tree.statement.LabeledStatement.create(
                 ctx.identifier().getText(), (StatementTree) ctx.statement().accept(this),
                 ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
     @Override
-    public Object visitLabeledStatementNoShortIf(final Java20Parser.LabeledStatementNoShortIfContext ctx) {
+    public Object visitLabeledStatementNoShortIf(final Java25Parser.LabeledStatementNoShortIfContext ctx) {
         return io.github.potjerodekool.nabu.tree.statement.LabeledStatement.create(
                 ctx.identifier().getText(), (StatementTree) ctx.statementNoShortIf().accept(this),
                 ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
     @Override
-    public Object visitSynchronizedStatement(final Java20Parser.SynchronizedStatementContext ctx) {
+    public Object visitSynchronizedStatement(final Java25Parser.SynchronizedStatementContext ctx) {
         return io.github.potjerodekool.nabu.tree.statement.SynchronizedStatement.create(
                 (ExpressionTree) ctx.expression().accept(this), (BlockStatementTree) ctx.block().accept(this),
                 ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
     @Override
-    public Object visitAssertStatement(final Java20Parser.AssertStatementContext ctx) {
+    public Object visitAssertStatement(final Java25Parser.AssertStatementContext ctx) {
         final var condition = (ExpressionTree) ctx.expression(0).accept(this);
         final var detail = ctx.expression().size() > 1 ? (ExpressionTree) ctx.expression(1).accept(this) : null;
         return io.github.potjerodekool.nabu.tree.statement.AssertStatement.create(
                 condition, detail, ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine());
     }
 
-    private List<CaseLabel> switchLabels(final Java20Parser.SwitchLabelContext ctx) {
+    private List<CaseLabel> switchLabels(final Java25Parser.SwitchLabelContext ctx) {
         final List<CaseLabel> labels = new ArrayList<>();
         if (ctx.caseLabelElement().isEmpty()) {
             labels.add(DefaultCaseLabel.create(ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()));
@@ -1102,7 +1102,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             } else {
                 final var guardedPattern = element.pattern().guardedPattern();
                 final var pattern = (Pattern) guardedPattern.primaryPattern().accept(this);
-                final Java20Parser.ExpressionContext guardContext = guardedPattern.expression();
+                final Java25Parser.ExpressionContext guardContext = guardedPattern.expression();
                 final ExpressionTree when = guardContext != null
                         ? (ExpressionTree) guardContext.accept(this)
                         : null;
@@ -1119,14 +1119,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitBlockStatements(final Java20Parser.BlockStatementsContext ctx) {
+    public Object visitBlockStatements(final Java25Parser.BlockStatementsContext ctx) {
         return ctx.blockStatement().stream()
                 .flatMap(it -> asStream(it.accept(this)))
                 .toList();
     }
 
     @Override
-    public Object visitMethodInvocation(final Java20Parser.MethodInvocationContext ctx) {
+    public Object visitMethodInvocation(final Java25Parser.MethodInvocationContext ctx) {
         ExpressionTree expression = null;
         final var arguments = new ArrayList<ExpressionTree>();
         final var typeArguments = new ArrayList<IdentifierTree>();
@@ -1142,10 +1142,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                         || ".".equals(text)) {
                     continue;
                 }
-            } else if (child instanceof Java20Parser.ArgumentListContext) {
+            } else if (child instanceof Java25Parser.ArgumentListContext) {
                 arguments.addAll((List<ExpressionTree>) child.accept(this));
                 continue;
-            } else if (child instanceof Java20Parser.TypeArgumentsContext) {
+            } else if (child instanceof Java25Parser.TypeArgumentsContext) {
                 typeArguments.addAll((List<IdentifierTree>) child.accept(this));
                 continue;
             }
@@ -1167,7 +1167,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
 
     @Override
-    public Object visitArgumentList(final Java20Parser.ArgumentListContext ctx) {
+    public Object visitArgumentList(final Java25Parser.ArgumentListContext ctx) {
         return ctx.expression().stream()
                 .filter(it -> !(it instanceof TerminalNode))
                 .map(it -> it.accept(this))
@@ -1293,7 +1293,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitExpressionStatement(final Java20Parser.ExpressionStatementContext ctx) {
+    public Object visitExpressionStatement(final Java25Parser.ExpressionStatementContext ctx) {
         final var expression = (ExpressionTree) ctx.statementExpression().accept(this);
 
         return TreeMaker.expressionStatement(
@@ -1304,7 +1304,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitResult(final Java20Parser.ResultContext ctx) {
+    public Object visitResult(final Java25Parser.ResultContext ctx) {
         if (ctx.unannType() != null) {
             return ctx.unannType().accept(this);
         } else {
@@ -1317,7 +1317,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMethodDeclarator(final Java20Parser.MethodDeclaratorContext ctx) {
+    public Object visitMethodDeclarator(final Java25Parser.MethodDeclaratorContext ctx) {
         final var name = (IdentifierTree) ctx.identifier().accept(this);
 
         final VariableDeclaratorTree receiverParameter = accept(ctx.receiverParameter());
@@ -1332,7 +1332,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitReceiverParameter(final Java20Parser.ReceiverParameterContext ctx) {
+    public Object visitReceiverParameter(final Java25Parser.ReceiverParameterContext ctx) {
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
         final ExpressionTree type = (ExpressionTree) ctx.unannType().accept(this);
         final ExpressionTree identifier = accept(ctx.identifier());
@@ -1365,14 +1365,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitFormalParameterList(final Java20Parser.FormalParameterListContext ctx) {
+    public Object visitFormalParameterList(final Java25Parser.FormalParameterListContext ctx) {
         return ctx.formalParameter().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitFormalParameter(final Java20Parser.FormalParameterContext ctx) {
+    public Object visitFormalParameter(final Java25Parser.FormalParameterContext ctx) {
         final Modifiers modifiers;
         final IdentifierTree name;
         final ExpressionTree type;
@@ -1405,7 +1405,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitVariableArityParameter(final Java20Parser.VariableArityParameterContext ctx) {
+    public Object visitVariableArityParameter(final Java25Parser.VariableArityParameterContext ctx) {
         final var modifiers = parseModifiers(ctx.variableModifier()).with(Flags.VARARGS);
         final var componentType = (ExpressionTree) ctx.unannType().accept(this);
         final var identifierName = (IdentifierTree) ctx.identifier().accept(this);
@@ -1457,7 +1457,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * met de gestippelde naam; de resolver lost die op zoals {@code Map.Entry}.
      * De cast naar IdentifierTree liet de parser anders crashen.
      */
-    private IdentifierTree annotationTypeName(final Java20Parser.TypeNameContext ctx) {
+    private IdentifierTree annotationTypeName(final Java25Parser.TypeNameContext ctx) {
         final var tree = (ExpressionTree) ctx.accept(this);
         if (tree instanceof IdentifierTree identifier) {
             return identifier;
@@ -1467,7 +1467,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitNormalAnnotation(final Java20Parser.NormalAnnotationContext ctx) {
+    public Object visitNormalAnnotation(final Java25Parser.NormalAnnotationContext ctx) {
         final var typeName = annotationTypeName(ctx.typeName());
         final List<ExpressionTree> arguments = acceptList(ctx.elementValuePairList());
 
@@ -1480,14 +1480,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitElementValuePairList(final Java20Parser.ElementValuePairListContext ctx) {
+    public Object visitElementValuePairList(final Java25Parser.ElementValuePairListContext ctx) {
         return ctx.elementValuePair().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitElementValuePair(final Java20Parser.ElementValuePairContext ctx) {
+    public Object visitElementValuePair(final Java25Parser.ElementValuePairContext ctx) {
         final var identifier = (IdentifierTree) ctx.identifier().accept(this);
         final var elementValue = (ExpressionTree) ctx.elementValue().accept(this);
 
@@ -1500,7 +1500,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitElementValueArrayInitializer(final Java20Parser.ElementValueArrayInitializerContext ctx) {
+    public Object visitElementValueArrayInitializer(final Java25Parser.ElementValueArrayInitializerContext ctx) {
         final var elementValueList = ctx.elementValueList();
         final List<ExpressionTree> elements = elementValueList == null
                 ? List.of()
@@ -1518,7 +1518,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMarkerAnnotation(final Java20Parser.MarkerAnnotationContext ctx) {
+    public Object visitMarkerAnnotation(final Java25Parser.MarkerAnnotationContext ctx) {
         final var typeName = annotationTypeName(ctx.typeName());
         return TreeMaker.annotationTree(
                 typeName,
@@ -1529,7 +1529,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitSingleElementAnnotation(final Java20Parser.SingleElementAnnotationContext ctx) {
+    public Object visitSingleElementAnnotation(final Java25Parser.SingleElementAnnotationContext ctx) {
         final var typeName = annotationTypeName(ctx.typeName());
         final var elementValue = (ExpressionTree) ctx.elementValue().accept(this);
 
@@ -1549,7 +1549,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitClassLiteral(final Java20Parser.ClassLiteralContext ctx) {
+    public Object visitClassLiteral(final Java25Parser.ClassLiteralContext ctx) {
         ExpressionTree type = null;
 
         for (final var child : ctx.children) {
@@ -1593,28 +1593,28 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         final var charPositionInLine = node.getSymbol().getCharPositionInLine();
 
         return switch (type) {
-            case Java20Lexer.INT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.INT, line, charPositionInLine);
-            case Java20Lexer.BYTE -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BYTE, line, charPositionInLine);
-            case Java20Lexer.SHORT ->
+            case Java25Lexer.INT -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.INT, line, charPositionInLine);
+            case Java25Lexer.BYTE -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BYTE, line, charPositionInLine);
+            case Java25Lexer.SHORT ->
                     TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.SHORT, line, charPositionInLine);
-            case Java20Lexer.LONG -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.LONG, line, charPositionInLine);
-            case Java20Lexer.CHAR -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.CHAR, line, charPositionInLine);
-            case Java20Lexer.FLOAT ->
+            case Java25Lexer.LONG -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.LONG, line, charPositionInLine);
+            case Java25Lexer.CHAR -> TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.CHAR, line, charPositionInLine);
+            case Java25Lexer.FLOAT ->
                     TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.FLOAT, line, charPositionInLine);
-            case Java20Lexer.DOUBLE ->
+            case Java25Lexer.DOUBLE ->
                     TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.DOUBLE, line, charPositionInLine);
-            case Java20Lexer.BOOLEAN ->
+            case Java25Lexer.BOOLEAN ->
                     TreeMaker.primitiveTypeTree(PrimitiveTypeTree.Kind.BOOLEAN, line, charPositionInLine);
-            case Java20Lexer.PUBLIC -> Flags.PUBLIC;
-            case Java20Lexer.PROTECTED -> Flags.PROTECTED;
-            case Java20Lexer.PRIVATE -> Flags.PRIVATE;
-            case Java20Lexer.ABSTRACT -> Flags.ABSTRACT;
-            case Java20Lexer.STATIC -> Flags.STATIC;
-            case Java20Lexer.FINAL -> Flags.FINAL;
-            case Java20Lexer.SEALED -> Flags.SEALED;
-            case Java20Lexer.NONSEALED -> Flags.NONSEALED;
-            case Java20Lexer.STRICTFP -> Flags.STRICTFP;
-            case Java20Lexer.Identifier -> identifier(node.getSymbol());
+            case Java25Lexer.PUBLIC -> Flags.PUBLIC;
+            case Java25Lexer.PROTECTED -> Flags.PROTECTED;
+            case Java25Lexer.PRIVATE -> Flags.PRIVATE;
+            case Java25Lexer.ABSTRACT -> Flags.ABSTRACT;
+            case Java25Lexer.STATIC -> Flags.STATIC;
+            case Java25Lexer.FINAL -> Flags.FINAL;
+            case Java25Lexer.SEALED -> Flags.SEALED;
+            case Java25Lexer.NONSEALED -> Flags.NONSEALED;
+            case Java25Lexer.STRICTFP -> Flags.STRICTFP;
+            case Java25Lexer.Identifier -> identifier(node.getSymbol());
             default -> null;
         };
     }
@@ -1627,12 +1627,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTypeArguments(final Java20Parser.TypeArgumentsContext ctx) {
+    public Object visitTypeArguments(final Java25Parser.TypeArgumentsContext ctx) {
         return ctx.typeArgumentList().accept(this);
     }
 
     @Override
-    public Object visitTypeArgumentList(final Java20Parser.TypeArgumentListContext ctx) {
+    public Object visitTypeArgumentList(final Java25Parser.TypeArgumentListContext ctx) {
         return ctx.typeArgument().stream()
                 .map(it -> it.accept(this))
                 .toList();
@@ -1671,12 +1671,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTypeParameters(final Java20Parser.TypeParametersContext ctx) {
+    public Object visitTypeParameters(final Java25Parser.TypeParametersContext ctx) {
         return ctx.typeParameterList().accept(this);
     }
 
     @Override
-    public Object visitTypeParameter(final Java20Parser.TypeParameterContext ctx) {
+    public Object visitTypeParameter(final Java25Parser.TypeParameterContext ctx) {
         final var annotations = ctx.typeParameterModifier().stream()
                 .map(it -> (AnnotationTree) it.accept(this))
                 .toList();
@@ -1694,24 +1694,24 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitClassExtends(final Java20Parser.ClassExtendsContext ctx) {
+    public Object visitClassExtends(final Java25Parser.ClassExtendsContext ctx) {
         return ctx.classType().accept(this);
     }
 
     @Override
-    public Object visitClassImplements(final Java20Parser.ClassImplementsContext ctx) {
+    public Object visitClassImplements(final Java25Parser.ClassImplementsContext ctx) {
         return ctx.interfaceTypeList().accept(this);
     }
 
     @Override
-    public Object visitInterfaceTypeList(final Java20Parser.InterfaceTypeListContext ctx) {
+    public Object visitInterfaceTypeList(final Java25Parser.InterfaceTypeListContext ctx) {
         return ctx.interfaceType().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitClassType(final Java20Parser.ClassTypeContext ctx) {
+    public Object visitClassType(final Java25Parser.ClassTypeContext ctx) {
         final var annotations = ctx.annotation().stream()
                 .map(it -> (AnnotationTree) it.accept(this))
                 .toList();
@@ -1764,7 +1764,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitWildcard(final Java20Parser.WildcardContext ctx) {
+    public Object visitWildcard(final Java25Parser.WildcardContext ctx) {
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
 
         final WildcardBound wildcardBound;
@@ -1796,8 +1796,8 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitWildcardBounds(final Java20Parser.WildcardBoundsContext ctx) {
-        final var boundKind = Java20Lexer.EXTENDS == ctx.kind.getType()
+    public Object visitWildcardBounds(final Java25Parser.WildcardBoundsContext ctx) {
+        final var boundKind = Java25Lexer.EXTENDS == ctx.kind.getType()
                 ? BoundKind.EXTENDS
                 : BoundKind.SUPER;
         final var type = (ExpressionTree) ctx.referenceType().accept(this);
@@ -1805,19 +1805,19 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTypeParameterList(final Java20Parser.TypeParameterListContext ctx) {
+    public Object visitTypeParameterList(final Java25Parser.TypeParameterListContext ctx) {
         return ctx.typeParameter().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitTypeParameterModifier(final Java20Parser.TypeParameterModifierContext ctx) {
+    public Object visitTypeParameterModifier(final Java25Parser.TypeParameterModifierContext ctx) {
         return super.visitTypeParameterModifier(ctx);
     }
 
     @Override
-    public Object visitTypeBound(final Java20Parser.TypeBoundContext ctx) {
+    public Object visitTypeBound(final Java25Parser.TypeBoundContext ctx) {
         if (ctx.typeVariable() != null) {
             final var expression = (Tree) ctx.typeVariable().accept(this);
             return List.of(expression);
@@ -1838,7 +1838,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitArrayType(final Java20Parser.ArrayTypeContext ctx) {
+    public Object visitArrayType(final Java25Parser.ArrayTypeContext ctx) {
         Tree componentType;
 
         if (ctx.primitiveType() != null) {
@@ -1892,7 +1892,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitDims(final Java20Parser.DimsContext ctx) {
+    public Object visitDims(final Java25Parser.DimsContext ctx) {
         final var dimensions = new ArrayList<Dimension>();
 
         var annotations = new ArrayList<AnnotationTree>();
@@ -1913,7 +1913,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitArrayCreationExpression(final Java20Parser.ArrayCreationExpressionContext ctx) {
+    public Object visitArrayCreationExpression(final Java25Parser.ArrayCreationExpressionContext ctx) {
         if (ctx.arrayCreationExpressionWithInitializer() != null) {
             return ctx.arrayCreationExpressionWithInitializer().accept(this);
         }
@@ -1922,7 +1922,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitArrayCreationExpressionWithInitializer(
-            final Java20Parser.ArrayCreationExpressionWithInitializerContext ctx) {
+            final Java25Parser.ArrayCreationExpressionWithInitializerContext ctx) {
         final var line = ctx.getStart().getLine();
         final var column = ctx.getStart().getCharPositionInLine();
 
@@ -1950,7 +1950,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitArrayCreationExpressionWithoutInitializer(
-            final Java20Parser.ArrayCreationExpressionWithoutInitializerContext ctx) {
+            final Java25Parser.ArrayCreationExpressionWithoutInitializerContext ctx) {
         final var line = ctx.getStart().getLine();
         final var column = ctx.getStart().getCharPositionInLine();
 
@@ -1988,7 +1988,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         );
     }
 
-    private int rankCount(final Java20Parser.DimsContext ctx) {
+    private int rankCount(final Java25Parser.DimsContext ctx) {
         if (ctx == null || ctx.children == null) {
             return 0;
         }
@@ -2004,7 +2004,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         return count;
     }
 
-    private List<ExpressionTree> arrayInitializerElements(final Java20Parser.ArrayInitializerContext ctx) {
+    private List<ExpressionTree> arrayInitializerElements(final Java25Parser.ArrayInitializerContext ctx) {
         final List<ExpressionTree> elements = new ArrayList<>();
 
         if (ctx != null && ctx.variableInitializerList() != null) {
@@ -2026,7 +2026,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitVariableInitializer(final Java20Parser.VariableInitializerContext ctx) {
+    public Object visitVariableInitializer(final Java25Parser.VariableInitializerContext ctx) {
         if (ctx.arrayInitializer() != null) {
             return ctx.arrayInitializer().accept(this);
         }
@@ -2035,7 +2035,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitArrayInitializer(final Java20Parser.ArrayInitializerContext ctx) {
+    public Object visitArrayInitializer(final Java25Parser.ArrayInitializerContext ctx) {
         // Zonder deze override levert de ANTLR-default visitChildren het resultaat
         // van het laatste child ('}') op, dus null. De initializer verdwijnt dan
         // stilzwijgend, terwijl de variabele wel een Alloca krijgt
@@ -2050,7 +2050,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUnannArrayType(final Java20Parser.UnannArrayTypeContext ctx) {
+    public Object visitUnannArrayType(final Java25Parser.UnannArrayTypeContext ctx) {
         Tree componentType;
 
         if (ctx.unannPrimitiveType() != null) {
@@ -2072,7 +2072,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitEnumDeclaration(final Java20Parser.EnumDeclarationContext ctx) {
+    public Object visitEnumDeclaration(final Java25Parser.EnumDeclarationContext ctx) {
         final NestingKind nestingKind;
 
         if (isTopLevel) {
@@ -2147,7 +2147,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitEnumBody(final Java20Parser.EnumBodyContext ctx) {
+    public Object visitEnumBody(final Java25Parser.EnumBodyContext ctx) {
         final var body = new ArrayList<Tree>();
 
         if (ctx.enumConstantList() != null) {
@@ -2162,14 +2162,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitEnumConstantList(final Java20Parser.EnumConstantListContext ctx) {
+    public Object visitEnumConstantList(final Java25Parser.EnumConstantListContext ctx) {
         return ctx.enumConstant().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitEnumConstant(final Java20Parser.EnumConstantContext ctx) {
+    public Object visitEnumConstant(final Java25Parser.EnumConstantContext ctx) {
         var modifiers = parseModifiers(ctx.enumConstantModifier());
         final var identifier = (IdentifierTree) ctx.identifier().accept(this);
         final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
@@ -2222,14 +2222,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitEnumBodyDeclarations(final Java20Parser.EnumBodyDeclarationsContext ctx) {
+    public Object visitEnumBodyDeclarations(final Java25Parser.EnumBodyDeclarationsContext ctx) {
         return ctx.classBodyDeclaration().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitConstructorBody(final Java20Parser.ConstructorBodyContext ctx) {
+    public Object visitConstructorBody(final Java25Parser.ConstructorBodyContext ctx) {
         if (skipBody) {
             return TreeMaker.blockStatement(
                     List.of(),
@@ -2261,7 +2261,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitExplicitConstructorInvocation(final Java20Parser.ExplicitConstructorInvocationContext ctx) {
+    public Object visitExplicitConstructorInvocation(final Java25Parser.ExplicitConstructorInvocationContext ctx) {
         final List<IdentifierTree> typeArguments = acceptList(ctx.typeArguments());
         final List<ExpressionTree> arguments = acceptList(ctx.argumentList());
         ExpressionTree target = null;
@@ -2297,7 +2297,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitFieldAccess(final Java20Parser.FieldAccessContext ctx) {
+    public Object visitFieldAccess(final Java25Parser.FieldAccessContext ctx) {
         final ExpressionTree selected;
 
         if (ctx.primary() != null) {
@@ -2320,7 +2320,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitConstructorDeclaration(final Java20Parser.ConstructorDeclarationContext ctx) {
+    public Object visitConstructorDeclaration(final Java25Parser.ConstructorDeclarationContext ctx) {
         final var modifiers = parseModifiers(ctx.constructorModifier());
         final var constructor = (Function) ctx.constructorDeclarator().accept(this);
         final List<Tree> thrownTypes = acceptList(ctx.throwsT());
@@ -2334,7 +2334,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitConstructorDeclarator(final Java20Parser.ConstructorDeclaratorContext ctx) {
+    public Object visitConstructorDeclarator(final Java25Parser.ConstructorDeclaratorContext ctx) {
         final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
 
         final VariableDeclaratorTree receiverParameter = accept(ctx.receiverParameter());
@@ -2362,7 +2362,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLiteral(final Java20Parser.LiteralContext ctx) {
+    public Object visitLiteral(final Java25Parser.LiteralContext ctx) {
         final Object value;
         final TerminalNode node;
 
@@ -2579,7 +2579,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitClassOrInterfaceType(final Java20Parser.ClassOrInterfaceTypeContext ctx) {
+    public Object visitClassOrInterfaceType(final Java25Parser.ClassOrInterfaceTypeContext ctx) {
         ExpressionTree packageName = accept(ctx.packageName());
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
         Tree result = (Tree) ctx.typeIdentifier().accept(this);
@@ -2628,7 +2628,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRecordDeclaration(final Java20Parser.RecordDeclarationContext ctx) {
+    public Object visitRecordDeclaration(final Java25Parser.RecordDeclarationContext ctx) {
         var modifiers = parseModifiers(ctx.classModifier());
         final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
         final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
@@ -2658,19 +2658,19 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRecordHeader(final Java20Parser.RecordHeaderContext ctx) {
+    public Object visitRecordHeader(final Java25Parser.RecordHeaderContext ctx) {
         return accept(ctx.recordComponentList());
     }
 
     @Override
-    public Object visitRecordComponentList(final Java20Parser.RecordComponentListContext ctx) {
+    public Object visitRecordComponentList(final Java25Parser.RecordComponentListContext ctx) {
         return ctx.recordComponent().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitRecordComponent(final Java20Parser.RecordComponentContext ctx) {
+    public Object visitRecordComponent(final Java25Parser.RecordComponentContext ctx) {
         if (ctx.variableArityRecordComponent() != null) {
             return ctx.variableArityRecordComponent().accept(this);
         } else {
@@ -2688,7 +2688,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitVariableArityRecordComponent(final Java20Parser.VariableArityRecordComponentContext ctx) {
+    public Object visitVariableArityRecordComponent(final Java25Parser.VariableArityRecordComponentContext ctx) {
         final var identifier = (IdentifierTree) ctx.identifier().accept(this);
 
         var modifiers = parseModifiers(ctx.recordComponentModifier());
@@ -2733,7 +2733,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * een expliciet gedeclareerde {@code equals}/{@code hashCode}/
      * {@code toString} wordt niet opnieuw gegenereerd.
      */
-    private void addSyntheticRecordMethods(final Java20Parser.RecordDeclarationContext ctx,
+    private void addSyntheticRecordMethods(final Java25Parser.RecordDeclarationContext ctx,
                                            final List<Tree> body,
                                            final List<Tree> enclosedElements) {
         final var header = ctx.recordHeader();
@@ -2749,9 +2749,9 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             }
         }
 
-        final List<Java20Parser.RecordComponentContext> components = header.recordComponentList().recordComponent();
+        final List<Java25Parser.RecordComponentContext> components = header.recordComponentList().recordComponent();
         final List<RecordComponentSpec> specs = new ArrayList<>();
-        for (final Java20Parser.RecordComponentContext component : components) {
+        for (final Java25Parser.RecordComponentContext component : components) {
             final String name;
             final String type;
             if (component.variableArityRecordComponent() != null) {
@@ -2778,8 +2778,8 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     private Tree parseSyntheticMethod(final String text) {
-        final var lexer = new Java20Lexer(org.antlr.v4.runtime.CharStreams.fromString(text));
-        final var parser = new Java20Parser(new org.antlr.v4.runtime.CommonTokenStream(lexer));
+        final var lexer = new Java25Lexer(org.antlr.v4.runtime.CharStreams.fromString(text));
+        final var parser = new Java25Parser(new org.antlr.v4.runtime.CommonTokenStream(lexer));
         return (Tree) parser.methodDeclaration().accept(this);
     }
 
@@ -2879,14 +2879,14 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRecordBody(final Java20Parser.RecordBodyContext ctx) {
+    public Object visitRecordBody(final Java25Parser.RecordBodyContext ctx) {
         return ctx.recordBodyDeclaration().stream()
                 .map(it -> it.accept(this))
                 .toList();
     }
 
     @Override
-    public Object visitCompactConstructorDeclaration(final Java20Parser.CompactConstructorDeclarationContext ctx) {
+    public Object visitCompactConstructorDeclaration(final Java25Parser.CompactConstructorDeclarationContext ctx) {
         var modifiers = parseModifiers(ctx.constructorModifier());
         modifiers = modifiers.with(Flags.COMPACT_RECORD_CONSTRUCTOR);
 
@@ -2930,7 +2930,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitBasicForStatement(final Java20Parser.BasicForStatementContext ctx) {
+    public Object visitBasicForStatement(final Java25Parser.BasicForStatementContext ctx) {
         final List<StatementTree> forInit = acceptList(ctx.forInit());
         final var expression = (ExpressionTree) accept(ctx.expression());
         final List<StatementTree> forUpdate = acceptList(ctx.forUpdate());
@@ -2947,7 +2947,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitExpression(final Java20Parser.ExpressionContext ctx) {
+    public Object visitExpression(final Java25Parser.ExpressionContext ctx) {
         if (ctx.lambdaExpression() != null) {
             return ctx.lambdaExpression().accept(this);
         } else {
@@ -2956,7 +2956,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitStatementExpressionList(final Java20Parser.StatementExpressionListContext ctx) {
+    public Object visitStatementExpressionList(final Java25Parser.StatementExpressionListContext ctx) {
         return ctx.statementExpression().stream()
                 .map(it -> (ExpressionTree) it.accept(this))
                 .map(expression ->
@@ -2970,7 +2970,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPostIncrementExpression(final Java20Parser.PostIncrementExpressionContext ctx) {
+    public Object visitPostIncrementExpression(final Java25Parser.PostIncrementExpressionContext ctx) {
         final var expression = (ExpressionTree) ctx.postfixExpression().accept(this);
         return TreeMaker.unaryExpressionTree(
                 Tag.POST_INC,
@@ -2981,7 +2981,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPreIncrementExpression(final Java20Parser.PreIncrementExpressionContext ctx) {
+    public Object visitPreIncrementExpression(final Java25Parser.PreIncrementExpressionContext ctx) {
         final var expression = (ExpressionTree) ctx.unaryExpression().accept(this);
         return TreeMaker.unaryExpressionTree(
                 Tag.PRE_INC,
@@ -2992,7 +2992,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPreDecrementExpression(final Java20Parser.PreDecrementExpressionContext ctx) {
+    public Object visitPreDecrementExpression(final Java25Parser.PreDecrementExpressionContext ctx) {
         final var expression = (ExpressionTree) ctx.unaryExpression().accept(this);
         return TreeMaker.unaryExpressionTree(
                 Tag.PRE_DEC,
@@ -3003,7 +3003,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLocalVariableDeclaration(final Java20Parser.LocalVariableDeclarationContext ctx) {
+    public Object visitLocalVariableDeclaration(final Java25Parser.LocalVariableDeclarationContext ctx) {
         final var modifiers = parseModifiers(ctx.variableModifier());
         final var type = (ExpressionTree) ctx.localVariableType().accept(this);
         final List<VariableDeclaratorTree> variableDeclarators = acceptList(ctx.variableDeclaratorList());
@@ -3030,7 +3030,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPrimaryNoNewArray(final Java20Parser.PrimaryNoNewArrayContext ctx) {
+    public Object visitPrimaryNoNewArray(final Java25Parser.PrimaryNoNewArrayContext ctx) {
         final var firstChild = ctx.getChild(0);
 
         if (firstChild instanceof TerminalNode terminalNode
@@ -3080,7 +3080,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         return combineSuffix(ctx, 0, null);
     }
 
-    private ExpressionTree combineSuffix(final Java20Parser.PrimaryNoNewArrayContext ctx,
+    private ExpressionTree combineSuffix(final Java25Parser.PrimaryNoNewArrayContext ctx,
                                          final int startIndex,
                                          final ExpressionTree seed) {
         ExpressionTree lastExpression = seed;
@@ -3135,10 +3135,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                         lastExpression = combineExpressions(lastExpression, accepted);
                     }
                 }
-                case Java20Parser.ArgumentListContext ignored -> arguments.addAll(acceptList(child));
-                case Java20Parser.TypeArgumentsContext ignored -> typeArguments.addAll(acceptList(child));
+                case Java25Parser.ArgumentListContext ignored -> arguments.addAll(acceptList(child));
+                case Java25Parser.TypeArgumentsContext ignored -> typeArguments.addAll(acceptList(child));
                 default -> {
-                    if (child instanceof Java20Parser.PNNAContext pnna) {
+                    if (child instanceof Java25Parser.PNNAContext pnna) {
                         lastExpression = chainPNNA(pnna, lastExpression);
                         continue;
                     }
@@ -3168,7 +3168,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTypePattern(final Java20Parser.TypePatternContext ctx) {
+    public Object visitTypePattern(final Java25Parser.TypePatternContext ctx) {
         final var modifiers = parseModifiers(ctx.variableModifier());
         final var type = (ExpressionTree) ctx.localVariableType().accept(this);
 
@@ -3187,12 +3187,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPattern(final Java20Parser.PatternContext ctx) {
+    public Object visitPattern(final Java25Parser.PatternContext ctx) {
         return ctx.guardedPattern().accept(this);
     }
 
     @Override
-    public Object visitPrimaryPattern(final Java20Parser.PrimaryPatternContext ctx) {
+    public Object visitPrimaryPattern(final Java25Parser.PrimaryPatternContext ctx) {
         if (ctx.typePattern() != null) {
             return ctx.typePattern().accept(this);
         }
@@ -3228,7 +3228,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitVariableDeclaratorId(final Java20Parser.VariableDeclaratorIdContext ctx) {
+    public Object visitVariableDeclaratorId(final Java25Parser.VariableDeclaratorIdContext ctx) {
         if (ctx.UNDER_SCORE() != null) {
             return unnamedIdentifier(ctx.UNDER_SCORE().getSymbol());
         }
@@ -3236,7 +3236,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLambdaIdentifier(final Java20Parser.LambdaIdentifierContext ctx) {
+    public Object visitLambdaIdentifier(final Java25Parser.LambdaIdentifierContext ctx) {
         if (ctx.UNDER_SCORE() != null) {
             return unnamedIdentifier(ctx.UNDER_SCORE().getSymbol());
         }
@@ -3244,7 +3244,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRecordPattern(final Java20Parser.RecordPatternContext ctx) {
+    public Object visitRecordPattern(final Java25Parser.RecordPatternContext ctx) {
         final var recordType = (ExpressionTree) ctx.referenceType().accept(this);
         final List<Pattern> patterns = new ArrayList<>();
         if (ctx.patternList() != null) {
@@ -3262,7 +3262,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRelationalExpression(final Java20Parser.RelationalExpressionContext ctx) {
+    public Object visitRelationalExpression(final Java25Parser.RelationalExpressionContext ctx) {
         final var children = ctx.children;
         Tree result = null;
         ExpressionTree lastExpression = null;
@@ -3321,7 +3321,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLocalVariableType(final Java20Parser.LocalVariableTypeContext ctx) {
+    public Object visitLocalVariableType(final Java25Parser.LocalVariableTypeContext ctx) {
         if (ctx.unannType() != null) {
             return ctx.unannType().accept(this);
         } else {
@@ -3333,7 +3333,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitExpressionName(final Java20Parser.ExpressionNameContext ctx) {
+    public Object visitExpressionName(final Java25Parser.ExpressionNameContext ctx) {
         final List<Token> tokens = new ArrayList<>();
 
         collectAmbiguousName(ctx.ambiguousName(), tokens);
@@ -3353,7 +3353,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         return result;
     }
 
-    private void collectAmbiguousName(final Java20Parser.AmbiguousNameContext ctx,
+    private void collectAmbiguousName(final Java25Parser.AmbiguousNameContext ctx,
                                       final List<Token> tokens) {
         if (ctx == null) {
             return;
@@ -3363,7 +3363,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPostfixExpression(final Java20Parser.PostfixExpressionContext ctx) {
+    public Object visitPostfixExpression(final Java25Parser.PostfixExpressionContext ctx) {
         ExpressionTree result;
 
         if (ctx.primary() != null) {
@@ -3390,7 +3390,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUnqualifiedClassInstanceCreationExpression(final Java20Parser.UnqualifiedClassInstanceCreationExpressionContext ctx) {
+    public Object visitUnqualifiedClassInstanceCreationExpression(final Java25Parser.UnqualifiedClassInstanceCreationExpressionContext ctx) {
         final List<ExpressionTree> typeArgs = acceptList(ctx.typeArguments());
 
         final var clazz = (ExpressionTree) ctx.classOrInterfaceTypeToInstantiate().accept(this);
@@ -3427,7 +3427,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitClassOrInterfaceTypeToInstantiate(final Java20Parser.ClassOrInterfaceTypeToInstantiateContext ctx) {
+    public Object visitClassOrInterfaceTypeToInstantiate(final Java25Parser.ClassOrInterfaceTypeToInstantiateContext ctx) {
         ExpressionTree expressionTree = null;
 
         for (final var child : ctx.children) {
@@ -3452,12 +3452,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLocalVariableDeclarationStatement(final Java20Parser.LocalVariableDeclarationStatementContext ctx) {
+    public Object visitLocalVariableDeclarationStatement(final Java25Parser.LocalVariableDeclarationStatementContext ctx) {
         return ctx.localVariableDeclaration().accept(this);
     }
 
     @Override
-    public Object visitReturnStatement(final Java20Parser.ReturnStatementContext ctx) {
+    public Object visitReturnStatement(final Java25Parser.ReturnStatementContext ctx) {
         final ExpressionTree expression = accept(ctx.expression());
         return TreeMaker.returnStatement(
                 expression,
@@ -3467,7 +3467,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitWhileStatement(final Java20Parser.WhileStatementContext ctx) {
+    public Object visitWhileStatement(final Java25Parser.WhileStatementContext ctx) {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var body = (StatementTree) ctx.statement().accept(this);
 
@@ -3480,7 +3480,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitWhileStatementNoShortIf(final Java20Parser.WhileStatementNoShortIfContext ctx) {
+    public Object visitWhileStatementNoShortIf(final Java25Parser.WhileStatementNoShortIfContext ctx) {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var body = (StatementTree) ctx.statementNoShortIf().accept(this);
 
@@ -3493,7 +3493,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitArrayAccess(final Java20Parser.ArrayAccessContext ctx) {
+    public Object visitArrayAccess(final Java25Parser.ArrayAccessContext ctx) {
         final var base = (ExpressionTree) ctx.getChild(0).accept(this);
         final var index = (ExpressionTree) ctx.expression().accept(this);
 
@@ -3504,7 +3504,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitAssignment(final Java20Parser.AssignmentContext ctx) {
+    public Object visitAssignment(final Java25Parser.AssignmentContext ctx) {
         final var leftHandSide = (ExpressionTree) ctx.leftHandSide().accept(this);
         final var assignmentOperator = (Tag) ctx.assignmentOperator().accept(this);
         final var expression = (ExpressionTree) ctx.expression().accept(this);
@@ -3518,12 +3518,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitAssignmentOperator(final Java20Parser.AssignmentOperatorContext ctx) {
+    public Object visitAssignmentOperator(final Java25Parser.AssignmentOperatorContext ctx) {
         return Tag.fromText(ctx.start.getText());
     }
 
     @Override
-    public Object visitCastExpression(final Java20Parser.CastExpressionContext ctx) {
+    public Object visitCastExpression(final Java25Parser.CastExpressionContext ctx) {
         final ExpressionTree expressionTree;
         ExpressionTree type;
 
@@ -3565,11 +3565,11 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPNNA(final Java20Parser.PNNAContext ctx) {
+    public Object visitPNNA(final Java25Parser.PNNAContext ctx) {
         return chainPNNA(ctx, null);
     }
 
-    private ExpressionTree chainPNNA(final Java20Parser.PNNAContext ctx, ExpressionTree lastExpression) {
+    private ExpressionTree chainPNNA(final Java25Parser.PNNAContext ctx, ExpressionTree lastExpression) {
         final var typeArguments = new ArrayList<IdentifierTree>();
         final var arguments = new ArrayList<ExpressionTree>();
         var isMemberReference = false;
@@ -3610,10 +3610,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                         arrayBase = null;
                     }
                 }
-                case Java20Parser.TypeArgumentsContext ignored -> typeArguments.addAll(acceptList(child));
-                case Java20Parser.ArgumentListContext ignored -> arguments.addAll(acceptList(child));
+                case Java25Parser.TypeArgumentsContext ignored -> typeArguments.addAll(acceptList(child));
+                case Java25Parser.ArgumentListContext ignored -> arguments.addAll(acceptList(child));
                 case null, default -> {
-                    if (child instanceof Java20Parser.PNNAContext nested) {
+                    if (child instanceof Java25Parser.PNNAContext nested) {
                         lastExpression = chainPNNA(nested, lastExpression);
                         continue;
                     }
@@ -3638,7 +3638,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitEnhancedForStatement(final Java20Parser.EnhancedForStatementContext ctx) {
+    public Object visitEnhancedForStatement(final Java25Parser.EnhancedForStatementContext ctx) {
         final var localVariableDeclaration = (VariableDeclaratorTree) ctx.localVariableDeclaration().accept(this);
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var statement = (StatementTree) ctx.statement().accept(this);
@@ -3653,7 +3653,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitEnhancedForStatementNoShortIf(final Java20Parser.EnhancedForStatementNoShortIfContext ctx) {
+    public Object visitEnhancedForStatementNoShortIf(final Java25Parser.EnhancedForStatementNoShortIfContext ctx) {
         final var localVariable = (VariableDeclaratorTree) ctx.localVariableDeclaration().accept(this);
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         final var statement = (StatementTree) ctx.statementNoShortIf().accept(this);
@@ -3668,7 +3668,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitDoStatement(final Java20Parser.DoStatementContext ctx) {
+    public Object visitDoStatement(final Java25Parser.DoStatementContext ctx) {
         final var body = (StatementTree) ctx.statement().accept(this);
         final var condition = (ExpressionTree) ctx.expression().accept(this);
 
@@ -3681,7 +3681,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitPostDecrementExpression(final Java20Parser.PostDecrementExpressionContext ctx) {
+    public Object visitPostDecrementExpression(final Java25Parser.PostDecrementExpressionContext ctx) {
         final var expression = (ExpressionTree) ctx.postfixExpression().accept(this);
         return TreeMaker.unaryExpressionTree(
                 Tag.POST_DEC,
@@ -3692,7 +3692,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitIfThenStatement(final Java20Parser.IfThenStatementContext ctx) {
+    public Object visitIfThenStatement(final Java25Parser.IfThenStatementContext ctx) {
         final var condition = (ExpressionTree) ctx.expression().accept(this);
         final var thenStatement = (StatementTree) ctx.statement().accept(this);
         return new CIfStatementTree(
@@ -3705,7 +3705,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitIfThenElseStatement(final Java20Parser.IfThenElseStatementContext ctx) {
+    public Object visitIfThenElseStatement(final Java25Parser.IfThenElseStatementContext ctx) {
         final var condition = (ExpressionTree) ctx.expression().accept(this);
         final var thenStatement = (StatementTree) ctx.statementNoShortIf().accept(this);
         final var elseStatement = (StatementTree) ctx.statement().accept(this);
@@ -3720,7 +3720,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitIfThenElseStatementNoShortIf(final Java20Parser.IfThenElseStatementNoShortIfContext ctx) {
+    public Object visitIfThenElseStatementNoShortIf(final Java25Parser.IfThenElseStatementNoShortIfContext ctx) {
         final var condition = (ExpressionTree) ctx.expression().accept(this);
         final var thenStatement = (StatementTree) ctx.statementNoShortIf(0).accept(this);
         final var elseStatement = (StatementTree) ctx.statementNoShortIf(1).accept(this);
@@ -3735,12 +3735,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitForStatementNoShortIf(final Java20Parser.ForStatementNoShortIfContext ctx) {
+    public Object visitForStatementNoShortIf(final Java25Parser.ForStatementNoShortIfContext ctx) {
         return ctx.basicForStatementNoShortIf().accept(this);
     }
 
     @Override
-    public Object visitBasicForStatementNoShortIf(final Java20Parser.BasicForStatementNoShortIfContext ctx) {
+    public Object visitBasicForStatementNoShortIf(final Java25Parser.BasicForStatementNoShortIfContext ctx) {
         final List<StatementTree> forInit = acceptList(ctx.forInit());
         final var expression = (ExpressionTree) accept(ctx.expression());
         final List<StatementTree> forUpdate = acceptList(ctx.forUpdate());
@@ -3757,7 +3757,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitEqualityExpression(final Java20Parser.EqualityExpressionContext ctx) {
+    public Object visitEqualityExpression(final Java25Parser.EqualityExpressionContext ctx) {
         final var right = (Tree) ctx.relationalExpression().accept(this);
 
         if (ctx.equalityExpression() != null) {
@@ -3776,7 +3776,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUnaryExpression(final Java20Parser.UnaryExpressionContext ctx) {
+    public Object visitUnaryExpression(final Java25Parser.UnaryExpressionContext ctx) {
         if (ctx.prefix != null && ctx.unaryExpression() != null) {
             final var prefix = ctx.prefix.getText();
             final var expr = (ExpressionTree) ctx.unaryExpression().accept(this);
@@ -3803,7 +3803,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitAdditiveExpression(final Java20Parser.AdditiveExpressionContext ctx) {
+    public Object visitAdditiveExpression(final Java25Parser.AdditiveExpressionContext ctx) {
         final var multiplicativeExpression = (ExpressionTree) ctx.multiplicativeExpression().accept(this);
         final var additiveExpression = (ExpressionTree) accept(ctx.additiveExpression());
 
@@ -3842,7 +3842,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLambdaExpression(final Java20Parser.LambdaExpressionContext ctx) {
+    public Object visitLambdaExpression(final Java25Parser.LambdaExpressionContext ctx) {
         final List<Tree> parameters = acceptList(ctx.lambdaParameters());
         final var body = (Tree) ctx.lambdaBody().accept(this);
         return TreeMaker.lambdaExpressionTree(
@@ -3854,7 +3854,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLambdaParameters(final Java20Parser.LambdaParametersContext ctx) {
+    public Object visitLambdaParameters(final Java25Parser.LambdaParametersContext ctx) {
         if (ctx.lambdaParameterList() != null) {
             return acceptList(ctx.lambdaParameterList());
         } else if (ctx.lambdaIdentifier() != null) {
@@ -3869,7 +3869,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLambdaParameterList(final Java20Parser.LambdaParameterListContext ctx) {
+    public Object visitLambdaParameterList(final Java25Parser.LambdaParameterListContext ctx) {
         if (!ctx.lambdaParameter().isEmpty()) {
             return ctx.lambdaParameter().stream()
                     .map(it -> it.accept(this))
@@ -3882,7 +3882,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLambdaParameter(final Java20Parser.LambdaParameterContext ctx) {
+    public Object visitLambdaParameter(final Java25Parser.LambdaParameterContext ctx) {
         final var name = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
         final var type = (ExpressionTree) ctx.lambdaParameterType().accept(this);
 
@@ -3903,12 +3903,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitLambdaBody(final Java20Parser.LambdaBodyContext ctx) {
+    public Object visitLambdaBody(final Java25Parser.LambdaBodyContext ctx) {
         return super.visitLambdaBody(ctx);
     }
 
     @Override
-    public Object visitConditionalAndExpression(final Java20Parser.ConditionalAndExpressionContext ctx) {
+    public Object visitConditionalAndExpression(final Java25Parser.ConditionalAndExpressionContext ctx) {
         final var inclusiveOrExpression = (ExpressionTree) ctx.inclusiveOrExpression().accept(this);
 
         if (ctx.conditionalAndExpression() != null) {
@@ -3924,7 +3924,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitConditionalOrExpression(final Java20Parser.ConditionalOrExpressionContext ctx) {
+    public Object visitConditionalOrExpression(final Java25Parser.ConditionalOrExpressionContext ctx) {
         final var conditionalAndExpression = (ExpressionTree) ctx.conditionalAndExpression().accept(this);
 
         if (ctx.conditionalOrExpression() != null) {
@@ -3940,7 +3940,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitConditionalExpression(final Java20Parser.ConditionalExpressionContext ctx) {
+    public Object visitConditionalExpression(final Java25Parser.ConditionalExpressionContext ctx) {
         final var condition = (ExpressionTree) ctx.conditionalOrExpression().accept(this);
 
         if (ctx.expression() != null) {
@@ -3965,7 +3965,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitInclusiveOrExpression(final Java20Parser.InclusiveOrExpressionContext ctx) {
+    public Object visitInclusiveOrExpression(final Java25Parser.InclusiveOrExpressionContext ctx) {
         final var exclusiveOrExpression = (ExpressionTree) ctx.exclusiveOrExpression().accept(this);
 
         if (ctx.inclusiveOrExpression() != null) {
@@ -3981,7 +3981,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitExclusiveOrExpression(final Java20Parser.ExclusiveOrExpressionContext ctx) {
+    public Object visitExclusiveOrExpression(final Java25Parser.ExclusiveOrExpressionContext ctx) {
         final var andExpression = (ExpressionTree) ctx.andExpression().accept(this);
 
         if (ctx.exclusiveOrExpression() != null) {
@@ -3998,7 +3998,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitAndExpression(final Java20Parser.AndExpressionContext ctx) {
+    public Object visitAndExpression(final Java25Parser.AndExpressionContext ctx) {
         final var equalityExpression = (ExpressionTree) ctx.equalityExpression().accept(this);
 
         if (ctx.andExpression() != null) {
@@ -4014,7 +4014,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitShiftExpression(final Java20Parser.ShiftExpressionContext ctx) {
+    public Object visitShiftExpression(final Java25Parser.ShiftExpressionContext ctx) {
         final var children = ctx.children;
         ExpressionTree lastExpression = null;
         String operatorText = null;
@@ -4058,7 +4058,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitMultiplicativeExpression(final Java20Parser.MultiplicativeExpressionContext ctx) {
+    public Object visitMultiplicativeExpression(final Java25Parser.MultiplicativeExpressionContext ctx) {
         final var children = ctx.children;
         ExpressionTree lastExpression = null;
         String operatorText = null;
@@ -4097,7 +4097,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUnaryExpressionNotPlusMinus(final Java20Parser.UnaryExpressionNotPlusMinusContext ctx) {
+    public Object visitUnaryExpressionNotPlusMinus(final Java25Parser.UnaryExpressionNotPlusMinusContext ctx) {
         if (ctx.postfixExpression() != null) {
             return ctx.postfixExpression().accept(this);
         } else if (ctx.castExpression() != null) {
@@ -4129,7 +4129,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     // -------------------------------------------------------
 
     @Override
-    public Object visitThrowStatement(final Java20Parser.ThrowStatementContext ctx) {
+    public Object visitThrowStatement(final Java25Parser.ThrowStatementContext ctx) {
         final var expression = (ExpressionTree) ctx.expression().accept(this);
         return ThrowStatement.create(
                 expression,
@@ -4139,7 +4139,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitTryStatement(final Java20Parser.TryStatementContext ctx) {
+    public Object visitTryStatement(final Java25Parser.TryStatementContext ctx) {
         if (ctx.tryWithResourcesStatement() != null) {
             return ctx.tryWithResourcesStatement().accept(this);
         }
@@ -4175,7 +4175,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * Line numbers of the generated code are those of the {@code try}.
      */
     @Override
-    public Object visitTryWithResourcesStatement(final Java20Parser.TryWithResourcesStatementContext ctx) {
+    public Object visitTryWithResourcesStatement(final Java25Parser.TryWithResourcesStatementContext ctx) {
         final var resources = ctx.resourceSpecification().resourceList().resource();
         final var expanded = new StringBuilder();
         expanded.append("\n".repeat(Math.max(0, ctx.getStart().getLine() - 1)));
@@ -4193,12 +4193,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         expanded.append(expandResource(resources, 0, sourceText(ctx.block())));
         expanded.append(tail);
 
-        final var lexer = new Java20Lexer(org.antlr.v4.runtime.CharStreams.fromString(expanded.toString()));
-        final var parser = new Java20Parser(new org.antlr.v4.runtime.CommonTokenStream(lexer));
+        final var lexer = new Java25Lexer(org.antlr.v4.runtime.CharStreams.fromString(expanded.toString()));
+        final var parser = new Java25Parser(new org.antlr.v4.runtime.CommonTokenStream(lexer));
         return parser.statement().accept(this);
     }
 
-    private String expandResource(final List<Java20Parser.ResourceContext> resources, final int index,
+    private String expandResource(final List<Java25Parser.ResourceContext> resources, final int index,
                                   final String body) {
         if (index == resources.size()) {
             return body;
@@ -4234,7 +4234,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitCatchClause(final Java20Parser.CatchClauseContext ctx) {
+    public Object visitCatchClause(final Java25Parser.CatchClauseContext ctx) {
         final var catchParam = ctx.catchFormalParameter();
         return catchClause(ctx, (ExpressionTree) catchParam.catchType().unannClassType().accept(this));
     }
@@ -4244,7 +4244,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * ({@code catch (A | B e)}), each with its own copy of the body (parsed
      * again). Only the first alternative was caught before.
      */
-    private List<CatchTree> catchClauses(final Java20Parser.CatchClauseContext ctx) {
+    private List<CatchTree> catchClauses(final Java25Parser.CatchClauseContext ctx) {
         final var catchType = ctx.catchFormalParameter().catchType();
         final List<CatchTree> clauses = new ArrayList<>();
         clauses.add(catchClause(ctx, (ExpressionTree) catchType.unannClassType().accept(this)));
@@ -4254,7 +4254,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         return clauses;
     }
 
-    private CatchTree catchClause(final Java20Parser.CatchClauseContext ctx, final ExpressionTree type) {
+    private CatchTree catchClause(final Java25Parser.CatchClauseContext ctx, final ExpressionTree type) {
         final var catchParam = ctx.catchFormalParameter();
         final var varId = (IdentifierTree) catchParam.variableDeclaratorId().accept(this);
 
@@ -4288,7 +4288,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
      * name, and the package was lost.
      */
     @Override
-    public Object visitUnannClassType(final Java20Parser.UnannClassTypeContext ctx) {
+    public Object visitUnannClassType(final Java25Parser.UnannClassTypeContext ctx) {
         ExpressionTree prefix = null;
         if (ctx.packageName() != null) {
             prefix = (ExpressionTree) ctx.packageName().accept(this);

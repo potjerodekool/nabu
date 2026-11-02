@@ -4,8 +4,8 @@ import io.github.potjerodekool.nabu.backend.CompileOptions;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.IrGeneratingVisitor;
 import io.github.potjerodekool.nabu.compiler.impl.EnterPhase;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Lexer;
-import io.github.potjerodekool.nabu.compiler.lang.support.java.Java20Parser;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Lexer;
+import io.github.potjerodekool.nabu.compiler.lang.support.java.Java25Parser;
 import io.github.potjerodekool.nabu.compiler.lang.support.java.JavaCompilerVisitor;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.ResolverPhase;
 import io.github.potjerodekool.nabu.tools.*;
@@ -68,7 +68,7 @@ class NativeExceptionEndToEndTest {
         FileObject fo = new PathFileObject(new FileObject.Kind("java", true), tmp);
         try (var in = fo.openInputStream()) {
             var text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            var parser = new Java20Parser(new CommonTokenStream(new Java20Lexer(CharStreams.fromString(text))));
+            var parser = new Java25Parser(new CommonTokenStream(new Java25Lexer(CharStreams.fromString(text))));
             var cuNode = (CompilationUnit) parser.compilationUnit().accept(new JavaCompilerVisitor(fo, false));
             EnterPhase.enterPhase(cuNode, context());
             ResolverPhase.resolvePhase(cuNode, context());

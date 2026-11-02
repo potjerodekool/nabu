@@ -167,6 +167,16 @@ public class AsmByteCodeEmitter {
             classVisitor.visitNestMember(BytecodeHelper.toInternalName(member));
         }
 
+        // InnerClasses (JVMS 4.7.6): Spring's ASM-metadata en reflectie (getDeclaringClass, getModifiers van een
+        // geneste klasse) lezen de geneste-klasse-relatie hieruit; NestHost/NestMembers volstaan daarvoor niet.
+        for (final var innerClass : module.innerClasses()) {
+            classVisitor.visitInnerClass(
+                    BytecodeHelper.toInternalName(innerClass.name()),
+                    innerClass.outer() != null ? BytecodeHelper.toInternalName(innerClass.outer()) : null,
+                    innerClass.inner(),
+                    innerClass.access());
+        }
+
         // Emit PermittedSubclasses attribute for sealed classes
         if (module.sealedClass()) {
             final var permittedSubclasses = module.permittedSubclasses();

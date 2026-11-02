@@ -2455,6 +2455,13 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         if (tag == Tag.ASSIGN) {
             IRValue value = acceptTree(binaryExpr.getRight(), builder);
 
+            // `target.field = resolver.resolve(bean)` with `<T> T resolve(...)`: the erased Object needs a cast to
+            // the type of the left side before it is stored (the verifier rejects putfield of Object).
+            if (binaryExpr.getLeft().getType() != null) {
+                value = castErasedToParameter(value, TypeMirrorToIRType.map(binaryExpr.getLeft().getType()),
+                        binaryExpr.getRight().getType());
+            }
+
             // Sla de waarde op via de linker kant
             emitStoreBack(binaryExpr.getLeft(), value);
             return value;
@@ -4005,6 +4012,13 @@ if (argVal != null) args.add(argVal);
         );
 
         IRValue value = acceptTree(assignment.getRight(), builder);
+
+        // `target.field = resolver.resolve(bean)` with `<T> T resolve(...)`: the erased Object needs a cast to the
+        // type of the left side before it is stored (the verifier rejects putfield of Object).
+        if (assignment.getLeft().getType() != null) {
+            value = castErasedToParameter(value, TypeMirrorToIRType.map(assignment.getLeft().getType()),
+                    assignment.getRight().getType());
+        }
 
         // Sla de waarde op via de linker kant
         emitStoreBack(assignment.getLeft(), value);

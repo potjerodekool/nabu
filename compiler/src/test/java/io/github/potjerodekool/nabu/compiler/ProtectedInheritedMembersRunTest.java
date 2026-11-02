@@ -445,6 +445,49 @@ class ProtectedInheritedMembersRunTest {
     }
 
     /**
+     * Spring AOT: <code>instance.settings = resolver.resolve(bean)</code>, a generic result stored in a field
+     * (VerifyError at putfield: Object is not assignable to the field type).
+     */
+    @Test
+    void genericReturnValueIsCastForFieldAssignment() throws Exception {
+        final var cls = compileAndLoad("mini.UseField", java.util.Map.of(
+                "mini/FieldSource.java", """
+                        package mini;
+                        public class FieldSource {
+                            private final Object value;
+                            public FieldSource(Object value) {
+                                this.value = value;
+                            }
+                            @SuppressWarnings("unchecked")
+                            public <T> T resolve() {
+                                return (T) value;
+                            }
+                        }
+                        """,
+                "mini/Target3.java", """
+                        package mini;
+                        public class Target3 {
+                            String text;
+                            StringBuilder builder;
+                        }
+                        """,
+                "mini/UseField.java", """
+                        package mini;
+                        public class UseField {
+                            public static String run() {
+                                Target3 target = new Target3();
+                                FieldSource text = new FieldSource("abc");
+                                FieldSource builder = new FieldSource(new StringBuilder("sb"));
+                                target.text = text.resolve();
+                                target.builder = builder.resolve();
+                                return target.text + target.builder;
+                            }
+                        }
+                        """));
+        assertEquals("abcsb", cls.getMethod("run").invoke(null));
+    }
+
+    /**
      * A static member class that only exists as a class file: `static` is only in its InnerClasses attribute, so it
      * looked like an inner class and `Outer.Nested::new` got an enclosing-instance argument that does not exist
      * (Spring AOT: NoSuchMethodError ...DependsOnDatabaseInitializationPostProcessor.<init>(Outer)).

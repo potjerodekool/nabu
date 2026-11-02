@@ -204,6 +204,71 @@ class ProtectedInheritedMembersRunTest {
         assertEquals("inner", cls.getMethod("run").invoke(null));
     }
 
+    /**
+     * Spring AOT: <code>new JpaEvaluationContextExtension(args.get(0))</code>, a constructor with a
+     * <code>char</code> parameter and a generic <code>&lt;T&gt; T get(int)</code>. T is inferred as Character and
+     * must be cast and unboxed; the argument was left as a reference ("expected I, but found R").
+     */
+    @Test
+    void genericReturnValueIsUnboxedForPrimitiveConstructorParameter() throws Exception {
+        final var cls = compileAndLoad("mini.UseGeneric", java.util.Map.of(
+                "mini/Arguments.java", """
+                        package mini;
+                        public class Arguments {
+                            private final Object first;
+                            private final Object second;
+                            private final Object third;
+                            public Arguments(Object first, Object second, Object third) {
+                                this.first = first;
+                                this.second = second;
+                                this.third = third;
+                            }
+                            @SuppressWarnings("unchecked")
+                            public <T> T get(int index) {
+                                return (T) (index == 0 ? first : index == 1 ? second : third);
+                            }
+                        }
+                        """,
+                "mini/Target.java", """
+                        package mini;
+                        public class Target {
+                            private final char letter;
+                            private final int number;
+                            private final boolean flag;
+                            public Target(char letter) {
+                                this.letter = letter;
+                                this.number = 0;
+                                this.flag = false;
+                            }
+                            public Target(int number, boolean flag) {
+                                this.letter = '-';
+                                this.number = number;
+                                this.flag = flag;
+                            }
+                            public static String make(int number, boolean flag) {
+                                return new Target(number, flag).describe();
+                            }
+                            public String describe() {
+                                return letter + ":" + number + ":" + flag;
+                            }
+                        }
+                        """,
+                "mini/UseGeneric.java", """
+                        package mini;
+                        import java.util.function.Function;
+                        public class UseGeneric {
+                            public static String run() {
+                                Arguments args = new Arguments(Character.valueOf('x'), Integer.valueOf(7), Boolean.TRUE);
+                                Function<Arguments, Target> viaLambda = a -> new Target(a.get(0));
+                                Target second = new Target(args.get(1), args.get(2));
+                                return viaLambda.apply(args).describe() + " " + second.describe()
+                                        + " " + Target.make(args.get(1), args.get(2));
+                            }
+                        }
+                        """));
+        assertEquals("x:0:false -:7:true -:7:true", cls.getMethod("run").invoke(null));
+    }
+
     /** The same, but the class only exists as a class file on the class path (what Spring AOT leaves behind). */
     @Test
     void classNamesWithDollarSignsResolveFromClassFiles() throws Exception {

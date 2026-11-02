@@ -2050,6 +2050,17 @@ public class CompleteMethodResolver implements MethodResolver {
      * doelzijde of een onbekende erasure telt als passend, zoals voorheen.
      */
     private boolean isErasureCompatible(final TypeMirror sourceType, final TypeMirror targetType) {
+        if (sourceType instanceof TypeVariable sourceVariable && targetType.isPrimitiveType()) {
+            // The result of a generic call that is not inferred yet (`args.get(0)`, `<T> T get(int)`) is a poly
+            // expression: T becomes the wrapper of the parameter (JLS 18.5.2), so it fits a primitive parameter
+            // when its bound admits that wrapper.
+            final var bound = sourceVariable.getUpperBound();
+            return bound == null
+                    || (bound instanceof DeclaredType declaredBound
+                    && declaredBound.asTypeElement() != null
+                    && "java.lang.Object".equals(declaredBound.asTypeElement().getQualifiedName()))
+                    || isBoxingCompatible(targetType, bound);
+        }
         if (targetType instanceof TypeVariable || sourceType instanceof TypeVariable) {
             return !targetType.isPrimitiveType();
         }

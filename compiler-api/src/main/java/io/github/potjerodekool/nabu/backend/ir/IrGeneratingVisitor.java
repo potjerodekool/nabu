@@ -24,6 +24,7 @@ import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
 import io.github.potjerodekool.nabu.type.ArrayType;
+import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.ExecutableType;
 import io.github.potjerodekool.nabu.type.TypeKind;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -1834,7 +1835,7 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
         // empty stack" bij StreamTokenizer.commentChar).
         if (paramType.getKind().isPrimitive()) {
             final IRType mapped = TypeMirrorToIRType.map(paramType);
-            IRValue widened = unboxIfNeeded(value, mapped);
+            IRValue widened = unboxIfNeeded(castErasedToWrapper(value, argTypeMirror, paramType, null), mapped);
             // JLS 5.3 (method invocation conversion): primitieve verbreding.
             // `Thread.sleep(25)` levert een int-constante maar de parameter
             // is long; zonder I2L breekt de verifier ("expected J, but
@@ -3478,7 +3479,9 @@ if (argVal != null) args.add(argVal);
             final int offset = outerPrepended ? 1 : 0;
             for (int i = 0; i < declaredParamTypes.size(); i++) {
                 final IRValue argValue = args.get(offset + i);
-                final IRValue adapted = adaptCallArgument(argValue, declaredParamTypes.get(i));
+                final var argumentTrees = newClass.getArguments();
+                final IRValue adapted = adaptCallArgument(argValue, declaredParamTypes.get(i),
+                        i < argumentTrees.size() ? argumentType(argumentTrees.get(i)) : null);
                 if (adapted != argValue) {
                     args.set(offset + i, adapted);
                 }
@@ -3568,6 +3571,12 @@ if (argVal != null) args.add(argVal);
      * new Random(42)} levert anders een int waar de callee een long verwacht.
      */
     private IRValue adaptCallArgument(final IRValue argValue, final IRType paramType) {
+        return adaptCallArgument(argValue, paramType, null);
+    }
+
+    private IRValue adaptCallArgument(final IRValue argValue,
+                                      final IRType paramType,
+                                      final TypeMirror argTypeMirror) {
         if (argValue == null
                 || paramType == null
                 || argValue.type() instanceof IRType.Void) {
@@ -3577,7 +3586,7 @@ if (argVal != null) args.add(argVal);
         if (paramType instanceof IRType.Ptr) {
             return boxIfNeeded(value, paramType);
         }
-        value = unboxIfNeeded(value, paramType);
+        value = unboxIfNeeded(castErasedToWrapper(value, argTypeMirror, null, paramType), paramType);
         if (isWideningNeeded(value.type(), paramType)) {
             value = builder.emitCast(value, paramType);
         }
@@ -4210,6 +4219,65 @@ if (argVal != null) args.add(argVal);
      * operatie-toevoeging via intValue() etc. ├âãÆ├é┬ó├â┬ó├óÔé¼┼í├é┬¼├â┬ó├óÔÇÜ┬¼├é┬Ø anders volgt de
      * BinOp-emitter een String-concat door de Ptr-operand.
      */
+    /**
+     * A generic call such as <code>args.get(0)</code> returns the erased bound (Object), while the type checker
+     * inferred a wrapper (T = Integer). Unboxing it for a primitive parameter needs the wrapper type first, so cast
+     * the value to the inferred wrapper; a value that already is a wrapper, or a non-wrapper type, is left alone.
+     */
+    private IRValue castErasedToWrapper(final IRValue value,
+                                        final TypeMirror inferred,
+                                        final TypeMirror primitiveParameter,
+                                        final IRType primitiveIrParameter) {
+        if (value == null || !(value.type() instanceof IRType.Ptr ptr)) {
+            return value;
+        }
+        final var current = ptr.jvmDescriptor();
+        if (current != null && !"Ljava/lang/Object;".equals(current)) {
+            return value;
+        }
+        final String name;
+        if (inferred instanceof DeclaredType declared && declared.asTypeElement() != null) {
+            name = declared.asTypeElement().getQualifiedName();
+        } else if (inferred instanceof io.github.potjerodekool.nabu.type.TypeVariable
+                && primitiveParameter == null
+                && primitiveIrParameter != null) {
+            name = primitiveIrParameter == IRType.BOOL ? "java.lang.Boolean"
+                    : primitiveIrParameter == IRType.CHAR ? "java.lang.Character"
+                    : primitiveIrParameter == IRType.I64 ? "java.lang.Long"
+                    : primitiveIrParameter == IRType.F64 ? "java.lang.Double"
+                    : primitiveIrParameter == IRType.F32 ? "java.lang.Float"
+                    : primitiveIrParameter == IRType.I32 ? "java.lang.Integer"
+                    : primitiveIrParameter == IRType.I16 ? "java.lang.Short"
+                    : primitiveIrParameter == IRType.I8 ? "java.lang.Byte"
+                    : "";
+        } else if (inferred instanceof io.github.potjerodekool.nabu.type.TypeVariable
+                && primitiveParameter != null) {
+            // not inferred (a poly expression): T becomes the wrapper of the primitive parameter
+            name = switch (primitiveParameter.getKind()) {
+                case INT -> "java.lang.Integer";
+                case LONG -> "java.lang.Long";
+                case SHORT -> "java.lang.Short";
+                case BYTE -> "java.lang.Byte";
+                case CHAR -> "java.lang.Character";
+                case FLOAT -> "java.lang.Float";
+                case DOUBLE -> "java.lang.Double";
+                case BOOLEAN -> "java.lang.Boolean";
+                default -> "";
+            };
+        } else {
+            return value;
+        }
+        final boolean wrapper = switch (name) {
+            case "java.lang.Integer", "java.lang.Long", "java.lang.Short", "java.lang.Byte",
+                 "java.lang.Character", "java.lang.Float", "java.lang.Double", "java.lang.Boolean" -> true;
+            default -> false;
+        };
+        if (!wrapper) {
+            return value;
+        }
+        return builder.emitCast(value, new IRType.Ptr(IRType.I8, "L" + name.replace('.', '/') + ";"));
+    }
+
     private IRValue unboxIfNeeded(final IRValue value, final IRType targetType) {
         if (value == null
                 || !(value.type() instanceof IRType.Ptr ptr)
@@ -4240,7 +4308,7 @@ if (argVal != null) args.add(argVal);
         else if (desc.equals("Ljava/lang/Double;")) unboxedType = IRType.F64;
         else if (desc.equals("Ljava/lang/Float;")) unboxedType = IRType.F32;
         else if (desc.equals("Ljava/lang/Boolean;")) unboxedType = IRType.BOOL;
-        else if (desc.equals("Ljava/lang/Character;")) unboxedType = IRType.I32;
+        else if (desc.equals("Ljava/lang/Character;")) unboxedType = IRType.CHAR;
         else if (desc.equals("Ljava/lang/Integer;")
                 || desc.equals("Ljava/lang/Short;")
                 || desc.equals("Ljava/lang/Byte;")) unboxedType = IRType.I32;

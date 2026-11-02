@@ -40,7 +40,7 @@ What is checked, besides everything up to Java 17 (which is always allowed):
 |---|---|
 | 21 | pattern matching for `switch` (with a `when` guard), `case null`, record patterns |
 | 22 | unnamed variables and patterns (`_`) |
-| 25 | statements before `this(...)` or `super(...)` in a constructor, `import module` |
+| 25 | statements before `this(...)` or `super(...)` in a constructor, `import module`, compact source files |
 
 The check covers the Java sources that Nabu compiles (`--compile-language-support`) and the `.nabu` sources, where a construct has the version of its Java counterpart and a construct without a counterpart is always allowed. The Nabu grammar is still at the level of Java 17 plus `case null`, so `case null` is the one Nabu construct that is checked today. The Java sources that are only read for their symbols are not checked, and neither is the use of JDK classes and methods: a class that a newer JDK added still compiles. Without `--release` nothing is checked.
 
@@ -48,4 +48,4 @@ The Java parser reads these constructs up to Java 25. Not everything that is rea
 
 - A record pattern in `instanceof` works as an operand of `&&` in the condition of an `if` or `while` statement and in a `return` statement, for example `if (a != null && o instanceof Line(Point(var x, _), var to) && x > 0)`. It is evaluated in order, and the bindings can be used in the rest of the condition and in the statement. The whole condition of an `if` may be negated, `if (!(o instanceof Point(var x, var y))) return; use(x, y);`, and then the bindings are in scope after the statement. In another position, such as a `||`, a ternary, an assignment or a negation of one operand, it is an error.
 - `import module m;` imports on demand the packages that module `m` exports, and those of the modules it requires transitively (`import module java.sql;` also gives `java.util.logging`). Unlike javac, a name that two imported modules both provide is not reported as ambiguous.
-- Compact source files and instance `main` methods (Java 25) are not supported.
+- A compact source file (JEP 512: methods and fields outside a class declaration) gets an implicit final class named after the file; classes declared in the file become its member classes. The file imports module `java.base` and the static members of `java.io.IO`. The launch methods are `static main(String[])`, `static main()`, instance `main(String[])` and instance `main()`, in that order. For the last three the compiler adds a `static main(String[])` that calls them; an instance `main(String[])` is renamed to `main$instance` for that, so the file cannot call it by its name.

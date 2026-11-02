@@ -283,7 +283,13 @@ compilationUnit
     ;
 
 ordinaryCompilationUnit
-    : packageDeclaration? importDeclaration* topLevelClassOrInterfaceDeclaration*
+    : packageDeclaration? importDeclaration* (topLevelClassOrInterfaceDeclaration | compactMemberDeclaration)*
+    ;
+
+// Java 25 (JEP 512, compact source files): methods and fields outside a class declaration.
+compactMemberDeclaration
+    : fieldDeclaration
+    | methodDeclaration
     ;
 
 modularCompilationUnit

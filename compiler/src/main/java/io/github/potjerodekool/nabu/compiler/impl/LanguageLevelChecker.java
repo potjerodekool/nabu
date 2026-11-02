@@ -1,6 +1,7 @@
 package io.github.potjerodekool.nabu.compiler.impl;
 
 import io.github.potjerodekool.nabu.tools.Constants;
+import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.JavaVersion;
 import io.github.potjerodekool.nabu.tools.diagnostic.DefaultDiagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;
@@ -32,7 +33,8 @@ public final class LanguageLevelChecker extends AbstractTreeVisitor<Object, Void
         RECORD_PATTERN("record patterns", JavaVersion.V21),
         UNNAMED_VARIABLE("unnamed variables and patterns ('_')", JavaVersion.V22),
         FLEXIBLE_CONSTRUCTOR("statements before 'this(...)' or 'super(...)' in a constructor", JavaVersion.V25),
-        MODULE_IMPORT("module import declarations", JavaVersion.V25);
+        MODULE_IMPORT("module import declarations", JavaVersion.V25),
+        COMPACT_SOURCE_FILE("compact source files", JavaVersion.V25);
 
         private final String description;
         private final JavaVersion since;
@@ -111,8 +113,11 @@ public final class LanguageLevelChecker extends AbstractTreeVisitor<Object, Void
 
     @Override
     public Object visitCompilationUnit(final CompilationUnit compilationUnit, final Void param) {
+        // A compact source file imports module java.base implicitly; that is not a module import of its own.
+        final var compact = compilationUnit.getClasses().stream()
+                .anyMatch(it -> it.getModifiers().hasFlag(Flags.IMPLICIT_CLASS));
         compilationUnit.getImportItems().stream()
-                .filter(ImportItem::isModule)
+                .filter(it -> it.isModule() && !compact)
                 .forEach(importItem -> require(Feature.MODULE_IMPORT, importItem));
         scanAll(compilationUnit.getClasses());
         return null;
@@ -120,6 +125,9 @@ public final class LanguageLevelChecker extends AbstractTreeVisitor<Object, Void
 
     @Override
     public Object visitClass(final ClassDeclaration classDeclaration, final Void param) {
+        if (classDeclaration.getModifiers().hasFlag(Flags.IMPLICIT_CLASS)) {
+            require(Feature.COMPACT_SOURCE_FILE, classDeclaration);
+        }
         scanAll(classDeclaration.getEnclosedElements());
         return null;
     }

@@ -70,12 +70,16 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
             declarations.add((Tree) ctx.packageDeclaration().accept(this));
         }
 
-        final var importItems = parseImports(ctx.importDeclaration());
+        final var importItems = new ArrayList<>(parseImports(ctx.importDeclaration()));
 
-        declarations.addAll(ctx.topLevelClassOrInterfaceDeclaration()
-                .stream()
-                .map(it -> (Tree) it.accept(this))
-                .toList());
+        if (ctx.children.stream().anyMatch(Java20Parser.CompactMemberDeclarationContext.class::isInstance)) {
+            declarations.add(compactClass(ctx, importItems));
+        } else {
+            declarations.addAll(ctx.topLevelClassOrInterfaceDeclaration()
+                    .stream()
+                    .map(it -> (Tree) it.accept(this))
+                    .toList());
+        }
 
         return TreeMaker.compilationUnit(
                 fileObject,
@@ -85,6 +89,116 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                 ctx.start.getCharPositionInLine()
         );
     }
+
+    /**
+     * JEP 512: the members of a source file without a class declaration are the members of an implicit final
+     * class, named after the file. The classes that are declared in the file are member classes of it. The file
+     * imports module java.base and the static members of java.io.IO. The class gets a
+     * {@code static void main(String[])} to start from if the launch method is another form of main.
+     */
+    private Tree compactClass(final Java20Parser.OrdinaryCompilationUnitContext ctx,
+                              final List<ImportItem> importItems) {
+        final var line = ctx.start.getLine();
+        final var column = ctx.start.getCharPositionInLine();
+
+        importItems.add(TreeMaker.moduleImportItem(
+                new FieldAccessExpressionBuilder()
+                        .selected(TreeMaker.identifier("java", line, column))
+                        .field(TreeMaker.identifier("base", line, column))
+                        .build(),
+                line, column));
+        importItems.add(TreeMaker.importItem(
+                new FieldAccessExpressionBuilder()
+                        .selected(new FieldAccessExpressionBuilder()
+                                .selected(new FieldAccessExpressionBuilder()
+                                        .selected(TreeMaker.identifier("java", line, column))
+                                        .field(TreeMaker.identifier("io", line, column))
+                                        .build())
+                                .field(TreeMaker.identifier("IO", line, column))
+                                .build())
+                        .field(TreeMaker.identifier("*", -1, -1))
+                        .build(),
+                true, line, column));
+
+        isTopLevel = false;
+        final var members = new ArrayList<Tree>();
+        for (final var child : ctx.children) {
+            if (child instanceof Java20Parser.TopLevelClassOrInterfaceDeclarationContext
+                    || child instanceof Java20Parser.CompactMemberDeclarationContext) {
+                asStream(((ParseTree) child).accept(this)).forEach(it -> members.add((Tree) it));
+            }
+        }
+
+        final var name = implicitClassName();
+        addLaunchMethod(name, members);
+
+        return TreeMaker.classDeclaration(
+                Kind.CLASS,
+                NestingKind.TOP_LEVEL,
+                new Modifiers(Flags.FINAL | Flags.IMPLICIT_CLASS),
+                name,
+                members,
+                List.of(),
+                List.of(),
+                null,
+                List.of(),
+                line,
+                column
+        );
+    }
+
+    private String implicitClassName() {
+        var name = fileObject.getFileName();
+        final var slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        name = name.substring(slash + 1);
+        final var dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    /**
+     * JEP 512 launch protocol: a static main(String[]) comes first, then a static main(), then an instance
+     * main(String[]), then an instance main(). A launcher only knows the first form, so the other forms get a
+     * static main(String[]) that calls them; an instance main(String[]) is renamed for that.
+     */
+    private void addLaunchMethod(final String className,
+                                 final List<Tree> members) {
+        final var mains = members.stream()
+                .filter(Function.class::isInstance)
+                .map(Function.class::cast)
+                .filter(it -> it.getKind() == Kind.METHOD
+                        && "main".equals(it.getSimpleName())
+                        && !it.hasFlag(Flags.PRIVATE))
+                .toList();
+
+        final var takesArgs = (java.util.function.Predicate<Function>) it -> it.getParameters().size() == 1;
+        final var noArgs = (java.util.function.Predicate<Function>) it -> it.getParameters().isEmpty();
+        final var isStatic = (java.util.function.Predicate<Function>) it -> it.hasFlag(Flags.STATIC);
+
+        if (mains.stream().anyMatch(takesArgs.and(isStatic))) {
+            return;
+        }
+
+        final var staticNoArgs = mains.stream().anyMatch(noArgs.and(isStatic));
+        final var instanceArgs = mains.stream().filter(takesArgs.and(isStatic.negate())).findFirst().orElse(null);
+        final var instanceNoArgs = mains.stream().anyMatch(noArgs.and(isStatic.negate()));
+
+        final String call;
+        if (staticNoArgs) {
+            call = "main();";
+        } else if (instanceArgs != null) {
+            final var renamed = instanceArgs.builder().simpleName(INSTANCE_MAIN).build();
+            members.set(members.indexOf(instanceArgs), renamed);
+            call = "new " + className + "()." + INSTANCE_MAIN + "(args);";
+        } else if (instanceNoArgs) {
+            call = "new " + className + "().main();";
+        } else {
+            return;
+        }
+
+        members.add(parseSyntheticMethod("public static void main(String[] args) { " + call + " }"));
+    }
+
+    private static final String INSTANCE_MAIN = "main$instance";
 
     @Override
     public Object visitPackageDeclaration(final Java20Parser.PackageDeclarationContext ctx) {

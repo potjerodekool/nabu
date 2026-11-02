@@ -1365,6 +1365,11 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
+    public Object visitCompactMemberDeclaration(final Java20Parser.CompactMemberDeclarationContext ctx) {
+        return null;
+    }
+
+    @Override
     public Object visitLambdaParameterList(final Java20Parser.LambdaParameterListContext ctx) {
         return null;
     }

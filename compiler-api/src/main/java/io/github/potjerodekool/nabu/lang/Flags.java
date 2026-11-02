@@ -43,6 +43,8 @@ public class Flags {
     public static final long COMPACT_RECORD_CONSTRUCTOR = 1 << 28;
     public static final long SEALED = 1 << 29;
     public static final long NONSEALED = 1 << 30;
+    /** The class that holds the members of a compact source file (Java 25). */
+    public static final long IMPLICIT_CLASS = 1L << 31;
 
     private Flags() {
     }

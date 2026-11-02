@@ -68,6 +68,9 @@ public final class CImportItemTree extends CTree implements ImportItem {
 
     @Override
     public String getClassOrPackageName() {
+        if (isModule && qualified.getSelected() == null) {
+            return qualified.getField().getName();
+        }
         return isStarImport()
                 ? getClassName(qualified.getSelected())
                 : getClassName(qualified);

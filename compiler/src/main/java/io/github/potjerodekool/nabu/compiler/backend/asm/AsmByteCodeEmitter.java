@@ -49,11 +49,19 @@ public class AsmByteCodeEmitter {
 
     private final java.util.Set<String> compilationInterfaces;
 
+    private final java.util.Map<String, String> compilationClasses;
+
     public AsmByteCodeEmitter() {
         this(java.util.Set.of());
     }
 
     public AsmByteCodeEmitter(final java.util.Set<String> compilationInterfaces) {
+        this(compilationInterfaces, java.util.Map.of());
+    }
+
+    public AsmByteCodeEmitter(final java.util.Set<String> compilationInterfaces,
+                              final java.util.Map<String, String> compilationClasses) {
+        this.compilationClasses = compilationClasses;
         this.compilationInterfaces = compilationInterfaces;
         cw = new ClassWriter(
                 ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES
@@ -77,6 +85,11 @@ public class AsmByteCodeEmitter {
     /** Of een klasse uit de huidige compilatie (interne naam) een interface is. */
     boolean isCompilationInterface(final String internalName) {
         return compilationInterfaces.contains(internalName);
+    }
+
+    /** Internal name of a class of this compilation by its mangled name, or null. */
+    String compilationClass(final String mangledName) {
+        return compilationClasses.get(mangledName);
     }
 
     /** Of de klasse die nu ge-emit wordt een interface is. */
@@ -225,8 +238,23 @@ public class AsmByteCodeEmitter {
         // De IR-naam is "<SimpleName>_<methode>"; de klassenaam kan zelf een
         // '_' bevatten (JPA-metamodel `Company_`), dus op de eigenaar splitsen.
         var name = function.name;
-        final var ownerPrefix = ownerInternalName.substring(ownerInternalName.lastIndexOf('/') + 1) + "_";
-        if (name.startsWith(ownerPrefix)) {
+        // De IR-naam draagt de eigenaar kaal ("Foo_m"), met punten ("pkg.Foo_m") of volledig met underscores
+        // ("pkg_Foo_m"); probeer ze langs, langste eerst, zodat een naam met '_' ("Foo__Bar") klopt.
+        final var simpleOwner = ownerInternalName.substring(ownerInternalName.lastIndexOf('/') + 1);
+        final var ownerPrefixes = java.util.List.of(
+                ownerInternalName.replace('/', '.') + "_",
+                ownerInternalName.replace('/', '_') + "_",
+                simpleOwner + "_",
+                // a member class is named by its own simple name only ("Inner__m" for Outer$Inner_)
+                simpleOwner.substring(simpleOwner.lastIndexOf('$') + 1) + "_");
+        String ownerPrefix = null;
+        for (final var candidate : ownerPrefixes) {
+            if (name.startsWith(candidate)) {
+                ownerPrefix = candidate;
+                break;
+            }
+        }
+        if (ownerPrefix != null) {
             name = name.substring(ownerPrefix.length());
         } else {
             final var separatorIndex = name.indexOf('_');

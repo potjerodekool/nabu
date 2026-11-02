@@ -9,6 +9,7 @@ import io.github.potjerodekool.nabu.compiler.impl.CompilerContextImpl;
 import io.github.potjerodekool.nabu.lang.model.element.ModuleElement;
 import io.github.potjerodekool.nabu.lang.model.element.PackageElement;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.resolve.ClassElementLoader;
 import io.github.potjerodekool.nabu.resolve.scope.ImportScope;
@@ -162,12 +163,12 @@ public class AsmClassElementLoader implements ClassElementLoader, AutoCloseable 
 
         final var packageModule = packageSymbol.getModuleSymbol();
 
-        if (flatName.contains("$")) {
+        if (ClassUtils.hasNestingSeparator(flatName)) {
             var previous = (TypeSymbol) packageSymbol;
             var symbol = previous;
 
             final var className = resolveShortPart(flatName);
-            final var names = className.split("\\$");
+            final var names = ClassUtils.splitNested(className);
 
             for (final String subName : names) {
                 symbol = symbolTable.enterClass(

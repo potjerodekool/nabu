@@ -11,6 +11,7 @@ import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.ClassSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.PackageSymbol;
 import io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol;
 
+import io.github.potjerodekool.nabu.compiler.resolve.impl.ClassUtils;
 import io.github.potjerodekool.nabu.compiler.resolve.impl.SymbolTable;
 import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
@@ -71,9 +72,9 @@ class AsmClassBuilder extends ClassVisitor {
         final String simpleName;
         final Symbol enclosingElement;
 
-        if (name.contains("$")) {
+        if (ClassUtils.hasNestingSeparator(name)) {
             nestingKind = NestingKind.MEMBER;
-            final var sepIndex = name.lastIndexOf("$");
+            final var sepIndex = ClassUtils.lastNestingSeparator(name);
             final var simpleNameStart = sepIndex + 1;
             simpleName = name.substring(simpleNameStart);
             final var outerName = name.substring(0, sepIndex);

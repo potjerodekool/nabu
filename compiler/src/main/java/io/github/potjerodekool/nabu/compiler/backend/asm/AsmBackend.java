@@ -37,6 +37,13 @@ public class AsmBackend implements Backend {
      */
     private java.util.Set<String> compilationInterfaces = java.util.Set.of();
 
+    /**
+     * Mangled name (dots replaced by underscores, as in the IR function names) to internal name of every class of
+     * this compilation. The mangling is lossy for class names that contain an underscore
+     * (<code>Foo__BeanDefinitions</code>, <code>Company_</code>), so the call emitter looks the owner up here first.
+     */
+    private java.util.Map<String, String> compilationClasses = java.util.Map.of();
+
     @Override
     public void compileAll(final java.util.List<IRModule> modules,
                            final CompileOptions opts,
@@ -49,10 +56,16 @@ public class AsmBackend implements Backend {
             }
         }
         compilationInterfaces = java.util.Set.copyOf(interfaces);
+        final var classes = new java.util.HashMap<String, String>();
+        for (final var module : modules) {
+            classes.put(module.name.replace('.', '_'), module.name.replace('.', '/'));
+        }
+        compilationClasses = java.util.Map.copyOf(classes);
         try {
             Backend.super.compileAll(modules, opts, output);
         } finally {
             compilationInterfaces = java.util.Set.of();
+            compilationClasses = java.util.Map.of();
         }
     }
 
@@ -77,7 +90,7 @@ public class AsmBackend implements Backend {
             }
         }
 
-        final var emitter = new AsmByteCodeEmitter(compilationInterfaces);
+        final var emitter = new AsmByteCodeEmitter(compilationInterfaces, compilationClasses);
         emitter.emit(module, opts);
         final var bytecode = emitter.getBytecode();
 

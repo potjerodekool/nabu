@@ -118,7 +118,9 @@ public class ClassFinder {
         int end;
 
         while ((end = name.indexOf('$', offset)) > 0) {
-            names.add(name.substring(0, end));
+            if (end < name.length() - 1 && name.charAt(end - 1) != '$' && name.charAt(end + 1) != '$') {
+                names.add(name.substring(0, end));
+            }
             offset = end + 1;
         }
 
@@ -304,7 +306,7 @@ public class ClassFinder {
                 }
 
                 if (samePackage(packageSymbol, clazz.getEnclosingElement())
-                        && !className.contains("$")) {
+                        && !ClassUtils.hasNestingSeparator(className)) {
                     members.define(clazz);
                 }
             }

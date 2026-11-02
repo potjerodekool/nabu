@@ -801,7 +801,10 @@ private void emitUnreachable() {
         final String owner;
         if (sepIndex > -1) {
             final var methodName = functionName.substring(sepIndex + 1);
-            final var mangledOwner = functionName.substring(0, sepIndex).replace('_', '.');
+            final var knownOwner = codeEmitter.compilationClass(functionName.substring(0, sepIndex).replace('.', '_'));
+            final var mangledOwner = knownOwner != null
+                    ? knownOwner.replace('/', '.')
+                    : functionName.substring(0, sepIndex).replace('_', '.');
             final var receiverType = call.args().isEmpty() ? null : call.args().getFirst().type();
 
             if ("clone".equals(methodName)

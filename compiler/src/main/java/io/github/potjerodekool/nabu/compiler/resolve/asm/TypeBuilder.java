@@ -27,12 +27,13 @@ public class TypeBuilder {
 
     public MethodSignature parseMethodSignature(final String signature,
                                                 final CompilerContext compilerContext,
-                                                final ModuleElement moduleSymbol) {
+                                                final ModuleElement moduleSymbol,
+                                                final java.util.Map<String, io.github.potjerodekool.nabu.type.TypeVariable> enclosingTypeVariables) {
         final var reader = new SignatureReader(signature);
         final var signatureBuilder =
                 new SignatureParser(Opcodes.ASM9, compilerContext, moduleSymbol);
         reader.accept(signatureBuilder);
-        return signatureBuilder.createMethodSignature();
+        return signatureBuilder.createMethodSignature(enclosingTypeVariables);
     }
 
     public void parseClassSignature(final String signature,

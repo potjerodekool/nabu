@@ -117,7 +117,17 @@ public class SignatureParser extends AbstractVisitor {
     }
 
     public MethodSignature createMethodSignature() {
-        final var typeVariablesMap = new HashMap<String, TypeVariable>();
+        return createMethodSignature(java.util.Map.of());
+    }
+
+    /**
+     * @param enclosingTypeVariables type variables of the declaring class by name. A method signature refers to
+     *                               them (<code>TB;</code>) without declaring them; without these the reference
+     *                               became a fresh variable bounded by Object, so the erased descriptor of
+     *                               <code>B contentType(MediaType)</code> returned Object instead of the bound.
+     */
+    public MethodSignature createMethodSignature(final java.util.Map<String, TypeVariable> enclosingTypeVariables) {
+        final var typeVariablesMap = new HashMap<String, TypeVariable>(enclosingTypeVariables);
 
         final var typeParameters  = formalTypeParameters.stream()
                 .map(fp -> (TypeVariable) fp.toType( types, typeVariablesMap))

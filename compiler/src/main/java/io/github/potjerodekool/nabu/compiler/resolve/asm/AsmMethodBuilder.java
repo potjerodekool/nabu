@@ -61,7 +61,8 @@ public class AsmMethodBuilder extends MethodVisitor {
             methodSignature = typeBuilder.parseMethodSignature(
                     signature,
                     compilerContext,
-                    moduleSymbol
+                    moduleSymbol,
+                    classTypeVariables(clazz)
             );
         } else {
             final var asmMethodType = Type.getMethodType(descriptor);
@@ -115,6 +116,19 @@ public class AsmMethodBuilder extends MethodVisitor {
                 .build();
 
         clazz.addEnclosedElement(method);
+    }
+
+    private static java.util.Map<String, io.github.potjerodekool.nabu.type.TypeVariable> classTypeVariables(final ClassSymbol clazz) {
+        final var result = new java.util.HashMap<String, io.github.potjerodekool.nabu.type.TypeVariable>();
+        if (clazz.asType() instanceof io.github.potjerodekool.nabu.type.DeclaredType declared) {
+            for (final var argument : declared.getTypeArguments()) {
+                if (argument instanceof io.github.potjerodekool.nabu.type.TypeVariable variable
+                        && variable.asElement() != null) {
+                    result.put(variable.asElement().getSimpleName(), variable);
+                }
+            }
+        }
+        return result;
     }
 
     private VariableSymbol createParameter(final String name,

@@ -390,6 +390,34 @@ public class SymbolTable {
         return packageSymbol;
     }
 
+    /**
+     * Enters a package that belongs to {@code module}. {@link #enterPackage} falls back to the only package of
+     * that name in any module, which is wrong for the packages a module declares itself: when
+     * java.sql.rowset was completed before java.sql, the `javax.sql` that java.sql exports became the (empty)
+     * parent package of javax.sql.rowset, owned by java.sql.rowset, and `import javax.sql.DataSource` failed.
+     * The outcome depended on the completion order, which follows hash order.
+     */
+    public PackageSymbol enterOwnPackage(final ModuleElement module,
+                                         final String flatName) {
+        if (flatName == null || flatName.isEmpty() || module == NO_MODULE) {
+            return enterPackage(module, flatName);
+        }
+
+        var packageSymbol = findPackage((ModuleSymbol) module, flatName);
+
+        if (packageSymbol == null) {
+            packageSymbol = new PackageSymbol(
+                    enterOwnPackage(module, getPackageName(flatName)),
+                    getShortName(flatName)
+            );
+            packageSymbol.setCompleter(initialCompleter);
+            packageSymbol.setModuleSymbol(module);
+            doEnterPackage((ModuleSymbol) module, packageSymbol);
+        }
+
+        return packageSymbol;
+    }
+
     private String getShortName(final String name) {
         final var start = name.lastIndexOf('.') + 1;
         final var end = name.length();

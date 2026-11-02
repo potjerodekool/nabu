@@ -66,7 +66,7 @@ public class AsmModuleBuilder extends ModuleVisitor {
 
     @Override
     public void visitExport(final String packageName, final int access, final String... modules) {
-        final var packageSymbol = symbolTable.lookupPackage(moduleSymbol, createFlatName(packageName));
+        final var packageSymbol = symbolTable.enterOwnPackage(moduleSymbol, createFlatName(packageName));
 
         final var directive = new Directive.ExportsDirective(
                 packageSymbol,
@@ -78,7 +78,7 @@ public class AsmModuleBuilder extends ModuleVisitor {
 
     @Override
     public void visitOpen(final String packageName, final int access, final String... modules) {
-        final var packageSymbol = symbolTable.lookupPackage(moduleSymbol, createFlatName(packageName));
+        final var packageSymbol = symbolTable.enterOwnPackage(moduleSymbol, createFlatName(packageName));
 
         final var directive = new Directive.OpensDirective(
                 packageSymbol,

@@ -110,7 +110,6 @@ class ProtectedInheritedMembersRunTest {
     }
 
     @Test
-    @Disabled("Known bug: java.sql types are not found from the second compilation in one JVM (any earlier RunTest triggers it); passes alone")
     void javaSqlTypesAreVisible() throws Exception {
         final var cls = compileAndLoad("mini.Sql", java.util.Map.of(
                 "mini/Sql.java", """
@@ -127,7 +126,6 @@ class ProtectedInheritedMembersRunTest {
 
     /** The same with a class path: the java.sql module must stay visible (it vanished once a class path was given). */
     @Test
-    @Disabled("Known bug, see javaSqlTypesAreVisible")
     void javaSqlTypesAreVisibleWithClassPath() throws Exception {
         Files.createDirectories(tempDir.resolve("empty-cp"));
         final var cls = compileAndLoad("sqlcp", "mini.SqlCp", java.util.Map.of(

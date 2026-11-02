@@ -802,12 +802,49 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         return condition == null ? null : new LoweredCondition(statements, condition);
     }
 
+    /**
+     * The blocks that a lowering made of one statement and whose statements belong in the block around it: the
+     * bindings of {@code if (!(x instanceof R(var a))) return; use(a);} are in scope after the if statement.
+     */
+    private final java.util.Set<BlockStatementTree> spliced =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    @Override
+    public Tree visitBlockStatement(final BlockStatementTree blockStatement,
+                                    final LowerScope scope) {
+        final var newStatements = new ArrayList<StatementTree>();
+        for (final var statement : blockStatement.getStatements()) {
+            final var lowered = (StatementTree) acceptTree(statement, scope);
+            if (lowered instanceof BlockStatementTree block && spliced.contains(block)) {
+                newStatements.addAll(block.getStatements());
+            } else {
+                newStatements.add(lowered);
+            }
+        }
+        return blockStatement.builder()
+                .statements(newStatements)
+                .build();
+    }
+
+    private static ExpressionTree withoutParentheses(final ExpressionTree expression) {
+        var result = expression;
+        while (result instanceof ParenthesizedExpression parenthesized) {
+            result = parenthesized.getExpression();
+        }
+        return result;
+    }
+
     @Override
     public Tree visitIfStatement(final IfStatementTree ifStatement,
                                  final LowerScope scope) {
         final int line = ifStatement.getLineNumber();
         final int column = ifStatement.getColumnNumber();
-        final var lowered = lowerCondition(ifStatement.getExpression(), scope, line, column);
+
+        final var condition = withoutParentheses(ifStatement.getExpression());
+        final boolean negated = condition instanceof UnaryExpressionTree unary && unary.getTag() == Tag.NOT;
+        final var lowered = lowerCondition(
+                negated ? ((UnaryExpressionTree) condition).getExpression() : ifStatement.getExpression(),
+                scope, line, column);
         if (lowered == null) {
             return super.visitIfStatement(ifStatement, scope);
         }
@@ -817,8 +854,17 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         final var elseStatement = ifStatement.getElseStatement() != null
                 ? (StatementTree) acceptTree(ifStatement.getElseStatement(), scope)
                 : null;
-        statements.add(TreeMaker.ifStatementTree(lowered.condition(), thenStatement, elseStatement, line, column));
-        return TreeMaker.blockStatement(statements, line, column);
+        ExpressionTree newCondition = lowered.condition();
+        if (negated) {
+            newCondition = TreeMaker.unaryExpressionTree(Tag.NOT, newCondition, line, column);
+            newCondition.setType(types.getPrimitiveType(TypeKind.BOOLEAN));
+        }
+        statements.add(TreeMaker.ifStatementTree(newCondition, thenStatement, elseStatement, line, column));
+        final var block = TreeMaker.blockStatement(statements, line, column);
+        if (negated) {
+            spliced.add(block);
+        }
+        return block;
     }
 
     /** {@code return a instanceof R(var x) && x > 0;} becomes the statements of the pattern and a return. */
@@ -865,8 +911,9 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     }
 
     /** The operands of {@code a && b && c}, in evaluation order. */
-    private void collectConjuncts(final ExpressionTree expression,
+    private void collectConjuncts(final ExpressionTree parenthesized,
                                   final List<ExpressionTree> conjuncts) {
+        final var expression = withoutParentheses(parenthesized);
         if (expression instanceof BinaryExpressionTree binary && binary.getTag() == Tag.AND) {
             collectConjuncts(binary.getLeft(), conjuncts);
             collectConjuncts(binary.getRight(), conjuncts);

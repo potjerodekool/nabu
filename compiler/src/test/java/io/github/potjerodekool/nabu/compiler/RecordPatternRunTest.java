@@ -229,4 +229,30 @@ class RecordPatternRunTest {
                 """);
         assertEquals("[a, b] 2 0 mi", cls.getMethod("run").invoke(null));
     }
+
+    @Test
+    void negatedRecordPatternKeepsItsBindingsAfterTheIf() throws Exception {
+        final var cls = compileAndLoad("Neg", """
+                package mini;
+                public class Neg {
+                    record Point(int x, int y) {}
+                    static int sum(Object o) {
+                        if (!(o instanceof Point(int x, int y))) {
+                            return -1;
+                        }
+                        return x + y;
+                    }
+                    static int twice(Object a, Object b) {
+                        if (!(a instanceof Point(int x, int y))) { return -1; }
+                        if (!(b instanceof Point(int x2, int y2))) { return -2; }
+                        return x + y + x2 + y2;
+                    }
+                    public static String run() {
+                        return sum(new Point(3, 4)) + " " + sum("s") + " " + twice(new Point(1, 2), new Point(3, 4)) + " "
+                                + twice(new Point(1, 2), "x") + " " + twice("x", "y");
+                    }
+                }
+                """);
+        assertEquals("7 -1 10 -2 -1", cls.getMethod("run").invoke(null));
+    }
 }

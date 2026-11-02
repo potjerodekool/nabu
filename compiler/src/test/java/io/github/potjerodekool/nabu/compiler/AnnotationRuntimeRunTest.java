@@ -93,4 +93,38 @@ class AnnotationRuntimeRunTest {
                 """);
         assertEquals("t 2 TYPE = 0 FIELD Void -1", cls.getMethod("run").invoke(null));
     }
+
+    /**
+     * A class literal of a primitive type or an array (`implementation = int.class`), also inside a nested
+     * annotation, crashed TypeEnter with a ClassCastException (CPrimitiveType -> VariableType) found while
+     * compiling the generated petstore API (`@Header(schema = @Schema(implementation = int.class))`).
+     */
+    @Test
+    void primitiveAndArrayClassLiteralsInAnnotations() throws Exception {
+        final var cls = compileAndLoad("Literals", """
+                package mini;
+                import java.lang.annotation.Retention;
+                import java.lang.annotation.RetentionPolicy;
+                @Outer(header = @Inner(implementation = int.class), types = {long.class, String[].class, String.class})
+                public class Literals {
+                    public static String run() {
+                        Outer outer = Literals.class.getAnnotation(Outer.class);
+                        return outer.header().implementation().getName() + " "
+                                + outer.types()[0].getName() + " "
+                                + outer.types()[1].getSimpleName() + " "
+                                + outer.types()[2].getSimpleName();
+                    }
+                }
+                @Retention(RetentionPolicy.RUNTIME)
+                @interface Inner {
+                    Class<?> implementation();
+                }
+                @Retention(RetentionPolicy.RUNTIME)
+                @interface Outer {
+                    Inner header();
+                    Class<?>[] types();
+                }
+                """);
+        assertEquals("int long String[] String", cls.getMethod("run").invoke(null));
+    }
 }

@@ -1405,6 +1405,9 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             case AnnotationTree annotationTree -> (AnnotationValue) acceptTree(annotationTree, scope);
             case LiteralExpressionTree literalExpressionTree ->
                     AnnotationBuilder.createConstantValue(literalExpressionTree.getLiteral());
+            case FieldAccessExpressionTree fieldAccessExpressionTree
+                    when isClassLiteralOfPrimitiveOrArray(fieldAccessExpressionTree) ->
+                    AnnotationBuilder.createClassAttribute(fieldAccessExpressionTree.getSelected().getType());
             case FieldAccessExpressionTree fieldAccessExpressionTree -> {
                 final var type = (DeclaredType) fieldAccessExpressionTree.getSelected().getType();
                 var value = (VariableElement) fieldAccessExpressionTree.getField().getSymbol();
@@ -1973,6 +1976,11 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                     scope
             );
             acceptTree(fieldAccessExpression, symbolScope);
+        } else if (isClassLiteralOfPrimitiveOrArray(fieldAccessExpression)) {
+            // `int.class` / `String[].class` (an annotation value such as `@Schema(implementation = int.class)`):
+            // the selector is no class, so there is no class scope to look `class` up in. asDeclaredType threw a
+            // ClassCastException on the primitive type.
+            fieldAccessExpression.getField().setType(selected.getType());
         } else if (selected.getType() != null) {
             final DeclaredType declaredType = asDeclaredType(selected.getType());
             final var classScope = new ClassScope(
@@ -1986,6 +1994,12 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
         fieldAccessExpression.setType(fieldAccessExpression.getField().getType());
         return fieldAccessExpression;
+    }
+
+    private static boolean isClassLiteralOfPrimitiveOrArray(final FieldAccessExpressionTree fieldAccessExpression) {
+        final var selectedType = fieldAccessExpression.getSelected().getType();
+        return "class".equals(fieldAccessExpression.getField().getName())
+                && (selectedType instanceof PrimitiveType || selectedType instanceof ArrayType);
     }
 
     private DeclaredType asDeclaredType(final TypeMirror typeMirror) {

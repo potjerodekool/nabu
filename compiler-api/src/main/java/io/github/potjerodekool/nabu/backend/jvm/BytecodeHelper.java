@@ -3,6 +3,7 @@ package io.github.potjerodekool.nabu.backend.jvm;
 import io.github.potjerodekool.nabu.lang.model.element.TypeElement;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
+import io.github.potjerodekool.nabu.type.ArrayType;
 import io.github.potjerodekool.nabu.type.DeclaredType;
 import io.github.potjerodekool.nabu.type.TypeMirror;
 
@@ -131,6 +132,27 @@ public final class BytecodeHelper {
      * Gebruikt voor annotaties e.d.
      */
     public static String createDescriptor(final TypeMirror type) {
+        // Class literals of primitives and arrays in annotation values (`implementation = int.class`,
+        // `String[].class`) were all described as Object.
+        if (type != null) {
+            switch (type.getKind()) {
+                case BOOLEAN -> { return "Z"; }
+                case CHAR -> { return "C"; }
+                case BYTE -> { return "B"; }
+                case SHORT -> { return "S"; }
+                case INT -> { return "I"; }
+                case FLOAT -> { return "F"; }
+                case LONG -> { return "J"; }
+                case DOUBLE -> { return "D"; }
+                case VOID -> { return "V"; }
+                case ARRAY -> {
+                    if (type instanceof ArrayType arrayType) {
+                        return "[" + createDescriptor(arrayType.getComponentType());
+                    }
+                }
+                default -> { }
+            }
+        }
         if (type instanceof DeclaredType declared) {
             final var element = declared.asElement();
             if (element instanceof TypeElement typeElement) {

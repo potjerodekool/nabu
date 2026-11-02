@@ -275,7 +275,6 @@ class ProtectedInheritedMembersRunTest {
      * as it is (VerifyError: Class is not assignable to Class[]).
      */
     @Test
-    @Disabled("Known bug G14: a varargs call with one array class literal is not packed into the varargs array")
     void varargsCallWithOneArrayClassLiteral() throws Exception {
         final var cls = compileAndLoad("mini.UseVarargs", java.util.Map.of(
                 "mini/Supplier2.java", """

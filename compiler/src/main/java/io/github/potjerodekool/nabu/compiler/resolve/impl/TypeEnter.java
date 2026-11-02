@@ -2006,7 +2006,20 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             // `int.class` / `String[].class` (an annotation value such as `@Schema(implementation = int.class)`):
             // the selector is no class, so there is no class scope to look `class` up in. asDeclaredType threw a
             // ClassCastException on the primitive type.
-            fieldAccessExpression.getField().setType(selected.getType());
+            // The type of `X.class` is Class<X> (the wrapper for a primitive), as ResolverPhase types it. It was the
+            // selected type itself, so `forConstructor(String[].class)` looked like an array argument and was not
+            // packed into the varargs array.
+            final var literalSelected = selected.getType();
+            TypeMirror classArgument = literalSelected;
+            if (literalSelected instanceof PrimitiveType primitive) {
+                final var boxed = types.boxedClass(primitive);
+                classArgument = boxed != null ? boxed.asType() : literalSelected;
+            }
+            final var classElement = loader.loadClass(findModuleElement(scope.getCurrentClass()), Constants.CLAZZ);
+            final TypeMirror classLiteralType = classElement != null
+                    ? types.getDeclaredType(classElement, classArgument)
+                    : literalSelected;
+            fieldAccessExpression.getField().setType(classLiteralType);
         } else if (selected.getType() != null) {
             final DeclaredType declaredType = asDeclaredType(selected.getType());
             final var classScope = new ClassScope(

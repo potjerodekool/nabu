@@ -1955,6 +1955,11 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     private static boolean isArrayAssignableToVarArgs(final ExpressionTree arg,
                                                       final IRValue argVal,
                                                       final IRType arrayParam) {
+        // A class literal is a Class object. Its IR type carries the descriptor of the class it refers to
+        // ("[Ljava/lang/String;" for String[].class), which is not the type of the value itself.
+        if (argVal instanceof IRValue.ConstClass) {
+            return false;
+        }
         String argDescriptor = argVal.type() instanceof IRType.Ptr argPtr ? argPtr.jvmDescriptor() : null;
         if ((argDescriptor == null || !argDescriptor.startsWith("["))
                 && arg.getType() != null && arg.getType().getKind() == TypeKind.ARRAY) {

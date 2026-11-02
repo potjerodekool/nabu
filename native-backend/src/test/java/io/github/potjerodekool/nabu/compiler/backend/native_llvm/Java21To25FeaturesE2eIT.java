@@ -1,0 +1,171 @@
+package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
+
+import io.github.potjerodekool.nabu.compiler.NabuCompiler;
+import io.github.potjerodekool.nabu.tools.CompilerOption;
+import io.github.potjerodekool.nabu.tools.CompilerOptions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+/**
+ * Language features of Java 21 up to 25 in a native executable: pattern matching in switch (expressions and
+ * statements, record patterns, guards, null labels), record patterns in instanceof under {@code ?:} and
+ * {@code ||}, statements before super(...) and import module.
+ */
+class Java21To25FeaturesE2eIT {
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void patternsAndNewerSyntaxRunNatively() throws Exception {
+        NativeToolchain.assumeGcc();
+        var root = new File(".").getAbsoluteFile();
+        while (!root.isDirectory() || !"nabu".equals(root.getName())) root = root.getParentFile();
+        Path srcDir = tempDir.resolve("src");
+        Files.createDirectories(srcDir);
+        Files.writeString(srcDir.resolve("Main.java"), """
+                import module java.base;
+
+                public class Main {
+                    sealed interface Shape permits Circle, Square, Rect {}
+                    record Circle(int r) implements Shape {}
+                    record Square(int s) implements Shape {}
+                    record Rect(int w, int h) implements Shape {}
+                    record Box(Object content) {}
+
+                    static String describe(Shape shape) {
+                        return switch (shape) {
+                            case Circle c -> "circle " + c.r();
+                            case Square s -> "square " + s.s();
+                            case Rect(int w, int h) when w == h -> "squarish " + w;
+                            case Rect(int w, int h) -> "rect " + (w * h);
+                        };
+                    }
+
+                    static String kind(Object o) {
+                        return switch (o) {
+                            case null -> "null";
+                            case Integer i when i > 9 -> "big";
+                            case Integer i -> "int";
+                            case Box(Rect(var w, _)) -> "boxed rect " + w;
+                            case Box(Object c) -> "box";
+                            default -> "other";
+                        };
+                    }
+
+                    static String statement(Object o) {
+                        String result = "?";
+                        switch (o) {
+                            case Rect(int w, int h) -> result = "r" + (w + h);
+                            case String s -> {
+                                result = "s" + s.length();
+                            }
+                            default -> { }
+                        }
+                        return result;
+                    }
+
+                    static int sum(Object o) {
+                        return o instanceof Rect(int w, int h) ? w + h : -1;
+                    }
+
+                    static String negated(Object o) {
+                        if (!(o instanceof Rect(int w, int h)) || w > h) {
+                            return "no";
+                        }
+                        return "yes" + (w + h);
+                    }
+
+                    static class Base {
+                        final int v;
+                        Base(int v) {
+                            this.v = v;
+                        }
+                    }
+
+                    static class Derived extends Base {
+                        Derived(int x) {
+                            if (x < 0) {
+                                throw new IllegalArgumentException("neg");
+                            }
+                            super(x * 2);
+                        }
+                    }
+
+                    public static void main(String[] args) {
+                        System.out.println(describe(new Circle(2)));
+                        System.out.println(describe(new Square(3)));
+                        System.out.println(describe(new Rect(4, 4)));
+                        System.out.println(describe(new Rect(2, 5)));
+                        System.out.println(kind(null) + " " + kind(50) + " " + kind(5) + " "
+                                + kind(new Box(new Rect(7, 1))) + " " + kind(new Box("x")) + " " + kind("s"));
+                        System.out.println(statement(new Rect(1, 2)) + " " + statement("abc") + " " + statement(1));
+                        System.out.println(sum(new Rect(2, 3)) + " " + sum("x"));
+                        System.out.println(negated(new Rect(1, 2)) + " " + negated(new Rect(3, 2)) + " " + negated("s"));
+                        System.out.println(new Derived(21).v);
+                        try {
+                            new Derived(-1);
+                        } catch (IllegalArgumentException e) {
+                            System.out.println(e.getMessage());
+                        }
+                        var list = new ArrayList<String>();
+                        list.add("done");
+                        System.out.println(list.get(0));
+                    }
+                }
+                """, StandardCharsets.UTF_8);
+        System.setProperty("nabu.runtime",
+                new File(root, "runtime/nabu_runtime.c").toPath().toAbsolutePath().toString());
+        Path out = tempDir.resolve("out");
+        Files.createDirectories(out);
+        var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
+                .option(CompilerOption.SOURCE_PATH, srcDir.toString())
+                .option(CompilerOption.CLASS_OUTPUT, out.toString())
+                .option(CompilerOption.BACKEND, "LLVM")
+                .option(CompilerOption.GC, "BOEHM")
+                .option(CompilerOption.RELEASE, "25")
+                .option(CompilerOption.SYSTEM, new File(root, "compiler/src/test/resources").getAbsolutePath())
+                .build();
+        var diagnostics = new java.util.ArrayList<String>();
+        var compiler = new NabuCompiler();
+        compiler.setListener(d -> diagnostics.add(d.getKind() + ": " + d.getMessage(java.util.Locale.getDefault())));
+        assertEquals(0, compiler.compile(options), String.join("\n", diagnostics));
+        Path exe;
+        try (Stream<Path> walk = Files.walk(out)) {
+            exe = walk.filter(NativeToolchain::isExecutableOutput).findFirst().orElseThrow();
+        }
+        final Path log = tempDir.resolve("run.log");
+        Process proc = NativeToolchain.run(exe.toAbsolutePath()).redirectErrorStream(true)
+                .redirectOutput(log.toFile()).start();
+        if (!proc.waitFor(60, java.util.concurrent.TimeUnit.SECONDS)) {
+            proc.destroyForcibly();
+            throw new AssertionError("the program hangs; output so far:\n"
+                    + new String(Files.readAllBytes(log), StandardCharsets.UTF_8));
+        }
+        String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
+        int exit = proc.exitValue();
+        assertEquals("""
+                circle 2
+                square 3
+                squarish 4
+                rect 10
+                null big int boxed rect 7 box other
+                r3 s3 ?
+                5 -1
+                yes3 no no
+                42
+                neg
+                done
+                """, output, "exit=" + exit);
+        assertEquals(0, exit, output);
+    }
+}

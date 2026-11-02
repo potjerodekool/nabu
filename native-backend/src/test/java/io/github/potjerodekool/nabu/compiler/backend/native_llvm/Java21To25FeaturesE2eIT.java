@@ -73,6 +73,26 @@ class Java21To25FeaturesE2eIT {
                         return result;
                     }
 
+                    static String text(String x) {
+                        return switch (x) {
+                            case null -> "null";
+                            case "a" -> "A";
+                            case "b", "c" -> "BC";
+                            default -> "other";
+                        };
+                    }
+
+                    static String npe(Object o) {
+                        try {
+                            return switch (o) {
+                                case String s -> "s";
+                                default -> "d";
+                            };
+                        } catch (NullPointerException e) {
+                            return "npe";
+                        }
+                    }
+
                     static int sum(Object o) {
                         return o instanceof Rect(int w, int h) ? w + h : -1;
                     }
@@ -119,6 +139,8 @@ class Java21To25FeaturesE2eIT {
                         var list = new ArrayList<String>();
                         list.add("done");
                         System.out.println(list.get(0));
+                        System.out.println(text(null) + " " + text("a") + " " + text("c") + " " + text("z") + " "
+                                + npe(null) + " " + npe("x"));
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -165,6 +187,7 @@ class Java21To25FeaturesE2eIT {
                 42
                 neg
                 done
+                null A BC other npe s
                 """, output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

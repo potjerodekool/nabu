@@ -421,4 +421,198 @@ class PatternSwitchRunTest {
                 }
                 """));
     }
+
+    @Test
+    void constantLabelsNextToNull() throws Exception {
+        assertEquals("null A BC BC other r g n one big other", run("Constants", """
+                package mini;
+                public class Constants {
+                    enum Color { RED, GREEN }
+                    static String s(String x) {
+                        return switch (x) {
+                            case null -> "null";
+                            case "a" -> "A";
+                            case "b", "c" -> "BC";
+                            default -> "other";
+                        };
+                    }
+                    static String e(Color c) {
+                        return switch (c) {
+                            case null -> "n";
+                            case RED -> "r";
+                            case GREEN -> "g";
+                        };
+                    }
+                    static String i(Integer x) {
+                        return switch (x) {
+                            case null -> "null";
+                            case 1 -> "one";
+                            case Integer j when j > 5 -> "big";
+                            default -> "other";
+                        };
+                    }
+                    public static String run() {
+                        return s(null) + " " + s("a") + " " + s("b") + " " + s("c") + " " + s("z") + " "
+                                + e(Color.RED) + " " + e(Color.GREEN) + " " + e(null) + " "
+                                + i(1) + " " + i(9) + " " + i(3);
+                    }
+                }
+                """));
+    }
+
+    @Test
+    void aNullSelectorWithoutNullLabelThrows() throws Exception {
+        assertEquals("npe npe ok", run("NullSelector", """
+                package mini;
+                public class NullSelector {
+                    static String a(Object o) {
+                        try {
+                            return switch (o) {
+                                case String s -> "s";
+                                default -> "d";
+                            };
+                        } catch (NullPointerException e) {
+                            return "npe";
+                        }
+                    }
+                    static String b(Object o) {
+                        try {
+                            switch (o) {
+                                case String s -> { return "s"; }
+                                default -> { return "d"; }
+                            }
+                        } catch (NullPointerException e) {
+                            return "npe";
+                        }
+                    }
+                    public static String run() {
+                        return a(null) + " " + b(null) + " " + (a("x").equals("s") ? "ok" : "bad");
+                    }
+                }
+                """));
+    }
+
+    private java.util.List<String> errorsOf(final String className,
+                                           final String body) throws Exception {
+        final var srcDir = tempDir.resolve("src-" + className);
+        final var javaFile = srcDir.resolve("mini/" + className + ".java");
+        Files.createDirectories(javaFile.getParent());
+        Files.writeString(javaFile, """
+                package mini;
+                public class %s {
+                    sealed interface I permits A, B {}
+                    record A() implements I {}
+                    record B() implements I {}
+                    record Pair(I x, I y) {}
+                    enum Color { RED, GREEN }
+                %s
+                }
+                """.formatted(className, body));
+        final var options = new CompilerOptions.CompilerOptionsBuilder()
+                .option(CompilerOption.COMPILE_LANGUAGE_SUPPORT, "true")
+                .option(CompilerOption.SYSTEM, "C:\\projects\\nabu\\compiler\\src\\test\\resources")
+                .option(CompilerOption.SOURCE_PATH, srcDir.toString())
+                .option(CompilerOption.CLASS_OUTPUT, tempDir.resolve("out-" + className).toString())
+                .option(CompilerOption.SOURCE_OUTPUT, tempDir.resolve("gen-" + className).toString())
+                .option(CompilerOption.BACKEND, "ASM")
+                .option(CompilerOption.INCREMENTAL, "false")
+                .option(CompilerOption.RELEASE, "25")
+                .build();
+        final var compiler = new NabuCompiler();
+        final var messages = new ArrayList<String>();
+        compiler.setListener(d -> {
+            if (d.getKind().name().equals("ERROR")) {
+                messages.add(d.getMessage(Locale.ROOT).toString());
+            }
+        });
+        compiler.compile(options);
+        return messages;
+    }
+
+    private void assertNotExhaustive(final String name,
+                                     final String body) throws Exception {
+        final var errors = errorsOf(name, body);
+        assertEquals(1, errors.size(), String.join("\n", errors));
+        org.junit.jupiter.api.Assertions.assertTrue(errors.getFirst().contains("does not cover all possible input values"),
+                errors.getFirst());
+    }
+
+    private void assertExhaustive(final String name,
+                                  final String body) throws Exception {
+        final var errors = errorsOf(name, body);
+        assertEquals(0, errors.size(), String.join("\n", errors));
+    }
+
+    @Test
+    void missingSealedSubtypeIsAnError() throws Exception {
+        assertNotExhaustive("Ex1", """
+                    static int f(I i) { return switch (i) { case A a -> 1; }; }
+                """);
+    }
+
+    @Test
+    void aGuardedPatternDoesNotCover() throws Exception {
+        assertNotExhaustive("Ex2", """
+                    static int f(I i) { return switch (i) { case A a -> 1; case B b when b != null -> 2; }; }
+                """);
+    }
+
+    @Test
+    void recordPatternsMustCoverTheComponents() throws Exception {
+        assertNotExhaustive("Ex3", """
+                    static int f(Pair p) {
+                        return switch (p) {
+                            case Pair(A a, I y) -> 1;
+                            case Pair(B b, A y) -> 2;
+                        };
+                    }
+                """);
+        assertExhaustive("Ex4", """
+                    static int f(Pair p) {
+                        return switch (p) {
+                            case Pair(A a, I y) -> 1;
+                            case Pair(B b, A y) -> 2;
+                            case Pair(B b, B y) -> 3;
+                        };
+                    }
+                """);
+    }
+
+    @Test
+    void aTypePatternOfTheSelectorTypeCoversEverything() throws Exception {
+        assertExhaustive("Ex5", """
+                    static int f(I i) { return switch (i) { case A a -> 1; case I other -> 2; }; }
+                """);
+    }
+
+    @Test
+    void aSwitchExpressionOverIntNeedsDefault() throws Exception {
+        assertNotExhaustive("Ex6", """
+                    static int f(int i) { return switch (i) { case 1 -> 1; case 2 -> 2; }; }
+                """);
+        assertExhaustive("Ex7", """
+                    static int f(int i) { return switch (i) { case 1 -> 1; default -> 2; }; }
+                """);
+    }
+
+    @Test
+    void enumConstantsMustAllBeThere() throws Exception {
+        assertNotExhaustive("Ex8", """
+                    static int f(Color c) { return switch (c) { case RED -> 1; }; }
+                """);
+        assertExhaustive("Ex9", """
+                    static int f(Color c) { return switch (c) { case RED -> 1; case GREEN -> 2; }; }
+                """);
+    }
+
+    @Test
+    void aSwitchStatementWithPatternsMustBeExhaustiveButAnOldOneNeedNotBe() throws Exception {
+        assertNotExhaustive("Ex10", """
+                    static void f(I i) { switch (i) { case A a -> { } } }
+                """);
+        assertExhaustive("Ex11", """
+                    static void f(Color c) { switch (c) { case RED: break; } }
+                    static void g(int i) { switch (i) { case 1: break; } }
+                """);
+    }
 }

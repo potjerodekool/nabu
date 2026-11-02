@@ -363,25 +363,45 @@ public class Checker extends AbstractTreeVisitor<Object, Scope> {
     @Override
     public Object visitSwitchStatement(final SwitchStatement switchStatement,
                                        final Scope scope) {
-        // Check for switch expression exhaustiveness (P2 requirement)
-        // For now we just validate that pattern matching is allowed
-        // More advanced exhaustiveness analysis would need to be added here
-        boolean hasDefault = switchStatement.getCases().stream()
-                .flatMap(caseStmt -> caseStmt.getLabels().stream())
-                .anyMatch(label -> label instanceof DefaultCaseLabel);
-
-        // Allow pattern matching in switch statements but still check for proper syntax 
-        for (final var caseStatement : switchStatement.getCases()) {
-            final var hasPatternLabel = caseStatement.getLabels().stream()
-                    .anyMatch(label -> label instanceof PatternCaseLabel);
-
-            if (hasPatternLabel) {
-                // Allow pattern matching in switch statements
-                // The actual pattern resolution will happen in later phases
-            }
+        // A switch statement must be exhaustive if it uses patterns or null (JLS 14.11.2).
+        final var enhanced = switchStatement.getCases().stream()
+                .flatMap(caseStatement -> caseStatement.getLabels().stream())
+                .anyMatch(label -> label instanceof PatternCaseLabel || isNullLabel(label));
+        if (enhanced) {
+            checkExhaustive("switch statement", switchStatement, switchStatement.getSelector(),
+                    switchStatement.getCases(), scope);
         }
-
         return super.visitSwitchStatement(switchStatement, scope);
+    }
+
+    @Override
+    public Object visitSwitchExpression(final SwitchExpressionTree switchExpression,
+                                        final Scope scope) {
+        checkExhaustive("switch expression", switchExpression, switchExpression.getSelector(),
+                switchExpression.getCases(), scope);
+        return super.visitSwitchExpression(switchExpression, scope);
+    }
+
+    private void checkExhaustive(final String what,
+                                 final Tree tree,
+                                 final ExpressionTree selector,
+                                 final java.util.List<io.github.potjerodekool.nabu.tree.statement.CaseStatement> cases,
+                                 final Scope scope) {
+        if (!new SwitchExhaustiveness(compilerContext.getTypes()).isExhaustive(selector, cases)) {
+            listener.report(new DefaultDiagnostic(
+                    Diagnostic.Kind.ERROR,
+                    String.format("The %s does not cover all possible input values %s", what, formatLineInfo(tree)),
+                    resolveFileObject(scope),
+                    tree.getLineNumber(),
+                    tree.getColumnNumber()
+            ));
+        }
+    }
+
+    private static boolean isNullLabel(final CaseLabel label) {
+        return label instanceof ConstantCaseLabel constantLabel
+                && constantLabel.getExpression() instanceof LiteralExpressionTree literal
+                && (literal.getLiteralKind() == LiteralExpressionTree.Kind.NULL || literal.getLiteral() == null);
     }
 
     @Override

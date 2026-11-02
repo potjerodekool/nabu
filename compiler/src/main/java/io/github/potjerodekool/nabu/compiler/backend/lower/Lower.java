@@ -1248,6 +1248,13 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         final var selected = new Temp(selectorType, decls, line, column);
         statements.add(selected.assign(selector, line, column));
 
+        // A selector that is null throws a NullPointerException, unless there is a case null (JLS 14.11.3).
+        if (!(selectorType instanceof PrimitiveType)
+                && loweredCases.stream().flatMap(c -> c.getLabels().stream()).noneMatch(Lower::isNullLabel)) {
+            statements.add(TreeMaker.expressionStatement(
+                    requireNonNullCall(selected.ref(), scope, line, column), line, column));
+        }
+
         final var index = new Temp(intType, decls, line, column);
         statements.add(index.assign(intLiteral(PATTERN_DEFAULT_ORDINAL, line, column), line, column));
 
@@ -1273,9 +1280,11 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                     }
                     test = matchPattern(patternCaseLabel.getPattern(), selected::ref, selectorType, true,
                             List.of(onMatch), decls, scope, line, column);
+                } else if (label instanceof ConstantCaseLabel constantLabel) {
+                    test = List.of(constantTest(constantLabel.getExpression(), selected, selectorType, choose, scope,
+                            line, column));
                 } else {
-                    throw new IllegalStateException("a constant label cannot be combined with patterns, line "
-                            + caseStatement.getLineNumber());
+                    throw new IllegalStateException("unsupported case label, line " + caseStatement.getLineNumber());
                 }
                 final var notMatchedYet = TreeMaker.binaryExpressionTree(index.ref(), Tag.EQ,
                         intLiteral(PATTERN_DEFAULT_ORDINAL, line, column), line, column);
@@ -1296,18 +1305,17 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
             final var caseStatement = loweredCases.get(i);
             final var newLabels = new ArrayList<CaseLabel>();
             for (final var label : caseStatement.getLabels()) {
-                final int ordinal;
                 if (label instanceof DefaultCaseLabel) {
-                    ordinal = PATTERN_DEFAULT_ORDINAL;
+                    // Nothing matched: the index is -1 and the switch takes its default.
+                    newLabels.add(label);
                 } else {
-                    ordinal = entryIndex++;
+                    newLabels.add(ConstantCaseLabel.create(intLiteral(entryIndex++, line, column), line, column));
                 }
-                newLabels.add(ConstantCaseLabel.create(intLiteral(ordinal, line, column), line, column));
             }
             // A switch expression without default is exhaustive (a sealed type, JLS 15.28.1): the last case also
             // takes what no label matched, so that the result is always set.
             if (expression && !hasDefault && i == loweredCases.size() - 1) {
-                newLabels.add(ConstantCaseLabel.create(intLiteral(PATTERN_DEFAULT_ORDINAL, line, column), line, column));
+                newLabels.add(DefaultCaseLabel.create(line, column));
             }
             rewrittenCases.add(CaseStatement.create(caseStatement.getCaseKind(), newLabels, caseStatement.getBody(),
                     caseStatement.getLineNumber(), caseStatement.getColumnNumber()));
@@ -1316,6 +1324,102 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         final var all = new ArrayList<StatementTree>(decls);
         all.addAll(statements);
         return new PatternSwitchParts(all, (IdentifierTree) index.ref(), rewrittenCases);
+    }
+
+    /**
+     * {@code case "a"}, {@code case 1} and {@code case RED} next to {@code case null} or patterns: the selector is
+     * compared with the constant. A selector that is null matches no constant.
+     */
+    private StatementTree constantTest(final ExpressionTree constant,
+                                       final Temp selected,
+                                       final TypeMirror selectorType,
+                                       final StatementTree choose,
+                                       final LowerScope scope,
+                                       final int line,
+                                       final int column) {
+        final var booleanType = types.getPrimitiveType(TypeKind.BOOLEAN);
+        final var notNull = TreeMaker.binaryExpressionTree(selected.ref(), Tag.NE,
+                TreeMaker.literalExpressionTree(null, line, column), line, column);
+        notNull.setType(booleanType);
+
+        final var module = scope.findModuleElement();
+        final var stringType = loader.loadClass(module, Constants.STRING).asType();
+        final ExpressionTree equal;
+        if (types.isSameType(selectorType, stringType)) {
+            return TreeMaker.ifStatementTree(
+                    objectCall(constant, "equals", List.of(selected.ref()), scope, line, column),
+                    choose, null, line, column);
+        } else if (selectorType.asElement() instanceof TypeElement enumElement
+                && enumElement.getKind() == ElementKind.ENUM) {
+            final var constants = ElementFilter.enumValuesIn(enumElement.getEnclosedElements()).stream()
+                    .map(Element::getSimpleName)
+                    .toList();
+            final var name = enumConstantName(constant);
+            if (name == null || !constants.contains(name)) {
+                throw new IllegalStateException("unknown enum constant label, line " + line);
+            }
+            equal = TreeMaker.binaryExpressionTree(enumOrdinalSelector(selected.ref(), enumElement), Tag.EQ,
+                    intLiteral(constants.indexOf(name), line, column), line, column);
+        } else if (types.isBoxType(selectorType)) {
+            final var value = (ExpressionTree) acceptTree(constant, scope);
+            equal = TreeMaker.binaryExpressionTree(unboxIfNeeded(selected.ref(), value), Tag.EQ, value, line, column);
+        } else {
+            throw new IllegalStateException("a constant label for a selector of this type is not supported, line "
+                    + line);
+        }
+        equal.setType(booleanType);
+        return TreeMaker.ifStatementTree(notNull,
+                TreeMaker.ifStatementTree(equal, choose, null, line, column), null, line, column);
+    }
+
+    /** {@code java.util.Objects.requireNonNull(value)}: the NullPointerException of a null selector. */
+    private ExpressionTree requireNonNullCall(final ExpressionTree value,
+                                              final LowerScope scope,
+                                              final int line,
+                                              final int column) {
+        final var className = "java.util.Objects";
+        final var target = IdentifierTree.create(className);
+        target.setSymbol(loader.loadClass(scope.findModuleElement(), className));
+        final var call = TreeMaker.methodInvocationTree(
+                new CFieldAccessExpressionTree(target, IdentifierTree.create("requireNonNull")),
+                List.of(), List.of(value), line, column);
+        final var resolved = methodResolver.resolveMethod(call, scope)
+                .orElseThrow(() -> new IllegalStateException("Objects.requireNonNull not found"));
+        call.getMethodSelector().setType(resolved.getOwner().asType());
+        call.setMethodType(resolved);
+        call.setType(resolved.getReturnType());
+        return call;
+    }
+
+    /** A call of a method of java.lang.Object (or the override in the type of the receiver). */
+    private ExpressionTree objectCall(final ExpressionTree receiver,
+                                      final String name,
+                                      final List<ExpressionTree> arguments,
+                                      final LowerScope scope,
+                                      final int line,
+                                      final int column) {
+        final var objectElement = types.getObjectType().asTypeElement();
+        final var method = ElementFilter.methodsIn(objectElement.getEnclosedElements()).stream()
+                .filter(m -> m.getSimpleName().contentEquals(name) && m.getParameters().size() == arguments.size())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("method of Object not found: " + name));
+        final var methodType = (ExecutableType) method.asType();
+        final var call = TreeMaker.methodInvocationTree(
+                new CFieldAccessExpressionTree(receiver, IdentifierTree.create(name)),
+                List.of(), arguments, line, column);
+        call.getMethodSelector().setType(objectElement.asType());
+        call.setMethodType(methodType);
+        call.setType(methodType.getReturnType());
+        try {
+            methodResolver.resolveMethod(call, scope).ifPresent(resolved -> {
+                call.getMethodSelector().setType(resolved.getOwner().asType());
+                call.setMethodType(resolved);
+                call.setType(resolved.getReturnType());
+            });
+        } catch (final Exception ignored) {
+            // The call keeps the method of Object.
+        }
+        return call;
     }
 
     private LiteralExpressionTree intLiteral(final int value,

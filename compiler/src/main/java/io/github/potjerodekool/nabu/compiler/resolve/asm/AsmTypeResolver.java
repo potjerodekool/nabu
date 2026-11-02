@@ -50,7 +50,12 @@ public class AsmTypeResolver {
                 final var componentType = asTypeMirror(type.getElementType());
                 yield types.getArrayType(componentType);
             }
-            case Type.OBJECT -> classElementLoader.loadClass(moduleSymbol, type.getClassName()).asType();
+            case Type.OBJECT -> {
+                // A descriptor may name a class that is not on the classpath (an optional dependency of a library
+                // class). javac only fails when the type is used; reading the class file must not crash.
+                final var element = classElementLoader.loadClass(moduleSymbol, type.getClassName());
+                yield element != null ? element.asType() : types.getErrorType(type.getClassName());
+            }
             default -> throw new UnsupportedOperationException("" + type.getSort());
         };
     }

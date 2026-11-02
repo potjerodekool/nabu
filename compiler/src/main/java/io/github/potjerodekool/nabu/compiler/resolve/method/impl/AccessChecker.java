@@ -27,12 +27,15 @@ public final class AccessChecker {
         if (element.isPublic()) {
             return true;
         } else if (element.isProtected()) {
-            if (isSameModule(element.getModuleElement(), caller.getModuleElement())) {
-                return element.getPackageElement().equals(caller.getPackageElement());
-            } else if (element instanceof ExecutableElement executableElement) {
-                final var ownerClass = (TypeElement) executableElement.getEnclosingElement();
-
-                return isSubclass(caller, ownerClass);
+            // Protected is the package of the declaring class OR a subclass, in the same module too. All
+            // classpath classes share the unnamed module, so a subclass in another package (Spring AOT's
+            // generated `Impl extends AotRepositoryFragmentSupport`) was refused when this was an either/or.
+            if (element.getPackageElement() != null
+                    && element.getPackageElement().equals(caller.getPackageElement())) {
+                return true;
+            }
+            if (element.getEnclosingElement() instanceof TypeElement ownerClass) {
+                return isSubclassOrEnclosedIn(caller, ownerClass);
             }
         } else if (element.isDefaultAccess()) {
             if (isSameModule(element.getModuleElement(), caller.getModuleElement())) {
@@ -66,6 +69,15 @@ public final class AccessChecker {
         return current instanceof TypeElement typeElement
                 ? typeElement.getQualifiedName()
                 : null;
+    }
+
+    private static boolean isSubclassOrEnclosedIn(final Element caller, final TypeElement ownerClass) {
+        for (var current = caller; current != null; current = current.getEnclosingElement()) {
+            if (isSubclass(current, ownerClass)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isSubclass(final Element caller, final TypeElement ownerClass) {

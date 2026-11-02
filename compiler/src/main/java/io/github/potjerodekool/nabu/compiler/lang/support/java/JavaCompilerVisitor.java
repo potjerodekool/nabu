@@ -2625,7 +2625,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         var modifiers = parseModifiers(ctx.classModifier());
         final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
         final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
-        final List<VariableDeclaratorTree> header = acceptList(ctx.recordHeader());
+        final List<VariableDeclaratorTree> header = acceptList(ctx.recordHeader().recordComponentList());
         final List<ExpressionTree> classImplements = acceptList(ctx.classImplements());
         final List<Tree> body = acceptList(ctx.recordBody());
 
@@ -3162,17 +3162,21 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitTypePattern(final Java20Parser.TypePatternContext ctx) {
-        final var result = ctx.localVariableDeclaration().accept(this);
+        final var modifiers = parseModifiers(ctx.variableModifier());
+        final var type = (ExpressionTree) ctx.localVariableType().accept(this);
 
-        if (result instanceof VariableDeclaratorTree variableDeclarator) {
-            return new CTypePattern(
-                    variableDeclarator,
-                    ctx.getStart().getLine(),
-                    ctx.getStart().getCharPositionInLine()
-            );
-        } else {
-            return result;
+        if (ctx.variableDeclaratorId() == null) {
+            return type;
         }
+
+        final var name = (IdentifierTree) ctx.variableDeclaratorId().accept(this);
+        final var line = ctx.getStart().getLine();
+        final var column = ctx.getStart().getCharPositionInLine();
+        return new CTypePattern(
+                TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, modifiers, type, name, null, null, line, column),
+                line,
+                column
+        );
     }
 
     @Override
@@ -3236,8 +3240,10 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     public Object visitRecordPattern(final Java20Parser.RecordPatternContext ctx) {
         final var recordType = (ExpressionTree) ctx.referenceType().accept(this);
         final List<Pattern> patterns = new ArrayList<>();
-        for (final var pattern : ctx.patternList().pattern()) {
-            patterns.add((Pattern) pattern.accept(this));
+        if (ctx.patternList() != null) {
+            for (final var pattern : ctx.patternList().pattern()) {
+                patterns.add((Pattern) pattern.accept(this));
+            }
         }
 
         return new CRecordPattern(

@@ -1227,8 +1227,9 @@ unnamedPattern
     : '_'
     ;
 
+// One variable: in 'Point(int x, _)' the '_' is a pattern of its own, not a second variable of the declaration.
 typePattern
-    : localVariableDeclaration
+    : variableModifier* localVariableType variableDeclaratorId?
     ;
 
 recordPattern

@@ -82,6 +82,14 @@ public class TypeExpressionCreator implements TypeVisitor<ExpressionTree, Object
         );
     }
 
+    /** A type variable ({@code T} of {@code record Some<T>(T value)}) is written as its name. */
+    @Override
+    public ExpressionTree visitTypeVariable(final TypeVariable typeVariable, final Object param) {
+        final var identifier = IdentifierTree.create(typeVariable.asElement().getSimpleName());
+        identifier.setType(typeVariable);
+        return identifier;
+    }
+
     @Override
     public ExpressionTree visitVariableType(final VariableType variableType, final Object param) {
         final var variableTypeTree = TreeMaker.variableTypeTree(-1, -1);

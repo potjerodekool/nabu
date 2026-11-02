@@ -11,6 +11,12 @@ public sealed interface ImportItem extends Tree permits CImportItemTree {
 
     boolean isStatic();
 
+    /**
+     * @return Returns true for a module import declaration ({@code import module java.base;}): then
+     * {@link #getQualified()} is the name of the module.
+     */
+    boolean isModule();
+
     FieldAccessExpressionTree getQualified();
 
     Element getSymbol();

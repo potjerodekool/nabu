@@ -133,6 +133,23 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
     @Override
     public Object visitImportDeclaration(final Java20Parser.ImportDeclarationContext ctx) {
+        if (ctx.moduleImportName() != null) {
+            ExpressionTree name = null;
+            for (final var part : ctx.moduleImportName().identifier()) {
+                final var identifier = (IdentifierTree) part.accept(this);
+                name = name == null
+                        ? identifier
+                        : new FieldAccessExpressionBuilder().selected(name).field(identifier).build();
+            }
+            final var qualified = name instanceof FieldAccessExpressionTree fieldAccess
+                    ? fieldAccess
+                    : new FieldAccessExpressionBuilder().field((IdentifierTree) name).build();
+            return TreeMaker.moduleImportItem(
+                    qualified,
+                    ctx.getStart().getLine(),
+                    ctx.getStart().getCharPositionInLine()
+            );
+        }
         final var staticBody = ctx.importStaticBody();
         if (staticBody != null) {
             return staticBody.accept(this);
@@ -2102,12 +2119,17 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
 
         final var statements = new ArrayList<StatementTree>();
 
-        if (ctx.explicitConstructorInvocation() != null) {
-            statements.add((StatementTree) ctx.explicitConstructorInvocation().accept(this));
-        }
-
-        if (ctx.blockStatements() != null) {
-            statements.addAll(acceptList(ctx.blockStatements()));
+        for (final var statement : ctx.constructorBodyStatement()) {
+            if (statement.explicitConstructorInvocation() != null) {
+                statements.add((StatementTree) statement.explicitConstructorInvocation().accept(this));
+            } else {
+                final var result = statement.blockStatement().accept(this);
+                if (result instanceof List<?> list) {
+                    list.forEach(it -> statements.add((StatementTree) it));
+                } else {
+                    statements.add((StatementTree) result);
+                }
+            }
         }
 
         return TreeMaker.blockStatement(
@@ -3049,7 +3071,51 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
         if (ctx.typePattern() != null) {
             return ctx.typePattern().accept(this);
         }
+        if (ctx.unnamedPattern() != null) {
+            // An underscore is the same as 'var _': it matches anything and binds nothing.
+            final var token = ctx.unnamedPattern().getStart();
+            return new CTypePattern(
+                    TreeMaker.variableDeclarator(
+                            Kind.LOCAL_VARIABLE,
+                            new Modifiers(),
+                            TreeMaker.variableTypeTree(token.getLine(), token.getCharPositionInLine()),
+                            unnamedIdentifier(token),
+                            null,
+                            null,
+                            token.getLine(),
+                            token.getCharPositionInLine()
+                    ),
+                    token.getLine(),
+                    token.getCharPositionInLine()
+            );
+        }
         return ctx.recordPattern().accept(this);
+    }
+
+    private int unnamedCounter = 0;
+
+    /** An unnamed variable gets a name of its own, so that two of them in one scope do not clash. */
+    private IdentifierTree unnamedIdentifier(final Token token) {
+        return TreeMaker.identifier(
+                Constants.UNNAMED_PREFIX + unnamedCounter++,
+                token.getLine(),
+                token.getCharPositionInLine() + 1);
+    }
+
+    @Override
+    public Object visitVariableDeclaratorId(final Java20Parser.VariableDeclaratorIdContext ctx) {
+        if (ctx.UNDER_SCORE() != null) {
+            return unnamedIdentifier(ctx.UNDER_SCORE().getSymbol());
+        }
+        return visitChildren(ctx);
+    }
+
+    @Override
+    public Object visitLambdaIdentifier(final Java20Parser.LambdaIdentifierContext ctx) {
+        if (ctx.UNDER_SCORE() != null) {
+            return unnamedIdentifier(ctx.UNDER_SCORE().getSymbol());
+        }
+        return ctx.identifier().accept(this);
     }
 
     @Override
@@ -3664,12 +3730,12 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
     public Object visitLambdaParameters(final Java20Parser.LambdaParametersContext ctx) {
         if (ctx.lambdaParameterList() != null) {
             return acceptList(ctx.lambdaParameterList());
-        } else if (ctx.identifier() != null) {
+        } else if (ctx.lambdaIdentifier() != null) {
             // Een impliciete lambda-parameter (`w -> ...`) blijft een
             // IdentifierTree, net als bij `(a, b) -> ...`: de omzetting naar
             // een VariableDeclaratorTree liet de lambda als EXPLICIT tonen en
             // de parameter kreeg een error-type in de signatuur.
-            return ctx.identifier().accept(this);
+            return ctx.lambdaIdentifier().accept(this);
         } else {
             return List.of();
         }
@@ -3682,7 +3748,7 @@ public class JavaCompilerVisitor extends Java20ParserBaseVisitor<Object> {
                     .map(it -> it.accept(this))
                     .toList();
         } else {
-            return ctx.identifier().stream()
+            return ctx.lambdaIdentifier().stream()
                     .map(it -> it.accept(this))
                     .toList();
         }

@@ -97,11 +97,6 @@ public final class LanguageLevelChecker extends AbstractTreeVisitor<Object, Void
         return Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
-    private boolean isJavaSource() {
-        final var fileObject = unit.getFileObject();
-        return fileObject != null && fileObject.getFileName().endsWith(".java");
-    }
-
     private void scan(final Tree tree) {
         if (tree != null) {
             acceptTree(tree, null);
@@ -116,6 +111,9 @@ public final class LanguageLevelChecker extends AbstractTreeVisitor<Object, Void
 
     @Override
     public Object visitCompilationUnit(final CompilationUnit compilationUnit, final Void param) {
+        compilationUnit.getImportItems().stream()
+                .filter(ImportItem::isModule)
+                .forEach(importItem -> require(Feature.MODULE_IMPORT, importItem));
         scanAll(compilationUnit.getClasses());
         return null;
     }
@@ -172,10 +170,8 @@ public final class LanguageLevelChecker extends AbstractTreeVisitor<Object, Void
 
     @Override
     public Object visitVariableDeclaratorStatement(final VariableDeclaratorTree variable, final Void param) {
-        // In a Nabu source a '_' may mean something that has no Java counterpart, so only Java is checked.
-        if (isJavaSource()
-                && variable.getName() != null
-                && "_".equals(variable.getName().getName())) {
+        if (variable.getName() != null
+                && variable.getName().getName().startsWith(Constants.UNNAMED_PREFIX)) {
             require(Feature.UNNAMED_VARIABLE, variable);
         }
         scan(variable.getValue());

@@ -36,7 +36,7 @@ class RecordPatternRunTest {
                 .option(CompilerOption.SOURCE_OUTPUT, tempDir.resolve("gen").toString())
                 .option(CompilerOption.BACKEND, "ASM")
                 .option(CompilerOption.INCREMENTAL, "false")
-                .option(CompilerOption.RELEASE, "21")
+                .option(CompilerOption.RELEASE, "25")
                 .build();
 
         final var compiler = new NabuCompiler();
@@ -98,5 +98,69 @@ class RecordPatternRunTest {
                 }
                 """);
         assertEquals("7 -1 15 7 ab=7 none none", cls.getMethod("run").invoke(null));
+    }
+
+    @Test
+    void unnamedVariablesAndPatterns() throws Exception {
+        final var cls = compileAndLoad("Un", """
+                package mini;
+                public class Un {
+                    record Point(int x, int y) {}
+                    static int second(Object o) {
+                        if (o instanceof Point(var _, int y)) {
+                            return y;
+                        }
+                        if (o instanceof Point(_, _)) {
+                            return -2;
+                        }
+                        return -1;
+                    }
+                    public static String run() {
+                        int _ = 5;
+                        int _ = 6;
+                        java.util.function.BiFunction<Integer, Integer, Integer> f = (_, b) -> b + 1;
+                        String r = "";
+                        try {
+                            Integer.parseInt("x");
+                        } catch (NumberFormatException _) {
+                            r = "nfe";
+                        }
+                        return second(new Point(1, 9)) + " " + second("s") + " " + f.apply(1, 2) + " " + r;
+                    }
+                }
+                """);
+        assertEquals("9 -1 3 nfe", cls.getMethod("run").invoke(null));
+    }
+
+    @Test
+    void statementsBeforeSuperCall() throws Exception {
+        final var cls = compileAndLoad("Flex", """
+                package mini;
+                public class Flex {
+                    static class Base {
+                        final int value;
+                        Base(int value) { this.value = value; }
+                    }
+                    static class Sub extends Base {
+                        Sub(int x) {
+                            if (x < 0) {
+                                throw new IllegalArgumentException("negative");
+                            }
+                            int doubled = x * 2;
+                            super(doubled + 1);
+                        }
+                    }
+                    public static String run() {
+                        String r = "" + new Sub(4).value;
+                        try {
+                            new Sub(-1);
+                        } catch (IllegalArgumentException e) {
+                            r += " " + e.getMessage();
+                        }
+                        return r;
+                    }
+                }
+                """);
+        assertEquals("9 negative", cls.getMethod("run").invoke(null));
     }
 }

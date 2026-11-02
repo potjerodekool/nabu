@@ -1345,6 +1345,26 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java20Parse
     }
 
     @Override
+    public Object visitLambdaIdentifier(final Java20Parser.LambdaIdentifierContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitModuleImportName(final Java20Parser.ModuleImportNameContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitConstructorBodyStatement(final Java20Parser.ConstructorBodyStatementContext ctx) {
+        return null;
+    }
+
+    @Override
+    public Object visitUnnamedPattern(final Java20Parser.UnnamedPatternContext ctx) {
+        return null;
+    }
+
+    @Override
     public Object visitLambdaParameterList(final Java20Parser.LambdaParameterListContext ctx) {
         return null;
     }

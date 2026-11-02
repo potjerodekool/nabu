@@ -1211,14 +1211,19 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 if (declarator == null) {
                     throw new IllegalStateException("component pattern missing declarator");
                 }
-                final var bindingType = declarator.getVariableType() != null ? declarator.getVariableType().getType() : accessorType.getReturnType();
-                if (bindingType instanceof PrimitiveType) {
-                    // ok
-                }
+                // 'var x' and '_': the type of the binding is the type of the component.
+                final boolean inferred = declarator.getVariableType() == null
+                        || declarator.getVariableType() instanceof VariableTypeTree
+                        || declarator.getVariableType().getType() == null
+                        || declarator.getVariableType().getType().getKind() == TypeKind.ERROR;
+                final var bindingType = inferred ? accessorType.getReturnType() : declarator.getVariableType().getType();
                 final var initType = bindingType != null ? bindingType : accessorType.getReturnType();
-                final var clonedDecl = declarator.builder()
-                        .value(defaultInitializer(initType, lineNumber, columnNumber))
-                        .build();
+                final var declaratorBuilder = declarator.builder()
+                        .value(defaultInitializer(initType, lineNumber, columnNumber));
+                if (inferred) {
+                    declaratorBuilder.variableType(createIdentifierFromType(initType));
+                }
+                final var clonedDecl = declaratorBuilder.build();
                 decls.add(clonedDecl);
                 final var bindingSymbol = declarator.getName().getSymbol();
                 final var bindingIdent = IdentifierTree.create(declarator.getName().getName());

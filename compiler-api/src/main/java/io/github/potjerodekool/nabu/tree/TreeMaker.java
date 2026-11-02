@@ -48,6 +48,15 @@ public final class TreeMaker {
                 columnNumber);
     }
 
+    /**
+     * @param moduleName The name of the module of {@code import module java.base;}.
+     */
+    public static ImportItem moduleImportItem(final FieldAccessExpressionTree moduleName,
+                                              final int lineNumber,
+                                              final int columnNumber) {
+        return new CImportItemTree(moduleName, false, true, lineNumber, columnNumber);
+    }
+
     public static VariableDeclaratorTree variableDeclarator(final Kind kind,
                                                             final Modifiers modifiers,
                                                             final ExpressionTree type,

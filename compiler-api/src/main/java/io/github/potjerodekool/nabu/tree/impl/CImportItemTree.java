@@ -13,6 +13,7 @@ import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
 public final class CImportItemTree extends CTree implements ImportItem {
 
     private final boolean isStatic;
+    private final boolean isModule;
     private final FieldAccessExpressionTree qualified;
     private Element symbol;
 
@@ -20,9 +21,23 @@ public final class CImportItemTree extends CTree implements ImportItem {
                            final boolean isStatic,
                            final int lineNumber,
                            final int columnNumber) {
+        this(qualified, isStatic, false, lineNumber, columnNumber);
+    }
+
+    public CImportItemTree(final FieldAccessExpressionTree qualified,
+                           final boolean isStatic,
+                           final boolean isModule,
+                           final int lineNumber,
+                           final int columnNumber) {
         super(lineNumber, columnNumber);
         this.qualified = qualified;
         this.isStatic = isStatic;
+        this.isModule = isModule;
+    }
+
+    @Override
+    public boolean isModule() {
+        return isModule;
     }
 
     @Override

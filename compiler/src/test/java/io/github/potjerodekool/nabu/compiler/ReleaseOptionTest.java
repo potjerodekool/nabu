@@ -170,6 +170,50 @@ class ReleaseOptionTest {
     }
 
     @Test
+    void unnamedVariableNeedsJava22() throws IOException {
+        final var code = """
+                package mini;
+                public class Sample {
+                    int f(Object o) {
+                        try { return 1; } catch (RuntimeException _) { return 2; }
+                    }
+                }
+                """;
+        assertTrue(errors(compile("21", null, code)).contains("requires Java 22"), "21");
+        assertFalse(errors(compile("22", null, code)).contains("requires Java"), "22");
+    }
+
+    @Test
+    void statementsBeforeSuperNeedJava25() throws IOException {
+        final var code = """
+                package mini;
+                public class Sample {
+                    static class Base { Base(int v) {} }
+                    static class Sub extends Base {
+                        Sub(int x) {
+                            int y = x + 1;
+                            super(y);
+                        }
+                    }
+                }
+                """;
+        assertTrue(errors(compile("24", null, code)).contains("requires Java 25"), "24");
+        assertFalse(errors(compile("25", null, code)).contains("requires Java"), "25");
+    }
+
+    @Test
+    void moduleImportNeedsJava25AndIsNotSupportedYet() throws IOException {
+        final var code = """
+                package mini;
+                import module java.base;
+                public class Sample {
+                }
+                """;
+        assertTrue(errors(compile("24", null, code)).contains("Module import declarations requires Java 25"), "24");
+        assertTrue(errors(compile("25", null, code)).contains("not supported yet"), "25");
+    }
+
+    @Test
     void releaseSetsTheClassFileVersion() throws IOException {
         final var result = compile("21", null, SIMPLE);
         assertEquals(0, result.rc(), errors(result));

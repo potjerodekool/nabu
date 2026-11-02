@@ -39,7 +39,13 @@ What is checked, besides everything up to Java 17 (which is always allowed):
 | Since | Construct |
 |---|---|
 | 21 | pattern matching for `switch` (with a `when` guard), `case null`, record patterns |
-| 22 | unnamed variables (`_`), in Java sources |
-| 25 | statements before `this(...)` or `super(...)` in a constructor |
+| 22 | unnamed variables and patterns (`_`) |
+| 25 | statements before `this(...)` or `super(...)` in a constructor, `import module` |
 
 The check covers the Java sources that Nabu compiles (`--compile-language-support`) and the `.nabu` sources, where a construct has the version of its Java counterpart and a construct without a counterpart is always allowed. The Java sources that are only read for their symbols are not checked, and neither is the use of JDK classes and methods: a class that a newer JDK added still compiles. Without `--release` nothing is checked.
+
+The Java parser reads these constructs up to Java 25. Not everything that is read is compiled yet:
+
+- A record pattern in `instanceof` works as the condition of an `if` statement (alone or as the first part of an `&&` chain), for example `if (o instanceof Line(Point(var x, _), var to) && x > 0)`. In another position, such as a `return` or a `while` condition, it is an error.
+- `import module` is read and checked against the release, but compiling it is an error: "Module import declarations are not supported yet".
+- Compact source files and instance `main` methods (Java 25) are not supported.

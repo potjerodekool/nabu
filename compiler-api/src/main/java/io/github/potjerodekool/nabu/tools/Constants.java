@@ -11,6 +11,8 @@ public final class Constants {
     public static final String THIS = "this";
     public static final String SUPER = "super";
     public static final String NEW = "new";
+    /** The name of an unnamed variable (an underscore in the source) starts with this, followed by a number. */
+    public static final String UNNAMED_PREFIX = "$unnamed$";
 
     public static final String OBJECT = "java.lang.Object";
     public static final String CLONEABLE = "java.lang.Cloneable";

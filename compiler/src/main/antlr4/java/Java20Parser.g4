@@ -305,13 +305,19 @@ packageModifier
 // -------------
 
 importDeclaration
-    : 'import' 'static' importStaticBody ';'
+    : 'import' 'module' moduleImportName ';'
+    | 'import' 'static' importStaticBody ';'
     | 'import' singleTypeImportDeclaration
     | 'import' typeImportOnDemandDeclaration
     ;
 
 singleTypeImportDeclaration
     : typeName ';'
+    ;
+
+// Java 25 (JLS 7.5.5): import module java.base;
+moduleImportName
+    : identifier ('.' identifier)*
     ;
 
 typeImportOnDemandDeclaration
@@ -446,8 +452,9 @@ variableDeclarator
     : variableDeclaratorId ('=' variableInitializer)?
     ;
 
+// Java 22 (JLS 6.1): '_' declares an unnamed variable.
 variableDeclaratorId
-    : identifier dims?
+    : (identifier | '_') dims?
     ;
 
 variableInitializer
@@ -613,8 +620,14 @@ simpleTypeName
     : typeIdentifier
     ;
 
+// Java 25 (JLS 8.8.7, flexible constructor bodies): statements may come before this(...) or super(...).
 constructorBody
-    : '{' explicitConstructorInvocation? blockStatements? '}'
+    : '{' constructorBodyStatement* '}'
+    ;
+
+constructorBodyStatement
+    : explicitConstructorInvocation
+    | blockStatement
     ;
 
 explicitConstructorInvocation
@@ -1200,6 +1213,12 @@ guard
 primaryPattern
     : typePattern
     | recordPattern
+    | unnamedPattern
+    ;
+
+// Java 22 (JLS 14.30.1): '_' matches anything without a binding.
+unnamedPattern
+    : '_'
     ;
 
 typePattern
@@ -1647,12 +1666,17 @@ lambdaExpression
 
 lambdaParameters
     : '(' lambdaParameterList? ')'
-    | identifier
+    | lambdaIdentifier
     ;
 
 lambdaParameterList
     : lambdaParameter (',' lambdaParameter)*
-    | identifier ( ',' identifier)*
+    | lambdaIdentifier ( ',' lambdaIdentifier)*
+    ;
+
+lambdaIdentifier
+    : identifier
+    | '_'
     ;
 
 lambdaParameter

@@ -424,6 +424,19 @@ public class NabuCompiler implements Compiler {
                                                final CompilerContextImpl compilerContext) {
         var compilationUnits = new ArrayList<>(parseFiles(files, compilerContext));
 
+        for (final var unit : compilationUnits) {
+            for (final var importItem : unit.getImportItems()) {
+                if (importItem.isModule()) {
+                    compilerDiagnosticListener.report(new DefaultDiagnostic(
+                            Diagnostic.Kind.ERROR,
+                            "Module import declarations are not supported yet (line " + importItem.getLineNumber() + ")",
+                            unit.getFileObject(),
+                            importItem.getLineNumber(),
+                            importItem.getColumnNumber()));
+                }
+            }
+        }
+
         final var release = compilerContext.getCompilerOptions().getRelease();
         if (release.isPresent()) {
             for (final var unit : compilationUnits) {

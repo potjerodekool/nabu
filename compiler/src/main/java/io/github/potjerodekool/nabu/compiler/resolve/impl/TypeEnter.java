@@ -504,12 +504,26 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     private void fillImports(final ModuleElement moduleElement,
                              final CompilationUnit compilationUnit) {
         compilationUnit.getImportItems().stream()
-                .filter(it -> !it.isStarImport())
+                .filter(it -> !it.isModule() && !it.isStarImport())
                 .forEach(importItem -> visitImportItem(importItem, moduleElement, compilationUnit));
 
         compilationUnit.getImportItems().stream()
-                .filter(ImportItem::isStarImport)
+                .filter(it -> !it.isModule() && it.isStarImport())
                 .forEach(importItem -> visitImportItem(importItem, moduleElement, compilationUnit));
+
+        // import module m; imports on demand the packages that m exports, also those of the modules that m requires
+        // transitively (JLS 7.5.5).
+        compilationUnit.getImportItems().stream()
+                .filter(ImportItem::isModule)
+                .forEach(importItem -> {
+                    final var module = symbolTable.getModule(importItem.getClassOrPackageName());
+                    if (module != null && module.exists()) {
+                        importItem.setSymbol(module);
+                    }
+                    final var packages = new java.util.LinkedHashSet<String>();
+                    collectExportedPackages(module, packages, new java.util.HashSet<>());
+                    packages.forEach(packageName -> importStarImport(moduleElement, packageName, compilationUnit));
+                });
 
         final var packageDeclaration = compilationUnit.getPackageDeclaration();
 
@@ -524,6 +538,26 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         }
 
         loader.importJavaLang(compilationUnit.getNamedImportScope());
+    }
+
+    private void collectExportedPackages(final ModuleElement module,
+                                         final java.util.Set<String> packages,
+                                         final java.util.Set<ModuleElement> visited) {
+        if (module == null || !visited.add(module)) {
+            return;
+        }
+
+        for (final var export : ((ModuleSymbol) module).getExports()) {
+            if (export.getTargetModules().isEmpty()) {
+                packages.add(export.getPackage().getQualifiedName().toString());
+            }
+        }
+
+        for (final var requires : ((ModuleSymbol) module).getRequires()) {
+            if (requires.isTransitive()) {
+                collectExportedPackages(requires.getDependency(), packages, visited);
+            }
+        }
     }
 
     private void visitImportItem(final ImportItem importItem,

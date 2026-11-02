@@ -209,4 +209,24 @@ class RecordPatternRunTest {
                 """);
         assertEquals("true false false lt12 no no 10 no 3 0 5", cls.getMethod("run").invoke(null));
     }
+
+    @Test
+    void moduleImport() throws Exception {
+        final var cls = compileAndLoad("Mi", """
+                package mini;
+                import module java.base;
+                import module java.sql;
+                public class Mi {
+                    public static String run() {
+                        List<String> names = new ArrayList<>(List.of("b", "a"));
+                        Collections.sort(names);
+                        Path path = Path.of("x", "y");
+                        Timestamp date = new Timestamp(0L);
+                        Logger logger = Logger.getLogger("mi");
+                        return names + " " + path.getNameCount() + " " + date.getTime() + " " + logger.getName();
+                    }
+                }
+                """);
+        assertEquals("[a, b] 2 0 mi", cls.getMethod("run").invoke(null));
+    }
 }

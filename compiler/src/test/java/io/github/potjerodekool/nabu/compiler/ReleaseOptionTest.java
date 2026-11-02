@@ -202,7 +202,7 @@ class ReleaseOptionTest {
     }
 
     @Test
-    void moduleImportNeedsJava25AndIsNotSupportedYet() throws IOException {
+    void moduleImportNeedsJava25() throws IOException {
         final var code = """
                 package mini;
                 import module java.base;
@@ -210,7 +210,7 @@ class ReleaseOptionTest {
                 }
                 """;
         assertTrue(errors(compile("24", null, code)).contains("Module import declarations requires Java 25"), "24");
-        assertTrue(errors(compile("25", null, code)).contains("not supported yet"), "25");
+        assertFalse(errors(compile("25", null, code)).contains("requires Java"), "25");
     }
 
     @Test

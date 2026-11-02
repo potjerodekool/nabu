@@ -47,5 +47,5 @@ The check covers the Java sources that Nabu compiles (`--compile-language-suppor
 The Java parser reads these constructs up to Java 25. Not everything that is read is compiled yet:
 
 - A record pattern in `instanceof` works as an operand of `&&` in the condition of an `if` or `while` statement and in a `return` statement, for example `if (a != null && o instanceof Line(Point(var x, _), var to) && x > 0)`. It is evaluated in order, and the bindings can be used in the rest of the condition and in the statement. In another position, such as a negation, a `||`, a ternary or an assignment, it is an error.
-- `import module` is read and checked against the release, but compiling it is an error: "Module import declarations are not supported yet".
+- `import module m;` imports on demand the packages that module `m` exports, and those of the modules it requires transitively (`import module java.sql;` also gives `java.util.logging`). Unlike javac, a name that two imported modules both provide is not reported as ambiguous.
 - Compact source files and instance `main` methods (Java 25) are not supported.

@@ -43,9 +43,20 @@ public class AsmModuleBuilder extends ModuleVisitor {
         this.requiresDirectives.add(
                 new Directive.RequiresDirective(
                         moduleSymbol,
-                        Set.of()
+                        requiresFlags(access)
                 )
         );
+    }
+
+    private static Set<Directive.RequiresFlag> requiresFlags(final int access) {
+        final var flags = new java.util.HashSet<Directive.RequiresFlag>();
+        if ((access & org.objectweb.asm.Opcodes.ACC_TRANSITIVE) != 0) {
+            flags.add(Directive.RequiresFlag.TRANSITIVE);
+        }
+        if ((access & org.objectweb.asm.Opcodes.ACC_STATIC_PHASE) != 0) {
+            flags.add(Directive.RequiresFlag.STATIC_PHASE);
+        }
+        return flags;
     }
 
     @Override

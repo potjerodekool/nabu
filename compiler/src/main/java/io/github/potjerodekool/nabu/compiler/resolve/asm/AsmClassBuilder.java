@@ -57,6 +57,35 @@ class AsmClassBuilder extends ClassVisitor {
         this.moduleSymbol = moduleSymbol;
     }
 
+    private String internalName;
+
+    /**
+     * The access flags of a member class are in the InnerClasses attribute: the class access flags cannot say
+     * `static` (or `private`/`protected`). Without it every member class read from a class file looked like an
+     * inner class, and `Outer.Nested::new` (Spring AOT) got an enclosing-instance parameter that does not exist.
+     */
+    @Override
+    public void visitInnerClass(final String name,
+                                final String outerName,
+                                final String innerName,
+                                final int access) {
+        if (name.equals(internalName) && outerName != null) {
+            var flags = clazz.getFlags();
+            if ((access & Opcodes.ACC_STATIC) != 0) {
+                flags |= io.github.potjerodekool.nabu.lang.Flags.STATIC;
+            }
+            if ((access & Opcodes.ACC_PRIVATE) != 0) {
+                flags = (flags & ~io.github.potjerodekool.nabu.lang.Flags.PUBLIC)
+                        | io.github.potjerodekool.nabu.lang.Flags.PRIVATE;
+            } else if ((access & Opcodes.ACC_PROTECTED) != 0) {
+                flags = (flags & ~io.github.potjerodekool.nabu.lang.Flags.PUBLIC)
+                        | io.github.potjerodekool.nabu.lang.Flags.PROTECTED;
+            }
+            clazz.setFlags(flags);
+        }
+        super.visitInnerClass(name, outerName, innerName, access);
+    }
+
     @Override
     public void visit(final int version,
                       final int access,
@@ -101,6 +130,7 @@ class AsmClassBuilder extends ClassVisitor {
             packageSymbol.setModuleSymbol(moduleSymbol);
         }
 
+        this.internalName = name;
         clazz.setFlags(flags);
         clazz.setKind(kind);
         clazz.setNestingKind(nestingKind);

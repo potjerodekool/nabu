@@ -400,6 +400,40 @@ class ProtectedInheritedMembersRunTest {
         assertEquals("made", cls.getMethod("run").invoke(null));
     }
 
+    /**
+     * A static member class that only exists as a class file: `static` is only in its InnerClasses attribute, so it
+     * looked like an inner class and `Outer.Nested::new` got an enclosing-instance argument that does not exist
+     * (Spring AOT: NoSuchMethodError ...DependsOnDatabaseInitializationPostProcessor.<init>(Outer)).
+     */
+    @Test
+    void staticMemberClassFromClassFileHasNoEnclosingInstance() throws Exception {
+        compileAndLoad("libs2", "mini.lib.Outer", java.util.Map.of(
+                "mini/lib/Outer.java", """
+                        package mini.lib;
+                        public class Outer {
+                            static class Nested {
+                                Nested() {
+                                }
+                                String hi() {
+                                    return "hi";
+                                }
+                            }
+                        }
+                        """), null);
+        final var cls = compileAndLoad("app2", "mini.lib.UseNested", java.util.Map.of(
+                "mini/lib/UseNested.java", """
+                        package mini.lib;
+                        import java.util.function.Supplier;
+                        public class UseNested {
+                            public static String run() {
+                                Supplier<Outer.Nested> supplier = Outer.Nested::new;
+                                return supplier.get().hi() + new Outer.Nested().hi();
+                            }
+                        }
+                        """), tempDir.resolve("libs2-out"));
+        assertEquals("hihi", cls.getMethod("run").invoke(null));
+    }
+
     /** The same, but the class only exists as a class file on the class path (what Spring AOT leaves behind). */
     @Test
     void classNamesWithDollarSignsResolveFromClassFiles() throws Exception {

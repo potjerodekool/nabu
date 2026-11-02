@@ -670,9 +670,99 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression,
                                           final LowerScope scope) {
         if (instanceOfExpression.getTypeExpression() instanceof RecordPattern) {
-            throw new IllegalStateException("record patterns in instanceof are not yet supported");
+            throw new IllegalStateException("a record pattern in instanceof is only supported as the (first part of the) "
+                    + "condition of an if statement, line " + instanceOfExpression.getLineNumber());
         }
         return super.visitInstanceOfExpression(instanceOfExpression, scope);
+    }
+
+    /**
+     * {@code if (x instanceof R(int a, S(var b)) && rest) then else} becomes
+     * <pre>
+     * { R t = x; int a; S p; var b; boolean m = false;
+     *   if (t instanceof R) { a = ((R) t).a(); p = ((R) t).s(); b = p.b(); m = true; }
+     *   if (m && rest) then else }
+     * </pre>
+     * Assignments inside a condition are not used: the optimizer does not follow them.
+     */
+    @Override
+    public Tree visitIfStatement(final IfStatementTree ifStatement,
+                                 final LowerScope scope) {
+        final var conjuncts = new ArrayList<ExpressionTree>();
+        collectConjuncts(ifStatement.getExpression(), conjuncts);
+        if (conjuncts.isEmpty()
+                || !(conjuncts.getFirst() instanceof InstanceOfExpression instanceOf)
+                || !(instanceOf.getTypeExpression() instanceof RecordPattern recordPattern)) {
+            return super.visitIfStatement(ifStatement, scope);
+        }
+
+        final int line = ifStatement.getLineNumber();
+        final int column = ifStatement.getColumnNumber();
+        final var booleanType = types.getPrimitiveType(TypeKind.BOOLEAN);
+        final var recordType = recordPattern.getRecordType().getType();
+        if (recordType == null) {
+            throw new IllegalStateException("record pattern type not resolved");
+        }
+
+        final var statements = new ArrayList<StatementTree>();
+
+        final var expression = (ExpressionTree) acceptTree(instanceOf.getExpression(), scope);
+        final var expressionType = expression.getType() != null ? expression.getType() : types.getObjectType();
+        final var tempName = generateVariableName();
+        final var tempSymbol = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.LOCAL_VARIABLE).simpleName(tempName).type(expressionType).build();
+        statements.add(TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(),
+                createIdentifierFromType(expressionType), createIdentifier(tempName, tempSymbol), null,
+                expression, line, column));
+
+        final var receiver = castExpressionTree(createIdentifier(tempName, tempSymbol), recordType, line, column);
+        final var bindings = buildRecordBindings(recordPattern, receiver, scope, line, column);
+        statements.addAll(bindings.decls);
+
+        final var matchedName = generateVariableName();
+        final var matchedSymbol = new VariableSymbolBuilderImpl()
+                .kind(ElementKind.LOCAL_VARIABLE).simpleName(matchedName).type(booleanType).build();
+        statements.add(TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(),
+                createIdentifierFromType(booleanType), createIdentifier(matchedName, matchedSymbol), null,
+                defaultInitializer(booleanType, line, column), line, column));
+
+        final var thenStatements = new ArrayList<>(bindings.assigns);
+        final var setMatched = TreeMaker.literalExpressionTree(Boolean.TRUE, line, column);
+        setMatched.setType(booleanType);
+        thenStatements.add(TreeMaker.expressionStatement(TreeMaker.assignmentExpression(
+                createIdentifier(matchedName, matchedSymbol), setMatched, line, column), line, column));
+
+        final var typeCheck = TreeMaker.instanceOfExpression(
+                createIdentifier(tempName, tempSymbol), createIdentifierFromType(recordType), line, column);
+        typeCheck.setType(booleanType);
+        statements.add(TreeMaker.ifStatementTree(typeCheck,
+                TreeMaker.blockStatement(thenStatements, line, column), null, line, column));
+
+        ExpressionTree condition = createIdentifier(matchedName, matchedSymbol);
+        condition.setType(booleanType);
+        for (int i = 1; i < conjuncts.size(); i++) {
+            condition = TreeMaker.binaryExpressionTree(condition, Tag.AND,
+                    (ExpressionTree) acceptTree(conjuncts.get(i), scope), line, column);
+            condition.setType(booleanType);
+        }
+
+        final var thenStatement = (StatementTree) acceptTree(ifStatement.getThenStatement(), scope);
+        final var elseStatement = ifStatement.getElseStatement() != null
+                ? (StatementTree) acceptTree(ifStatement.getElseStatement(), scope)
+                : null;
+        statements.add(TreeMaker.ifStatementTree(condition, thenStatement, elseStatement, line, column));
+        return TreeMaker.blockStatement(statements, line, column);
+    }
+
+    /** The operands of {@code a && b && c}, in evaluation order. */
+    private void collectConjuncts(final ExpressionTree expression,
+                                  final List<ExpressionTree> conjuncts) {
+        if (expression instanceof BinaryExpressionTree binary && binary.getTag() == Tag.AND) {
+            collectConjuncts(binary.getLeft(), conjuncts);
+            collectConjuncts(binary.getRight(), conjuncts);
+        } else {
+            conjuncts.add(expression);
+        }
     }
 
     @Override

@@ -166,7 +166,7 @@ class ReleaseOptionTest {
     void recordPatternNeedsJava21() throws IOException {
         final var result = compile("17", null, RECORD_PATTERN);
         assertTrue(errors(result).contains("Record patterns requires Java 21"), errors(result));
-        // Release 21 is not compiled here: lowering a record pattern in instanceof is not supported yet.
+        assertFalse(errors(compile("21", null, RECORD_PATTERN)).contains("requires Java"));
     }
 
     @Test

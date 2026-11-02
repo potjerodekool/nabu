@@ -163,4 +163,50 @@ class RecordPatternRunTest {
                 """);
         assertEquals("9 negative", cls.getMethod("run").invoke(null));
     }
+
+    @Test
+    void recordPatternInReturnWhileAndLaterOperand() throws Exception {
+        final var cls = compileAndLoad("Rp2", """
+                package mini;
+                public class Rp2 {
+                    record Point(int x, int y) {}
+                    record Box(Object content) {}
+                    static boolean positive(Object o) {
+                        return o instanceof Point(int x, int y) && x > 0 && y > 0;
+                    }
+                    static String later(Object a, Object b) {
+                        if (a != null && b instanceof Point(int x, int y) && x < y) {
+                            return "lt" + x + y;
+                        }
+                        return "no";
+                    }
+                    static String two(Object a, Object b) {
+                        if (a instanceof Point(int x, int y) && b instanceof Point(int u, int v)) {
+                            return "" + (x + y + u + v);
+                        }
+                        return "no";
+                    }
+                    static int unwrap(Object o) {
+                        int depth = 0;
+                        while (o instanceof Box(Object inner)) {
+                            depth++;
+                            o = inner;
+                        }
+                        return depth;
+                    }
+                    static int guardOrder(Object a) {
+                        int calls = 0;
+                        if (a instanceof Point(int x, int y) && x > 0) { calls = x + y; }
+                        return calls;
+                    }
+                    public static String run() {
+                        return positive(new Point(1, 2)) + " " + positive(new Point(-1, 2)) + " " + positive("s") + " "
+                                + later("a", new Point(1, 2)) + " " + later(null, new Point(1, 2)) + " " + later("a", "b") + " "
+                                + two(new Point(1, 2), new Point(3, 4)) + " " + two(new Point(1, 2), "x") + " "
+                                + unwrap(new Box(new Box(new Box("x")))) + " " + unwrap("x") + " " + guardOrder(new Point(2, 3));
+                    }
+                }
+                """);
+        assertEquals("true false false lt12 no no 10 no 3 0 5", cls.getMethod("run").invoke(null));
+    }
 }

@@ -670,88 +670,198 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression,
                                           final LowerScope scope) {
         if (instanceOfExpression.getTypeExpression() instanceof RecordPattern) {
-            throw new IllegalStateException("a record pattern in instanceof is only supported as the (first part of the) "
-                    + "condition of an if statement, line " + instanceOfExpression.getLineNumber());
+            throw new IllegalStateException("a record pattern in instanceof is only supported in the "
+                    + "condition of an if or while statement and in a return statement, as an operand of &&, line " + instanceOfExpression.getLineNumber());
         }
         return super.visitInstanceOfExpression(instanceOfExpression, scope);
     }
 
     /**
-     * {@code if (x instanceof R(int a, S(var b)) && rest) then else} becomes
+     * A record pattern is lowered to statements, because the optimizer does not follow assignments inside a
+     * condition. A condition {@code a && x instanceof R(int p, S(var q)) && rest} becomes
      * <pre>
-     * { R t = x; int a; S p; var b; boolean m = false;
-     *   if (t instanceof R) { a = ((R) t).a(); p = ((R) t).s(); b = p.b(); m = true; }
-     *   if (m && rest) then else }
+     * R t; int p; S s; var q; boolean m = false;
+     * if (a) { t = x; if (t instanceof R) { p = ((R) t).p(); s = ((R) t).s(); q = s.q(); m = true; } }
      * </pre>
-     * Assignments inside a condition are not used: the optimizer does not follow them.
+     * and the condition {@code m && rest}. {@code a} is evaluated first and only {@code m} is left to test.
+     *
+     * @param conjuncts The operands of the condition, the {@code &&}-chain.
+     * @param out Receives the statements that come before the condition.
+     * @return Returns the condition that is left, or null if no operand holds a record pattern.
      */
-    @Override
-    public Tree visitIfStatement(final IfStatementTree ifStatement,
-                                 final LowerScope scope) {
-        final var conjuncts = new ArrayList<ExpressionTree>();
-        collectConjuncts(ifStatement.getExpression(), conjuncts);
-        if (conjuncts.isEmpty()
-                || !(conjuncts.getFirst() instanceof InstanceOfExpression instanceOf)
-                || !(instanceOf.getTypeExpression() instanceof RecordPattern recordPattern)) {
-            return super.visitIfStatement(ifStatement, scope);
+    private ExpressionTree lowerRecordPatterns(final List<ExpressionTree> conjuncts,
+                                               final List<StatementTree> out,
+                                               final LowerScope scope,
+                                               final int line,
+                                               final int column) {
+        int index = -1;
+        for (int i = 0; i < conjuncts.size(); i++) {
+            if (conjuncts.get(i) instanceof InstanceOfExpression instanceOf
+                    && instanceOf.getTypeExpression() instanceof RecordPattern) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            return null;
         }
 
-        final int line = ifStatement.getLineNumber();
-        final int column = ifStatement.getColumnNumber();
+        final var instanceOf = (InstanceOfExpression) conjuncts.get(index);
+        final var recordPattern = (RecordPattern) instanceOf.getTypeExpression();
         final var booleanType = types.getPrimitiveType(TypeKind.BOOLEAN);
         final var recordType = recordPattern.getRecordType().getType();
         if (recordType == null) {
             throw new IllegalStateException("record pattern type not resolved");
         }
 
-        final var statements = new ArrayList<StatementTree>();
-
         final var expression = (ExpressionTree) acceptTree(instanceOf.getExpression(), scope);
         final var expressionType = expression.getType() != null ? expression.getType() : types.getObjectType();
         final var tempName = generateVariableName();
         final var tempSymbol = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE).simpleName(tempName).type(expressionType).build();
-        statements.add(TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(),
+        out.add(TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(),
                 createIdentifierFromType(expressionType), createIdentifier(tempName, tempSymbol), null,
-                expression, line, column));
+                defaultInitializer(expressionType, line, column), line, column));
 
         final var receiver = castExpressionTree(createIdentifier(tempName, tempSymbol), recordType, line, column);
         final var bindings = buildRecordBindings(recordPattern, receiver, scope, line, column);
-        statements.addAll(bindings.decls);
+        out.addAll(bindings.decls);
 
         final var matchedName = generateVariableName();
         final var matchedSymbol = new VariableSymbolBuilderImpl()
                 .kind(ElementKind.LOCAL_VARIABLE).simpleName(matchedName).type(booleanType).build();
-        statements.add(TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(),
+        out.add(TreeMaker.variableDeclarator(Kind.LOCAL_VARIABLE, new Modifiers(),
                 createIdentifierFromType(booleanType), createIdentifier(matchedName, matchedSymbol), null,
                 defaultInitializer(booleanType, line, column), line, column));
 
-        final var thenStatements = new ArrayList<>(bindings.assigns);
+        final var matchedStatements = new ArrayList<>(bindings.assigns);
         final var setMatched = TreeMaker.literalExpressionTree(Boolean.TRUE, line, column);
         setMatched.setType(booleanType);
-        thenStatements.add(TreeMaker.expressionStatement(TreeMaker.assignmentExpression(
+        matchedStatements.add(TreeMaker.expressionStatement(TreeMaker.assignmentExpression(
                 createIdentifier(matchedName, matchedSymbol), setMatched, line, column), line, column));
 
         final var typeCheck = TreeMaker.instanceOfExpression(
                 createIdentifier(tempName, tempSymbol), createIdentifierFromType(recordType), line, column);
         typeCheck.setType(booleanType);
-        statements.add(TreeMaker.ifStatementTree(typeCheck,
-                TreeMaker.blockStatement(thenStatements, line, column), null, line, column));
+        final StatementTree check = TreeMaker.blockStatement(List.of(
+                TreeMaker.expressionStatement(TreeMaker.assignmentExpression(
+                        createIdentifier(tempName, tempSymbol), expression, line, column), line, column),
+                TreeMaker.ifStatementTree(typeCheck,
+                        TreeMaker.blockStatement(matchedStatements, line, column), null, line, column)
+        ), line, column);
 
-        ExpressionTree condition = createIdentifier(matchedName, matchedSymbol);
-        condition.setType(booleanType);
-        for (int i = 1; i < conjuncts.size(); i++) {
-            condition = TreeMaker.binaryExpressionTree(condition, Tag.AND,
-                    (ExpressionTree) acceptTree(conjuncts.get(i), scope), line, column);
-            condition.setType(booleanType);
+        if (index == 0) {
+            out.add(check);
+        } else {
+            out.add(TreeMaker.ifStatementTree(
+                    and(conjuncts.subList(0, index), scope, line, column), check, null, line, column));
         }
 
+        final var rest = new ArrayList<ExpressionTree>();
+        final var matched = createIdentifier(matchedName, matchedSymbol);
+        matched.setType(booleanType);
+        rest.add(matched);
+        rest.addAll(conjuncts.subList(index + 1, conjuncts.size()));
+        final var lowered = lowerRecordPatterns(rest, out, scope, line, column);
+        return lowered != null ? lowered : and(rest, scope, line, column);
+    }
+
+    private ExpressionTree and(final List<ExpressionTree> conjuncts,
+                               final LowerScope scope,
+                               final int line,
+                               final int column) {
+        final var booleanType = types.getPrimitiveType(TypeKind.BOOLEAN);
+        ExpressionTree result = null;
+        for (final var conjunct : conjuncts) {
+            final var lowered = (ExpressionTree) acceptTree(conjunct, scope);
+            if (result == null) {
+                result = lowered;
+            } else {
+                result = TreeMaker.binaryExpressionTree(result, Tag.AND, lowered, line, column);
+                result.setType(booleanType);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Lowers the record patterns of the condition of {@code statement}: the statements that come before the
+     * condition and the condition itself, or null if there is no record pattern.
+     */
+    private record LoweredCondition(List<StatementTree> statements, ExpressionTree condition) {
+    }
+
+    private LoweredCondition lowerCondition(final ExpressionTree expression,
+                                            final LowerScope scope,
+                                            final int line,
+                                            final int column) {
+        final var conjuncts = new ArrayList<ExpressionTree>();
+        collectConjuncts(expression, conjuncts);
+        final var statements = new ArrayList<StatementTree>();
+        final var condition = lowerRecordPatterns(conjuncts, statements, scope, line, column);
+        return condition == null ? null : new LoweredCondition(statements, condition);
+    }
+
+    @Override
+    public Tree visitIfStatement(final IfStatementTree ifStatement,
+                                 final LowerScope scope) {
+        final int line = ifStatement.getLineNumber();
+        final int column = ifStatement.getColumnNumber();
+        final var lowered = lowerCondition(ifStatement.getExpression(), scope, line, column);
+        if (lowered == null) {
+            return super.visitIfStatement(ifStatement, scope);
+        }
+
+        final var statements = new ArrayList<>(lowered.statements());
         final var thenStatement = (StatementTree) acceptTree(ifStatement.getThenStatement(), scope);
         final var elseStatement = ifStatement.getElseStatement() != null
                 ? (StatementTree) acceptTree(ifStatement.getElseStatement(), scope)
                 : null;
-        statements.add(TreeMaker.ifStatementTree(condition, thenStatement, elseStatement, line, column));
+        statements.add(TreeMaker.ifStatementTree(lowered.condition(), thenStatement, elseStatement, line, column));
         return TreeMaker.blockStatement(statements, line, column);
+    }
+
+    /** {@code return a instanceof R(var x) && x > 0;} becomes the statements of the pattern and a return. */
+    @Override
+    public Tree visitReturnStatement(final ReturnStatementTree returnStatement,
+                                     final LowerScope scope) {
+        if (returnStatement.getExpression() != null) {
+            final int line = returnStatement.getLineNumber();
+            final int column = returnStatement.getColumnNumber();
+            final var lowered = lowerCondition(returnStatement.getExpression(), scope, line, column);
+            if (lowered != null) {
+                final var statements = new ArrayList<>(lowered.statements());
+                statements.add(TreeMaker.returnStatement(lowered.condition(), line, column));
+                return TreeMaker.blockStatement(statements, line, column);
+            }
+        }
+        return super.visitReturnStatement(returnStatement, scope);
+    }
+
+    /**
+     * {@code while (x instanceof R(var a)) body} becomes
+     * {@code while (true) { <statements of the pattern> if (!m) break; body }}.
+     */
+    @Override
+    public Tree visitWhileStatement(final WhileStatementTree whileStatement,
+                                    final LowerScope scope) {
+        final int line = whileStatement.getLineNumber();
+        final int column = whileStatement.getColumnNumber();
+        final var lowered = lowerCondition(whileStatement.getCondition(), scope, line, column);
+        if (lowered == null) {
+            return super.visitWhileStatement(whileStatement, scope);
+        }
+
+        final var booleanType = types.getPrimitiveType(TypeKind.BOOLEAN);
+        final var statements = new ArrayList<>(lowered.statements());
+        final var negated = TreeMaker.unaryExpressionTree(Tag.NOT, lowered.condition(), line, column);
+        negated.setType(booleanType);
+        statements.add(TreeMaker.ifStatementTree(negated, BreakStatement.create(null, line, column), null, line, column));
+        statements.add((StatementTree) acceptTree(whileStatement.getBody(), scope));
+
+        final var always = TreeMaker.literalExpressionTree(Boolean.TRUE, line, column);
+        always.setType(booleanType);
+        return TreeMaker.whileStatement(always, TreeMaker.blockStatement(statements, line, column), line, column);
     }
 
     /** The operands of {@code a && b && c}, in evaluation order. */

@@ -25,6 +25,7 @@ import io.github.potjerodekool.nabu.tools.diagnostic.DefaultDiagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.Diagnostic;
 import io.github.potjerodekool.nabu.tools.diagnostic.DiagnosticListener;
 import io.github.potjerodekool.nabu.tree.CompilationUnit;
+import io.github.potjerodekool.nabu.tree.ImportItem;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.util.CompileException;
 
@@ -482,6 +483,10 @@ public class NabuCompiler implements Compiler {
                 .map(it -> check(it, compilerContext, compilerDiagnosticListener))
                 .collect(Collectors.toCollection(ArrayList::new));
 
+        for (final var unit : compilationUnits) {
+            reportAmbiguousModuleImports(unit);
+        }
+
         if (compilerDiagnosticListener.getErrorCount() > 0) {
             return List.of();
         }
@@ -491,6 +496,26 @@ public class NabuCompiler implements Compiler {
                 .map(cu -> lower(cu, compilerContext))
                 //.map(cu -> IRPhase.ir(compilerContext, cu))
                 .toList();
+    }
+
+    /** A name that two module imports provide as different types is an error where it is used (JLS 7.5.5). */
+    private void reportAmbiguousModuleImports(final CompilationUnit unit) {
+        final var moduleImport = unit.getImportItems().stream()
+                .filter(ImportItem::isModule)
+                .findFirst()
+                .orElse(null);
+        if (moduleImport == null) {
+            return;
+        }
+        for (final var message : unit.getStartImportScope().ambiguityMessages()) {
+            compilerDiagnosticListener.report(new DefaultDiagnostic(
+                    Diagnostic.Kind.ERROR,
+                    message + " (import module, line " + moduleImport.getLineNumber() + ")",
+                    unit.getFileObject(),
+                    moduleImport.getLineNumber(),
+                    moduleImport.getColumnNumber()
+            ));
+        }
     }
 
     private List<CompilationUnit> parseAndEnter(final List<? extends FileObject> files,

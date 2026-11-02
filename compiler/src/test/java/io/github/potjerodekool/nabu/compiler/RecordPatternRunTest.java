@@ -221,7 +221,7 @@ class RecordPatternRunTest {
                         List<String> names = new ArrayList<>(List.of("b", "a"));
                         Collections.sort(names);
                         Path path = Path.of("x", "y");
-                        Timestamp date = new Timestamp(0L);
+                        Time date = new Time(0L);
                         Logger logger = Logger.getLogger("mi");
                         return names + " " + path.getNameCount() + " " + date.getTime() + " " + logger.getName();
                     }

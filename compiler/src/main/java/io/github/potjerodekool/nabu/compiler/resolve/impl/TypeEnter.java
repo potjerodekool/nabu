@@ -522,7 +522,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                     }
                     final var packages = new java.util.LinkedHashSet<String>();
                     collectExportedPackages(module, packages, new java.util.HashSet<>());
-                    packages.forEach(packageName -> importStarImport(moduleElement, packageName, compilationUnit));
+                    packages.forEach(packageName -> importStarImport(moduleElement, packageName, compilationUnit, true));
                 });
 
         final var packageDeclaration = compilationUnit.getPackageDeclaration();
@@ -686,6 +686,13 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
     private PackageElement importStarImport(final ModuleElement moduleElement,
                                            final String classOrPackageName,
                                            final CompilationUnit compilationUnit) {
+        return importStarImport(moduleElement, classOrPackageName, compilationUnit, false);
+    }
+
+    private PackageElement importStarImport(final ModuleElement moduleElement,
+                                           final String classOrPackageName,
+                                           final CompilationUnit compilationUnit,
+                                           final boolean fromModule) {
         // Voltooi (en scan indien nodig) het pakket â€” bijv. java.util.*.
         final var packageSymbol = symbolTable.lookupPackage(
                 moduleElement,
@@ -698,7 +705,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
 
             packageSymbol.getMembers().elements().stream()
                     .filter(Element::isType)
-                    .forEach(scope::define);
+                    .forEach(fromModule ? scope::defineFromModule : scope::define);
 
             return packageSymbol;
         }

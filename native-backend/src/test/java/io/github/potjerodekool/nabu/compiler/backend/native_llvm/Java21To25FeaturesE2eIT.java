@@ -139,6 +139,9 @@ class Java21To25FeaturesE2eIT {
                         return f.apply(o);
                     }
 
+                    static final Object FIELD_SHAPE = new Rect(5, 1);
+                    static final boolean WIDE = FIELD_SHAPE instanceof Rect(int w, int h) && w > h;
+
                     static String shown(Object o) {
                         return String.valueOf(o instanceof Rect(int w, int h) && w > h);
                     }
@@ -195,7 +198,7 @@ class Java21To25FeaturesE2eIT {
                                 + implicit(new One()) + " " + implicit(new Two()));
                         System.out.println(concatenated(new Circle(1)) + " " + asArgument(new Rect(9, 1)) + " "
                                 + asArgument(new Rect(1, 1)) + " " + insideLambda(new Circle(1)) + " "
-                                + insideLambda("x") + " " + shown(new Rect(3, 1)) + " " + shown(new Rect(1, 3)));
+                                + insideLambda("x") + " " + shown(new Rect(3, 1)) + " " + shown(new Rect(1, 3)) + " " + WIDE);
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -244,7 +247,7 @@ class Java21To25FeaturesE2eIT {
                 done
                 null A BC other npe s
                 c h j one two
-                is circle! big small lc lo true false
+                is circle! big small lc lo true false true
                 """, output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

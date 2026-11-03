@@ -500,4 +500,60 @@ class PatternSwitchPositionsRunTest {
                     }
                 """));
     }
+
+    @Test
+    void recordPatternInAFieldInitializer() throws Exception {
+        assertEquals("true false 7", runBody("FieldRp1", """
+                    static final Object A = new Circle(4);
+                    static final Object B = new Circle(1);
+                    static final boolean BIG_A = A instanceof Circle(int r) && r > 3;
+                    static final boolean BIG_B = B instanceof Circle(int r) && r > 3;
+                    final Object shape = new Square(7);
+                    final int side = shape instanceof Square(int s) ? s : -1;
+                    public static String run() {
+                        return BIG_A + " " + BIG_B + " " + new FieldRp1().side;
+                    }
+                """));
+    }
+
+    @Test
+    void patternsInAnArrayDimensionAndElements() throws Exception {
+        assertEquals("2 b", runBody("Array1", """
+                    public static String run() {
+                        Object o = new Circle(2);
+                        int[] sized = new int[switch (o) {
+                            case Circle(int r) -> r;
+                            default -> 0;
+                        }];
+                        String[] items = {"a", switch (o) {
+                            case Circle c -> "b";
+                            default -> "x";
+                        }};
+                        return sized.length + " " + items[1];
+                    }
+                """));
+    }
+
+    @Test
+    void patternsInALocalAndAnAnonymousClass() throws Exception {
+        assertEquals("local-circle anon-circle", runBody("Local1", """
+                    public static String run() {
+                        class Describer {
+                            String describe(Object o) {
+                                return "local-" + switch (o) {
+                                    case Circle c -> "circle";
+                                    default -> "other";
+                                };
+                            }
+                        }
+                        Object o = new Circle(1);
+                        java.util.function.Supplier<String> anon = new java.util.function.Supplier<>() {
+                            public String get() {
+                                return "anon-" + (o instanceof Circle(int r) ? "circle" : "other");
+                            }
+                        };
+                        return new Describer().describe(o) + " " + anon.get();
+                    }
+                """));
+    }
 }

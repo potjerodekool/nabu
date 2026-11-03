@@ -39,6 +39,9 @@ final class PatternSwitchRewriter {
     /** Lowers {@code x instanceof R(var a)}; the declarations go to {@code hoisted} or, if null, in the result. */
     interface RecordPatternLowering {
         ExpressionTree lower(InstanceOfExpression instanceOf, List<StatementTree> hoisted);
+
+        /** {@code value} evaluated after the declarations, in an expression: for an initializer. */
+        ExpressionTree declaringFirst(List<StatementTree> declarations, ExpressionTree value);
     }
 
     PatternSwitchRewriter(final java.util.function.Predicate<SwitchExpressionTree> isPatternSwitch,
@@ -53,8 +56,26 @@ final class PatternSwitchRewriter {
         return body == null ? null : (BlockStatementTree) statement(body);
     }
 
-    ExpressionTree rewriteExpression(final ExpressionTree expression) {
-        return expression(expression, true);
+    /**
+     * @param hooked Is true if the lowering handles a record pattern at the top of the expression itself (the
+     * initializer of a local variable). The initializer of a field has no statement to declare the variables of a
+     * pattern before, so they are declared at the start of an expression that holds the initializer.
+     */
+    ExpressionTree rewriteExpression(final ExpressionTree expression,
+                                     final boolean hooked) {
+        if (hooked || recordPatternLowering == null) {
+            return expression(expression, hooked);
+        }
+        final var outer = hoisted;
+        final var declarations = new ArrayList<StatementTree>();
+        hoisted = declarations;
+        final ExpressionTree rewritten;
+        try {
+            rewritten = expression(expression, false);
+        } finally {
+            hoisted = outer;
+        }
+        return declarations.isEmpty() ? rewritten : recordPatternLowering.declaringFirst(declarations, rewritten);
     }
 
     private ExpressionTree expression(final ExpressionTree tree) {

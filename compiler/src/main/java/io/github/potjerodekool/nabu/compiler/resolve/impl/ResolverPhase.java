@@ -323,7 +323,12 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                     initializer.setType(variableType);
                 }
                 lambdaCheck(variableDeclaratorStatement.getValue(), variableType);
-                acceptTree(variableDeclaratorStatement.getValue(), scope);
+                // The variables of a pattern in the initializer of a field are defined in a scope of their own,
+                // not in the scope of the class.
+                final var valueScope = variableDeclaratorStatement.getKind() == Kind.FIELD
+                        ? new LocalScope(scope)
+                        : scope;
+                acceptTree(variableDeclaratorStatement.getValue(), valueScope);
                 // Net als bij een methode-argument: met het doeltype bekend
                 // de impliciete parameters typeren en de body opnieuw
                 // resolven. In `Comparator<String> c = (a, b) -> a.length()`

@@ -735,8 +735,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression,
                                           final LowerScope scope) {
         if (instanceOfExpression.getTypeExpression() instanceof RecordPattern) {
-            throw new IllegalStateException("a record pattern in instanceof is not supported in the "
-                    + "initializer of a field, line " + instanceOfExpression.getLineNumber());
+            throw new IllegalStateException("a record pattern in instanceof was not lowered, line "
+                    + instanceOfExpression.getLineNumber());
         }
         return super.visitInstanceOfExpression(instanceOfExpression, scope);
     }
@@ -1716,7 +1716,37 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         return new PatternSwitchRewriter(
                 switchExpression -> isPatternSwitch(switchExpression.getCases()),
                 switchExpression -> lowerPatternSwitchInPlace(switchExpression, scope),
-                (instanceOf, hoisted) -> lowerRecordPatternInPlace(instanceOf, hoisted, scope));
+                new PatternSwitchRewriter.RecordPatternLowering() {
+                    @Override
+                    public ExpressionTree lower(final InstanceOfExpression instanceOf,
+                                                final List<StatementTree> hoisted) {
+                        return lowerRecordPatternInPlace(instanceOf, hoisted, scope);
+                    }
+
+                    @Override
+                    public ExpressionTree declaringFirst(final List<StatementTree> declarations,
+                                                         final ExpressionTree value) {
+                        return declaringFirstInPlace(declarations, value);
+                    }
+                });
+    }
+
+    /** {@code switch (0) { default -> { <declarations> yield value; } }} */
+    private ExpressionTree declaringFirstInPlace(final List<StatementTree> declarations,
+                                                 final ExpressionTree value) {
+        final int line = value.getLineNumber();
+        final int column = value.getColumnNumber();
+        final var statements = new ArrayList<>(declarations);
+        statements.add(YieldStatement.create(value, line, column));
+        final var body = CaseStatement.create(CaseStatement.CaseKind.RULE,
+                List.of(DefaultCaseLabel.create(line, column)),
+                TreeMaker.blockStatement(statements, line, column), line, column);
+        final var result = new SwitchExpressionTreeBuilder()
+                .selector(intLiteral(0, line, column))
+                .cases(List.of(body))
+                .build();
+        result.setType(value.getType());
+        return result;
     }
 
     /**
@@ -1764,7 +1794,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
             return variableDeclaratorStatement;
         }
         final var initializer = variableDeclaratorStatement.getValue() instanceof ExpressionTree value
-                ? patternSwitchRewriter(scope).rewriteExpression(value)
+                ? patternSwitchRewriter(scope).rewriteExpression(value,
+                        variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE)
                 : (ExpressionTree) variableDeclaratorStatement.getValue();
         final var loweredInitializer = variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE
                 && initializer != null

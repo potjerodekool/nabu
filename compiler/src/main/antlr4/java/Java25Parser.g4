@@ -168,7 +168,7 @@ coit
     ;
 
 classOrInterfaceType
-    : (packageName '.')? annotation* typeIdentifier typeArguments? coit?
+    : annotation* typeIdentifier typeArguments? coit?
     ;
 
 classType
@@ -493,7 +493,7 @@ unannReferenceType
 //
 
 unannClassOrInterfaceType
-    : (packageName '.' annotation*)? typeIdentifier typeArguments? uCOIT?
+    : typeIdentifier typeArguments? uCOIT?
     ;
 
 uCOIT

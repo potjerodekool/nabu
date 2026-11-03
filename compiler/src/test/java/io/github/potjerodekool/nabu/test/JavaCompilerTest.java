@@ -132,11 +132,17 @@ class TypeParser extends AbstractParseTreeVisitor<Object> implements Java25Parse
 
     @Override
     public Object visitClassOrInterfaceType(final Java25Parser.ClassOrInterfaceTypeContext ctx) {
-        final var packageName = (String) accept(ctx.packageName());
-        final var typeIdentifier = (String) ctx.typeIdentifier().accept(this);
-        final var typeArguments = (List<TypeMirror>) accept(ctx.typeArguments());
+        final var qualified = new StringBuilder((String) ctx.typeIdentifier().accept(this));
+        var typeArgumentsContext = ctx.typeArguments();
 
-        final var className = concatNames(packageName, typeIdentifier);
+        for (var next = ctx.coit(); next != null; next = next.coit()) {
+            qualified.append('.').append(next.typeIdentifier().accept(this));
+            typeArgumentsContext = next.typeArguments();
+        }
+
+        final var typeArguments = (List<TypeMirror>) accept(typeArgumentsContext);
+
+        final var className = qualified.toString();
 
         final var element = context.getClassElementLoader().loadClass(
                 context.getModules().getJavaBase(),

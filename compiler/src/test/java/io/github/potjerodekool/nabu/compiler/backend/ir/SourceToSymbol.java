@@ -185,11 +185,11 @@ class SimpleParseTreeVisitor extends Java25ParserBaseVisitor<Object> {
     public Object visitUnannClassOrInterfaceType(final Java25Parser.UnannClassOrInterfaceTypeContext ctx) {
         final var className = new StringBuilder();
 
-        if (ctx.packageName() != null) {
-            className.append(ctx.packageName().accept(this));
-        }
-
         className.append(ctx.typeIdentifier().accept(this));
+
+        for (var next = ctx.uCOIT(); next != null; next = next.uCOIT()) {
+            className.append('.').append(next.typeIdentifier().accept(this));
+        }
 
         final var name = className.toString();
 

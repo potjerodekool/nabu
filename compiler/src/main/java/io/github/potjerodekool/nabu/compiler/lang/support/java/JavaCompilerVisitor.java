@@ -797,33 +797,8 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
 
     @Override
     public Object visitUnannClassOrInterfaceType(final Java25Parser.UnannClassOrInterfaceTypeContext ctx) {
-        ExpressionTree packageName = accept(ctx.packageName());
-        final List<AnnotationTree> annotations = acceptList(ctx.annotation());
-        final var identifier = (Tree) ctx.typeIdentifier().accept(this);
-        Tree expressionTree;
-
-        if (packageName == null) {
-            expressionTree = identifier;
-        } else {
-            if (!annotations.isEmpty()) {
-                expressionTree = TreeMaker.annotatedTypeTree(
-                        annotations,
-                        (ExpressionTree) identifier,
-                        List.of(),
-                        ctx.getStart().getLine(),
-                        ctx.getStart().getCharPositionInLine()
-                );
-            } else {
-                expressionTree = identifier;
-            }
-
-            expressionTree = TreeMaker.fieldAccessExpressionTree(
-                    packageName,
-                    (IdentifierTree) expressionTree,
-                    ctx.getStart().getLine(),
-                    ctx.getStart().getCharPositionInLine()
-            );
-        }
+        // A qualified name (`a.b.C`) is a typeIdentifier followed by a chain of uCOIT.
+        Tree expressionTree = (Tree) ctx.typeIdentifier().accept(this);
 
         if (ctx.typeArguments() != null) {
             final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
@@ -2544,7 +2519,6 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
 
     @Override
     public Object visitClassOrInterfaceType(final Java25Parser.ClassOrInterfaceTypeContext ctx) {
-        ExpressionTree packageName = accept(ctx.packageName());
         final List<AnnotationTree> annotations = acceptList(ctx.annotation());
         Tree result = (Tree) ctx.typeIdentifier().accept(this);
 
@@ -2553,15 +2527,6 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
                     annotations,
                     (ExpressionTree) result,
                     List.of(),
-                    ctx.getStart().getLine(),
-                    ctx.getStart().getCharPositionInLine()
-            );
-        }
-
-        if (packageName != null) {
-            result = TreeMaker.fieldAccessExpressionTree(
-                    packageName,
-                    (IdentifierTree) result,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
@@ -2579,13 +2544,34 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
         }
 
         if (ctx.coit() != null) {
-            final var coit = (ExpressionTree) ctx.coit().accept(this);
-            result = TreeMaker.fieldAccessExpressionTree(
-                    (ExpressionTree) result,
-                    (IdentifierTree) coit,
+            result = processCOIT((ExpressionTree) result, ctx.coit());
+        }
+
+        return result;
+    }
+
+    private ExpressionTree processCOIT(final ExpressionTree base,
+                                       final Java25Parser.CoitContext ctx) {
+        final var identifier = (IdentifierTree) ctx.typeIdentifier().accept(this);
+        ExpressionTree result = TreeMaker.fieldAccessExpressionTree(
+                base,
+                identifier,
+                ctx.getStart().getLine(),
+                ctx.getStart().getCharPositionInLine()
+        );
+
+        if (ctx.typeArguments() != null) {
+            final List<ExpressionTree> typeArguments = acceptList(ctx.typeArguments());
+            result = TreeMaker.typeApplyTree(
+                    result,
+                    typeArguments,
                     ctx.getStart().getLine(),
                     ctx.getStart().getCharPositionInLine()
             );
+        }
+
+        if (ctx.coit() != null) {
+            result = processCOIT(result, ctx.coit());
         }
 
         return result;

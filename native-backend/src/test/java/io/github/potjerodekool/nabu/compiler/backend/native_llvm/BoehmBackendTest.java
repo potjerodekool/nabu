@@ -167,12 +167,16 @@ class BoehmBackendTest {
         final int ctorArrays = ll.split("@llvm.global_ctors", -1).length - 1;
         assertTrue(ctorArrays == 1,
                 "er zijn " + ctorArrays + " @llvm.global_ctors-definities:\n" + ll);
-        assertTrue(ll.contains("appending global [2 x { i32, ptr, ptr }]"),
-                "beide constructors moeten in één appending-array:\n" + ll);
-        assertTrue(ll.contains("ptr @nabu_gc_init_thunk"),
-                "GC-init ontbreekt in de array:\n" + ll);
-        assertTrue(ll.contains("ptr @nabu_reflect_init_greet_GreetCommand"),
-                "reflectie-registratie ontbreekt in de array:\n" + ll);
+        // Meer dan één constructor: één driver (nabu_run_constructors) staat in de array en roept ze in volgorde aan
+        // (commit d29ce99: de linker houdt zich op macOS niet aan de prioriteiten).
+        assertTrue(ll.contains("appending global [1 x { i32, ptr, ptr }]")
+                        && ll.contains("ptr @nabu_run_constructors"),
+                "de constructors moeten via één driver in één appending-array staan:\n" + ll);
+        final String driver = ll.substring(ll.indexOf("define void @nabu_run_constructors()"));
+        assertTrue(driver.contains("call void @nabu_gc_init_thunk()"),
+                "GC-init ontbreekt in de driver:\n" + ll);
+        assertTrue(driver.contains("call void @nabu_reflect_init_greet_GreetCommand()"),
+                "reflectie-registratie ontbreekt in de driver:\n" + ll);
     }
 
     // -------------------------------------------------------

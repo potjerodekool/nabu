@@ -83,8 +83,10 @@ class ClassLiteralObjectTest {
 
         assertTrue(ll.contains("call void @nabu_set_object_vtable(ptr @_ZNabujava_lang_ObjectEvtable)"),
                 "De Object-vtable moet aan de runtime worden doorgegeven:\n" + ll);
-        assertTrue(ll.contains("{ i32 101, ptr @nabu_object_vtable_init, ptr null }"),
-                "De registratie moet vóór de gewone (65535) constructors draaien:\n" + ll);
+        final String driver = ll.substring(ll.indexOf("define void @nabu_run_constructors()"));
+        assertTrue(driver.indexOf("call void @nabu_object_vtable_init()") >= 0
+                        && driver.indexOf("call void @nabu_object_vtable_init()") < driver.indexOf("call void @nabu_gc_init_thunk()"),
+                "De registratie moet vóór de gewone constructors draaien (driver roept ze op prioriteit aan):\n" + ll);
     }
 
     /**

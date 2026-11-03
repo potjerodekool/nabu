@@ -487,6 +487,33 @@ class ProtectedInheritedMembersRunTest {
         assertEquals("abcsb", cls.getMethod("run").invoke(null));
     }
 
+    /** A lambda in a static interface method: the synthetic lambda method lives in the interface (InterfaceMethodref). */
+    @Test
+    void lambdaInStaticInterfaceMethod() throws Exception {
+        final var cls = compileAndLoad("mini.UseLambdaIface", java.util.Map.of(
+                "mini/Maker2.java", """
+                        package mini;
+                        public interface Maker2 {
+                            static java.util.function.Supplier<String> make(String s) {
+                                return () -> s + "!";
+                            }
+                            default java.util.function.Supplier<String> inst(String s) {
+                                return () -> s + "?";
+                            }
+                        }
+                        """,
+                "mini/UseLambdaIface.java", """
+                        package mini;
+                        public class UseLambdaIface {
+                            public static String run() {
+                                Maker2 m = new Maker2() {};
+                                return Maker2.make("a").get() + m.inst("b").get();
+                            }
+                        }
+                        """));
+        assertEquals("a!b?", cls.getMethod("run").invoke(null));
+    }
+
     /**
      * A static member class that only exists as a class file: `static` is only in its InnerClasses attribute, so it
      * looked like an inner class and `Outer.Nested::new` got an enclosing-instance argument that does not exist

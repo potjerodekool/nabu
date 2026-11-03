@@ -1696,7 +1696,7 @@ final boolean isStatic = opcode == Opcodes.INVOKESTATIC;
                 owner,
                 methodName,
                 descriptor,
-                false
+                isInterfaceOwner(owner)
         );
 
         if (targetInterface instanceof IRType.Ptr ptr && ptr.jvmDescriptor() != null) {

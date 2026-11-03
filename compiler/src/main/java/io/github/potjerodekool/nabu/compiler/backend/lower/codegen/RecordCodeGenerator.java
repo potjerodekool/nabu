@@ -19,6 +19,7 @@ import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.impl.CFunction;
 import io.github.potjerodekool.nabu.tree.expression.IdentifierTree;
+import io.github.potjerodekool.nabu.tree.expression.MethodInvocationTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CBinaryExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CIdentifierTree;
@@ -38,6 +39,9 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
     public RecordCodeGenerator(final CompilerContextImpl compilerContext) {
         super(compilerContext);
     }
+
+    private final java.util.Set<CFunction> filledCompactConstructors =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     @Override
     public void generateCode(final ClassDeclaration classDeclaration) {
@@ -59,6 +63,11 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
 
     private void fillCompactConstructor(final CFunction compactConstructor,
                                         final ClassDeclaration classDeclaration) {
+        // The body is filled once: the statements of the compact constructor are in it after that.
+        if (!filledCompactConstructors.add(compactConstructor)) {
+            return;
+        }
+
         final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
         final var superClass = clazz.getSuperclass().asTypeElement();
         final var recordConstructor = ElementFilter.constructorsIn(superClass.getEnclosedElements())
@@ -91,6 +100,15 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
 
         statements.add(new CExpressionStatementTree(constructorInvocation));
 
+        // JLS 8.10.4.2: the statements of the compact constructor run first, they may validate or change the
+        // parameters, and then the fields get the values of the parameters.
+        if (compactConstructor.getBody() != null) {
+            compactConstructor.getBody().getStatements().stream()
+                    .filter(statement -> !(statement instanceof CReturnStatementTree))
+                    .filter(statement -> !isConstructorCall(statement))
+                    .forEach(statements::add);
+        }
+
         statements.addAll(parameters.stream()
                 .map(parameter -> {
                     final var parameterIdentifier = new CIdentifierTree(parameter.getName().getName());
@@ -119,6 +137,19 @@ public class RecordCodeGenerator extends AbstractCodeGenerator {
         ));
 
         compactConstructor.setBody(new CBlockStatementTree(statements));
+    }
+
+    /** The implicit super() that every constructor body starts with. */
+    private static boolean isConstructorCall(final StatementTree statement) {
+        if (!(statement instanceof CExpressionStatementTree expressionStatement)
+                || !(expressionStatement.getExpression() instanceof MethodInvocationTree invocation)) {
+            return false;
+        }
+        final var selector = invocation.getMethodSelector();
+        final var name = selector instanceof IdentifierTree identifier
+                ? identifier.getName()
+                : selector instanceof CFieldAccessExpressionTree fieldAccess ? fieldAccess.getField().getName() : null;
+        return Constants.SUPER.equals(name) || Constants.THIS.equals(name);
     }
 
     private IdentifierTree createThisExpression(final ClassSymbol classSymbol) {

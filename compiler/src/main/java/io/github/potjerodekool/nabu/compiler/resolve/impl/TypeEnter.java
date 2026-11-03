@@ -21,6 +21,7 @@ import io.github.potjerodekool.nabu.compiler.type.impl.CClassType;
 import io.github.potjerodekool.nabu.tree.*;
 import io.github.potjerodekool.nabu.tree.element.ClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Function;
+import io.github.potjerodekool.nabu.tree.element.impl.CClassDeclaration;
 import io.github.potjerodekool.nabu.tree.element.Kind;
 import io.github.potjerodekool.nabu.tree.element.builder.FunctionBuilder;
 import io.github.potjerodekool.nabu.tree.expression.*;
@@ -1836,18 +1837,35 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         };
     }
 
+    /**
+     * JLS 12.5: the instance variable initializers and the instance initializers run in textual order, after the
+     * call of super(...). The initializers that are no literal and the instance initializers become statements of
+     * every constructor that does not call this(...). A literal is set by the IR generation.
+     */
     private void initInstanceFields(final ClassDeclaration classDeclaration) {
-        final var instanceFields = TreeFilter.fieldsIn(classDeclaration.getEnclosedElements()).stream()
+        final var enclosedElements = classDeclaration.getEnclosedElements();
+        final var instanceFields = TreeFilter.fieldsIn(enclosedElements).stream()
                 .filter(field -> !field.hasFlag(Flags.STATIC))
                 .filter(field -> field.getValue() != null)
                 .filter(field -> !(field.getValue() instanceof LiteralExpressionTree))
                 .toList();
+        final var instanceInitializers = TreeFilter.instanceInitializersIn(enclosedElements);
 
-        if (instanceFields.isEmpty()) {
+        if (instanceFields.isEmpty() && instanceInitializers.isEmpty()) {
             return;
         }
 
-        TreeFilter.constructorsIn(classDeclaration.getEnclosedElements())
+        // The fields and the instance initializers in the order of the source.
+        final var items = new ArrayList<Tree>();
+        for (final var element : enclosedElements) {
+            if ((element instanceof VariableDeclaratorTree field && instanceFields.contains(field))
+                    || (element instanceof Function initializer && instanceInitializers.contains(initializer))) {
+                items.add(element);
+            }
+        }
+
+        final var handledAll = new boolean[]{true};
+        TreeFilter.constructorsIn(enclosedElements)
                 .forEach(constructor -> {
                     final var statements = constructor.getBody().getStatements();
                     int invokeSuperIndex = -1;
@@ -1861,16 +1879,38 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                     }
 
                     if (invokeSuperIndex != -1) {
-                        initInstanceFields(constructor, invokeSuperIndex, instanceFields);
+                        initInstanceFields(constructor, invokeSuperIndex, items);
+                    } else if (!statements.isEmpty() && isThisInvocation(statements.getFirst())) {
+                        // this(...): the constructor that is called runs the initializers.
+                    } else {
+                        handledAll[0] = false;
                     }
                 });
+
+        // The instance initializers are in the constructors now; the IR generation must not run them again.
+        if (handledAll[0] && !instanceInitializers.isEmpty()
+                && classDeclaration instanceof CClassDeclaration declaration) {
+            declaration.removeEnclosedElements(instanceInitializers);
+        }
+    }
+
+    private boolean isThisInvocation(final StatementTree statement) {
+        return statement instanceof ExpressionStatementTree expressionStatement
+                && expressionStatement.getExpression() instanceof MethodInvocationTree invocation
+                && invocation.getMethodSelector() instanceof IdentifierTree identifier
+                && Constants.THIS.equals(identifier.getName());
     }
 
     private void initInstanceFields(final Function constructor,
                                     final int invokeSuperIndex,
-                                    final List<VariableDeclaratorTree> instanceFields) {
-        final var initInstanceFields = instanceFields.stream()
-                .map(field -> {
+                                    final List<Tree> items) {
+        final var initInstanceFields = items.stream()
+                .map(item -> {
+                    if (item instanceof Function initializer) {
+                        // { ... }: its own block, so that its local variables stay local.
+                        return (StatementTree) initializer.getBody();
+                    }
+                    final var field = (VariableDeclaratorTree) item;
                     //this.myList = new ArrayList<>();
 
                     final var left = new FieldAccessExpressionBuilder()
@@ -1884,7 +1924,7 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
                             .right((ExpressionTree) field.getValue())
                             .build();
 
-                    return TreeMaker.expressionStatement(
+                    return (StatementTree) TreeMaker.expressionStatement(
                             expression,
                             field.getLineNumber(),
                             field.getColumnNumber());

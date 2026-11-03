@@ -2598,13 +2598,22 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
         final List<TypeParameterTree> typeParameters = acceptList(ctx.typeParameters());
         final List<VariableDeclaratorTree> header = acceptList(ctx.recordHeader().recordComponentList());
         final List<ExpressionTree> classImplements = acceptList(ctx.classImplements());
-        final List<Tree> body = acceptList(ctx.recordBody());
+        final List<Tree> declaredBody = acceptList(ctx.recordBody());
 
         if (modifiers.hasFlag(Flags.FINAL)) {
             modifiers = modifiers.with(Flags.FINAL);
         }
 
-        final var constructor = createCompactConstructor(header);
+        // The compact constructor of the source (`Range { ... }`) has no parameters of its own: its statements are the
+        // beginning of the body of the canonical constructor, which has the components as parameters.
+        final var body = new ArrayList<Tree>(declaredBody);
+        final var declaredCompact = body.stream()
+                .filter(it -> it instanceof Function function && function.hasFlag(Flags.COMPACT_RECORD_CONSTRUCTOR))
+                .map(it -> (Function) it)
+                .findFirst();
+        declaredCompact.ifPresent(body::remove);
+        final var constructor = createCompactConstructor(header,
+                declaredCompact.map(Function::getBody).orElse(null));
 
         final var enclosedElements = new ArrayList<Tree>();
         enclosedElements.add(constructor);
@@ -2871,7 +2880,8 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
                 .build();
     }
 
-    private Function createCompactConstructor(final List<VariableDeclaratorTree> header) {
+    private Function createCompactConstructor(final List<VariableDeclaratorTree> header,
+                                              final BlockStatementTree declaredBody) {
         return new FunctionBuilder()
                 .kind(Kind.CONSTRUCTOR)
                 .modifiers(
@@ -2882,7 +2892,7 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
                 )
                 .simpleName(Constants.INIT)
                 .parameters(header)
-                .body(TreeMaker.blockStatement(List.of(), -1, -1))
+                .body(declaredBody != null ? declaredBody : TreeMaker.blockStatement(List.of(), -1, -1))
                 .returnType(
                         TreeMaker.primitiveTypeTree(
                                 PrimitiveTypeTree.Kind.VOID,

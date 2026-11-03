@@ -145,6 +145,13 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         var left = binaryExpression.getLeft();
         var right = binaryExpression.getRight();
 
+        // x op= y reads and writes the variable, unboxes, promotes and narrows in the IR generation (JLS 15.26.2).
+        // Converting the operands here would unbox the variable that is written, or cast y to the type of x:
+        // int x = 10; x *= 0.5 is 5, not 10 * (int) 0.5.
+        if (isCompoundAssignment(binaryExpression.getTag())) {
+            return binaryExpression;
+        }
+
         if (scope != null) {
             final var leftType = compilerContext.getTreeUtils().typeOf(left);
             final var rightType = compilerContext.getTreeUtils().typeOf(right);
@@ -190,6 +197,14 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
         }
 
         return binaryExpression;
+    }
+
+    private static boolean isCompoundAssignment(final Tag tag) {
+        return switch (tag) {
+            case ADD_ASSIGN, SUB_ASSIGN, MUL_ASSIGN, DIV_ASSIGN, AND_ASSIGN, OR_ASSIGN, XOR_ASSIGN, MOD_ASSIGN,
+                 LSHIFT_ASSIGN, RSHIFT_ASSIGN, URSHIFT_ASSIGN -> true;
+            default -> false;
+        };
     }
 
     @Override

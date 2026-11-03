@@ -29,8 +29,8 @@ public class MyClass {
     ASTORE 12
     ACONST_NULL
     ASTORE 13
-    ACONST_NULL
-    ASTORE 14
+    ICONST_0
+    ISTORE 14
     ICONST_0
     ISTORE 15
     ICONST_0
@@ -39,8 +39,6 @@ public class MyClass {
     ISTORE 17
     ICONST_0
     ISTORE 18
-    ICONST_0
-    ISTORE 19
     ALOAD 1
     ASTORE 2
     ICONST_0
@@ -49,7 +47,7 @@ public class MyClass {
     ISTORE 4
    L1
     LINENUMBER 7 L1
-   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer I I I I I] []
     ILOAD 4
     ISTORE 5
     ALOAD 2
@@ -64,7 +62,7 @@ public class MyClass {
    L3
     LINENUMBER 8 L3
     LINENUMBER 9 L3
-   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer I I I I I] []
     ILOAD 3
     ISTORE 9
     ALOAD 2
@@ -79,32 +77,29 @@ public class MyClass {
     CHECKCAST java/lang/Integer
     ASTORE 13
     ALOAD 13
-    CHECKCAST java/lang/Integer
-    ASTORE 14
-    ALOAD 14
     INVOKEVIRTUAL java/lang/Integer.intValue ()I
-    ISTORE 15
+    ISTORE 14
     ILOAD 9
-    ILOAD 15
+    ILOAD 14
     IADD
-    ISTORE 16
-    ILOAD 16
+    ISTORE 15
+    ILOAD 15
     ISTORE 3
     ILOAD 4
-    ISTORE 17
-    ILOAD 17
+    ISTORE 16
+    ILOAD 16
     ICONST_1
     IADD
-    ISTORE 18
-    ILOAD 18
+    ISTORE 17
+    ILOAD 17
     ISTORE 4
     GOTO L1
    L2
     LINENUMBER 12 L2
-   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer java/lang/Integer I I I I I] []
+   FRAME FULL [MyClass java/util/List java/util/List I I I java/util/List I I I java/util/List I java/lang/Object java/lang/Integer I I I I I] []
     ILOAD 3
-    ISTORE 19
-    ILOAD 19
+    ISTORE 18
+    ILOAD 18
     IRETURN
    L4
     LOCALVARIABLE this LMyClass; L0 L4 0
@@ -112,7 +107,7 @@ public class MyClass {
     LOCALVARIABLE result I L0 L4 3
     LOCALVARIABLE pos I L0 L4 4
     MAXSTACK = 2
-    MAXLOCALS = 20
+    MAXLOCALS = 19
 
   // access flags 0x1
   public <init>()V

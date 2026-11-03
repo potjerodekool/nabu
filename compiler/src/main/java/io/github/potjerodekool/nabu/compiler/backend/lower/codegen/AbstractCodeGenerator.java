@@ -68,7 +68,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
 
         final var mergedClientInit = createClientInit();
 
-        initStaticFields(clazzDeclaration, mergedClientInit);
+        initStaticMembers(clazzDeclaration, clientInitializers, mergedClientInit);
         mergeClientInitializers(
                 clientInitializers,
                 mergedClientInit,
@@ -123,8 +123,13 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
         return clientInit;
     }
 
-    private void initStaticFields(final CClassDeclaration clazzDeclaration,
-                                  final CFunction mergedClientInit) {
+    /**
+     * JLS 12.4.2: the enum constants, the static variable initializers and the static initializers run in the
+     * order of the source.
+     */
+    private void initStaticMembers(final CClassDeclaration clazzDeclaration,
+                                   final List<Function> clientInitializers,
+                                   final CFunction mergedClientInit) {
         final var body = mergedClientInit.getBody();
         final var clazz = (ClassSymbol) clazzDeclaration.getClassSymbol();
 
@@ -144,10 +149,18 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
                                 || !isPrimitiveFieldType(it)
                 )
                 .toList();
-        initStaticField(staticFields, clazz, body);
-
-        //Init enum constants.
+        //Init enum constants: they are the first members of an enum.
         initEnumConstantField(TreeFilter.enumConstantsIn(clazzDeclaration.getEnclosedElements()), clazz, body);
+        // $VALUES is set right after the constants, before the static initializers that call values().
+        afterEnumConstants(mergedClientInit, clazzDeclaration);
+
+        for (final var element : clazzDeclaration.getEnclosedElements()) {
+            if (element instanceof Function function && clientInitializers.contains(function)) {
+                body.addStatements(function.getBody().getStatements());
+            } else if (element instanceof VariableDeclaratorTree field && staticFields.contains(field)) {
+                initStaticField(List.of(field), clazz, body);
+            }
+        }
     }
 
     /**
@@ -299,10 +312,7 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
     private void mergeClientInitializers(final List<Function> clientInitializers,
                                          final CFunction mergedClientInitializer,
                                          final ClassDeclaration classDeclaration) {
-        clientInitializers.forEach(clientInit ->
-                mergedClientInitializer.getBody().addStatements(clientInit.getBody().getStatements())
-        );
-
+        // The statements of the static initializers are already in the body, in the order of the source.
         afterClientInitMerge(mergedClientInitializer, classDeclaration);
 
         if (!mergedClientInitializer.getBody().getStatements().isEmpty()) {
@@ -312,6 +322,10 @@ public abstract class AbstractCodeGenerator implements CodeGenerator {
                     -1
             ));
         }
+    }
+
+    protected void afterEnumConstants(final CFunction mergedClientInitializer,
+                                      final ClassDeclaration classDeclaration) {
     }
 
     protected void afterClientInitMerge(final CFunction mergedClientInitializer,

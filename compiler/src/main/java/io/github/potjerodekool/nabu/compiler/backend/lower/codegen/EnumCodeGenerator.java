@@ -44,8 +44,8 @@ public class EnumCodeGenerator extends AbstractCodeGenerator {
         super.generateCode(classDeclaration);
     }
 
-    protected void afterClientInitMerge(final CFunction mergedClientInitializer,
-                                        final ClassDeclaration classDeclaration) {
+    protected void afterEnumConstants(final CFunction mergedClientInitializer,
+                                      final ClassDeclaration classDeclaration) {
         final var clazz = (ClassSymbol) classDeclaration.getClassSymbol();
         final var valuesMethod = findMethod(clazz, "$values")
                 .orElseThrow(() -> new IllegalStateException("Missing $values method"));

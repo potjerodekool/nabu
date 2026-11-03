@@ -785,6 +785,12 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         TypeMirror resultType;
 
+        final var numericType = numericConditionalType(conditionalExpression, trueType, falseType);
+        if (numericType != null) {
+            conditionalExpression.setType(numericType);
+            return defaultAnswer(conditionalExpression, scope);
+        }
+
         if (trueType == null) {
             resultType = falseType;
         } else if (falseType == null || types.isSameType(trueType, falseType)) {
@@ -806,6 +812,52 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         conditionalExpression.setType(resultType);
         return defaultAnswer(conditionalExpression, scope);
+    }
+
+    /**
+     * JLS 15.25.2: the type of a conditional expression whose operands are numeric and of different types, or null
+     * if the other rules apply. byte and short give short; a byte, short or char with an int constant that fits in
+     * it gives that type; else binary numeric promotion ({@code b ? 1 : 2.0} is a double).
+     */
+    private TypeMirror numericConditionalType(final ConditionalExpressionTree conditional,
+                                              final TypeMirror trueType,
+                                              final TypeMirror falseType) {
+        final var left = unboxedPrimitive(trueType);
+        final var right = unboxedPrimitive(falseType);
+        if (left == null || right == null
+                || left.getKind() == TypeKind.BOOLEAN || right.getKind() == TypeKind.BOOLEAN
+                || left.getKind() == right.getKind()) {
+            return null;
+        }
+        final var l = left.getKind();
+        final var r = right.getKind();
+        if ((l == TypeKind.BYTE && r == TypeKind.SHORT) || (l == TypeKind.SHORT && r == TypeKind.BYTE)) {
+            return types.getPrimitiveType(TypeKind.SHORT);
+        }
+        if (isNarrowKind(l) && r == TypeKind.INT && fitsConstant(conditional.getFalseExpression(), l)) {
+            return left;
+        }
+        if (isNarrowKind(r) && l == TypeKind.INT && fitsConstant(conditional.getTrueExpression(), r)) {
+            return right;
+        }
+        return binaryNumericPromotion(left, right);
+    }
+
+    private static boolean isNarrowKind(final TypeKind kind) {
+        return kind == TypeKind.BYTE || kind == TypeKind.SHORT || kind == TypeKind.CHAR;
+    }
+
+    private static boolean fitsConstant(final ExpressionTree expression,
+                                        final TypeKind kind) {
+        if (!(expression instanceof LiteralExpressionTree literal) || !(literal.getLiteral() instanceof Integer value)) {
+            return false;
+        }
+        return switch (kind) {
+            case BYTE -> value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE;
+            case SHORT -> value >= Short.MIN_VALUE && value <= Short.MAX_VALUE;
+            case CHAR -> value >= Character.MIN_VALUE && value <= Character.MAX_VALUE;
+            default -> false;
+        };
     }
 
     /**

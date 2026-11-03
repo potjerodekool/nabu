@@ -2635,6 +2635,9 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
     public IRValue visitUnaryExpression(UnaryExpressionTree unary,
                                         IRBuilder param) {
         Tag tag = unary.getTag();
+        if (tag == Tag.POST_INC || tag == Tag.POST_DEC || tag == Tag.PRE_INC || tag == Tag.PRE_DEC) {
+            return emitIncrement(unary);
+        }
         IRValue operand = acceptTree(unary.getExpression(), builder);
         // Een Boolean-box-operand (bv. `!oppositeValue` met een
         // Boolean-referentie) wordt eerst naar een primitieve bool
@@ -2653,31 +2656,6 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
                 // Logische negatie: operand == false (0)
                 IRValue zero = builder.constBool(false);
                 yield builder.emitBinaryOp(Op.EQ, operand, zero);
-            }
-            case POST_INC -> {
-                // i++ : laad, verhoog, sla op, geef originele waarde terug
-                IRValue one = builder.constInt(1);
-                IRValue incremented = builder.emitBinaryOp(Op.ADD, operand, one);
-                emitStoreBack(unary.getExpression(), incremented);
-                yield operand; // post = geef originele waarde terug
-            }
-            case POST_DEC -> {
-                IRValue one = builder.constInt(1);
-                IRValue decremented = builder.emitBinaryOp(Op.SUB, operand, one);
-                emitStoreBack(unary.getExpression(), decremented);
-                yield operand;
-            }
-            // ++x / --x: ophogen, opslaan en de NIEUWE waarde teruggeven.
-            // Ontbraken: de operand bleef ongewijzigd.
-            case PRE_INC -> {
-                IRValue incremented = builder.emitBinaryOp(Op.ADD, operand, builder.constInt(1));
-                emitStoreBack(unary.getExpression(), incremented);
-                yield incremented;
-            }
-            case PRE_DEC -> {
-                IRValue decremented = builder.emitBinaryOp(Op.SUB, operand, builder.constInt(1));
-                emitStoreBack(unary.getExpression(), decremented);
-                yield decremented;
             }
             default -> operand;
         };
@@ -4126,31 +4104,34 @@ if (argVal != null) args.add(argVal);
         IRValue index = acceptTree(arrayAccess.getIndex(), builder);
 
         if (array != null) {
-            // Het elementtype komt bij voorkeur uit het statische type van de
-            // array-access-expressie. Voor geneste arrays (Text[][]) is de
-            // pointee van het IR-type namelijk een generieke I8 in plaats van
-            // het werkelijke elementtype (Text). In dat laatste geval wordt
-            // het componenttype van de array-expressie gebruikt, en als
-            // fallback een opaque Ptr (de JVM ziet elk referentie-array-
-            // element als een objectreferentie, nooit als kale I8).
-            IRType elemType = arrayAccess.getType() != null
-                    ? TypeMirrorToIRType.map(arrayAccess.getType())
-                    : null;
-            if (elemType == null && arrayAccess.getExpression().getType() instanceof io.github.potjerodekool.nabu.type.ArrayType arrType) {
-                elemType = TypeMirrorToIRType.map(arrType.getComponentType());
-            }
-            if (elemType == null && array.type() instanceof IRType.Ptr ptrType
-                    && ptrType.pointee() instanceof IRType.Ptr) {
-                elemType = ptrType.pointee();
-            }
-            if (elemType == null) {
-                elemType = new IRType.Ptr(IRType.I8);
-            }
-            if (elemType != null) {
-                return builder.emitArrayLoad(array, index, elemType);
-            }
+            return builder.emitArrayLoad(array, index, arrayElementType(arrayAccess, array));
         }
         return null;
+    }
+
+    private IRType arrayElementType(final ArrayAccessExpressionTree arrayAccess,
+                                    final IRValue array) {
+        // Het elementtype komt bij voorkeur uit het statische type van de
+        // array-access-expressie. Voor geneste arrays (Text[][]) is de
+        // pointee van het IR-type namelijk een generieke I8 in plaats van
+        // het werkelijke elementtype (Text). In dat laatste geval wordt
+        // het componenttype van de array-expressie gebruikt, en als
+        // fallback een opaque Ptr (de JVM ziet elk referentie-array-
+        // element als een objectreferentie, nooit als kale I8).
+        IRType elemType = arrayAccess.getType() != null
+                ? TypeMirrorToIRType.map(arrayAccess.getType())
+                : null;
+        if (elemType == null && arrayAccess.getExpression().getType() instanceof io.github.potjerodekool.nabu.type.ArrayType arrType) {
+            elemType = TypeMirrorToIRType.map(arrType.getComponentType());
+        }
+        if (elemType == null && array.type() instanceof IRType.Ptr ptrType
+                && ptrType.pointee() instanceof IRType.Ptr) {
+            elemType = ptrType.pointee();
+        }
+        if (elemType == null) {
+            elemType = new IRType.Ptr(IRType.I8);
+        }
+        return elemType;
     }
 
     // -------------------------------------------------------
@@ -4250,13 +4231,119 @@ if (argVal != null) args.add(argVal);
      * Emitteert compound assignments (+=, -=, etc.) als load + op + store.
      */
     private IRValue emitCompoundAssignment(BinaryExpressionTree binaryExpr) {
-        IRValue current = acceptTree(binaryExpr.getLeft(), builder);
+        final var place = placeOf(binaryExpr.getLeft());
+        final IRValue current = place.load().get();
         IRValue right = acceptTree(binaryExpr.getRight(), builder);
-        right = unboxIfNeeded(right, current.type());
         Op op = TagToIROp.compoundAssignmentOp(binaryExpr.getTag());
-        IRValue result = builder.emitBinaryOp(op, current, right);
-        emitStoreBack(binaryExpr.getLeft(), result);
-        return result;
+        return emitUpdate(binaryExpr.getLeft(), place, current, right, op, true);
+    }
+
+    /** {@code ++x}, {@code x++}, {@code --x} and {@code x--}. */
+    private IRValue emitIncrement(final UnaryExpressionTree unary) {
+        final var place = placeOf(unary.getExpression());
+        final IRValue current = place.load().get();
+        final boolean increment = unary.getTag() == Tag.POST_INC || unary.getTag() == Tag.PRE_INC;
+        final boolean post = unary.getTag() == Tag.POST_INC || unary.getTag() == Tag.POST_DEC;
+        return emitUpdate(unary.getExpression(), place, current, builder.constInt(1),
+                increment ? Op.ADD : Op.SUB, !post);
+    }
+
+    /**
+     * {@code target op= right} and {@code ++target}: the variable is read once, a wrapper is unboxed, the result
+     * is narrowed to the type of the variable (JLS 15.26.2: {@code byte b; b += 3} is {@code b = (byte) (b + 3)})
+     * and boxed again for a wrapper variable.
+     *
+     * @param newValue Is true if the expression has the new value, false for the old value (x++).
+     */
+    private IRValue emitUpdate(final ExpressionTree target,
+                               final Place place,
+                               final IRValue current,
+                               final IRValue right,
+                               final Op op,
+                               final boolean newValue) {
+        final var variableType = current != null ? current.type() : null;
+        final var wrapperPrimitive = primitiveOfWrapper(variableType);
+        final IRValue left = unboxIfNeeded(current, IRType.I32);
+        final IRValue operand = unboxIfNeeded(right, IRType.I32);
+
+        IRValue result = builder.emitBinaryOp(op, left, operand);
+
+        final IRType primitiveTarget = wrapperPrimitive != null ? wrapperPrimitive : variableType;
+        if (isNumeric(primitiveTarget) && isNumeric(result.type()) && !result.type().equals(primitiveTarget)) {
+            result = builder.emitCast(result, primitiveTarget);
+        }
+        place.store().accept(result);
+
+        if (wrapperPrimitive != null) {
+            // The expression has the type of the wrapper.
+            return newValue ? boxIfNeeded(result, variableType) : current;
+        }
+        return newValue ? result : left;
+    }
+
+    private static boolean isNumeric(final IRType type) {
+        return (type instanceof IRType.Int || type instanceof IRType.Float) && !(type instanceof IRType.Bool);
+    }
+
+    /** The primitive type of Integer, Long, ...; null for another type. */
+    private static IRType primitiveOfWrapper(final IRType type) {
+        if (!(type instanceof IRType.Ptr ptr) || ptr.jvmDescriptor() == null) {
+            return null;
+        }
+        return switch (ptr.jvmDescriptor()) {
+            case "Ljava/lang/Integer;" -> IRType.I32;
+            case "Ljava/lang/Long;" -> IRType.I64;
+            case "Ljava/lang/Short;" -> IRType.I16;
+            case "Ljava/lang/Byte;" -> IRType.I8;
+            case "Ljava/lang/Character;" -> IRType.CHAR;
+            case "Ljava/lang/Float;" -> IRType.F32;
+            case "Ljava/lang/Double;" -> IRType.F64;
+            default -> null;
+        };
+    }
+
+    /** A variable, field or array element that is read and written: its parts are evaluated once. */
+    private record Place(java.util.function.Supplier<IRValue> load, java.util.function.Consumer<IRValue> store) {
+    }
+
+    private Place placeOf(final ExpressionTree target) {
+        if (target instanceof ArrayAccessExpressionTree arrayAccess
+                && !(hasNoSideEffects(arrayAccess.getExpression()) && hasNoSideEffects(arrayAccess.getIndex()))) {
+            // a[i++] += 2: the array and the index are evaluated once, not again for the store.
+            final IRValue array = acceptTree(arrayAccess.getExpression(), builder);
+            final IRValue index = acceptTree(arrayAccess.getIndex(), builder);
+            if (array != null) {
+                final var elemType = arrayElementType(arrayAccess, array);
+                return new Place(
+                        () -> builder.emitArrayLoad(array, index, elemType),
+                        value -> builder.emitArrayStore(array, index, boxIfNeeded(value, elemType), elemType));
+            }
+        }
+        return new Place(() -> acceptTree(target, builder), value -> emitStoreBack(target, value));
+    }
+
+    /** Can this expression be evaluated twice? */
+    private static boolean hasNoSideEffects(final ExpressionTree expression) {
+        if (expression == null
+                || expression instanceof LiteralExpressionTree
+                || expression instanceof IdentifierTree) {
+            return true;
+        } else if (expression instanceof FieldAccessExpressionTree fieldAccess) {
+            return hasNoSideEffects(fieldAccess.getSelected());
+        } else if (expression instanceof ParenthesizedExpression parenthesized) {
+            return hasNoSideEffects(parenthesized.getExpression());
+        } else if (expression instanceof CastExpressionTree cast) {
+            return hasNoSideEffects(cast.getExpression());
+        } else if (expression instanceof ArrayAccessExpressionTree access) {
+            return hasNoSideEffects(access.getExpression()) && hasNoSideEffects(access.getIndex());
+        } else if (expression instanceof UnaryExpressionTree unary) {
+            return (unary.getTag() == Tag.SUB || unary.getTag() == Tag.NOT)
+                    && hasNoSideEffects(unary.getExpression());
+        } else if (expression instanceof BinaryExpressionTree binary) {
+            return !TagToIROp.isCompoundAssignment(binary.getTag()) && binary.getTag() != Tag.ASSIGN
+                    && hasNoSideEffects(binary.getLeft()) && hasNoSideEffects(binary.getRight());
+        }
+        return false;
     }
 
     /**
@@ -4712,6 +4799,10 @@ if (argVal != null) args.add(argVal);
                 && srcInt.bits() != cellInt.bits()) {
             return builder.emitCast(unboxed, elemType);
         }
+        // JLS 15.25: a numeric operand is converted to the type of the conditional (int to double).
+        if (isNumeric(unboxed.type()) && isNumeric(elemType) && !unboxed.type().equals(elemType)) {
+            return builder.emitCast(unboxed, elemType);
+        }
         return unboxed;
     }
 
@@ -5017,15 +5108,15 @@ if (argVal != null) args.add(argVal);
         IRType collectionType = collection.type();
         IRValue arrayPtr;
         if (collectionType instanceof IRType.Ptr ptrType) {
-            arrayPtr = builder.emitAlloca("__arr", ptrType);
+            arrayPtr = builder.emitAlloca("__arr" + ternaryCounter++, ptrType);
             builder.emitStore(arrayPtr, collection);
         } else {
-            arrayPtr = builder.emitAlloca("__arr", collectionType);
+            arrayPtr = builder.emitAlloca("__arr" + ternaryCounter++, collectionType);
             builder.emitStore(arrayPtr, collection);
         }
 
         // Index-variabele
-        IRValue indexPtr = builder.emitAlloca("__i", IRType.I32);
+        IRValue indexPtr = builder.emitAlloca("__i" + ternaryCounter++, IRType.I32);
         builder.emitStore(indexPtr, IRValue.ofI32(0));
 
         builder.emitBranch(condBlk);
@@ -5125,7 +5216,7 @@ if (argVal != null) args.add(argVal);
 
         // De iterator wordt in het conditieblok en in het bodyblok gebruikt;
         // daarom in een slot bewaren (zelfde patroon als de array-variant).
-        final IRValue iteratorPtr = builder.emitAlloca("__it", iteratorType);
+        final IRValue iteratorPtr = builder.emitAlloca("__it" + ternaryCounter++, iteratorType);
         builder.emitStore(iteratorPtr, iterator);
 
         builder.emitBranch(condBlk);

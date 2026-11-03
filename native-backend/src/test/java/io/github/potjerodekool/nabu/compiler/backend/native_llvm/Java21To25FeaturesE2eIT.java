@@ -139,6 +139,10 @@ class Java21To25FeaturesE2eIT {
                         return f.apply(o);
                     }
 
+                    static String shown(Object o) {
+                        return String.valueOf(o instanceof Rect(int w, int h) && w > h);
+                    }
+
                     static int sum(Object o) {
                         return o instanceof Rect(int w, int h) ? w + h : -1;
                     }
@@ -191,7 +195,7 @@ class Java21To25FeaturesE2eIT {
                                 + implicit(new One()) + " " + implicit(new Two()));
                         System.out.println(concatenated(new Circle(1)) + " " + asArgument(new Rect(9, 1)) + " "
                                 + asArgument(new Rect(1, 1)) + " " + insideLambda(new Circle(1)) + " "
-                                + insideLambda("x"));
+                                + insideLambda("x") + " " + shown(new Rect(3, 1)) + " " + shown(new Rect(1, 3)));
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -240,7 +244,7 @@ class Java21To25FeaturesE2eIT {
                 done
                 null A BC other npe s
                 c h j one two
-                is circle! big small lc lo
+                is circle! big small lc lo true false
                 """, output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

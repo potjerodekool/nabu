@@ -25,6 +25,7 @@ import io.github.potjerodekool.nabu.tree.expression.*;
 import io.github.potjerodekool.nabu.tree.expression.impl.CArrayAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.expression.impl.CFieldAccessExpressionTree;
 import io.github.potjerodekool.nabu.tree.statement.*;
+import io.github.potjerodekool.nabu.tree.expression.builder.SwitchExpressionTreeBuilder;
 import io.github.potjerodekool.nabu.tree.CaseLabel;
 import io.github.potjerodekool.nabu.tree.ConstantCaseLabel;
 import io.github.potjerodekool.nabu.tree.DefaultCaseLabel;
@@ -734,9 +735,8 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     public Tree visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression,
                                           final LowerScope scope) {
         if (instanceOfExpression.getTypeExpression() instanceof RecordPattern) {
-            throw new IllegalStateException("a record pattern in instanceof is only supported in the "
-                    + "condition of an if or while statement, in a return statement, in the initializer of a local "
-                    + "variable and in an assignment, as an operand of &&, ||, ! or ?:, line " + instanceOfExpression.getLineNumber());
+            throw new IllegalStateException("a record pattern in instanceof is not supported in the "
+                    + "initializer of a field, line " + instanceOfExpression.getLineNumber());
         }
         return super.visitInstanceOfExpression(instanceOfExpression, scope);
     }
@@ -1715,7 +1715,43 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     private PatternSwitchRewriter patternSwitchRewriter(final LowerScope scope) {
         return new PatternSwitchRewriter(
                 switchExpression -> isPatternSwitch(switchExpression.getCases()),
-                switchExpression -> lowerPatternSwitchInPlace(switchExpression, scope));
+                switchExpression -> lowerPatternSwitchInPlace(switchExpression, scope),
+                (instanceOf, hoisted) -> lowerRecordPatternInPlace(instanceOf, hoisted, scope));
+    }
+
+    /**
+     * {@code x instanceof R(var a)} where an expression can be: the statements that match run in the body of a
+     * switch expression that yields whether it matched. The variables are declared in {@code hoisted}, before the
+     * statement that holds the expression, or, if that is null, in the body.
+     */
+    private ExpressionTree lowerRecordPatternInPlace(final InstanceOfExpression instanceOf,
+                                                     final List<StatementTree> hoisted,
+                                                     final LowerScope scope) {
+        final int line = instanceOf.getLineNumber();
+        final int column = instanceOf.getColumnNumber();
+        final var lowered = lowerRecordPattern(instanceOf, scope, line, column);
+        final var statements = new ArrayList<StatementTree>();
+        if (hoisted != null) {
+            hoisted.addAll(lowered.decls());
+        } else {
+            statements.addAll(lowered.decls());
+        }
+        // The variable is declared once, before the statement: it must not stay true from an earlier evaluation.
+        final var notMatched = TreeMaker.literalExpressionTree(Boolean.FALSE, line, column);
+        notMatched.setType(types.getPrimitiveType(TypeKind.BOOLEAN));
+        statements.add(TreeMaker.expressionStatement(
+                TreeMaker.assignmentExpression(lowered.value(), notMatched, line, column), line, column));
+        statements.addAll(lowered.stmts());
+        statements.add(YieldStatement.create(lowered.value(), line, column));
+        final var body = CaseStatement.create(CaseStatement.CaseKind.RULE,
+                List.of(DefaultCaseLabel.create(line, column)),
+                TreeMaker.blockStatement(statements, line, column), line, column);
+        final var result = new SwitchExpressionTreeBuilder()
+                .selector(intLiteral(0, line, column))
+                .cases(List.of(body))
+                .build();
+        result.setType(types.getPrimitiveType(TypeKind.BOOLEAN));
+        return result;
     }
 
     @Override

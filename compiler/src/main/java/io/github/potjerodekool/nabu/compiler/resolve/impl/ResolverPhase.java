@@ -2146,6 +2146,7 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
             acceptTree(typeExpression, scope);
         }
 
+        instanceOfExpression.setType(types.getPrimitiveType(TypeKind.BOOLEAN));
         return null;
     }
 

@@ -420,4 +420,84 @@ class PatternSwitchPositionsRunTest {
                     }
                 """));
     }
+
+    @Test
+    void recordPatternInstanceofAsArgument() throws Exception {
+        assertEquals("true false", runBody("Inst1", """
+                    static String show(boolean b) {
+                        return String.valueOf(b);
+                    }
+                    public static String run() {
+                        Object a = new Circle(4);
+                        Object b = new Square(4);
+                        return show(a instanceof Circle(int r)) + " " + show(b instanceof Circle(int r));
+                    }
+                """));
+    }
+
+    @Test
+    void bindingsAreUsableInTheSameExpression() throws Exception {
+        assertEquals("true false", runBody("Inst2", """
+                    static String show(boolean b) {
+                        return String.valueOf(b);
+                    }
+                    public static String run() {
+                        Object a = new Circle(4);
+                        Object b = new Circle(1);
+                        return show(a instanceof Circle(int r) && r > 3) + " " + show(b instanceof Circle(int r) && r > 3);
+                    }
+                """));
+    }
+
+    @Test
+    void recordPatternInConcatenationAndLambdaAndThrow() throws Exception {
+        assertEquals("is circle lc lo boom", runBody("Inst3", """
+                    public static String run() {
+                        Object o = new Circle(1);
+                        String text = "is " + (o instanceof Circle(int r) ? "circle" : "other");
+                        java.util.function.Function<Object, String> f = x -> (x instanceof Circle(int r)) ? "lc" : "lo";
+                        String thrown;
+                        try {
+                            throw new IllegalStateException(o instanceof Circle(int r) ? "boom" : "no");
+                        } catch (IllegalStateException e) {
+                            thrown = e.getMessage();
+                        }
+                        return text + " " + f.apply(o) + " " + f.apply("x") + " " + thrown;
+                    }
+                """));
+    }
+
+    @Test
+    void recordPatternInForConditionIsEvaluatedEveryRound() throws Exception {
+        assertEquals("3", runBody("Inst4", """
+                    public static String run() {
+                        Object[] items = {new Circle(1), new Circle(2), new Circle(3), "stop"};
+                        int count = 0;
+                        for (int i = 0; java.util.Objects.equals(true, items[i] instanceof Circle(int r)); i++) {
+                            count++;
+                        }
+                        return "" + count;
+                    }
+                """));
+    }
+
+    @Test
+    void recordPatternInTheBranchOfAnIfWithoutBraces() throws Exception {
+        assertEquals("a b", runBody("Inst5", """
+                    static String show(boolean b) {
+                        return b ? "a" : "b";
+                    }
+                    public static String run() {
+                        Object o = new Circle(1);
+                        String r = "";
+                        if (o != null)
+                            r = show(o instanceof Circle(int q));
+                        if (o == null)
+                            r = "never";
+                        else
+                            r = r + " " + show(o instanceof Square(int q));
+                        return r;
+                    }
+                """));
+    }
 }

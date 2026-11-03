@@ -610,6 +610,14 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                                 final LowerScope scope) {
         final var symbol = identifier.getSymbol();
 
+        final var bindingName = symbol != null ? bindingNames.get(symbol) : null;
+        if (bindingName != null) {
+            final var renamed = IdentifierTree.create(bindingName);
+            renamed.setSymbol(symbol);
+            renamed.setType(identifier.getType());
+            return renamed;
+        }
+
         if (symbol instanceof VariableSymbol variableSymbol
                 && variableSymbol.getKind() == ElementKind.FIELD
                 && !variableSymbol.isStatic()) {
@@ -666,15 +674,60 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                 || variableSymbol.getKind() == ElementKind.ENUM_CONSTANT;
     }
 
+    /** The body of a case is lowered too, not only its labels. */
+    @Override
+    public Tree visitCaseStatement(final CaseStatement caseStatement,
+                                   final LowerScope scope) {
+        final var body = caseStatement.getBody();
+        if (body == null) {
+            return caseStatement;
+        }
+        final var newBody = acceptTree(body, scope);
+        if (newBody == null || newBody == body) {
+            return caseStatement;
+        }
+        return CaseStatement.create(caseStatement.getCaseKind(), caseStatement.getLabels(), newBody,
+                caseStatement.getLineNumber(), caseStatement.getColumnNumber());
+    }
+
     @Override
     public Tree visitSwitchExpression(final SwitchExpressionTree switchExpression,
                                       final LowerScope scope) {
         if (isPatternSwitch(switchExpression.getCases())) {
-            throw new IllegalStateException("a switch expression with patterns is only supported in a return "
-                    + "statement, in the initializer of a local variable, in an assignment, and as an operand of "
-                    + "&&, ||, ! or ?:, line " + switchExpression.getLineNumber());
+            return lowerPatternSwitchInPlace(switchExpression, scope);
         }
         return super.visitSwitchExpression(switchExpression, scope);
+    }
+
+    /**
+     * A switch expression with patterns where an expression can be: the statements that find the matching case
+     * move into the body of a switch expression that stays in place, so the operands around it are evaluated in the
+     * same order and short-circuiting is kept:
+     * <pre>
+     * switch (0) { default -> { &lt;statements that set the index&gt; yield switch (index) { ... }; } }
+     * </pre>
+     */
+    private ExpressionTree lowerPatternSwitchInPlace(final SwitchExpressionTree switchExpression,
+                                                     final LowerScope scope) {
+        final int line = switchExpression.getLineNumber();
+        final int column = switchExpression.getColumnNumber();
+        final var selector = (ExpressionTree) acceptTree(switchExpression.getSelector(), scope);
+        final var parts = lowerPatternSwitch(selector, switchExpression.getCases(), true, scope, line, column);
+        final var inner = switchExpression.builder()
+                .selector(parts.index())
+                .cases(parts.cases())
+                .type(switchExpression.getType())
+                .build();
+        final var statements = new ArrayList<>(parts.statements());
+        statements.add(YieldStatement.create(inner, line, column));
+        final var body = CaseStatement.create(CaseStatement.CaseKind.RULE,
+                List.of(DefaultCaseLabel.create(line, column)),
+                TreeMaker.blockStatement(statements, line, column), line, column);
+        return switchExpression.builder()
+                .selector(intLiteral(0, line, column))
+                .cases(List.of(body))
+                .type(switchExpression.getType())
+                .build();
     }
 
     @Override
@@ -1190,6 +1243,36 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
 
     private static final int PATTERN_DEFAULT_ORDINAL = -1;
 
+    /**
+     * The new name of a pattern variable. All the variables of the patterns of a switch are declared in the method,
+     * so two with the same name (<code>case Square(int s)</code> and <code>case Square s</code>) get different names.
+     */
+    private final Map<Object, String> bindingNames = new IdentityHashMap<>();
+
+    private void renameBindings(final List<CaseStatement> cases) {
+        final var used = new HashSet<String>();
+        for (final var caseStatement : cases) {
+            for (final var label : caseStatement.getLabels()) {
+                if (label instanceof PatternCaseLabel patternCaseLabel) {
+                    renameBindings(patternCaseLabel.getPattern(), used);
+                }
+            }
+        }
+    }
+
+    private void renameBindings(final Pattern pattern,
+                                final Set<String> used) {
+        if (pattern instanceof TypePattern typePattern) {
+            final var name = typePattern.getVariableDeclarator().getName();
+            if (!used.add(name.getName()) && name.getSymbol() != null) {
+                final var newName = name.getName() + "$" + generateVariableName();
+                bindingNames.put(name.getSymbol(), newName);
+            }
+        } else if (pattern instanceof RecordPattern recordPattern) {
+            recordPattern.getPatterns().forEach(nested -> renameBindings(nested, used));
+        }
+    }
+
     private boolean isNullConstantLabel(final CaseLabel label) {
         if (label instanceof ConstantCaseLabel constantCaseLabel) {
             final var expression = constantCaseLabel.getExpression();
@@ -1236,6 +1319,7 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
                                                   final LowerScope scope,
                                                   final int line,
                                                   final int column) {
+        renameBindings(cases);
         final var loweredCases = cases.stream()
                 .map(caseStatement -> (CaseStatement) acceptTree(caseStatement, scope))
                 .toList();
@@ -1476,12 +1560,22 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
             final var bindingType = inferred ? valueType : declarator.getVariableType().getType();
             final var declaratorBuilder = declarator.builder()
                     .value(defaultInitializer(bindingType, line, column));
+            final var newName = declarator.getName().getSymbol() != null
+                    ? bindingNames.get(declarator.getName().getSymbol())
+                    : null;
+            if (newName != null) {
+                final var renamed = IdentifierTree.create(newName);
+                renamed.setSymbol(declarator.getName().getSymbol());
+                declaratorBuilder.name(renamed);
+            }
             if (inferred) {
                 declaratorBuilder.variableType(createIdentifierFromType(bindingType));
             }
             decls.add(declaratorBuilder.build());
 
-            final var bindingIdent = IdentifierTree.create(declarator.getName().getName());
+            final var bindingIdent = IdentifierTree.create(newName != null
+                    ? newName
+                    : declarator.getName().getName());
             if (declarator.getName().getSymbol() != null) {
                 bindingIdent.setSymbol(declarator.getName().getSymbol());
             }
@@ -1609,7 +1703,19 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
     @Override
     public Tree visitFunction(final Function function,
                               final LowerScope scope) {
+        final var body = function.getBody();
+        final var newBody = patternSwitchRewriter(scope).rewriteBody(body);
+        if (newBody != body) {
+            return super.visitFunction(function.builder().body(newBody).build(), scope);
+        }
         return super.visitFunction(function, scope);
+    }
+
+    /** Replaces the switch expressions with patterns, wherever they are in the tree. */
+    private PatternSwitchRewriter patternSwitchRewriter(final LowerScope scope) {
+        return new PatternSwitchRewriter(
+                switchExpression -> isPatternSwitch(switchExpression.getCases()),
+                switchExpression -> lowerPatternSwitchInPlace(switchExpression, scope));
     }
 
     @Override
@@ -1621,7 +1727,9 @@ public class Lower extends AbstractTreeTranslator<Lower.LowerScope> {
             // waarde en geen type om naar te casten.
             return variableDeclaratorStatement;
         }
-        final var initializer = (ExpressionTree) variableDeclaratorStatement.getValue();
+        final var initializer = variableDeclaratorStatement.getValue() instanceof ExpressionTree value
+                ? patternSwitchRewriter(scope).rewriteExpression(value)
+                : (ExpressionTree) variableDeclaratorStatement.getValue();
         final var loweredInitializer = variableDeclaratorStatement.getKind() == Kind.LOCAL_VARIABLE
                 && initializer != null
                 && containsRecordPattern(initializer)

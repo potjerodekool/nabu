@@ -116,6 +116,29 @@ class Java21To25FeaturesE2eIT {
                         };
                     }
 
+                    static String concatenated(Object o) {
+                        return "is " + switch (o) {
+                            case Circle c -> "circle";
+                            default -> "other";
+                        } + "!";
+                    }
+
+                    static String asArgument(Object o) {
+                        return String.valueOf(switch (o) {
+                            case Rect(int w, int h) when w > 5 -> "big";
+                            case Rect r -> "small";
+                            default -> "other";
+                        });
+                    }
+
+                    static String insideLambda(Object o) {
+                        java.util.function.Function<Object, String> f = x -> switch (x) {
+                            case Circle c -> "lc";
+                            default -> "lo";
+                        };
+                        return f.apply(o);
+                    }
+
                     static int sum(Object o) {
                         return o instanceof Rect(int w, int h) ? w + h : -1;
                     }
@@ -166,6 +189,9 @@ class Java21To25FeaturesE2eIT {
                                 + npe(null) + " " + npe("x"));
                         System.out.println(card(Suit.CLUBS) + " " + card(Suit.HEARTS) + " " + card(new Joker()) + " "
                                 + implicit(new One()) + " " + implicit(new Two()));
+                        System.out.println(concatenated(new Circle(1)) + " " + asArgument(new Rect(9, 1)) + " "
+                                + asArgument(new Rect(1, 1)) + " " + insideLambda(new Circle(1)) + " "
+                                + insideLambda("x"));
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -214,6 +240,7 @@ class Java21To25FeaturesE2eIT {
                 done
                 null A BC other npe s
                 c h j one two
+                is circle! big small lc lo
                 """, output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

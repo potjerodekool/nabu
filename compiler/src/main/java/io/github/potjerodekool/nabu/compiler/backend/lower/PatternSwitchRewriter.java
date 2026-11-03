@@ -1,0 +1,356 @@
+package io.github.potjerodekool.nabu.compiler.backend.lower;
+
+import io.github.potjerodekool.nabu.tree.CatchTree;
+import io.github.potjerodekool.nabu.tree.PatternCaseLabel;
+import io.github.potjerodekool.nabu.tree.Tree;
+import io.github.potjerodekool.nabu.tree.expression.*;
+import io.github.potjerodekool.nabu.tree.impl.CCatchTree;
+import io.github.potjerodekool.nabu.tree.statement.*;
+import io.github.potjerodekool.nabu.tree.TreeMaker;
+import io.github.potjerodekool.nabu.tree.CaseLabel;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
+
+/**
+ * Finds the switch expressions with patterns wherever they are in a method (arguments, operands, conditions,
+ * lambda bodies, throw and yield, the bodies of other switches) and replaces each one by the tree that the
+ * given lowering makes of it. The trees are rewritten from the inside out, so a switch in a case body is
+ * lowered before the switch around it. A tree in which nothing is replaced is returned as it is.
+ */
+final class PatternSwitchRewriter {
+
+    private final java.util.function.Predicate<SwitchExpressionTree> isPatternSwitch;
+    private final Function<SwitchExpressionTree, ExpressionTree> lowering;
+
+    PatternSwitchRewriter(final java.util.function.Predicate<SwitchExpressionTree> isPatternSwitch,
+                          final Function<SwitchExpressionTree, ExpressionTree> lowering) {
+        this.isPatternSwitch = isPatternSwitch;
+        this.lowering = lowering;
+    }
+
+    BlockStatementTree rewriteBody(final BlockStatementTree body) {
+        return body == null ? null : (BlockStatementTree) statement(body);
+    }
+
+    ExpressionTree rewriteExpression(final ExpressionTree expression) {
+        return expression(expression);
+    }
+
+    private ExpressionTree expression(final ExpressionTree tree) {
+        if (tree == null) {
+            return null;
+        }
+        if (tree instanceof SwitchExpressionTree switchExpression) {
+            final var selector = expression(switchExpression.getSelector());
+            final var cases = cases(switchExpression.getCases());
+            final var rebuilt = selector == switchExpression.getSelector() && cases == switchExpression.getCases()
+                    ? switchExpression
+                    : switchExpression.builder().selector(selector).cases(cases).type(switchExpression.getType()).build();
+            return isPatternSwitch.test(rebuilt) ? lowering.apply(rebuilt) : rebuilt;
+        } else if (tree instanceof MethodInvocationTree call) {
+            final var selector = expression(call.getMethodSelector());
+            final var arguments = expressions(call.getArguments());
+            return selector == call.getMethodSelector() && arguments == call.getArguments()
+                    ? call
+                    : call.builder().methodSelector(selector).arguments(arguments).build();
+        } else if (tree instanceof BinaryExpressionTree binary) {
+            final var left = expression(binary.getLeft());
+            final var right = expression(binary.getRight());
+            return left == binary.getLeft() && right == binary.getRight()
+                    ? binary
+                    : binary.builder().left(left).right(right).build();
+        } else if (tree instanceof UnaryExpressionTree unary) {
+            final var operand = expression(unary.getExpression());
+            if (operand == unary.getExpression()) {
+                return unary;
+            }
+            final var rebuilt = TreeMaker.unaryExpressionTree(unary.getTag(), operand, unary.getLineNumber(),
+                    unary.getColumnNumber());
+            rebuilt.setType(unary.getType());
+            return rebuilt;
+        } else if (tree instanceof CastExpressionTree cast) {
+            final var operand = expression(cast.getExpression());
+            if (operand == cast.getExpression()) {
+                return cast;
+            }
+            final var rebuilt = TreeMaker.castExpressionTree(cast.getTargetType(), operand, cast.getLineNumber(),
+                    cast.getColumnNumber());
+            rebuilt.setType(cast.getType());
+            return rebuilt;
+        } else if (tree instanceof ParenthesizedExpression parenthesized) {
+            final var inner = expression(parenthesized.getExpression());
+            if (inner == parenthesized.getExpression()) {
+                return parenthesized;
+            }
+            final var rebuilt = TreeMaker.parenthesizedExpression(inner, parenthesized.getLineNumber(),
+                    parenthesized.getColumnNumber());
+            rebuilt.setType(parenthesized.getType());
+            return rebuilt;
+        } else if (tree instanceof ConditionalExpressionTree conditional) {
+            final var condition = expression(conditional.getCondition());
+            final var whenTrue = expression(conditional.getTrueExpression());
+            final var whenFalse = expression(conditional.getFalseExpression());
+            return condition == conditional.getCondition()
+                    && whenTrue == conditional.getTrueExpression()
+                    && whenFalse == conditional.getFalseExpression()
+                    ? conditional
+                    : conditional.builder().condition(condition).trueExpression(whenTrue)
+                    .falseExpression(whenFalse).type(conditional.getType()).build();
+        } else if (tree instanceof FieldAccessExpressionTree fieldAccess) {
+            final var selected = expression(fieldAccess.getSelected());
+            return selected == fieldAccess.getSelected()
+                    ? fieldAccess
+                    : fieldAccess.builder().selected(selected).field(fieldAccess.getField()).build();
+        } else if (tree instanceof ArrayAccessExpressionTree access) {
+            final var array = expression(access.getExpression());
+            final var index = expression(access.getIndex());
+            return array == access.getExpression() && index == access.getIndex()
+                    ? access
+                    : access.builder().expression(array).index(index).build();
+        } else if (tree instanceof AssignmentExpressionTree assignment) {
+            final var left = expression(assignment.getLeft());
+            final var right = expression(assignment.getRight());
+            if (left == assignment.getLeft() && right == assignment.getRight()) {
+                return assignment;
+            }
+            final var rebuilt = TreeMaker.assignmentExpression(left, right, assignment.getLineNumber(),
+                    assignment.getColumnNumber());
+            rebuilt.setType(assignment.getType());
+            return rebuilt;
+        } else if (tree instanceof NewClassExpression newClass) {
+            final var arguments = expressions(newClass.getArguments());
+            return arguments == newClass.getArguments()
+                    ? newClass
+                    : newClass.builder().arguments(arguments).build();
+        } else if (tree instanceof NewArrayExpression newArray) {
+            final var dimensions = expressions(newArray.getDimensions());
+            final var elements = expressions(newArray.getElements());
+            if (dimensions == newArray.getDimensions() && elements == newArray.getElements()) {
+                return newArray;
+            }
+            final var rebuilt = NewArrayExpression.create(newArray.getElementType(), dimensions, elements,
+                    newArray.getLineNumber(), newArray.getColumnNumber());
+            rebuilt.setType(newArray.getType());
+            return rebuilt;
+        } else if (tree instanceof InstanceOfExpression instanceOf) {
+            final var operand = expression(instanceOf.getExpression());
+            if (operand == instanceOf.getExpression()) {
+                return instanceOf;
+            }
+            final var rebuilt = TreeMaker.instanceOfExpression(operand, instanceOf.getTypeExpression(),
+                    instanceOf.getLineNumber(), instanceOf.getColumnNumber());
+            rebuilt.setType(instanceOf.getType());
+            return rebuilt;
+        } else if (tree instanceof LambdaExpressionTree lambda) {
+            final var body = lambda.getBody();
+            if (body instanceof ExpressionTree expressionBody) {
+                final var rewritten = expression(expressionBody);
+                return rewritten == body ? lambda : lambda.builder().body(rewritten).build();
+            } else if (body instanceof StatementTree statementBody) {
+                final var rewritten = statement(statementBody);
+                return rewritten == body ? lambda : lambda.builder().body(rewritten).build();
+            }
+        }
+        return tree;
+    }
+
+    private StatementTree statement(final StatementTree tree) {
+        if (tree == null) {
+            return null;
+        }
+        if (tree instanceof BlockStatementTree block) {
+            final var statements = statements(block.getStatements());
+            return statements == block.getStatements() ? block : block.builder().statements(statements).build();
+        } else if (tree instanceof ExpressionStatementTree expressionStatement) {
+            final var expression = expression(expressionStatement.getExpression());
+            return expression == expressionStatement.getExpression()
+                    ? expressionStatement
+                    : expressionStatement.builder().expression(expression).build();
+        } else if (tree instanceof ReturnStatementTree returnStatement) {
+            final var expression = expression(returnStatement.getExpression());
+            return expression == returnStatement.getExpression()
+                    ? returnStatement
+                    : returnStatement.builder().expression(expression).build();
+        } else if (tree instanceof ThrowStatement throwStatement) {
+            final var expression = expression(throwStatement.getExpression());
+            return expression == throwStatement.getExpression()
+                    ? throwStatement
+                    : ThrowStatement.create(expression, throwStatement.getLineNumber(),
+                    throwStatement.getColumnNumber());
+        } else if (tree instanceof YieldStatement yieldStatement) {
+            final var expression = expression(yieldStatement.getExpression());
+            return expression == yieldStatement.getExpression()
+                    ? yieldStatement
+                    : YieldStatement.create(expression, yieldStatement.getLineNumber(),
+                    yieldStatement.getColumnNumber());
+        } else if (tree instanceof VariableDeclaratorTree declarator) {
+            if (declarator.getValue() instanceof ExpressionTree value) {
+                final var rewritten = expression(value);
+                return rewritten == value ? declarator : declarator.builder().value(rewritten).build();
+            }
+        } else if (tree instanceof IfStatementTree ifStatement) {
+            final var condition = expression(ifStatement.getExpression());
+            final var thenStatement = statement(ifStatement.getThenStatement());
+            final var elseStatement = statement(ifStatement.getElseStatement());
+            return condition == ifStatement.getExpression()
+                    && thenStatement == ifStatement.getThenStatement()
+                    && elseStatement == ifStatement.getElseStatement()
+                    ? ifStatement
+                    : ifStatement.builder().expression(condition).thenStatement(thenStatement)
+                    .elseStatement(elseStatement).build();
+        } else if (tree instanceof WhileStatementTree whileStatement) {
+            final var condition = expression(whileStatement.getCondition());
+            final var body = statement(whileStatement.getBody());
+            return condition == whileStatement.getCondition() && body == whileStatement.getBody()
+                    ? whileStatement
+                    : whileStatement.builder().condition(condition).body(body).build();
+        } else if (tree instanceof DoWhileStatementTree doWhile) {
+            final var body = statement(doWhile.getBody());
+            final var condition = expression(doWhile.getCondition());
+            return condition == doWhile.getCondition() && body == doWhile.getBody()
+                    ? doWhile
+                    : doWhile.builder().body(body).condition(condition).build();
+        } else if (tree instanceof ForStatementTree forStatement) {
+            final var init = statements(forStatement.getForInit());
+            final var condition = expression(forStatement.getCondition());
+            final var update = statements(forStatement.getForUpdate());
+            final var body = statement(forStatement.getStatement());
+            return init == forStatement.getForInit()
+                    && condition == forStatement.getCondition()
+                    && update == forStatement.getForUpdate()
+                    && body == forStatement.getStatement()
+                    ? forStatement
+                    : forStatement.builder().forInit(init).expression(condition).forUpdate(update)
+                    .statement(body).build();
+        } else if (tree instanceof EnhancedForStatementTree enhancedFor) {
+            final var expression = expression(enhancedFor.getExpression());
+            final var body = statement(enhancedFor.getStatement());
+            return expression == enhancedFor.getExpression() && body == enhancedFor.getStatement()
+                    ? enhancedFor
+                    : enhancedFor.builder().expression(expression).statement(body).build();
+        } else if (tree instanceof SwitchStatement switchStatement) {
+            final var selector = expression(switchStatement.getSelector());
+            final var cases = cases(switchStatement.getCases());
+            return selector == switchStatement.getSelector() && cases == switchStatement.getCases()
+                    ? switchStatement
+                    : switchStatement.builder().selector(selector).cases(cases).build();
+        } else if (tree instanceof TryStatementTree tryStatement) {
+            return tryStatement(tryStatement);
+        } else if (tree instanceof LabeledStatement labeled) {
+            final var inner = statement(labeled.getStatement());
+            return inner == labeled.getStatement()
+                    ? labeled
+                    : LabeledStatement.create(labeled.getLabel(), inner, labeled.getLineNumber(),
+                    labeled.getColumnNumber());
+        } else if (tree instanceof SynchronizedStatement synchronizedStatement) {
+            final var expression = expression(synchronizedStatement.getExpression());
+            final var body = (BlockStatementTree) statement(synchronizedStatement.getBody());
+            return expression == synchronizedStatement.getExpression() && body == synchronizedStatement.getBody()
+                    ? synchronizedStatement
+                    : SynchronizedStatement.create(expression, body, synchronizedStatement.getLineNumber(),
+                    synchronizedStatement.getColumnNumber());
+        }
+        return tree;
+    }
+
+    private StatementTree tryStatement(final TryStatementTree tryStatement) {
+        final var body = (BlockStatementTree) statement(tryStatement.getBody());
+        var catchesChanged = false;
+        final var catchers = new ArrayList<CatchTree>();
+        for (final var catcher : tryStatement.getCatchers()) {
+            final var catchBody = (BlockStatementTree) statement(catcher.getBody());
+            if (catchBody != catcher.getBody()) {
+                catchesChanged = true;
+                catchers.add(new CCatchTree(catcher.getVariable(), catchBody, catcher.getLineNumber(),
+                        catcher.getColumnNumber()));
+            } else {
+                catchers.add(catcher);
+            }
+        }
+        final var finalizer = (BlockStatementTree) statement(tryStatement.getFinalizer());
+        var resourcesChanged = false;
+        final var resources = new ArrayList<Tree>();
+        for (final var resource : tryStatement.getResources()) {
+            final Tree rewritten;
+            if (resource instanceof StatementTree resourceStatement) {
+                rewritten = statement(resourceStatement);
+            } else if (resource instanceof ExpressionTree resourceExpression) {
+                rewritten = expression(resourceExpression);
+            } else {
+                rewritten = resource;
+            }
+            resourcesChanged |= rewritten != resource;
+            resources.add(rewritten);
+        }
+        if (body == tryStatement.getBody() && !catchesChanged && finalizer == tryStatement.getFinalizer()
+                && !resourcesChanged) {
+            return tryStatement;
+        }
+        return TryStatementTree.create(body, catchers, finalizer, resources, tryStatement.getLineNumber(),
+                tryStatement.getColumnNumber());
+    }
+
+    private List<CaseStatement> cases(final List<CaseStatement> cases) {
+        var changed = false;
+        final var result = new ArrayList<CaseStatement>();
+        for (final var caseStatement : cases) {
+            var labelsChanged = false;
+            final var labels = new ArrayList<CaseLabel>();
+            for (final var label : caseStatement.getLabels()) {
+                if (label instanceof PatternCaseLabel patternLabel && patternLabel.getWhen() != null) {
+                    final var guard = expression(patternLabel.getWhen());
+                    if (guard != patternLabel.getWhen()) {
+                        labelsChanged = true;
+                        labels.add(PatternCaseLabel.create(patternLabel.getPattern(), guard,
+                                patternLabel.getLineNumber(), patternLabel.getColumnNumber()));
+                        continue;
+                    }
+                }
+                labels.add(label);
+            }
+            final var body = caseStatement.getBody();
+            final Tree newBody;
+            if (body instanceof StatementTree bodyStatement) {
+                newBody = statement(bodyStatement);
+            } else if (body instanceof ExpressionTree bodyExpression) {
+                newBody = expression(bodyExpression);
+            } else {
+                newBody = body;
+            }
+            if (labelsChanged || newBody != body) {
+                changed = true;
+                result.add(CaseStatement.create(caseStatement.getCaseKind(), labelsChanged ? labels : caseStatement.getLabels(),
+                        newBody, caseStatement.getLineNumber(), caseStatement.getColumnNumber()));
+            } else {
+                result.add(caseStatement);
+            }
+        }
+        return changed ? result : cases;
+    }
+
+    private List<ExpressionTree> expressions(final List<? extends ExpressionTree> trees) {
+        var changed = false;
+        final var result = new ArrayList<ExpressionTree>();
+        for (final var tree : trees) {
+            final var rewritten = expression(tree);
+            changed |= rewritten != tree;
+            result.add(rewritten);
+        }
+        @SuppressWarnings("unchecked")
+        final var original = (List<ExpressionTree>) trees;
+        return changed ? result : original;
+    }
+
+    private List<StatementTree> statements(final List<StatementTree> trees) {
+        var changed = false;
+        final var result = new ArrayList<StatementTree>();
+        for (final var tree : trees) {
+            final var rewritten = statement(tree);
+            changed |= rewritten != tree;
+            result.add(rewritten);
+        }
+        return changed ? result : trees;
+    }
+}

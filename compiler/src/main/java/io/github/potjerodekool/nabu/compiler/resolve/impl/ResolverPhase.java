@@ -540,7 +540,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         acceptTree(arrayAccessExpressionTree.getExpression(), scope);
         acceptTree(arrayAccessExpressionTree.getIndex(), scope);
 
-        final var expressionType = arrayAccessExpressionTree.getExpression().getType();
+        var expressionType = arrayAccessExpressionTree.getExpression().getType();
+
+        // `final var names = a.value(); names[0]`: the type of a `var` variable is a wrapper around the inferred type
+        if (expressionType instanceof io.github.potjerodekool.nabu.type.VariableType variableType
+                && variableType.getInterferedType() != null) {
+            expressionType = variableType.getInterferedType();
+        }
 
         if (expressionType instanceof ArrayType arrayType) {
             arrayAccessExpressionTree.setType(arrayType.getComponentType());

@@ -956,6 +956,12 @@ public class NabuCompilerVisitor extends NabuParserBaseVisitor<Object> {
                             expr,
                             field
                     );
+                } else if (selected instanceof ArrayAccessExpressionTree arrayAccess) {
+                    // `x.f()[0].g()`: the array access still lacks its array expression, which is `first`
+                    newSelector = FieldAccessExpressionTree.create(
+                            combineExpressions(first, arrayAccess),
+                            fieldAccess.getField()
+                    );
                 } else {
                     throw new IllegalStateException("Unexpected selector type: " + selected.getClass().getName());
                 }

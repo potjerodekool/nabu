@@ -57,7 +57,44 @@ class NabuSingleElementAnnotationRunTest {
     }
 
     @Test
-    void singleElementAnnotationValuesAreKept() throws Exception {
+    void annotationArrayValueIndexedThroughLocal() throws Exception {
+        final var result = run("""
+                package mini;
+
+                import java.lang.annotation.Target;
+                import java.lang.annotation.ElementType;
+
+                @Target(ElementType.TYPE)
+                public class Single {
+                    public fun text(): String {
+                        final var names = Single.class.getAnnotation(Target.class).value();
+                        return names[0].name();
+                    }
+                }
+                """, "text");
+        assertEquals("TYPE", result);
+    }
+
+    @Test
+    void annotationArrayValueIndexedInChain() throws Exception {
+        final var result = run("""
+                package mini;
+
+                import java.lang.annotation.Target;
+                import java.lang.annotation.ElementType;
+
+                @Target(ElementType.TYPE)
+                public class Single {
+                    public fun text(): String {
+                        return Single.class.getAnnotation(Target.class).value()[0].name();
+                    }
+                }
+                """, "text");
+        assertEquals("TYPE", result);
+    }
+
+    @Test
+    void singleElementAnnotationValuesAreKept()throws Exception {
         final var result = run("""
                 package mini;
 

@@ -919,6 +919,10 @@ public class CompleteMethodResolver implements MethodResolver {
             }
         } else if (expressionTree instanceof ArrayAccessExpressionTree arrayAccessExpressionTree) {
             type = arrayAccessExpressionTree.getExpression().getType();
+            // `var names = ...`: the type of the variable wraps the inferred array type
+            if (type instanceof VariableType variableType && variableType.getInterferedType() != null) {
+                type = variableType.getInterferedType();
+            }
             if (type instanceof ArrayType arrayType) {
                 type = arrayType.getComponentType();
             }

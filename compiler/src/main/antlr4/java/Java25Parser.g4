@@ -1336,7 +1336,6 @@ primaryNoNewArray
     | arrayCreationExpressionWithInitializer '[' expression ']' pNNA?
     | methodName '(' argumentList? ')' pNNA?
     | typeName '.' typeArguments? identifier '(' argumentList? ')' pNNA?
-    | expressionName '.' typeArguments? identifier '(' argumentList? ')' pNNA?
     | arrayCreationExpression '.' typeArguments? identifier '(' argumentList? ')' pNNA?
     | 'super' '.' typeArguments? identifier '(' argumentList? ')' pNNA?
     | typeName '.' 'super' '.' typeArguments? identifier '(' argumentList? ')' pNNA?
@@ -1433,7 +1432,6 @@ fieldAccess
 methodInvocation
     : methodName '(' argumentList? ')'
     | typeName '.' typeArguments? identifier '(' argumentList? ')'
-    | expressionName '.' typeArguments? identifier '(' argumentList? ')'
     | primary '.' typeArguments? identifier '(' argumentList? ')'
     | 'super' '.' typeArguments? identifier '(' argumentList? ')'
     | typeName '.' 'super' '.' typeArguments? identifier '(' argumentList? ')'

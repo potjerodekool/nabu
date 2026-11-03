@@ -724,4 +724,20 @@ class LowerBreadthRunTest {
                     }
                 """));
     }
+
+    @Test
+    void literalFieldAfterABlockRunsInTextualOrder() throws Exception {
+        assertEquals("0 5", run("InstOrder3", """
+                    String seen;
+                    {
+                        seen = "" + this.x;
+                        this.x = 1;
+                    }
+                    int x = 5;
+                    public static String run() {
+                        InstOrder3 o = new InstOrder3();
+                        return o.seen + " " + o.x;
+                    }
+                """));
+    }
 }

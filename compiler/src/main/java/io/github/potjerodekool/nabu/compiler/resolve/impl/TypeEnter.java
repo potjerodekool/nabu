@@ -1855,10 +1855,19 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
             return;
         }
 
+        // With instance initializers present a literal must also run in textual order: a block may read or write
+        // the field before its declaration. (A final field with a literal is a constant, it stays as it is.)
+        final var literalFields = instanceInitializers.isEmpty() ? List.<VariableDeclaratorTree>of()
+                : TreeFilter.fieldsIn(enclosedElements).stream()
+                .filter(field -> !field.hasFlag(Flags.STATIC) && !field.hasFlag(Flags.FINAL))
+                .filter(field -> field.getValue() instanceof LiteralExpressionTree)
+                .toList();
+
         // The fields and the instance initializers in the order of the source.
         final var items = new ArrayList<Tree>();
         for (final var element : enclosedElements) {
-            if ((element instanceof VariableDeclaratorTree field && instanceFields.contains(field))
+            if ((element instanceof VariableDeclaratorTree field
+                    && (instanceFields.contains(field) || literalFields.contains(field)))
                     || (element instanceof Function initializer && instanceInitializers.contains(initializer))) {
                 items.add(element);
             }
@@ -1891,6 +1900,8 @@ public class TypeEnter extends AbstractTreeVisitor<Object, Scope> implements Com
         if (handledAll[0] && !instanceInitializers.isEmpty()
                 && classDeclaration instanceof CClassDeclaration declaration) {
             declaration.removeEnclosedElements(instanceInitializers);
+            // The constructors set these now; the IR generation must not set them first.
+            literalFields.forEach(field -> field.setValue(null));
         }
     }
 

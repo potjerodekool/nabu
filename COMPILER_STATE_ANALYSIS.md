@@ -1,5 +1,7 @@
 # Nabu Compiler — State Analysis
 
+> **Historical document (2026-08-23).** This is a snapshot against Java 20. Since then the Java grammar has been renamed to `Java25Parser.g4`, and pattern switch, record patterns, exhaustiveness checks, `PermittedSubclasses`, flexible constructors, `import module` and compact source files have been implemented, together with the `--release` option. See `site/languages/java/index.md` for the current state.
+
 **Date:** 2026-08-23
 **Baseline:** branch `main`, commit `35ae190`
 **Reference language level:** Java 20 (JLS SE 20; standard features through Java 20, preview features noted as such)

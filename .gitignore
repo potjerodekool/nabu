@@ -51,3 +51,7 @@ build/
 .aider*
 
 site/_site
+
+### Local build output ###
+/build.log
+/logs_*.zip

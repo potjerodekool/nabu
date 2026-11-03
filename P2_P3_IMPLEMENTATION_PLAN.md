@@ -1,5 +1,7 @@
 # P2/P3 Implementation Plan
 
+> **Historical plan.** The P2 items (type and record patterns, switch exhaustiveness) are implemented and went beyond Java 20 up to Java 25. See `site/languages/java/index.md` for the current state.
+
 ## P2 - Java 20 parity
 1. Type patterns in switch labels: resolution, binding scoping, null/default handling, guarded patterns
 2. Record patterns (decomposition + recursive patterns) behind a flag

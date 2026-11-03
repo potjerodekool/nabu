@@ -157,13 +157,13 @@ class AsmClassBuilder extends ClassVisitor {
             type.setOuterType(outerType);
 
             if (superName != null) {
-                var superElement = classElementLoader.loadClass(moduleSymbol, superName);
+                final var superElement = classElementLoader.loadClass(moduleSymbol, superName);
 
-                if (superElement == null) {
-                    superElement = classElementLoader.loadClass(moduleSymbol, superName);
-                }
-
-                final var superType = superElement.asType();
+                // A library has classes whose superclass is in an optional dependency that is not on the class
+                // path (Spring has many). Such a class is still read, as for an interface that is missing.
+                final var superType = superElement != null
+                        ? superElement.asType()
+                        : types.getErrorType(superName);
                 clazz.setSuperClass(superType);
             }
 

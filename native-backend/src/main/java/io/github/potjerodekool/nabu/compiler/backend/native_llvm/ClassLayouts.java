@@ -150,8 +150,10 @@ public class ClassLayouts {
          */
         private final List<IRFunction> vtableOrder = new ArrayList<>();
         public LLVMValueRef itableGlobal;
-        // interface-methode full-naam (Interface_m) -> itable-slot
-        private final Map<String, Integer> itableSlots = new LinkedHashMap<>();
+        // interface-methode full-naam (Interface_m) -> itable-slot. The slots are global, so every layout shares the
+        // map of the ClassLayouts (a copy per class is classes x interface methods entries: out of memory for an
+        // application with 30000 classes).
+        private Map<String, Integer> itableSlots = Map.of();
 
         ClassLayout(String internalName,
                     LLVMTypeRef structType,
@@ -1844,11 +1846,11 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         // (a lambda object has its own synthetic class): it only needs the
         // slot indices, not entries.
         final Set<String> implemented = isInterface ? Set.of() : implementedInterfacesWithSupers(layout.internalName);
+        layout.itableSlots = interfaceSlots;
         LLVMValueRef[] entries = new LLVMValueRef[interfaceSlots.size()];
         int length = 0;
         for (Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
             String interfaceMethod = slot.getKey();
-            layout.itableSlots.put(interfaceMethod, slot.getValue());
             if (isInterface) {
                 continue;
             }

@@ -16,6 +16,9 @@ on:
       jvmargs:
         description: 'Extra JVM arguments for the test processes (for example -Xlog:gc)'
         default: ''
+      mavenargs:
+        description: 'Extra Maven arguments (for example -Dsurefire.timeout=90, which dumps the threads of a test process that is still running then)'
+        default: ''
       hanghunt:
         description: 'Names of programs (separated by spaces) to run 8 at a time; one that is still running after 30 s gets a backtrace of all threads'
         default: ''
@@ -60,7 +63,7 @@ jobs:
         timeout-minutes: 120
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
-          -Dfailsafe.failIfNoSpecifiedTests=false -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
+          ${{ inputs.mavenargs }} -Dfailsafe.failIfNoSpecifiedTests=false -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
           -DargLine="-Xmx3g ${{ inputs.jvmargs }} -Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
         env:
           C_INCLUDE_PATH: /opt/homebrew/include

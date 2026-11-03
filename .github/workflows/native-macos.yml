@@ -13,6 +13,9 @@ on:
       unit:
         description: 'Surefire test selection (-Dtest); NoSuch runs none'
         default: 'NoSuch'
+      jvmargs:
+        description: 'Extra JVM arguments for the test processes (for example -Xlog:gc)'
+        default: ''
       hanghunt:
         description: 'Names of programs (separated by spaces) to run 8 at a time; one that is still running after 30 s gets a backtrace of all threads'
         default: ''
@@ -58,7 +61,7 @@ jobs:
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
           -Dfailsafe.failIfNoSpecifiedTests=false -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
-          -DargLine="-Xmx3g -Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
+          -DargLine="-Xmx3g ${{ inputs.jvmargs }} -Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
         env:
           C_INCLUDE_PATH: /opt/homebrew/include
           LIBRARY_PATH: /opt/homebrew/lib

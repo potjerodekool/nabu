@@ -333,12 +333,13 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 // de impliciete parameters typeren en de body opnieuw
                 // resolven. In `Comparator<String> c = (a, b) -> a.length()`
                 // bleef `a.length()` anders onopgelost en de body leeg.
-                if (variableDeclaratorStatement.getValue() instanceof LambdaExpressionTree lambda
-                        && variableType instanceof DeclaredType
+                if (variableType instanceof DeclaredType
                         && variableType.asTypeElement() != null
                         && variableType.asTypeElement().isFunctionalInterface()) {
-                    resetImplicitLambdaParameters(lambda);
-                    postResolve(lambda, variableType, scope);
+                    for (final var lambda : targetTypedLambdas(variableDeclaratorStatement.getValue())) {
+                        resetImplicitLambdaParameters(lambda);
+                        postResolve(lambda, variableType, scope);
+                    }
                 }
             }
         }
@@ -518,7 +519,35 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
         return type;
     }
 
+    /**
+     * The lambdas that get the type of {@code value} as target type: the value itself or, in a conditional
+     * expression or between parentheses, the branches.
+     */
+    private static List<LambdaExpressionTree> targetTypedLambdas(final Tree value) {
+        final var result = new ArrayList<LambdaExpressionTree>();
+        collectTargetTypedLambdas(value, result);
+        return result;
+    }
+
+    private static void collectTargetTypedLambdas(final Tree value,
+                                                  final List<LambdaExpressionTree> result) {
+        if (value instanceof LambdaExpressionTree lambda) {
+            result.add(lambda);
+        } else if (value instanceof ConditionalExpressionTree conditional) {
+            collectTargetTypedLambdas(conditional.getTrueExpression(), result);
+            collectTargetTypedLambdas(conditional.getFalseExpression(), result);
+        } else if (value instanceof ParenthesizedExpression parenthesized) {
+            collectTargetTypedLambdas(parenthesized.getExpression(), result);
+        }
+    }
+
     private void lambdaCheck(final Tree value, final TypeMirror variableType) {
+        for (final var lambda : targetTypedLambdas(value)) {
+            lambdaCheckLambda(lambda, variableType);
+        }
+    }
+
+    private void lambdaCheckLambda(final Tree value, final TypeMirror variableType) {
         if (value instanceof LambdaExpressionTree lambdaExpressionTree) {
             final var typeElement = variableType != null ? variableType.asTypeElement() : null;
 
@@ -668,7 +697,22 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
     }
 
     public Object visitBinaryExpression(final BinaryExpressionTree binaryExpression, final Scope scope) {
-        super.visitBinaryExpression(binaryExpression, scope);
+        if (binaryExpression.getTag() == Tag.ASSIGN
+                && !targetTypedLambdas(binaryExpression.getRight()).isEmpty()) {
+            // `field = () -> 1`: the lambda has the type of the variable as target type.
+            acceptTree(binaryExpression.getLeft(), scope);
+            final var targetType = compilerContext.getTreeUtils().typeOf(binaryExpression.getLeft());
+            lambdaCheck(binaryExpression.getRight(), targetType);
+            acceptTree(binaryExpression.getRight(), scope);
+            if (isFunctionalInterface(targetType)) {
+                for (final var lambda : targetTypedLambdas(binaryExpression.getRight())) {
+                    resetImplicitLambdaParameters(lambda);
+                    postResolve(lambda, targetType, scope);
+                }
+            }
+        } else {
+            super.visitBinaryExpression(binaryExpression, scope);
+        }
         final var leftType = compilerContext.getTreeUtils().typeOf(binaryExpression.getLeft());
         final var rightType = compilerContext.getTreeUtils().typeOf(binaryExpression.getRight());
         var binaryType = switch (binaryExpression.getTag()) {
@@ -1782,10 +1826,11 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
 
         final TypeMirror returnType = currentReturnType(scope);
 
-        if (expression instanceof LambdaExpressionTree lambdaExpression && returnType != null) {
-            final var type = returnType;
-            lambdaExpression.setType(type);
-            lambdaCheck(lambdaExpression, type);
+        if (returnType != null) {
+            for (final var lambdaExpression : targetTypedLambdas(expression)) {
+                lambdaExpression.setType(returnType);
+                lambdaCheck(lambdaExpression, returnType);
+            }
         }
 
         if (expression instanceof MemberReference memberReference && returnType != null
@@ -1910,13 +1955,17 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                 final var argument = arguments.get(i);
                 final var parameterType = parameterTypes.get(i);
 
-                if (argument instanceof LambdaExpressionTree lambdaExpression) {
-                    postResolve(lambdaExpression, parameterType, scope);
-                } else if (argument instanceof MemberReference memberReference) {
+                if (argument instanceof MemberReference memberReference) {
                     final var lambda = memberReferenceToLambda(memberReference, parameterType);
                     if (lambda != null) {
                         arguments.set(i, lambda);
                         postResolve(lambda, parameterType, scope);
+                    }
+                } else {
+                    // A lambda, or the lambdas that are the branches of a conditional expression.
+                    for (final var lambdaExpression : targetTypedLambdas(argument)) {
+                        lambdaCheck(lambdaExpression, parameterType);
+                        postResolve(lambdaExpression, parameterType, scope);
                     }
                 }
             }
@@ -2393,7 +2442,18 @@ public class ResolverPhase extends AbstractTreeVisitor<Object, Scope> {
                         && nested.getType() == null && ownType instanceof ArrayType ownArray) {
                     nested.setType(ownArray.getComponentType());
                 }
+                if (ownType instanceof ArrayType ownArray && isFunctionalInterface(ownArray.getComponentType())) {
+                    for (final var lambda : targetTypedLambdas(element)) {
+                        lambdaCheck(lambda, ownArray.getComponentType());
+                    }
+                }
                 acceptTree(element, scope);
+                if (ownType instanceof ArrayType ownArray && isFunctionalInterface(ownArray.getComponentType())) {
+                    for (final var lambda : targetTypedLambdas(element)) {
+                        resetImplicitLambdaParameters(lambda);
+                        postResolve(lambda, ownArray.getComponentType(), scope);
+                    }
+                }
             }
         }
 

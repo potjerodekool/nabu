@@ -465,4 +465,26 @@ public abstract class AbstractTreeVisitor<R, P> implements TreeVisitor<R, P>, Pa
         acceptTree(parenthesizedExpression.getExpression(), param);
         return defaultAnswer(parenthesizedExpression, param);
     }
+
+    @Override
+    public R visitNewArray(final NewArrayExpression newArrayExpression, final P param) {
+        newArrayExpression.getDimensions().forEach(dimension -> acceptTree(dimension, param));
+        if (newArrayExpression.getElements() != null) {
+            newArrayExpression.getElements().forEach(element -> acceptTree(element, param));
+        }
+        return defaultAnswer(newArrayExpression, param);
+    }
+
+    @Override
+    public R visitArrayAccess(final ArrayAccessExpressionTree arrayAccessExpressionTree, final P param) {
+        acceptTree(arrayAccessExpressionTree.getExpression(), param);
+        acceptTree(arrayAccessExpressionTree.getIndex(), param);
+        return defaultAnswer(arrayAccessExpressionTree, param);
+    }
+
+    @Override
+    public R visitInstanceOfExpression(final InstanceOfExpression instanceOfExpression, final P param) {
+        acceptTree(instanceOfExpression.getExpression(), param);
+        return defaultAnswer(instanceOfExpression, param);
+    }
 }

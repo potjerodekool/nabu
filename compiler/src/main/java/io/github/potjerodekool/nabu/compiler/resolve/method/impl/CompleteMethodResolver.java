@@ -1217,9 +1217,10 @@ public class CompleteMethodResolver implements MethodResolver {
      * statement expression or a block without {@code return value;}, another one an expression or a block
      * that returns a value ({@code schedule(() -> 42, ...)} is the Callable, not the Runnable).
      */
-    private boolean isPotentiallyCompatible(final ExpressionTree argument,
+    private boolean isPotentiallyCompatible(final ExpressionTree argumentTree,
                                             final TypeMirror sourceType,
                                             final TypeMirror targetType) {
+        final var argument = representativeLambda(argumentTree);
         if (argument instanceof LambdaExpressionTree lambda
                 && targetType instanceof DeclaredType declared
                 && declared.asTypeElement() != null
@@ -1342,7 +1343,25 @@ public class CompleteMethodResolver implements MethodResolver {
                 .toList();
     }
 
-    private boolean isImplicitlyTypedLambda(final ExpressionTree expressionTree) {
+    /**
+     * A conditional expression whose branches are both lambdas ({@code b ? () -> 1 : () -> 2}) counts as one of
+     * its lambdas where an argument is matched with a parameter; the same for parentheses.
+     */
+    private static ExpressionTree representativeLambda(final ExpressionTree argument) {
+        if (argument instanceof ParenthesizedExpression parenthesized) {
+            return representativeLambda(parenthesized.getExpression());
+        } else if (argument instanceof ConditionalExpressionTree conditional) {
+            final var whenTrue = representativeLambda(conditional.getTrueExpression());
+            final var whenFalse = representativeLambda(conditional.getFalseExpression());
+            return whenTrue instanceof LambdaExpressionTree && whenFalse instanceof LambdaExpressionTree
+                    ? whenTrue
+                    : argument;
+        }
+        return argument;
+    }
+
+    private boolean isImplicitlyTypedLambda(final ExpressionTree argumentTree) {
+        final var expressionTree = representativeLambda(argumentTree);
         // A method reference is, like an implicitly typed lambda, not
         // pertinent to applicability (JLS 15.12.2.2); ResolverPhase turns it
         // into a lambda for the parameter type of the chosen method.

@@ -23,6 +23,10 @@ The plugin is not published to Maven Central yet; build Nabu from source (`mvn i
 | `targetVersion` | `maven.compiler.target` | `17` | Target Java version (17 up to 25; another value is an error) |
 | `release` | `maven.compiler.release` | | Java version 17 to 25 for the language level and the class file version. A language feature of a newer version is an error (see [Release]({{ site.baseurl }}/languages/java/#release)); an unsupported value is an error too. Replaces `targetVersion` |
 | `failOnError` | `maven.compiler.failOnError` | `true` | Fail the build on compilation errors |
+| `daemon` | `nabu.daemon` | `false` | Compile with the Nabu compiler daemon, see [Compiler daemon](#compiler-daemon) |
+| `daemonPort` | `nabu.daemon.port` | `9876` | Port of the daemon (on the loopback address only) |
+| `daemonJar` | `nabu.daemon.jar` | `nabu-daemon` of the plugin version | The daemon jar |
+| `daemonJvmArgs` | `nabu.daemon.jvmArgs` | | Arguments for the JVM of the daemon, separated by spaces (for example `-Xmx2g`) |
 
 The plugin compiles every source root of the project (`src/main/java` and any root added with `build-helper-maven-plugin`), both `.java` and `.nabu` files.
 
@@ -36,6 +40,21 @@ The compiler options for the LLVM backend (`--gc`, `--opt`, …) are described o
     </compilerArgs>
 </configuration>
 ```
+
+## Compiler daemon
+
+Maven creates the class loader of a plugin again for every build, also in `mvnd`, so the compiler starts cold in every build: ANTLR builds the tables of the Java and Nabu grammars while it parses, and that takes seconds. With `-Dnabu.daemon=true` the plugin sends the compilation to the Nabu compiler daemon, a JVM that stays alive between builds and keeps the compiler warm. On the petstore demo (16 Java and 18 Nabu files) a warm build takes about 3.5 s instead of 7 s.
+
+```
+mvn compile -Dnabu.daemon=true
+```
+
+- The daemon is started by the first build that uses it, with the JVM of Maven, in `~/.nabu`. Its output is in `~/.nabu/daemon-<port>.log`. It stops itself after 30 minutes without a build (`-Dnabu.daemon.idleTimeoutMs=...` in `daemonJvmArgs`).
+- It listens on `127.0.0.1` only, and compiles the paths it is given: do not forward the port.
+- A daemon that is another build of the daemon jar than the one the plugin expects (also a rebuilt `SNAPSHOT`) is stopped and started again.
+- When the daemon cannot be started or reached, the plugin warns and compiles in the process of Maven, as without the option.
+- Messages the compiler writes to the standard output or error (for example the syntax errors of the parser) are in the log of the daemon, not in the output of Maven. Diagnostics of the compiler are in the output of Maven.
+- The daemon holds the jars in `~/.nabu/plugins` open. Stop it (end the process, or wait for the idle timeout) before you rebuild those plugins.
 
 ## Mixing Nabu and Java
 

@@ -29,11 +29,23 @@ public class LightweightCompilerDaemon {
 
     public LightweightCompilerDaemon(final int port) throws IOException {
         this.executorService = Executors.newFixedThreadPool(MAX_CONNECTIONS);
-        this.serverSocket = new ServerSocket(port);
+        // Only the local machine may compile with this daemon: it reads and writes the files of the paths it is given.
+        this.serverSocket = new ServerSocket(port, 50, InetAddress.getByAddress(new byte[]{127, 0, 0, 1}));
+    }
+
+    /**
+     * @return The port the daemon listens on (useful when it was created with port 0).
+     */
+    public int getPort() {
+        return serverSocket.getLocalPort();
     }
 
     public static void main(String[] args) throws IOException {
-        LightweightCompilerDaemon daemon = new LightweightCompilerDaemon();
+        // The port can be chosen with -Dnabu.daemon.port or as the first argument.
+        final var port = args.length > 0
+                ? Integer.parseInt(args[0])
+                : Integer.getInteger("nabu.daemon.port", PORT);
+        LightweightCompilerDaemon daemon = new LightweightCompilerDaemon(port);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOGGER.info("Received shutdown signal...");
@@ -53,7 +65,7 @@ public class LightweightCompilerDaemon {
         LOGGER.info("║  Lightweight Compiler Daemon                   ║");
         LOGGER.info("╠════════════════════════════════════════════════╣");
         LOGGER.info("║  Protocol: Custom TCP Binary                   ║");
-        LOGGER.info("║  Port: " + PORT + "                            ║");
+        LOGGER.info("║  Port: " + getPort() + "                            ║");
         LOGGER.info("║  Status: RUNNING                               ║");
         LOGGER.info("╚════════════════════════════════════════════════╝");
 

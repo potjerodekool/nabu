@@ -17,11 +17,13 @@ import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.graph.Exclusion;
 import org.eclipse.aether.repository.RemoteRepository;
+import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.DependencyRequest;
 import org.eclipse.aether.util.artifact.JavaScopes;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -80,6 +82,36 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
     protected boolean incremental;
 
     /**
+     * Compile with the Nabu compiler daemon, a JVM that stays alive between builds. Maven creates the class loader of
+     * this plugin again for every build, so the compiler is cold (the first parse of every construct of the Java and
+     * Nabu grammars is slow) in every build; the daemon keeps it warm. The daemon is started when it is not running.
+     * When it cannot be used the compilation happens in the process of Maven, as without this option.
+     */
+    @Parameter(property = "nabu.daemon", defaultValue = "false")
+    protected boolean daemon;
+
+    /**
+     * The port of the daemon, on the loopback address only.
+     */
+    @Parameter(property = "nabu.daemon.port", defaultValue = "9876")
+    protected int daemonPort;
+
+    /**
+     * The daemon jar. Default is the nabu-daemon artifact of the version of this plugin.
+     */
+    @Parameter(property = "nabu.daemon.jar")
+    protected File daemonJar;
+
+    /**
+     * Arguments for the JVM of the daemon, separated by spaces (for example {@code -Xmx2g}).
+     */
+    @Parameter(property = "nabu.daemon.jvmArgs")
+    protected String daemonJvmArgs;
+
+    @Parameter(defaultValue = "${plugin.version}", readonly = true)
+    private String pluginVersion;
+
+    /**
      * Subclasses must provide the source directories to compile
      */
     protected abstract List<String> getSourceRoots();
@@ -132,9 +164,12 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
         configureLogging();
 
         try {
-            final var nabuCompiler = new NabuCompiler();
             final var compilerOptions = configureOptions(existingSourceDirs);
-            final var resultCode = nabuCompiler.compile(compilerOptions);
+            var resultCode = daemon ? compileWithDaemon(compilerOptions) : null;
+
+            if (resultCode == null) {
+                resultCode = new NabuCompiler().compile(compilerOptions);
+            }
 
             if (resultCode != 0 && failOnError) {
                 throw new MojoExecutionException("Compilation failure");
@@ -143,6 +178,49 @@ public abstract class AbstractCompilerMojo extends AbstractMojo {
         } catch (final Exception e) {
             throw new MojoExecutionException("Failed to compile " + getCompilationType() + " sources", e);
         }
+    }
+
+    /**
+     * @return The result of the compilation by the daemon, or null if there is no daemon to compile with.
+     */
+    private Integer compileWithDaemon(final CompilerOptions compilerOptions) {
+        final Path jar;
+
+        try {
+            jar = resolveDaemonJar();
+        } catch (final Exception e) {
+            getLog().warn("The Nabu daemon jar is not available (" + e.getMessage() + "), compiling without the daemon");
+            return null;
+        }
+
+        final var jvmArgs = daemonJvmArgs == null || daemonJvmArgs.isBlank()
+                ? List.<String>of()
+                : List.of(daemonJvmArgs.trim().split("\\s+"));
+
+        final var outcome = new DaemonCompiler(getLog(), daemonPort, jar, jvmArgs).compile(compilerOptions);
+
+        return switch (outcome) {
+            case SUCCESS -> 0;
+            case FAILED -> 1;
+            case UNAVAILABLE -> {
+                getLog().warn("Compiling without the Nabu daemon");
+                yield null;
+            }
+        };
+    }
+
+    private Path resolveDaemonJar() throws Exception {
+        if (daemonJar != null) {
+            if (!daemonJar.isFile()) {
+                throw new MojoExecutionException("nabu.daemon.jar does not exist: " + daemonJar);
+            }
+            return daemonJar.toPath();
+        }
+
+        final var artifact = new DefaultArtifact("io.github.potjerodekool", "nabu-daemon", "jar", pluginVersion);
+        final var request = new ArtifactRequest(artifact, remoteProjectRepositories, null);
+        final var result = repositorySystem.resolveArtifact(session.getRepositorySession(), request);
+        return result.getArtifact().getFile().toPath();
     }
 
     private CompilerOptions configureOptions(final List<File> existingSourceDirs) throws MojoExecutionException {

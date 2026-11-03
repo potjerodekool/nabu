@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.client;
 
 import java.io.*;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -11,8 +13,12 @@ import java.util.function.Consumer;
  * Uses custom TCP binary protocol
  */
 public class LightweightClient {
-    private static final String HOST = "localhost";
+    /** The daemon only listens on the loopback address (IPv4), so the client connects to exactly that. */
+    private static final byte[] HOST = {127, 0, 0, 1};
     private static final int DEFAULT_PORT = 9876;
+    private static final int CONNECT_TIMEOUT_MS = 2000;
+    /** Something else than the daemon may listen on the port, and never answer. */
+    private static final int PING_TIMEOUT_MS = 5000;
 
     private final int port;
 
@@ -24,8 +30,20 @@ public class LightweightClient {
         this.port = port;
     }
 
+    private Socket connect(final int readTimeoutMs) throws IOException {
+        final var socket = new Socket();
+        try {
+            socket.connect(new InetSocketAddress(InetAddress.getByAddress(HOST), port), CONNECT_TIMEOUT_MS);
+            socket.setSoTimeout(readTimeoutMs);
+        } catch (final IOException e) {
+            socket.close();
+            throw e;
+        }
+        return socket;
+    }
+
     private void performAction(final Action consumer) throws IOException {
-        try (final Socket socket = new Socket(HOST, port)) {
+        try (final Socket socket = connect(0)) {
             final var out = new DataOutputStream(socket.getOutputStream());
             final var in = new DataInputStream(socket.getInputStream());
             consumer.apply(in, out);
@@ -33,7 +51,12 @@ public class LightweightClient {
     }
 
     private <R> R performAction(final ActionWithResult<R> consumer) throws IOException {
-        try (final Socket socket = new Socket(HOST, port)) {
+        return performAction(consumer, 0);
+    }
+
+    private <R> R performAction(final ActionWithResult<R> consumer,
+                                final int readTimeoutMs) throws IOException {
+        try (final Socket socket = connect(readTimeoutMs)) {
             final var out = new DataOutputStream(socket.getOutputStream());
             final var in = new DataInputStream(socket.getInputStream());
             return consumer.apply(in, out);
@@ -41,6 +64,14 @@ public class LightweightClient {
     }
 
     public boolean ping() throws IOException {
+        return pingMessage().isPresent();
+    }
+
+    /**
+     * @return The identity of the daemon (the text after {@code PONG }, set by whoever started the daemon with
+     * {@code -Dnabu.daemon.id}), or empty if the daemon did not answer with success.
+     */
+    public java.util.Optional<String> pingMessage() throws IOException {
         return performAction((in, out) -> {
             // Send PING command
             out.writeByte(Protocol.CMD_PING);
@@ -52,8 +83,13 @@ public class LightweightClient {
             byte[] data = new byte[length];
             in.readFully(data);
 
-            return status == Protocol.STATUS_SUCCESS;
-        });
+            if (status != Protocol.STATUS_SUCCESS) {
+                return java.util.Optional.<String>empty();
+            }
+
+            final var message = new String(data, StandardCharsets.UTF_8);
+            return java.util.Optional.of(message.startsWith("PONG ") ? message.substring("PONG ".length()) : message);
+        }, PING_TIMEOUT_MS);
     }
 
     public Status compile(final Map<String, String> compilerOptions,
@@ -70,7 +106,10 @@ public class LightweightClient {
                 final var key = compileOption.getKey();
                 final var value = compileOption.getValue();
                 final var option = String.format("%s %s", key, value);
-                out.writeUTF(option);
+                // Not writeUTF: that is limited to 64 KB, and a class path of a big project is longer.
+                final var bytes = option.getBytes(StandardCharsets.UTF_8);
+                out.writeInt(bytes.length);
+                out.write(bytes);
             }
             out.flush();
 
@@ -146,10 +185,8 @@ public class LightweightClient {
                                 final Consumer<DaemonEvent> listener) throws IOException {
         final var fileName = readData(in);
         final var message = readData(in);
-        //final var lineNumber = in.readInt();
-        //final var columnNumber = in.readInt();
-        final var lineNumber = -1;
-        final var columnNumber = -1;
+        final var lineNumber = in.readInt();
+        final var columnNumber = in.readInt();
 
         final var kind = switch (type) {
             case Protocol.DIAGNOSTIC_ERROR -> DiagnosticEvent.Kind.ERROR;

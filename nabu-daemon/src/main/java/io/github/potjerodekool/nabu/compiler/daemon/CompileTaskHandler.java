@@ -25,15 +25,7 @@ public class CompileTaskHandler implements TaskHandler {
         sendCompileStarted(out);
 
         final var nabuCompiler = new NabuCompiler();
-        final var compilerOptionsBuilder = new CompilerOptions.CompilerOptionsBuilder();
-
-        configureClassPath(compilerOptionsBuilder, optionsMap);
-        configureSourceRoots(compilerOptionsBuilder, optionsMap);
-        configureBackend(compilerOptionsBuilder, optionsMap);
-
-        final var outputDirectory = optionsMap.getOrDefault(CompilerOption.CLASS_OUTPUT.optionName(), "out");
-
-        compilerOptionsBuilder.option(CompilerOption.CLASS_OUTPUT, outputDirectory);
+        final var options = toCompilerOptions(optionsMap);
 
         nabuCompiler.setListener(diagnostic -> {
             try {
@@ -50,9 +42,18 @@ public class CompileTaskHandler implements TaskHandler {
             }
         });
 
-        final var options = compilerOptionsBuilder.build();
         if (options.hasOption(CompilerOption.SOURCE_PATH)) {
-            final var result = nabuCompiler.compile(options);
+            final int result;
+
+            try {
+                result = nabuCompiler.compile(options);
+            } catch (final RuntimeException | Error e) {
+                // Tell the client what went wrong, instead of leaving it with a connection that just closes
+                // (it would think the daemon is not there and compile again by itself).
+                sendFailure(out, e);
+                return;
+            }
+
             sendEnd(out, result == 0);
         } else {
             sendEnd(out, true);
@@ -64,7 +65,11 @@ public class CompileTaskHandler implements TaskHandler {
 
         final var count = in.readInt();
         for (var i = 0; i < count; i++) {
-            final var option = in.readUTF();
+            // Length prefixed UTF-8: writeUTF/readUTF are limited to 64 KB, and a class path can be longer.
+            final var length = in.readInt();
+            final var bytes = new byte[length];
+            in.readFully(bytes);
+            final var option = new String(bytes, StandardCharsets.UTF_8);
             final var sep = option.indexOf(' ');
             final var key = option.substring(0, sep);
             final var value = option.substring(sep + 1);
@@ -83,37 +88,36 @@ public class CompileTaskHandler implements TaskHandler {
         out.flush();
     }
 
-    private void configureClassPath(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder,
-                                    final Map<String, String> optionsMap) {
+    /**
+     * Converts the options a client sent ({@code option name -> value}) to compiler options. Every option is passed
+     * on as it was sent, so a compilation by the daemon is the same as one in the process of the client.
+     * Only the defaults of the first versions of the daemon are kept: a class output directory ({@code out}) and,
+     * without a class path, the class output directory as class path.
+     */
+    static CompilerOptions toCompilerOptions(final Map<String, String> optionsMap) {
+        final var builder = new CompilerOptions.CompilerOptionsBuilder();
+        optionsMap.forEach((name, value) -> builder.option(new CompilerOption(name), value));
+
         final var outputDirectory = optionsMap.getOrDefault(CompilerOption.CLASS_OUTPUT.optionName(), "out");
-        final var classPath = optionsMap.getOrDefault(CompilerOption.CLASS_PATH.optionName(), "");
-        final var classPathEntries = Arrays.asList(classPath.split(File.pathSeparator));
+        builder.option(CompilerOption.CLASS_OUTPUT, outputDirectory);
 
-        final var paths = new ArrayList<String>();
-        paths.add(outputDirectory);
-        paths.addAll(classPathEntries);
-        compilerOptionsBuilder.option(
-                CompilerOption.CLASS_PATH,
-                String.join(File.pathSeparator, paths)
-        );
+        if (!optionsMap.containsKey(CompilerOption.CLASS_PATH.optionName())) {
+            builder.option(CompilerOption.CLASS_PATH, outputDirectory);
+        }
+
+        return builder.build();
     }
 
-    private void configureSourceRoots(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder,
-                                      final Map<String, String> optionsMap) {
-        final var sourceRoots = optionsMap.getOrDefault(CompilerOption.SOURCE_PATH.optionName(), "");
-        final var sourcePath = String.join(File.pathSeparator, sourceRoots);
-
-        if (!sourcePath.isEmpty()) {
-            compilerOptionsBuilder.option(CompilerOption.SOURCE_PATH, sourcePath);
-        }
-    }
-
-    private void configureBackend(final CompilerOptions.CompilerOptionsBuilder compilerOptionsBuilder,
-                                  final Map<String, String> optionsMap) {
-        final var backend = optionsMap.get(CompilerOption.BACKEND.optionName());
-        if (backend != null) {
-            compilerOptionsBuilder.option(CompilerOption.BACKEND, backend);
-        }
+    private void sendFailure(final DataOutputStream out,
+                             final Throwable failure) throws IOException {
+        final var message = "Compilation by the daemon failed: " + failure;
+        out.writeByte(Protocol.DIAGNOSTIC_ERROR);
+        writeField(out, NO_DATA);
+        writeField(out, toByteArray(message));
+        out.writeInt(-1);
+        out.writeInt(-1);
+        out.flush();
+        sendEnd(out, false);
     }
 
     private void sendDiagnostic(final Diagnostic diagnostic,

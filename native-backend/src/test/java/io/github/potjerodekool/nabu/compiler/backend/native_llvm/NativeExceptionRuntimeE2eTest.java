@@ -9,6 +9,8 @@ import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.tools.JavaVersion;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
@@ -52,6 +54,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link BoehmRuntimeE2eTest}: het object dat de LLVM-backend zelf linkt wordt op
  * deze machine door de AV vastgehouden (CreateProcess error=5).
  */
+// Compiles for the Windows target (x86_64-w64-windows-gnu); the linker of another host cannot link that.
+@EnabledOnOs(OS.WINDOWS)
 class NativeExceptionRuntimeE2eTest {
 
     private static final IRType EXC_TYPE = new IRType.Ptr(IRType.I8, "Ltest/Exception;");

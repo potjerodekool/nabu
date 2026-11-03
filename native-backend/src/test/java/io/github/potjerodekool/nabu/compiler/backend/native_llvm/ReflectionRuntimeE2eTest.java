@@ -9,6 +9,8 @@ import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
@@ -32,6 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * Exit-code 0 = alle checks geslaagd; 10..15 geeft de eerste faalstap.
  */
+// Compiles for the Windows target (x86_64-w64-windows-gnu); the linker of another host cannot link that.
+@EnabledOnOs(OS.WINDOWS)
 class ReflectionRuntimeE2eTest {
 
     private static final String GREET = TestReflectionModel.GREET_INTERNAL;

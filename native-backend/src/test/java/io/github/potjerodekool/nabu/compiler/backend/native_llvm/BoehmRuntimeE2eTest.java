@@ -12,6 +12,8 @@ import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import io.github.potjerodekool.nabu.lang.Flags;
 import io.github.potjerodekool.nabu.tools.JavaVersion;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
@@ -45,6 +47,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Exit-code 0 = geslaagd; 20..25 geeft de eerste faalstap.
  */
+// Compiles for the Windows target (x86_64-w64-windows-gnu); the linker of another host cannot link that.
+@EnabledOnOs(OS.WINDOWS)
 class BoehmRuntimeE2eTest {
 
     private static final IRType BOX = new IRType.Ptr(IRType.I8, "Ltest/Box;");

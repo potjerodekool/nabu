@@ -149,3 +149,13 @@ jobs:
           name: failsafe-reports
           path: native-backend/target/failsafe-reports/*
           if-no-files-found: ignore
+
+      - name: Keep the reports of the unit tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: |
+            compiler/target/surefire-reports/*
+            native-backend/target/surefire-reports/*
+          if-no-files-found: ignore

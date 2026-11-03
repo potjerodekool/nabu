@@ -27,6 +27,32 @@ public class PluginRegistry {
     private final LanguageSupportManager languageSupportManager = new LanguageSupportManager(this);
     private final SharedLoader sharedLoader = new SharedLoader();
 
+    /**
+     * The class loaders of the plugin jars, kept for the life of the JVM. The generated ANTLR parsers of a plugin
+     * (for example the Nabu language) keep their DFA in a static field, built lazily and slowly: a new class loader per
+     * compilation made every compilation in a long living JVM (mvnd, the daemon, an IDE) start with a cold parser.
+     * A jar that changes (path, modification time or size) gets a new loader.
+     */
+    private static final Map<PluginLoaderKey, PluginClassLoader> PLUGIN_CLASS_LOADERS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record PluginLoaderKey(java.nio.file.Path jarFile,
+                                   long lastModified,
+                                   long size,
+                                   ClassLoader parent) {
+    }
+
+    private PluginClassLoader pluginClassLoader(final java.nio.file.Path jarFile,
+                                                final URL pluginRoot) throws IOException {
+        final var key = new PluginLoaderKey(
+                jarFile.toAbsolutePath().normalize(),
+                Files.getLastModifiedTime(jarFile).toMillis(),
+                Files.size(jarFile),
+                getClass().getClassLoader()
+        );
+        return PLUGIN_CLASS_LOADERS.computeIfAbsent(key,
+                k -> new PluginClassLoader(pluginRoot, k.parent()));
+    }
+
     public void registerPlugins(final CompilerContext compilerContext) {
         languageParserManager.init(compilerContext);
         languageSupportManager.init(compilerContext);
@@ -66,8 +92,7 @@ public class PluginRegistry {
                                     //URI.create(pluginPath.toString().substring("jar:".length(), pluginPath.toString().length() - "!/plugin.xml".length())).toURL();
                                     final var pluginRoot = jarFile.toUri().toURL();
 
-                                    final var pluginClassLoader = new PluginClassLoader(pluginRoot, getClass().getClassLoader());
-                                    sharedLoader.addPluginClassLoader(pluginClassLoader);
+                                    sharedLoader.addPluginClassLoader(pluginClassLoader(jarFile, pluginRoot));
                                 }
                             } catch (Exception ignored) {
                             }

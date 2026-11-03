@@ -2854,7 +2854,7 @@ public class JavaCompilerVisitor extends Java25ParserBaseVisitor<Object> {
     @Override
     public Object visitRecordBody(final Java25Parser.RecordBodyContext ctx) {
         return ctx.recordBodyDeclaration().stream()
-                .map(it -> it.accept(this))
+                .flatMap(it -> asStream(it.accept(this)))
                 .toList();
     }
 

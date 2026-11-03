@@ -740,4 +740,26 @@ class LowerBreadthRunTest {
                     }
                 """));
     }
+
+    @Test
+    void recordWithStaticFieldsAndStaticMethod() throws Exception {
+        assertEquals("p-1-2 p-3", run("Rec2", """
+                    record Tag(int id) {
+                        private static final String PREFIX = "p-";
+                        static int created = 0;
+                        Tag {
+                            created++;
+                        }
+                        String label() {
+                            return PREFIX + id;
+                        }
+                        static Tag of(int id) {
+                            return new Tag(id);
+                        }
+                    }
+                    public static String run() {
+                        return Tag.of(1).label() + "-" + Tag.of(2).id() + " " + Tag.of(3).label().replace("p-", "p-");
+                    }
+                """));
+    }
 }

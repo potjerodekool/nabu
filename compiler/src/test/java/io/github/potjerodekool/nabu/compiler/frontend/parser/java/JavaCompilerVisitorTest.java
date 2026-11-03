@@ -21,6 +21,7 @@ import java.io.StringWriter;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -88,14 +89,26 @@ class JavaCompilerVisitorTest {
     @Test
     void test() throws IOException {
         final var root = Paths.get("src/main/java");
+        final var failures = new ArrayList<String>();
         Files.walkFileTree(root, new SimplePathVisitor(path -> {
             try {
                 final var data = new String(Files.readAllBytes(path));
-                parse(data, Java25Parser::start_);
+                final var parser = createParser(data);
+                final var tree = parser.start_();
+                if (parser.getNumberOfSyntaxErrors() > 0) {
+                    failures.add(path + ": " + parser.getNumberOfSyntaxErrors() + " syntax errors");
+                } else {
+                    // The result of start_ is not a tree (it has no visit method of its own): only run the visitor.
+                    tree.accept(new JavaCompilerVisitor(
+                            new PathFileObject(new FileObject.Kind(".nabu", true), path), false));
+                }
             } catch (IOException e) {
                 throw new RuntimeException(e);
+            } catch (final RuntimeException e) {
+                failures.add(path + ": " + e);
             }
         }));
+        assertEquals(List.of(), failures);
     }
 
     @Test
@@ -569,7 +582,7 @@ class SimplePathVisitor extends SimpleFileVisitor<Path> {
 
     @Override
     public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
-        if (!file.getFileName().toString().endsWith(".java")) {
+        if (file.getFileName().toString().endsWith(".java")) {
             pathConsumer.accept(file);
         }
 

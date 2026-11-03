@@ -57,8 +57,8 @@ jobs:
         timeout-minutes: 120
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
-          -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
-          -DargLine="-Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
+          -Dfailsafe.failIfNoSpecifiedTests=false -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=macosx-arm64 -Dit.forks=${{ inputs.forks }}
+          -DargLine="-Xmx3g -Dnabu.keepExe=$RUNNER_TEMP/keep/threads.exe"
         env:
           C_INCLUDE_PATH: /opt/homebrew/include
           LIBRARY_PATH: /opt/homebrew/lib

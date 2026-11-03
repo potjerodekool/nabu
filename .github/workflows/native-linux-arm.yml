@@ -38,7 +38,7 @@ jobs:
         timeout-minutes: 120
         run: >
           mvn -B verify -pl native-backend -am -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false
-          -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=linux-arm64 -Dit.forks=${{ inputs.forks }}
+          -Dfailsafe.failIfNoSpecifiedTests=false -Dtest='${{ inputs.unit }}' -Dit.test='${{ inputs.tests }}' -Djavacpp.platform=linux-arm64 -Dit.forks=${{ inputs.forks }}
 
       - name: Keep the reports
         if: always()

@@ -3,6 +3,8 @@ package io.github.potjerodekool.nabu.compiler;
 import io.github.potjerodekool.nabu.tools.CompilerOption;
 import io.github.potjerodekool.nabu.tools.CompilerOptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledForJreRange;
+import org.junit.jupiter.api.condition.JRE;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.URLClassLoader;
@@ -17,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Test matrix for pattern matching in switch (Java 21 and later): type patterns, guards, record patterns, null
  * labels, unnamed patterns, sealed hierarchies, switch statements and expressions.
  */
+// The classes are compiled for release 25 and loaded in this JVM.
+@EnabledForJreRange(min = JRE.JAVA_25)
 class PatternSwitchRunTest {
 
     @TempDir

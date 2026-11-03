@@ -89,8 +89,11 @@ class JavaCompilerVisitorTest {
     @Test
     void test() throws IOException {
         final var root = Paths.get("src/main/java");
-        final var failures = new ArrayList<String>();
-        Files.walkFileTree(root, new SimplePathVisitor(path -> {
+        final var paths = new ArrayList<Path>();
+        Files.walkFileTree(root, new SimplePathVisitor(paths::add));
+        // The files are independent, and the first parse of every construct is the slow one: use every core.
+        final var failures = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+        paths.parallelStream().forEach(path -> {
             try {
                 final var data = new String(Files.readAllBytes(path));
                 final var parser = createParser(data);
@@ -102,13 +105,12 @@ class JavaCompilerVisitorTest {
                     tree.accept(new JavaCompilerVisitor(
                             new PathFileObject(new FileObject.Kind(".nabu", true), path), false));
                 }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (final RuntimeException e) {
+            } catch (final IOException | RuntimeException e) {
                 failures.add(path + ": " + e);
             }
-        }));
-        assertEquals(List.of(), failures);
+        });
+        assertTrue(paths.size() > 100, "the sources were not found: " + paths.size());
+        assertEquals(List.of(), failures.stream().sorted().toList());
     }
 
     @Test

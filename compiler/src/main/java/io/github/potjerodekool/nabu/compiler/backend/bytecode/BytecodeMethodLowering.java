@@ -358,6 +358,13 @@ public final class BytecodeMethodLowering {
                 continue;
             }
 
+            // The analyzer gives no frame to unreachable code. A library can contain it: ASM replaces dead code with
+            // nop...athrow, and CGLIB's generated static hooks end with such an athrow after the return.
+            // Emitting it would pop from an empty stack.
+            if (frames[i] == null) {
+                continue;
+            }
+
             emitOne(insn, frames[i]);
         }
     }

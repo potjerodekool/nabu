@@ -1968,6 +1968,17 @@ public final class BytecodeReachabilityCompiler {
                         queueInit(owner);
                     }
                 }
+                case Opcodes.INVOKEDYNAMIC -> {
+                    // A constructor reference (FindSink.OfRef::new) creates its class in the synthesized lambda,
+                    // which has no NEW instruction of its own to scan: without this the class has no instance as
+                    // far as the closure knows, and the methods it inherits (FindSink.accept) are never lowered.
+                    for (final Object arg : ((org.objectweb.asm.tree.InvokeDynamicInsnNode) insn).bsmArgs) {
+                        if (arg instanceof org.objectweb.asm.Handle handle
+                                && handle.getTag() == Opcodes.H_NEWINVOKESPECIAL) {
+                            queueInstantiate(handle.getOwner());
+                        }
+                    }
+                }
                 default -> {
                 }
             }

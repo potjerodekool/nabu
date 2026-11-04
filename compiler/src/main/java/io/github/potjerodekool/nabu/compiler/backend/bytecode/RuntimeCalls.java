@@ -46,6 +46,8 @@ final class RuntimeCalls {
 
     static final String LOGGER_SUPPORT = RUNTIME_PACKAGE + "LoggerSupport";
 
+    static final String LOADER_SUPPORT = RUNTIME_PACKAGE + "LoaderSupport";
+
     /** {@code explicitDesc}: the descriptor of the target when it differs from the call's (a JDK-internal parameter type). */
     private record Redirect(String owner, String name, String desc, boolean isStatic,
                             String targetClass, String target, String explicitDesc) {
@@ -86,6 +88,12 @@ final class RuntimeCalls {
                     "(Ljava/lang/String;)Ljava/net/URL;", true, RESOURCE_SUPPORT, "systemResource"),
             new Redirect("java/lang/ClassLoader", "getSystemResources",
                     "(Ljava/lang/String;)Ljava/util/Enumeration;", true, RESOURCE_SUPPORT, "systemResources"),
+            new Redirect("java/lang/Class", "getClassLoader",
+                    "()Ljava/lang/ClassLoader;", false, LOADER_SUPPORT, "classLoader"),
+            new Redirect("java/lang/Thread", "getContextClassLoader",
+                    "()Ljava/lang/ClassLoader;", false, LOADER_SUPPORT, "contextClassLoader"),
+            new Redirect("java/lang/ClassLoader", "getSystemClassLoader",
+                    "()Ljava/lang/ClassLoader;", true, LOADER_SUPPORT, "systemClassLoader"),
             new Redirect("java/lang/Module", "getResourceAsStream",
                     "(Ljava/lang/String;)Ljava/io/InputStream;", false, RESOURCE_SUPPORT, "moduleResourceAsStream"),
             new Redirect("java/lang/reflect/Proxy", "newProxyInstance",

@@ -3097,16 +3097,16 @@ BIND(void *, jcl_java_lang_ClassLoader_loadClass_resolve, "java.lang.ClassLoader
 /* SharedSecrets' access to java.util.ImmutableCollections (Stream.toList): the class that implements the access
  * interface is never initialized here, so the interface call has no implementation. The lists come from the
  * compiled Arrays.asList / ImmutableCollections.listFromTrustedArray. */
-void *jcl_java_util_Arrays_asList(void *array) __asm__(JCL_SYM("java.util.Arrays_asList"));
+void *jcl_java_util_Arrays_asList(void *array) __asm__(JCL_SYM("java.util.Arrays_asList")) __attribute__((weak));
 BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed,
      "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed", (void *self, void *array)) {
     (void)self;
-    return jcl_java_util_Arrays_asList(array);
+    return jcl_java_util_Arrays_asList != NULL ? jcl_java_util_Arrays_asList(array) : NULL;
 }
 BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArray,
      "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArray", (void *self, void *array)) {
     (void)self;
-    return jcl_java_util_Arrays_asList(array);
+    return jcl_java_util_Arrays_asList != NULL ? jcl_java_util_Arrays_asList(array) : NULL;
 }
 BIND(void *, jcl_java_lang_ClassLoader_getResource, "java.lang.ClassLoader_getResource", (void *self, void *nm)) { (void)self; (void)nm; return NULL; }
 /* Een native programma heeft één (boot-)loader; null is de JDK-vorm daarvan,

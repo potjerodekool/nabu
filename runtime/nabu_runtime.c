@@ -62,18 +62,26 @@ Windows met een GCC/Clang-toolchain en het MinGW/SEH-target \
  * Reflectie-metadata registry (fase 2): velden + annotaties
  * ------------------------------------------------------- */
 
-#define NABU_MAX_REFLECTION 64
-
-static const nabu_reflection_info *nabu_reflection_table[NABU_MAX_REFLECTION];
+/* Grows on demand: a large application (Spring, Hibernate) registers thousands of types. */
+static const nabu_reflection_info **nabu_reflection_table = NULL;
 static int nabu_reflection_count = 0;
+static int nabu_reflection_capacity = 0;
 
 int nabu_register_reflection(const nabu_reflection_info *info) {
     if (info == NULL || info->type_name == NULL) {
         return 0;
     }
-    if (nabu_reflection_count >= NABU_MAX_REFLECTION) {
-        fprintf(stderr, "nabu: too many reflection metadata entries\n");
-        abort();
+    if (nabu_reflection_count >= nabu_reflection_capacity) {
+        int capacity = nabu_reflection_capacity == 0 ? 256 : nabu_reflection_capacity * 2;
+        const nabu_reflection_info **grown =
+            (const nabu_reflection_info **) realloc((void *) nabu_reflection_table,
+                                                    sizeof(*grown) * (size_t) capacity);
+        if (grown == NULL) {
+            fprintf(stderr, "nabu: out of memory for the reflection metadata\n");
+            abort();
+        }
+        nabu_reflection_table = grown;
+        nabu_reflection_capacity = capacity;
     }
     nabu_reflection_table[nabu_reflection_count++] = info;
     return 1;

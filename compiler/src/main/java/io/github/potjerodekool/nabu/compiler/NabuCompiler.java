@@ -211,6 +211,17 @@ public class NabuCompiler implements Compiler {
                 addLibraryClosure(allModules, compileOptions, compilerOptions, compilerContext, classPath);
             }
 
+            // Everything the backend needs is in allModules now. The trees and the symbols of the source and of the
+            // classes it resolved are not: for a large program they are memory the code generation can use.
+            if (codeBackend.compilesLibraryBytecode()) {
+                try {
+                    compilationUnits.clear();
+                } catch (final UnsupportedOperationException e) {
+                    // an immutable list: the caller keeps its trees
+                }
+                compilerContext.releaseSymbols();
+            }
+
             try {
                 final long backendStart = System.nanoTime();
                 codeBackend.compileAll(allModules, compileOptions, targetDirectory);
@@ -501,11 +512,12 @@ public class NabuCompiler implements Compiler {
             return List.of();
         }
 
-        return compilationUnits.stream()
+        // A list that can be emptied: generateCode lets go of the trees before the backend runs.
+        return new ArrayList<>(compilationUnits.stream()
                 .map(LambdaToMethodPhase::lambdaToMethod)
                 .map(cu -> lower(cu, compilerContext))
                 //.map(cu -> IRPhase.ir(compilerContext, cu))
-                .toList();
+                .toList());
     }
 
     /** A name that two module imports provide as different types is an error where it is used (JLS 7.5.5). */

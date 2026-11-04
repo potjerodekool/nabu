@@ -266,6 +266,9 @@ public void setReflectionRegistry(
             if (name.indexOf('.') < 0 || name.startsWith("llvm.") || runtime.contains(name)) {
                 continue;
             }
+            // Weak: a definition in the C runtime (a BIND of jcl_lite.c) replaces the stub when the program is
+            // linked, so a missing JDK function can be added without compiling the whole program again.
+            LLVMSetLinkage(fn, LLVMWeakAnyLinkage);
             LLVMPositionBuilderAtEnd(stubBuilder,
                     LLVMAppendBasicBlockInContext(ctx, fn, new BytePointer("entry")));
             final LLVMValueRef symbolName = LLVMBuildGlobalStringPtr(stubBuilder,

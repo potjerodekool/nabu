@@ -126,6 +126,14 @@ public class CompilerContextImpl implements CompilerContext {
         return fileManager;
     }
 
+    /**
+     * Lets go of the symbols (packages, classes, modules) once nothing resolves names any more: they are of no use
+     * to a backend that works on the IR, and for a large program they are a lot of memory.
+     */
+    public void releaseSymbols() {
+        getSymbolTable().release();
+    }
+
     public SymbolTable getSymbolTable() {
         return SymbolTable.getInstance(this);
     }

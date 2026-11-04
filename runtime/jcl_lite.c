@@ -830,6 +830,9 @@ BIND(int64_t, jcl_java_lang_System_currentTimeMillis, "java.lang.System_currentT
     clock_gettime(CLOCK_REALTIME, &ts);
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
+/* No security manager (the JDK deprecated it for removal) and no console (stdin/stdout are not a terminal here). */
+BIND(void *, jcl_java_lang_System_getSecurityManager, "java.lang.System_getSecurityManager", (void)) { return NULL; }
+BIND(void *, jcl_java_lang_System_console, "java.lang.System_console", (void)) { return NULL; }
 BIND(int64_t, jcl_java_lang_System_nanoTime, "java.lang.System_nanoTime", (void)) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -3081,6 +3084,15 @@ BIND(void *, jcl_java_lang_Class_newInstance, "java.lang.Class_newInstance", (vo
         return NULL;
     }
     return jcl_instantiate(e);
+}
+/* One class loader: loadClass is Class.forName (ClassNotFoundException for a class the program does not have). */
+BIND(void *, jcl_java_lang_ClassLoader_loadClass, "java.lang.ClassLoader_loadClass", (void *self, void *name)) {
+    (void)self;
+    return jcl_java_lang_Class_forName(name);
+}
+BIND(void *, jcl_java_lang_ClassLoader_loadClass_resolve, "java.lang.ClassLoader_loadClass$P523beb0aZ", (void *self, void *name, uint8_t resolve)) {
+    (void)self; (void)resolve;
+    return jcl_java_lang_Class_forName(name);
 }
 BIND(void *, jcl_java_lang_ClassLoader_getResource, "java.lang.ClassLoader_getResource", (void *self, void *nm)) { (void)self; (void)nm; return NULL; }
 /* Een native programma heeft één (boot-)loader; null is de JDK-vorm daarvan,

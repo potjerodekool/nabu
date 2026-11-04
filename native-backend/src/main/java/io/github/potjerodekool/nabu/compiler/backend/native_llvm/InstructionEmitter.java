@@ -2945,8 +2945,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         }
         // Alleen voor klassen buiten deze compilatie: een veld van een klasse
         // die wél gecompileerd wordt en hier niet gevonden is, is een
-        // lookup-fout en mag niet stil een tweede, lege global krijgen.
-        if (classLayouts.ownerInternalName(plain) != null) {
+        // lookup-fout en mag niet stil een tweede, lege global krijgen. Behalve als de superklasse-keten de
+        // compilatie verlaat: dan kan het veld van de ontbrekende superklasse komen.
+        if (classLayouts.ownerInternalName(plain) != null && !classLayouts.superChainLeavesCompilation(plain)) {
             return null;
         }
         final LLVMBasicBlockRef bb = LLVMGetInsertBlock(builder);

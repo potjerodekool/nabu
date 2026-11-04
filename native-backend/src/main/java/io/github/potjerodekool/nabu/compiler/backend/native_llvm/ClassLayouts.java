@@ -962,6 +962,17 @@ for (IRModule m : modules) {
      * super-klasse kunnen overnemen.
      */
     public void registerAll(LLVMModuleRef mod, List<IRModule> modules) {
+        try {
+            registerAllImpl(mod, modules);
+        } finally {
+            layoutEpoch++;
+        }
+    }
+
+    /** Counts the calls of {@link #registerAll}: the layouts and their slots only change in there. */
+    private int layoutEpoch;
+
+    private void registerAllImpl(LLVMModuleRef mod, List<IRModule> modules) {
         if (modulesByInternalName.isEmpty()) {
             indexModules(modules);
         }
@@ -1095,14 +1106,20 @@ for (IRModule m : modules) {
                 owners.add(m.name);
             }
         }
+        final Set<String> normalizedOwners = new HashSet<>();
+        for (final String owner : owners) {
+            final String normalized = normalizeInternalName(owner);
+            if (normalized != null) {
+                normalizedOwners.add(normalized);
+            }
+        }
         for (final IRModule m : order) {
             if (Flags.hasFlag(m.flags, Flags.INTERFACE)) {
                 continue;
             }
-            final String name = normalizeInternalName(m.name);
-            for (final String owner : owners) {
-                if (implementsInterface(name, owner)) {
-                    interfacesWithImplementers.add(normalizeInternalName(owner));
+            for (final String itf : interfaceClosure(normalizeInternalName(m.name))) {
+                if (normalizedOwners.contains(itf)) {
+                    interfacesWithImplementers.add(itf);
                 }
             }
         }
@@ -1208,6 +1225,31 @@ for (IRModule m : modules) {
         if (idx < 0) return null;
         String sup = superInternalName(normalizeInternalName(callTarget.substring(0, idx)));
         return sup != null ? sup.replace('/', '.') + callTarget.substring(idx) : null;
+    }
+
+    /**
+     * Whether a superclass of the owner of {@code callTarget} is not a module of this compilation: a library
+     * class whose superclass is not on the class path (Spring Boot's Log4j2 classes without log4j-core). A member
+     * that is not found for such a class may be inherited from the missing superclass.
+     */
+    public boolean superChainLeavesCompilation(final String callTarget) {
+        final int idx = ownerSplit(callTarget);
+        if (idx < 0) {
+            return false;
+        }
+        String owner = normalizeInternalName(callTarget.substring(0, idx));
+        for (int depth = 0; depth < 256; depth++) {
+            final IRModule module = modulesByInternalName.get(owner);
+            if (module == null) {
+                return true;
+            }
+            // The declared superclass, also when it is not a module (superInternalName gives null then).
+            if (!(module.superType() instanceof IRType.Ptr p) || p.jvmDescriptor() == null) {
+                return false;
+            }
+            owner = normalizeInternalName(fromDescriptor(p.jvmDescriptor()));
+        }
+        return false;
     }
 
     /**
@@ -2071,6 +2113,15 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
     private boolean implementsInterface(String classInternalName, String interfaceOwner) {
         final String target = normalizeInternalName(interfaceOwner);
         if (target == null) return false;
+        return interfaceClosure(classInternalName).contains(target);
+    }
+
+    /**
+     * Every interface a class implements: those of the class and its superclasses, and all their superinterfaces.
+     * Computed once per class by the callers that test many interfaces: a test per interface walks the whole
+     * hierarchy again (28000 classes x 5000 interfaces for a Spring application).
+     */
+    private Set<String> interfaceClosure(String classInternalName) {
         // Ook via superinterfaces: picocli's CommandUserObject implementeert
         // IScope, en IScope (zonder eigen methoden) breidt IGetter uit. Alleen
         // de directe interfaces bekijken liet IGetter zonder implementers, en
@@ -2092,7 +2143,6 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         while (!pending.isEmpty()) {
             final String itf = pending.poll();
             if (!seen.add(itf)) continue;
-            if (target.equals(itf)) return true;
             final IRModule itfModule = modulesByInternalName.get(itf);
             if (itfModule != null) {
                 for (IRType ext : itfModule.interfaces()) {
@@ -2102,7 +2152,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
                 }
             }
         }
-        return false;
+        return seen;
     }
 
     /**
@@ -2511,7 +2561,9 @@ public ClassLayout get(String internalName) {
      */
     public ClassLayout findLayoutForVtableSlot(String methodFullName,
                                                List<IRType> paramTypes) {
-        for (final ClassLayout layout : byInternalName.values()) {
+        // A scan of all layouts per call is quadratic: 36000 classes and 200000 calls (a Spring application).
+        // A layout can only have a slot for a method name that its slot maps know, so only those are scanned.
+        for (final ClassLayout layout : layoutsWithSlotsFor(methodFullName)) {
             // Alleen layouts met een échte vtable: de slot-index is alleen
             // geldig ten opzichte van de array die in de header van het object
             // staat. Een abstracte klasse (geen vtable) zou anders een
@@ -2527,6 +2579,38 @@ public ClassLayout get(String internalName) {
         }
         return null;
     }
+
+    /** Method name -> the layouts (in the order of {@link #byInternalName}) with a vtable and a slot for it. */
+    private Map<String, List<ClassLayout>> vtableLayoutsByName;
+    private int vtableLayoutsEpoch = -1;
+    private int vtableLayoutsSize = -1;
+
+    private List<ClassLayout> layoutsWithSlotsFor(final String methodFullName) {
+        if (vtableLayoutsByName == null || vtableLayoutsEpoch != layoutEpoch
+                || vtableLayoutsSize != byInternalName.size()) {
+            final Map<String, List<ClassLayout>> index = new HashMap<>();
+            final Set<ClassLayout> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+            for (final ClassLayout layout : byInternalName.values()) {
+                if (layout.vtableGlobal == null || !seen.add(layout)) {
+                    continue;
+                }
+                final Set<String> names = new HashSet<>(layout.overloadSlots.keySet());
+                for (final String key : layout.virtualSlots.keySet()) {
+                    final int hash = key.indexOf('#');
+                    names.add(hash >= 0 ? key.substring(0, hash) : key);
+                    names.add(key);
+                }
+                for (final String name : names) {
+                    index.computeIfAbsent(name, k -> new ArrayList<>()).add(layout);
+                }
+            }
+            vtableLayoutsByName = index;
+            vtableLayoutsEpoch = layoutEpoch;
+            vtableLayoutsSize = byInternalName.size();
+        }
+        return vtableLayoutsByName.getOrDefault(methodFullName, List.of());
+    }
+
 
     /**
      * Vindt (bij benadering) de layout van de DECLARERENDE klasse van een

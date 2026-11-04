@@ -67,6 +67,41 @@ static const nabu_reflection_info **nabu_reflection_table = NULL;
 static int nabu_reflection_count = 0;
 static int nabu_reflection_capacity = 0;
 
+/* Hash index (open addressing, slot = table index + 1) over the type names: with many registered classes a
+ * linear scan per lookup is too slow. The first registration of a name wins, as before. */
+static int *nabu_reflection_slots;
+static unsigned nabu_reflection_slot_count;
+
+static unsigned nabu_reflection_hash(const char *name) {
+    unsigned h = 2166136261u;
+    for (; *name; name++) h = (h ^ (unsigned char)*name) * 16777619u;
+    return h;
+}
+
+static void nabu_reflection_index_add(int at) {
+    if (nabu_reflection_slot_count < (unsigned)nabu_reflection_count * 2 + 16) {
+        unsigned size = nabu_reflection_slot_count == 0 ? 1024 : nabu_reflection_slot_count;
+        while (size < (unsigned)nabu_reflection_capacity * 2) size *= 2;
+        int *slots = (int *) calloc(size, sizeof(int));
+        if (slots == NULL) { fputs("nabu: out of memory for the reflection index", stderr); abort(); }
+        free(nabu_reflection_slots);
+        nabu_reflection_slots = slots;
+        nabu_reflection_slot_count = size;
+        for (int i = 0; i < at; i++) {
+            unsigned h = nabu_reflection_hash(nabu_reflection_table[i]->type_name) & (size - 1);
+            while (slots[h] != 0 && strcmp(nabu_reflection_table[slots[h] - 1]->type_name, nabu_reflection_table[i]->type_name) != 0) h = (h + 1) & (size - 1);
+            if (slots[h] == 0) slots[h] = i + 1;
+        }
+    }
+    unsigned mask = nabu_reflection_slot_count - 1;
+    unsigned h = nabu_reflection_hash(nabu_reflection_table[at]->type_name) & mask;
+    while (nabu_reflection_slots[h] != 0
+            && strcmp(nabu_reflection_table[nabu_reflection_slots[h] - 1]->type_name, nabu_reflection_table[at]->type_name) != 0) {
+        h = (h + 1) & mask;
+    }
+    if (nabu_reflection_slots[h] == 0) nabu_reflection_slots[h] = at + 1;
+}
+
 int nabu_register_reflection(const nabu_reflection_info *info) {
     if (info == NULL || info->type_name == NULL) {
         return 0;
@@ -84,6 +119,7 @@ int nabu_register_reflection(const nabu_reflection_info *info) {
         nabu_reflection_capacity = capacity;
     }
     nabu_reflection_table[nabu_reflection_count++] = info;
+    nabu_reflection_index_add(nabu_reflection_count - 1);
     return 1;
 }
 
@@ -105,9 +141,14 @@ const nabu_reflection_info *nabu_lookup_reflection(const char *internal_name) {
     if (internal_name == NULL) {
         return NULL;
     }
-    for (int i = 0; i < nabu_reflection_count; i++) {
-        if (strcmp(nabu_reflection_table[i]->type_name, internal_name) == 0) {
-            return nabu_reflection_table[i];
+    if (nabu_reflection_slot_count == 0) {
+        return NULL;
+    }
+    unsigned mask = nabu_reflection_slot_count - 1;
+    for (unsigned h = nabu_reflection_hash(internal_name) & mask; nabu_reflection_slots[h] != 0; h = (h + 1) & mask) {
+        const nabu_reflection_info *info = nabu_reflection_table[nabu_reflection_slots[h] - 1];
+        if (strcmp(info->type_name, internal_name) == 0) {
+            return info;
         }
     }
     return NULL;

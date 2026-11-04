@@ -3047,6 +3047,14 @@ BIND(void *, jcl_java_lang_Class_getSuperclass, "java.lang.Class_getSuperclass",
     /* Geen (gecompileerde) super bekend: een klasse erft dan van Object. */
     return jcl_class("java/lang/Object");
 }
+/* Class.getInterfaces: the interfaces the compiled type records (they include the known superinterfaces). */
+BIND(void *, jcl_java_lang_Class_getInterfaces, "java.lang.Class_getInterfaces", (void *self)) {
+    const nabu_type_info *ti = nabu_compiled_type_for(jcl_str(self));
+    int32_t count = ti != NULL ? ti->interface_count : 0;
+    void *arr = jcl_arr_typed(count, "[Ljava/lang/Class;");
+    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, jcl_class(ti->interfaces[i]));
+    return arr;
+}
 BIND(int, jcl_java_lang_Class_isArray, "java.lang.Class_isArray", (void *self)) {
     const char *n = jcl_str(self);
     size_t len = strlen(n);
@@ -3913,6 +3921,30 @@ void *jcl_executable_annotation(void *self, void *ann) {
     const nabu_annotation_entry *e = nabu_get_field_annotation(m->cls, jcl_exec_annotation_owner(m), jcl_str(ann));
     return e != NULL ? jcl_ann_obj(e) : NULL;
 }
+/* Declared annotations of whatever an AnnotatedElement call arrives on: a Field, a Method/Constructor or a Class. */
+static void *jcl_element_annotations(void *self) {
+    s_field *f = jcl_field_of(self);
+    if (f != NULL) return jcl_annotations_for(f->cls, f->f->name);
+    s_method *m = jcl_method_of(self);
+    if (m != NULL) return jcl_annotations_for(m->cls, jcl_exec_annotation_owner(m));
+    const nabu_reflection_info *ri = nabu_lookup_reflection(jcl_str(self));
+    int32_t count = 0;
+    for (int i = 0; ri != NULL && i < ri->annotation_count; i++) if (ri->annotations[i].owner == NULL) count++;
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, "[Ljava/lang/annotation/Annotation;");
+    int32_t k = 0;
+    for (int i = 0; ri != NULL && i < ri->annotation_count; i++) {
+        if (ri->annotations[i].owner == NULL) jcl_arr_set(arr, k++, jcl_ann_obj(&ri->annotations[i]));
+    }
+    return arr;
+}
+BIND(void *, jcl_java_lang_Class_getDeclaredAnnotations, "java.lang.Class_getDeclaredAnnotations", (void *self)) { return jcl_element_annotations(self); }
+BIND(void *, jcl_java_lang_Class_getAnnotations, "java.lang.Class_getAnnotations", (void *self)) { return jcl_element_annotations(self); }
+BIND(void *, jcl_java_lang_Class_getDeclaredAnnotation, "java.lang.Class_getDeclaredAnnotation", (void *self, void *ann)) { return jcl_java_lang_Class_getAnnotation(self, ann); }
+BIND(int, jcl_java_lang_Class_isAnnotationPresent, "java.lang.Class_isAnnotationPresent", (void *self, void *ann)) { return jcl_java_lang_Class_getAnnotation(self, ann) != NULL; }
+BIND(void *, jcl_java_lang_reflect_AnnotatedElement_getDeclaredAnnotations, "java.lang.reflect.AnnotatedElement_getDeclaredAnnotations", (void *self)) { return jcl_element_annotations(self); }
+BIND(void *, jcl_java_lang_reflect_AnnotatedElement_getAnnotations, "java.lang.reflect.AnnotatedElement_getAnnotations", (void *self)) { return jcl_element_annotations(self); }
+/* AnnotatedElement.getDeclaredAnnotation / isAnnotationPresent are default methods, compiled from the JDK. */
 BIND(void *, jcl_java_lang_reflect_Method_getAnnotation, "java.lang.reflect.Method_getAnnotation", (void *self, void *ann)) {
     return jcl_executable_annotation(self, ann);
 }
@@ -5914,6 +5946,8 @@ BIND(int, jcl_Class_isAnonymousClass, "java.lang.Class_isAnonymousClass", (void 
 BIND(int, jcl_Class_isLocalClass, "java.lang.Class_isLocalClass", (void *self)) { (void)self; return 0; }
 BIND(int, jcl_Class_isRecord, "java.lang.Class_isRecord", (void *self)) { (void)self; return 0; }
 BIND(void *, jcl_Class_getClassLoader0, "java.lang.Class_getClassLoader0", (void *self)) { (void)self; return NULL; }
+/* Class.toGenericString: no type parameters are recorded, so the type name (as in a message). */
+BIND(void *, jcl_Class_toGenericString, "java.lang.Class_toGenericString", (void *self)) { return nabu_jstring_new(jcl_source_name(jcl_str(self), 0)); }
 BIND(void *, jcl_Class_getTypeName, "java.lang.Class_getTypeName", (void *self)) { return nabu_jstring_new(jcl_source_name(jcl_str(self), 0)); }
 
 /* VM.getNanoTimeAdjustment(offsetInSeconds): nanoseconds of the current time since that offset, or -1 when

@@ -51,6 +51,9 @@ import static org.bytedeco.llvm.global.LLVM.*;
  * getAnnotation) in de native runtime.
  */
 public class ReflectionInfoEmitter {
+    /** {@code -Dnabu.reflection.allSignatures=false} leaves out the signature-only entries. */
+    private static final boolean SIGNATURES_FOR_ALL = !"false".equals(System.getProperty("nabu.reflection.allSignatures"));
+
 
     private final LLVMContextRef          ctx;
     private final LLVMModuleRef           mod;
@@ -113,7 +116,13 @@ public class ReflectionInfoEmitter {
             if (internalName == null) {
                 continue;
             }
-            final ReflectEntry entry = registry.entryFor(internalName);
+            ReflectEntry entry = registry.entryFor(internalName);
+            if (entry == null && module.genericSignature() != null && SIGNATURES_FOR_ALL) {
+                // Not in the reflection configuration, but generic: frameworks (Spring's ResolvableType) ask
+                // Class.getTypeParameters of any class, so record the signature (and nothing else).
+                entry = new ReflectEntry(internalName.replace('/', '.'), false, false, false, false,
+                        List.of(), List.of());
+            }
             if (entry == null) {
                 continue;
             }

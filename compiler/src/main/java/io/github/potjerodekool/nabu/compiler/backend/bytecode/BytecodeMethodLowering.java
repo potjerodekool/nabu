@@ -360,12 +360,22 @@ public final class BytecodeMethodLowering {
 
             // The analyzer gives no frame to unreachable code. A library can contain it: ASM replaces dead code with
             // nop...athrow, and CGLIB's generated static hooks end with such an athrow after the return.
-            // Emitting it would pop from an empty stack.
+            // Emitting it would pop from an empty stack. The block of a label in dead code still needs a
+            // terminator.
             if (frames[i] == null) {
+                if (!builder.currentBlockTerminated()) {
+                    builder.emitUnreachable();
+                }
                 continue;
             }
 
             emitOne(insn, frames[i]);
+        }
+
+        // A label after the last instruction (the end of a local variable range) gets a block of its own
+        // that nothing reaches: control cannot fall off the end of a method.
+        if (!builder.currentBlockTerminated()) {
+            builder.emitUnreachable();
         }
     }
 
@@ -837,9 +847,14 @@ public final class BytecodeMethodLowering {
     private void negOp() {
         final var v = stack.pop();
         final IRInstruction.BinaryOp.Op op = IRInstruction.BinaryOp.Op.SUB;
+        // The zero has the type of the operand (LLVM wants equal operand types): a float negated with a double
+        // zero turned the whole expression into a double. -0.0 - x is the negation of every x, also of 0.0 and
+        // NaN (0.0 - 0.0 would give +0.0).
         final IRValue zero = v.type() instanceof IRType.Float
-                ? IRValue.ofFloat(0.0)
-                : IRValue.ofI32(0);
+                ? new IRValue.ConstFloat(-0.0, v.type())
+                : v.type() instanceof IRType.Int integer
+                        ? IRValue.ofInt(0, integer.bits())
+                        : IRValue.ofI32(0);
         stack.push(builder.emitBinaryOp(op, zero, v));
     }
 

@@ -3094,6 +3094,20 @@ BIND(void *, jcl_java_lang_ClassLoader_loadClass_resolve, "java.lang.ClassLoader
     (void)self; (void)resolve;
     return jcl_java_lang_Class_forName(name);
 }
+/* SharedSecrets' access to java.util.ImmutableCollections (Stream.toList): the class that implements the access
+ * interface is never initialized here, so the interface call has no implementation. The lists come from the
+ * compiled Arrays.asList / ImmutableCollections.listFromTrustedArray. */
+void *jcl_java_util_Arrays_asList(void *array) __asm__(JCL_SYM("java.util.Arrays_asList"));
+BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed,
+     "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed", (void *self, void *array)) {
+    (void)self;
+    return jcl_java_util_Arrays_asList(array);
+}
+BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArray,
+     "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArray", (void *self, void *array)) {
+    (void)self;
+    return jcl_java_util_Arrays_asList(array);
+}
 BIND(void *, jcl_java_lang_ClassLoader_getResource, "java.lang.ClassLoader_getResource", (void *self, void *nm)) { (void)self; (void)nm; return NULL; }
 /* Een native programma heeft één (boot-)loader; null is de JDK-vorm daarvan,
  * net als Class.getClassLoader() hierboven. ServiceLoader.loadInstalled
@@ -4040,6 +4054,29 @@ BIND(void *, jcl_java_lang_reflect_Constructor_getDeclaringClass, "java.lang.ref
     if (jcl_method_of(self) != NULL) return jcl_java_lang_reflect_Method_getDeclaringClass(self);
     s_ctor *st = (s_ctor *)jcl_state_kind(self, K_CTOR);
     return jcl_class(st != NULL ? st->e->name : "");
+}
+/* Access checks do not exist here: everything is accessible. */
+BIND(int, jcl_ctor_isAccessible, "java.lang.reflect.Constructor_isAccessible", (void *self)) { (void)self; return 1; }
+BIND(int, jcl_field_isAccessible, "java.lang.reflect.Field_isAccessible", (void *self)) { (void)self; return 1; }
+BIND(void, jcl_field_setAccessible, "java.lang.reflect.Field_setAccessible", (void *self, int v)) { (void)self; (void)v; }
+BIND(int, jcl_field_trySetAccessible, "java.lang.reflect.Field_trySetAccessible", (void *self)) { (void)self; return 1; }
+BIND(int, jcl_ao_canAccess, "java.lang.reflect.AccessibleObject_canAccess", (void *self, void *o)) { (void)self; (void)o; return 1; }
+BIND(void, jcl_ao_setAccessible_array, "java.lang.reflect.AccessibleObject_setAccessible$P3ad1f50fZ", (void *array, int v)) { (void)array; (void)v; }
+BIND(int, jcl_field_isSynthetic, "java.lang.reflect.Field_isSynthetic", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_field_isEnumConstant, "java.lang.reflect.Field_isEnumConstant", (void *self)) {
+    return (jcl_java_lang_reflect_Field_getModifiers(self) & 0x4000) != 0;
+}
+BIND(int, jcl_exec_isSynthetic, "java.lang.reflect.Executable_isSynthetic", (void *self)) {
+    return jcl_java_lang_reflect_Method_isSynthetic(self);
+}
+BIND(void *, jcl_field_getAnnotation, "java.lang.reflect.Field_getAnnotation", (void *self, void *ann)) {
+    return jcl_java_lang_reflect_AccessibleObject_getAnnotation(self, ann);
+}
+BIND(int, jcl_field_isAnnotationPresent, "java.lang.reflect.Field_isAnnotationPresent", (void *self, void *ann)) {
+    return jcl_java_lang_reflect_AccessibleObject_getAnnotation(self, ann) != NULL;
+}
+BIND(int, jcl_exec_isAnnotationPresent, "java.lang.reflect.Executable_isAnnotationPresent", (void *self, void *ann)) {
+    return jcl_java_lang_reflect_Method_isAnnotationPresent(self, ann);
 }
 JCL_ALIAS1(void *, jcl_exec_getName, "java.lang.reflect.Executable_getName", jcl_java_lang_reflect_Method_getName_jstr)
 JCL_ALIAS1(void *, jcl_exec_getParameterTypes, "java.lang.reflect.Executable_getParameterTypes", jcl_java_lang_reflect_Method_getParameterTypes)

@@ -338,6 +338,7 @@ public class NativeLLVMBackend implements Backend {
         LLVMContextRef ctx     = LLVMContextCreate();
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
+        final boolean[] moduleDisposed = {false};
 
         try (PointerScope scope = new PointerScope()) {
             long t0 = System.nanoTime();
@@ -410,7 +411,10 @@ public class NativeLLVMBackend implements Backend {
                 LLVMDisposeTargetMachine(machine);
                 PartitionedCodegen.compile(llvmMod, partitions, triple,
                         opts.optLevel() != CompileOptions.OptLevel.NONE ? pipeline(opts.optLevel()) : null,
-                        objectFiles);
+                        objectFiles, () -> {
+                            LLVMDisposeModule(llvmMod);
+                            moduleDisposed[0] = true;
+                        });
                 long t5 = System.nanoTime();
                 System.err.println("[NativeLLVMBackend] optimize (" + opts.optLevel() + ") + emitObjectFile, "
                         + partitions + " partitions in parallel: " + (t5 - t4) / 1_000_000L + " ms");
@@ -432,7 +436,9 @@ public class NativeLLVMBackend implements Backend {
 
         } finally {
             LLVMDisposeBuilder(builder);
-            LLVMDisposeModule(llvmMod);
+            if (!moduleDisposed[0]) {
+                LLVMDisposeModule(llvmMod);
+            }
             LLVMContextDispose(ctx);
         }
     }

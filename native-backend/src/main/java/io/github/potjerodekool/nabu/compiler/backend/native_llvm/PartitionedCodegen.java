@@ -115,7 +115,8 @@ final class PartitionedCodegen {
                               final int partitions,
                               final String triple,
                               final String pipeline,
-                              final List<Path> objectFiles) throws CompileException {
+                              final List<Path> objectFiles,
+                              final Runnable releaseModule) throws CompileException {
         final var codegen = new PartitionedCodegen(partitions);
         final long t0 = System.nanoTime();
         codegen.assignOwners(mod);
@@ -124,6 +125,9 @@ final class PartitionedCodegen {
         System.err.println("[NativeLLVMBackend] split into " + partitions + " partitions ("
                 + codegen.imported.size() + " small functions copied): "
                 + (t1 - t0) / 1_000_000L + " ms");
+        // The partitions read the bitcode, not the module: with the module still alive a large program (200000
+        // functions) holds one more copy of itself during the whole code generation.
+        releaseModule.run();
         try {
             codegen.compilePartitions(bitcode, triple, pipeline, objectFiles);
         } finally {
@@ -361,13 +365,29 @@ final class PartitionedCodegen {
     // Per partition (own context, own thread)
     // -------------------------------------------------------
 
+    /** The number of partitions that are compiled at the same time: {@code nabu.llvm.codegenThreads}, at most {@code partitions}. */
+    static int codegenThreads(final int partitions) {
+        final String configured = System.getProperty("nabu.llvm.codegenThreads");
+        if (configured != null) {
+            try {
+                return Math.max(1, Math.min(partitions, Integer.parseInt(configured.trim())));
+            } catch (final NumberFormatException e) {
+                // fall through to the default
+            }
+        }
+        return partitions;
+    }
+
     private void compilePartitions(final LLVMMemoryBufferRef bitcode,
                                    final String triple,
                                    final String pipeline,
                                    final List<Path> objectFiles) throws CompileException {
         final BytePointer start = LLVMGetBufferStart(bitcode);
         final long size = LLVMGetBufferSize(bitcode);
-        final ExecutorService pool = Executors.newFixedThreadPool(partitions, r -> {
+        // Every partition in flight holds its share of the program (functions, and the code generator's own data):
+        // all partitions at once is the whole program again. -Dnabu.llvm.codegenThreads=1 compiles them one by one,
+        // for a program that is too big for the memory of the machine.
+        final ExecutorService pool = Executors.newFixedThreadPool(codegenThreads(partitions), r -> {
             final Thread t = new Thread(r, "nabu-llvm-codegen");
             t.setDaemon(true);
             return t;
@@ -399,6 +419,13 @@ final class PartitionedCodegen {
         }
     }
 
+    /**
+     * Reading the bitcode of the whole program and removing what the partition does not own needs about the
+     * size of the program: all partitions doing that at the same time hold N copies of it. One at a time; the
+     * optimization and the code generation of the (small) remainders do run in parallel.
+     */
+    private final java.util.concurrent.locks.ReentrantLock splitLock = new java.util.concurrent.locks.ReentrantLock();
+
     private void compilePartition(final int partition,
                                   final BytePointer start,
                                   final long size,
@@ -410,12 +437,19 @@ final class PartitionedCodegen {
         final LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRange(
                 start, size, new BytePointer("partition" + partition), 0);
         try {
-            if (LLVMParseBitcodeInContext2(ctx, buffer, mod) != 0) {
-                throw new CompileException("Could not read the bitcode of partition " + partition);
+            final long t0;
+            final long t1;
+            splitLock.lock();
+            try {
+                if (LLVMParseBitcodeInContext2(ctx, buffer, mod) != 0) {
+                    throw new CompileException("Could not read the bitcode of partition " + partition);
+                }
+                t0 = System.nanoTime();
+                keepPartition(mod, partition);
+                t1 = System.nanoTime();
+            } finally {
+                splitLock.unlock();
             }
-            final long t0 = System.nanoTime();
-            keepPartition(mod, partition);
-            final long t1 = System.nanoTime();
 
             final BytePointer err = new BytePointer();
             final LLVMTargetRef target = new LLVMTargetRef();

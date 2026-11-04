@@ -339,10 +339,12 @@ public class NativeLLVMBackend implements Backend {
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         final boolean[] moduleDisposed = {false};
+        final boolean[] builderDisposed = {false};
+        final boolean[] contextDisposed = {false};
 
         try (PointerScope scope = new PointerScope()) {
             long t0 = System.nanoTime();
-            var emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
+            LLVMModuleEmitter emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
             emitter.setReflectionRegistry(reflectionRegistry);
             emitter.emitAll(modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList());
             final java.util.List<String> unresolved = emitter.stubUnresolvedSymbols();
@@ -373,6 +375,8 @@ public class NativeLLVMBackend implements Backend {
                         + " the program when they are executed. List by class: " + unresolvedPath);
             }
             BuildDiagnostics.report(replaceExtension(outputObj, ".warnings.txt"));
+            // The emitter's maps (values, layouts, strings) are only needed up to here.
+            emitter = null;
             long t1 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] emitAll (" + modules.size() + " IR-modules -> LLVM-IR): "
                     + (t1 - t0) / 1_000_000L + " ms");
@@ -412,8 +416,14 @@ public class NativeLLVMBackend implements Backend {
                 PartitionedCodegen.compile(llvmMod, partitions, triple,
                         opts.optLevel() != CompileOptions.OptLevel.NONE ? pipeline(opts.optLevel()) : null,
                         objectFiles, () -> {
+                            // The context too: it keeps the types, constants and metadata of the whole program
+                            // alive, also after the module is gone.
+                            LLVMDisposeBuilder(builder);
+                            builderDisposed[0] = true;
                             LLVMDisposeModule(llvmMod);
                             moduleDisposed[0] = true;
+                            LLVMContextDispose(ctx);
+                            contextDisposed[0] = true;
                         });
                 long t5 = System.nanoTime();
                 System.err.println("[NativeLLVMBackend] optimize (" + opts.optLevel() + ") + emitObjectFile, "
@@ -435,11 +445,15 @@ public class NativeLLVMBackend implements Backend {
             return objectFiles;
 
         } finally {
-            LLVMDisposeBuilder(builder);
+            if (!builderDisposed[0]) {
+                LLVMDisposeBuilder(builder);
+            }
             if (!moduleDisposed[0]) {
                 LLVMDisposeModule(llvmMod);
             }
-            LLVMContextDispose(ctx);
+            if (!contextDisposed[0]) {
+                LLVMContextDispose(ctx);
+            }
         }
     }
 

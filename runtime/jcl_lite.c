@@ -3086,6 +3086,8 @@ BIND(void *, jcl_java_lang_Class_newInstance, "java.lang.Class_newInstance", (vo
     return jcl_instantiate(e);
 }
 /* One class loader: loadClass is Class.forName (ClassNotFoundException for a class the program does not have). */
+/* ClassLoader(String, ClassLoader): a native loader has no JDK state to set up. */
+BIND(void, jcl_java_lang_ClassLoader_init_named, "java.lang.ClassLoader_init$PP523beb0aP2f7ad930", (void *self, void *name, void *parent)) { (void)self; (void)name; (void)parent; }
 BIND(void *, jcl_java_lang_ClassLoader_loadClass, "java.lang.ClassLoader_loadClass", (void *self, void *name)) {
     (void)self;
     return jcl_java_lang_Class_forName(name);
@@ -3097,16 +3099,18 @@ BIND(void *, jcl_java_lang_ClassLoader_loadClass_resolve, "java.lang.ClassLoader
 /* SharedSecrets' access to java.util.ImmutableCollections (Stream.toList): the class that implements the access
  * interface is never initialized here, so the interface call has no implementation. The lists come from the
  * compiled Arrays.asList / ImmutableCollections.listFromTrustedArray. */
-void *jcl_java_util_Arrays_asList(void *array) __asm__(JCL_SYM("java.util.Arrays_asList")) __attribute__((weak));
+/* Weak default definition (a weak undefined reference does not link on PE/COFF: the REL32 is truncated). */
+__attribute__((weak)) void *jcl_java_util_Arrays_asList(void *array) __asm__(JCL_SYM("java.util.Arrays" "_asList"));
+__attribute__((weak)) void *jcl_java_util_Arrays_asList(void *array) { (void)array; return NULL; }
 BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed,
      "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArrayNullsAllowed", (void *self, void *array)) {
     (void)self;
-    return jcl_java_util_Arrays_asList != NULL ? jcl_java_util_Arrays_asList(array) : NULL;
+    return jcl_java_util_Arrays_asList(array);
 }
 BIND(void *, jcl_JavaUtilCollectionAccess_listFromTrustedArray,
      "jdk.internal.access.JavaUtilCollectionAccess_listFromTrustedArray", (void *self, void *array)) {
     (void)self;
-    return jcl_java_util_Arrays_asList != NULL ? jcl_java_util_Arrays_asList(array) : NULL;
+    return jcl_java_util_Arrays_asList(array);
 }
 BIND(void *, jcl_java_lang_ClassLoader_getResource, "java.lang.ClassLoader_getResource", (void *self, void *nm)) { (void)self; (void)nm; return NULL; }
 /* Een native programma heeft één (boot-)loader; null is de JDK-vorm daarvan,

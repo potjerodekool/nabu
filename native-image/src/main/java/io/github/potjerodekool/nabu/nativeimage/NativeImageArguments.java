@@ -27,6 +27,7 @@ import java.util.jar.JarFile;
  * @param staticLink link the runtime of the toolchain into the executable (Windows/MinGW; the default there)
  * @param action    what to do
  * @param warnings  options that are accepted but have no effect
+ * @param excludes  prefixes of class names (dots or slashes) that are treated as not on the class path
  */
 public record NativeImageArguments(List<Path> classPath,
                                    String mainClass,
@@ -38,7 +39,8 @@ public record NativeImageArguments(List<Path> classPath,
                                    boolean keepWork,
                                    boolean staticLink,
                                    Action action,
-                                   List<String> warnings) {
+                                   List<String> warnings,
+                                   List<String> excludes) {
 
     public enum Action { BUILD, HELP, VERSION, DOCTOR }
 
@@ -62,6 +64,7 @@ public record NativeImageArguments(List<Path> classPath,
         final List<Path> classPath = new ArrayList<>();
         final List<String> positional = new ArrayList<>();
         final List<String> warnings = new ArrayList<>();
+        final List<String> excludes = new ArrayList<>();
         Path jar = null;
         String imageName = null;
         Path outputDir = null;
@@ -104,6 +107,12 @@ public record NativeImageArguments(List<Path> classPath,
                 };
             } else if (arg.equals("--strict") || arg.equals("--no-fallback")) {
                 strict = true;
+            } else if (arg.equals("--exclude")) {
+                for (final String prefix : value(args, ++i, arg).split(",")) {
+                    if (!prefix.isBlank()) {
+                        excludes.add(prefix.trim());
+                    }
+                }
             } else if (arg.equals("--keep-work")) {
                 keepWork = true;
             } else if (arg.equals("--static")) {
@@ -126,7 +135,7 @@ public record NativeImageArguments(List<Path> classPath,
 
         if (action != Action.BUILD) {
             return new NativeImageArguments(classPath, null, imageName, outputDir, gc, opt, strict, keepWork,
-                    staticLink, action, warnings);
+                    staticLink, action, warnings, List.copyOf(excludes));
         }
 
         String mainClass;
@@ -175,7 +184,7 @@ public record NativeImageArguments(List<Path> classPath,
         }
         return new NativeImageArguments(List.copyOf(classPath), mainClass, imageName,
                 outputDir != null ? outputDir : Path.of("."), gc, opt, strict, keepWork, staticLink, action,
-                List.copyOf(warnings));
+                List.copyOf(warnings), List.copyOf(excludes));
     }
 
     private static String value(final List<String> args, final int index, final String option)

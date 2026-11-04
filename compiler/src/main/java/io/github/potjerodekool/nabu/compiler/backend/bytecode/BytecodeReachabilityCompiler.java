@@ -20,6 +20,7 @@ import org.objectweb.asm.tree.MethodNode;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -785,6 +786,43 @@ public final class BytecodeReachabilityCompiler {
         return owner + "." + name + (desc != null ? desc : "");
     }
 
+    /**
+     * {@code -Dnabu.reachability.stats=<depth>}: print the lowered methods and the shaped classes per package prefix of
+     * {@code depth} segments (for example 3: org/hibernate/query), the largest first. For finding what makes the
+     * closure big.
+     */
+    private void printStats() {
+        final String configured = System.getProperty("nabu.reachability.stats");
+        if (configured == null) {
+            return;
+        }
+        final int depth = Math.max(1, Integer.parseInt(configured.trim()));
+        final Map<String, int[]> perPackage = new HashMap<>();
+        for (final String key : loweredMethods) {
+            perPackage.computeIfAbsent(packagePrefix(key.substring(0, key.indexOf('#')), depth), k -> new int[2])[0]++;
+        }
+        for (final String shaped : shapedClasses) {
+            perPackage.computeIfAbsent(packagePrefix(shaped, depth), k -> new int[2])[1]++;
+        }
+        System.err.println("[BytecodeReachability] stats (methods / classes per package prefix):");
+        perPackage.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue()[0], a.getValue()[0]))
+                .limit(60)
+                .forEach(e -> System.err.println("[BytecodeReachability]   " + e.getValue()[0] + " / "
+                        + e.getValue()[1] + "  " + e.getKey()));
+    }
+
+    private static String packagePrefix(final String internalName, final int depth) {
+        int end = -1;
+        for (int i = 0; i < depth; i++) {
+            end = internalName.indexOf('/', end + 1);
+            if (end < 0) {
+                return internalName.contains("/") ? internalName.substring(0, internalName.lastIndexOf('/')) : "(default)";
+            }
+        }
+        return internalName.substring(0, end);
+    }
+
     private void printWhy() {
         if (WHY == null) {
             return;
@@ -984,6 +1022,7 @@ public final class BytecodeReachabilityCompiler {
                 + " classes shaped, " + methodsLowered + " methods lowered, "
                 + notFound.size() + " not found/skipped, total " + totalMs + " ms");
         printWhy();
+        printStats();
 
         return resultModules;
     }
@@ -1690,7 +1729,32 @@ public final class BytecodeReachabilityCompiler {
                 name -> SynchronizedMethods.apply(loadClassNodeUnlocked(name)));
     }
 
+    /**
+     * {@code -Dnabu.reachability.exclude=<prefix>[,<prefix>...]} (the {@code --exclude} option of nabu-native-image):
+     * classes whose name starts with one of the prefixes (dots or slashes) are treated as if they are not on the class
+     * path. Calls into them become unresolved stubs. For code that the program cannot reach in practice but that the
+     * closure cannot rule out, such as the dialects of Hibernate that are not used.
+     */
+    private final List<String> excludedPrefixes = Arrays.stream(
+                    System.getProperty("nabu.reachability.exclude", "").split(","))
+            .map(String::trim)
+            .filter(prefix -> !prefix.isEmpty())
+            .map(prefix -> prefix.replace('.', '/'))
+            .toList();
+
+    private boolean isExcluded(final String internalName) {
+        for (final String prefix : excludedPrefixes) {
+            if (internalName.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private ClassNode loadClassNodeUnlocked(final String name) {
+        if (!excludedPrefixes.isEmpty() && isExcluded(name)) {
+            return null;
+        }
         return (BOOTSTRAP_CLASS.equals(name) ? bootstrapClass()
                         : ThreadBridge.CLASS.equals(name) ? ThreadBridge.build()
                         : ContinuationBridge.CLASS.equals(name) ? ContinuationBridge.build()

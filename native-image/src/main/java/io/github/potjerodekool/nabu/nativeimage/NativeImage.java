@@ -76,6 +76,11 @@ public final class NativeImage {
                   --static                   link the toolchain runtime into the executable (the default on Windows: the
                                              executable needs no MinGW DLLs)
                   --dynamic                  do not (Windows: the executable needs the MinGW DLLs on the PATH)
+                  --exclude <prefix>[,..]    treat the classes whose name starts with a prefix as not on the class
+                                             path: calls into them stop the program at run time. For code that the
+                                             program cannot reach in practice (the dialects of a database library
+                                             that are not used) but that the analysis cannot rule out; this makes
+                                             the executable and the build smaller
                   --keep-work                keep the directory with the intermediate files
                   --doctor                   check the toolchain this command needs
                   --version                  print the version
@@ -134,6 +139,9 @@ public final class NativeImage {
                 err.println(message);
             });
             System.setProperty("nabu.link.static", Boolean.toString(arguments.staticLink()));
+            if (!arguments.excludes().isEmpty()) {
+                System.setProperty("nabu.reachability.exclude", String.join(",", arguments.excludes()));
+            }
             out.println("Building " + arguments.mainClass() + " ...");
             final long start = System.nanoTime();
             final int result;

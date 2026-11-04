@@ -56,6 +56,15 @@ class NativeImageArgumentsTest {
     }
 
     @Test
+    void excludeCollectsThePrefixesOfAllOccurrences() throws Exception {
+        final var arguments = NativeImageArguments.parse(
+                List.of("--exclude", "org.a.X, org.b.", "--exclude", "org.c", "a.Main"));
+
+        assertEquals(List.of("org.a.X", "org.b.", "org.c"), arguments.excludes());
+        assertTrue(NativeImageArguments.parse(List.of("a.Main")).excludes().isEmpty());
+    }
+
+    @Test
     void optimizationAndGcOptions() throws Exception {
         final var arguments = NativeImageArguments.parse(List.of("-O3", "--gc=none", "a.Main"));
 

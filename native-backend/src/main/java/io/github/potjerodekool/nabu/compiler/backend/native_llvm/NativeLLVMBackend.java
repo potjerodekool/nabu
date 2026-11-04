@@ -93,12 +93,12 @@ public class NativeLLVMBackend implements Backend {
         // native-image does), not after whichever class came first.
         Path outFile = resolveOutputFile(mainModule != null ? mainModule : modules.getFirst(), outputObj,
                 opts.imageName());
-        List<Path> objectFiles = compileToObject(modules, opts, outFile, triple, true);
-
-        // Alleen linken als er een main-functie aanwezig is
+        // Alleen linken als er een main-functie aanwezig is (bepaald vóór compileToObject: dat geeft de
+        // lijst vrij, zie hieronder).
         boolean hasMain = modules.stream()
                 .flatMap(m -> m.functions().stream())
                 .anyMatch(f -> f.name.equals("main") && !f.isExternal());
+        List<Path> objectFiles = compileToObject(modules, opts, outFile, triple, true);
         if (!hasMain) return;
 
         Path exe = replaceExtension(outFile,
@@ -344,6 +344,7 @@ public class NativeLLVMBackend implements Backend {
 
         try (PointerScope scope = new PointerScope()) {
             long t0 = System.nanoTime();
+            final int moduleCount = modules.size();
             LLVMModuleEmitter emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
             emitter.setReflectionRegistry(reflectionRegistry);
             emitter.emitAll(modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList());
@@ -377,8 +378,17 @@ public class NativeLLVMBackend implements Backend {
             BuildDiagnostics.report(replaceExtension(outputObj, ".warnings.txt"));
             // The emitter's maps (values, layouts, strings) are only needed up to here.
             emitter = null;
+            if (partitioned) {
+                // The LLVM module holds the program now. The caller's list keeps the Java IR of all of it alive
+                // during the code generation: let go of it (a program of 36000 classes is gigabytes).
+                try {
+                    modules.clear();
+                } catch (final UnsupportedOperationException e) {
+                    // an immutable list: the caller keeps its IR
+                }
+            }
             long t1 = System.nanoTime();
-            System.err.println("[NativeLLVMBackend] emitAll (" + modules.size() + " IR-modules -> LLVM-IR): "
+            System.err.println("[NativeLLVMBackend] emitAll (" + moduleCount + " IR-modules -> LLVM-IR): "
                     + (t1 - t0) / 1_000_000L + " ms");
 
             LLVMSetTarget(llvmMod, new BytePointer(triple));

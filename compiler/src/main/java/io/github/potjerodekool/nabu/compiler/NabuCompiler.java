@@ -206,6 +206,36 @@ public class NabuCompiler implements Compiler {
             // bereiken: vanaf de aanroepen in de broncode en de klassen uit de
             // GraalVM-reflectie-configuratie (META-INF/native-image/**).
             if (codeBackend.compilesLibraryBytecode()) {
+                // The closure and everything it needs (class nodes, shapes) lives in this method only: its
+                // frame is gone before the backend runs, so the memory can be reclaimed for the code generation.
+                addLibraryClosure(allModules, compileOptions, compilerOptions, compilerContext, classPath);
+            }
+
+            try {
+                final long backendStart = System.nanoTime();
+                codeBackend.compileAll(allModules, compileOptions, targetDirectory);
+                final long backendMillis = (System.nanoTime() - backendStart) / 1_000_000L;
+                System.err.println("[NabuCompiler] Backend (codegen/optimalisatie/linken): "
+                        + backendMillis + " ms");
+            } catch (final CompileException e) {
+                compilerDiagnosticListener.report(new DefaultDiagnostic(
+                        Diagnostic.Kind.ERROR,
+                        e.getMessage() != null ? e.getMessage() : "Backend fout",
+                        null
+                ));
+                return -1;
+            }
+            return 0;
+        } else {
+            return -1;
+        }
+    }
+
+    private void addLibraryClosure(final ArrayList<io.github.potjerodekool.nabu.backend.ir.IRModule> allModules,
+                                   final CompileOptions compileOptions,
+                                   final CompilerOptions compilerOptions,
+                                   final CompilerContextImpl compilerContext,
+                                   final List<Path> classPath) {
                 // Lambdas and method references from source become real
                 // classes, as LambdaMetafactory would make them at run time.
                 allModules.addAll(io.github.potjerodekool.nabu.compiler.backend.bytecode.SourceLambdaLowering
@@ -279,26 +309,6 @@ public class NabuCompiler implements Compiler {
                 final long reachMillis = (System.nanoTime() - reachStart) / 1_000_000L;
                 System.err.println("[NabuCompiler] Bytecode reachability closure + lowering: "
                         + reachMillis + " ms (" + allModules.size() + " modules in total)");
-            }
-
-            try {
-                final long backendStart = System.nanoTime();
-                codeBackend.compileAll(allModules, compileOptions, targetDirectory);
-                final long backendMillis = (System.nanoTime() - backendStart) / 1_000_000L;
-                System.err.println("[NabuCompiler] Backend (codegen/optimalisatie/linken): "
-                        + backendMillis + " ms");
-            } catch (final CompileException e) {
-                compilerDiagnosticListener.report(new DefaultDiagnostic(
-                        Diagnostic.Kind.ERROR,
-                        e.getMessage() != null ? e.getMessage() : "Backend fout",
-                        null
-                ));
-                return -1;
-            }
-            return 0;
-        } else {
-            return -1;
-        }
     }
 
     private boolean isIncremental(final CompilerOptions compilerOptions) {

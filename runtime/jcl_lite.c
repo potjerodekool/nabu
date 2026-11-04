@@ -3733,6 +3733,35 @@ BIND(void *, jcl_java_lang_Class_getTypeParameters, "java.lang.Class_getTypePara
     return arr;
 }
 
+/* Class.getGenericSuperclass / getGenericInterfaces: from the class signature "<formals>Lsuper;Liface;..."
+ * when the class has one, else the erased ones. */
+static const char *jcl_class_signature_rest(const char *cls, jcl_type_scope *scope) {
+    const nabu_reflection_info *ri = nabu_lookup_reflection(cls);
+    if (ri == NULL || ri->signature == NULL) return NULL;
+    void *ignored[16];
+    int32_t count;
+    return jcl_parse_formals(ri->signature, scope, ignored, &count);
+}
+BIND(void *, jcl_java_lang_Class_getGenericSuperclass, "java.lang.Class_getGenericSuperclass", (void *self)) {
+    jcl_type_scope scope = {{0}, {0}, 0};
+    const char *p = jcl_class_signature_rest(jcl_str(self), &scope);
+    if (p == NULL || *p != 'L') return jcl_java_lang_Class_getSuperclass(self);
+    return jcl_parse_type(&p, &scope).type;
+}
+BIND(void *, jcl_java_lang_Class_getGenericInterfaces, "java.lang.Class_getGenericInterfaces", (void *self)) {
+    jcl_type_scope scope = {{0}, {0}, 0};
+    const char *p = jcl_class_signature_rest(jcl_str(self), &scope);
+    if (p == NULL) return jcl_java_lang_Class_getInterfaces(self);
+    if (*p == 'L') jcl_parse_type(&p, &scope);   /* the superclass */
+    void *types[64];
+    int32_t count = 0;
+    while (*p == 'L' && count < 64) types[count++] = jcl_parse_type(&p, &scope).type;
+    void *arr = jcl_arr_ref(count);
+    jcl_arr_set_type(arr, "[Ljava/lang/reflect/Type;");
+    for (int32_t i = 0; i < count; i++) jcl_arr_set(arr, i, types[i]);
+    return arr;
+}
+
 static void *jcl_gtype_name_jstr(void *self) {
     return nabu_jstring_new(jcl_type_text(self));
 }

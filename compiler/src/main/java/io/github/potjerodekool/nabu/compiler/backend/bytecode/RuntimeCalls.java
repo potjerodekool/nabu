@@ -47,6 +47,7 @@ final class RuntimeCalls {
     static final String LOGGER_SUPPORT = RUNTIME_PACKAGE + "LoggerSupport";
 
     static final String LOADER_SUPPORT = RUNTIME_PACKAGE + "LoaderSupport";
+    static final String STACK_WALK_SUPPORT = RUNTIME_PACKAGE + "StackWalkSupport";
 
     /** {@code explicitDesc}: the descriptor of the target when it differs from the call's (a JDK-internal parameter type). */
     private record Redirect(String owner, String name, String desc, boolean isStatic,
@@ -94,6 +95,12 @@ final class RuntimeCalls {
                     "()Ljava/lang/ClassLoader;", false, LOADER_SUPPORT, "contextClassLoader"),
             new Redirect("java/lang/ClassLoader", "getSystemClassLoader",
                     "()Ljava/lang/ClassLoader;", true, LOADER_SUPPORT, "systemClassLoader"),
+            new Redirect("java/lang/StackWalker", "walk", "(Ljava/util/function/Function;)Ljava/lang/Object;", false,
+                    STACK_WALK_SUPPORT, "walk"),
+            new Redirect("java/lang/StackWalker", "forEach", "(Ljava/util/function/Consumer;)V", false,
+                    STACK_WALK_SUPPORT, "forEach"),
+            new Redirect("java/lang/StackWalker", "getCallerClass", "()Ljava/lang/Class;", false,
+                    STACK_WALK_SUPPORT, "getCallerClass"),
             new Redirect("java/lang/Module", "getResourceAsStream",
                     "(Ljava/lang/String;)Ljava/io/InputStream;", false, RESOURCE_SUPPORT, "moduleResourceAsStream"),
             new Redirect("java/lang/reflect/Proxy", "newProxyInstance",

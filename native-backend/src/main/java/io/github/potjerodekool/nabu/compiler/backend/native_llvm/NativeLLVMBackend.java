@@ -336,6 +336,12 @@ public class NativeLLVMBackend implements Backend {
                                        boolean partitioned) throws CompileException {
         BuildDiagnostics.reset();
         LLVMContextRef ctx     = LLVMContextCreate();
+        // The names of instructions, arguments and blocks are only for reading the .ll: for a large program they
+        // are gigabytes (a string per value, 200000 functions). -Dnabu.llvm.discardNames=true|false overrides.
+        final String discard = System.getProperty("nabu.llvm.discardNames");
+        if (discard != null ? Boolean.parseBoolean(discard) : partitioned && modules.size() > 2000) {
+            LLVMContextSetDiscardValueNames(ctx, 1);
+        }
         LLVMModuleRef  llvmMod = LLVMModuleCreateWithNameInContext(modules.getFirst().name, ctx);
         LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         final boolean[] moduleDisposed = {false};

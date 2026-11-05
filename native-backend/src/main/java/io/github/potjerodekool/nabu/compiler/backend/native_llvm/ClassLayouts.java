@@ -1166,7 +1166,8 @@ for (IRModule m : modules) {
                 String n = normalizeInternalName(m.name);
                 if (placed.contains(n)) continue;
                 String sup = superInternalName(n);
-                if (sup == null && extendsRuntimeThread(m) && modulesByInternalName.containsKey("java/lang/Object")
+                if (sup == null && (extendsRuntimeThread(m) || extendsClassWithoutLayout(m))
+                        && modulesByInternalName.containsKey("java/lang/Object")
                         && !placed.contains("java/lang/Object")) {
                     // Its vtable continues after the slots of Object (see buildVtable).
                     continue;
@@ -1455,6 +1456,16 @@ for (IRModule m : modules) {
         return false;
     }
 
+    /** Whether the module extends a class other than Object (the caller checks that this superclass has no vtable). */
+    private boolean extendsClassWithoutLayout(final IRModule module) {
+        if (!(module.superType() instanceof IRType.Ptr p) || Flags.hasFlag(module.flags, Flags.INTERFACE)) {
+            return false;
+        }
+        // A superclass the program does not have is an opaque pointer without descriptor; one it only has the
+        // shape of (ClassLoader) has a descriptor and no slots: in both cases no slots of its own.
+        return p.jvmDescriptor() == null || !"java/lang/Object".equals(fromDescriptor(p.jvmDescriptor()));
+    }
+
     /** Words of a Thread object from the state word on (offset 40) to the first field of a subclass (offset 128). */
     static final int THREAD_ROOM_WORDS = 11;
 
@@ -1615,9 +1626,9 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         ClassLayout superLayout = superName != null ? byInternalName.get(superName) : null;
         final IRModule vtableModule = modulesByInternalName.get(layout.internalName);
         if ((superLayout == null || superLayout.vtableOrder.isEmpty()) && vtableModule != null
-                && extendsRuntimeThread(vtableModule)) {
-            // Thread is provided by the C runtime and has no layout; its objects have the vtable of Object,
-            // so a subclass continues after the slots of Object (equals, hashCode, toString ...).
+                && (extendsRuntimeThread(vtableModule) || extendsClassWithoutLayout(vtableModule))) {
+            // Thread, ClassLoader ... are provided by the C runtime and have no layout; their objects have the
+            // vtable of Object, so a subclass continues after the slots of Object (equals, hashCode, toString ...).
             superLayout = byInternalName.get("java/lang/Object");
         }
 

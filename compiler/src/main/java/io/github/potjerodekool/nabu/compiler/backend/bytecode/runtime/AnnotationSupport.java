@@ -24,7 +24,8 @@ public final class AnnotationSupport {
             return null;
         }
         try {
-            return method.invoke(blank0(owner));
+            // Not method.invoke: the redirect of Method.invoke does not apply to the classes of this package.
+            return ProxySupport.invoke(method, blank0(owner), new Object[0]);
         } catch (final Exception e) {
             return null;
         }

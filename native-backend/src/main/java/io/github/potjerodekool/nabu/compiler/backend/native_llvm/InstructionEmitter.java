@@ -1315,7 +1315,15 @@ public class InstructionEmitter {
             // onder een eigen symbool: de gewone naam is die van de methode.
             // De parameterlijst is nodig om de juiste overload te kiezen:
             // overloads delen de IR-functienaam.
-            if (hasExplicitReceiver(call)) {
+            if (hasExplicitReceiver(call) && constructorCollidesWithMethod(call.function())) {
+                // The class also has a method of this name (a private init()): the constructor is declared under
+                // its own symbol, and the key of the plain name belongs to the method.
+                fn = globalValueMap.get("@" + FnKeys.fnKey(call.function() + "$ctor", call.paramTypes()));
+                if (!arityMatches(fn, emittedArgCount(call))) {
+                    fn = null;
+                }
+            }
+            if ((fn == null || fn.isNull()) && hasExplicitReceiver(call)) {
                 // Bytecode-conventie: de receiver staat in de operanden en de
                 // paramTypes zijn exact die van de descriptor. De declaratie
                 // staat onder precies die sleutel (zonder receiver), dus eerst
@@ -1629,6 +1637,18 @@ public class InstructionEmitter {
         return "java.lang.Object_clone".equals(call.function())
                 && !call.args().isEmpty()
                 && isArrayReceiver(call.args().get(0));
+    }
+
+    /** Whether the constructor under this IR name has its own symbol because a method of the class has the name. */
+    private boolean constructorCollidesWithMethod(final String function) {
+        if (function == null) {
+            return false;
+        }
+        if (classLayouts.constructorSymbolName(function) != null) {
+            return true;
+        }
+        final int dot = function.lastIndexOf('.');
+        return dot >= 0 && classLayouts.constructorSymbolName(function.substring(dot + 1)) != null;
     }
 
     private boolean tryEmitVirtualCall(IRInstruction.Call call) {

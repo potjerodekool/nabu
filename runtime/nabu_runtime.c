@@ -2827,11 +2827,11 @@ void nabu_monitor_acquire_n(void *obj, int depth) {
 }
 
 void nabu_monitorenter(void *obj) {
-    nabu_held_monitor_count++;
     if (obj == NULL) {
-        fprintf(stderr, "nabu: synchronized on null object\n");
-        abort();
+        /* synchronized (null) throws a NullPointerException; nothing was entered. */
+        nabu_throw_npe("monitorenter");
     }
+    nabu_held_monitor_count++;
     nabu_object *header = (nabu_object *)obj;
     const int me = nabu_thread_id;
     if (nabu_parallel) {

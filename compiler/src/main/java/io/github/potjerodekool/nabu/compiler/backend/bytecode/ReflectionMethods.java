@@ -94,26 +94,41 @@ public final class ReflectionMethods {
         final Set<String> seen = new HashSet<>();
         final Deque<TypeElement> pending = new ArrayDeque<>();
         for (final ReflectEntry entry : entries) {
-            final TypeElement type = ProxySpecs.load(compilerContext, entry.name());
-            if (type != null) {
-                type.complete();
-                collectAnnotationTypes(type, seen, pending);
-                for (final var member : type.getEnclosedElements()) {
-                    collectAnnotationTypes(member, seen, pending);
-                    if (member instanceof ExecutableElement executable) {
-                        for (final var parameter : executable.getParameters()) {
-                            collectAnnotationTypes(parameter, seen, pending);
+            try {
+                final TypeElement type = ProxySpecs.load(compilerContext, entry.name());
+                if (type != null) {
+                    type.complete();
+                    if (type.getKind() == ElementKind.ANNOTATION_TYPE && seen.add(type.getFlatName())) {
+                        pending.add(type);
+                    }
+                    collectAnnotationTypes(type, seen, pending);
+                    for (final var member : type.getEnclosedElements()) {
+                        collectAnnotationTypes(member, seen, pending);
+                        if (member instanceof ExecutableElement executable) {
+                            for (final var parameter : executable.getParameters()) {
+                                collectAnnotationTypes(parameter, seen, pending);
+                            }
                         }
                     }
                 }
+            } catch (final RuntimeException e) {
+                System.err.println("[nabu] warning: annotation types of " + entry.name() + " skipped: " + e);
             }
         }
         final List<ReflectEntry> result = new ArrayList<>(entries);
         while (!pending.isEmpty()) {
             final TypeElement annotation = pending.poll();
-            annotation.complete();
             final String name = annotation.getFlatName();
-            if (!byName.containsKey(name)) {
+            try {
+                annotation.complete();
+            } catch (final RuntimeException e) {
+                System.err.println("[nabu] warning: annotation type " + name + " skipped: " + e);
+                continue;
+            }
+            // An entry that names the annotation type without its methods (the agent's "type": Order) gets them too;
+            // resolve merges the two.
+            final ReflectEntry known = byName.get(name);
+            if (known == null || !known.allDeclaredMethods()) {
                 final ReflectEntry added = new ReflectEntry(name, false, false, true, false, List.of(), List.of());
                 byName.put(name, added);
                 result.add(added);

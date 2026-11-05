@@ -839,6 +839,14 @@ BIND(int64_t, jcl_java_lang_System_nanoTime, "java.lang.System_nanoTime", (void)
     return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 BIND(void, jcl_java_lang_System_exit, "java.lang.System_exit", (int32_t code)) { fflush(NULL); jcl_exiting = 1; exit(code); }
+/* EnvSupport.environ0: the environment as a String[] of "NAME=value" (System.getenv()). */
+BIND(void *, jcl_EnvSupport_environ0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.EnvSupport_environ0", (void)) {
+    int32_t n = 0;
+    if (environ != NULL) while (environ[n] != NULL) n++;
+    void *arr = jcl_arr_typed(n, "[Ljava/lang/String;");
+    for (int32_t i = 0; i < n; i++) jcl_arr_set(arr, i, nabu_jstring_new(environ[i]));
+    return arr;
+}
 static void * jcl_java_lang_System_getenv (void *name) {
     const char *v = getenv(jcl_str(name));
     /* Kopie: zie jcl_env_or (8-byte-header-herkenning op een getenv-pointer). */

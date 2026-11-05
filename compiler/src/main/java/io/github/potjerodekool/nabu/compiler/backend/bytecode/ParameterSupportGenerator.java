@@ -35,7 +35,49 @@ final class ParameterSupportGenerator {
         node.superName = "java/lang/Object";
         node.methods.add(parametersOf("ofConstructor", "java/lang/reflect/Constructor"));
         node.methods.add(parametersOf("ofMethod", "java/lang/reflect/Method"));
+        node.methods.add(packageOf());
         return node;
+    }
+
+    /**
+     * {@code static Package packageOf(Class c)}: {@code Class.getPackage} of a native program, a Package with the name
+     * of the class's package (the constructor is package-private, like Parameter's) and without module.
+     */
+    private static MethodNode packageOf() {
+        final String pkg = "java/lang/Package";
+        final MethodNode m = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "packageOf",
+                "(Ljava/lang/Class;)L" + pkg + ";", null, null);
+        final LabelNode nested = new LabelNode();
+        final LabelNode made = new LabelNode();
+        final var i = m.instructions;
+        i.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Class", "getName", "()Ljava/lang/String;", false));
+        i.add(new VarInsnNode(Opcodes.ASTORE, 1));
+        i.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        i.add(new org.objectweb.asm.tree.IntInsnNode(Opcodes.BIPUSH, '.'));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "lastIndexOf", "(I)I", false));
+        i.add(new VarInsnNode(Opcodes.ISTORE, 2));
+        i.add(new VarInsnNode(Opcodes.ILOAD, 2));
+        i.add(new JumpInsnNode(Opcodes.IFGE, nested));
+        i.add(new org.objectweb.asm.tree.LdcInsnNode(""));
+        i.add(new VarInsnNode(Opcodes.ASTORE, 3));
+        i.add(new JumpInsnNode(Opcodes.GOTO, made));
+        i.add(nested);
+        i.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        i.add(new InsnNode(Opcodes.ICONST_0));
+        i.add(new VarInsnNode(Opcodes.ILOAD, 2));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(II)Ljava/lang/String;", false));
+        i.add(new VarInsnNode(Opcodes.ASTORE, 3));
+        i.add(made);
+        i.add(new TypeInsnNode(Opcodes.NEW, pkg));
+        i.add(new InsnNode(Opcodes.DUP));
+        i.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        i.add(new InsnNode(Opcodes.ACONST_NULL));
+        i.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, pkg, "<init>", "(Ljava/lang/String;Ljava/lang/Module;)V", false));
+        i.add(new InsnNode(Opcodes.ARETURN));
+        m.maxStack = 8;
+        m.maxLocals = 4;
+        return m;
     }
 
     /** {@code static Parameter[] name(Owner e)}: one Parameter per declared parameter. */

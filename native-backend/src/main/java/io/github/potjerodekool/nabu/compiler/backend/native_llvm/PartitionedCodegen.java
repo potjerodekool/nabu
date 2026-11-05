@@ -331,6 +331,11 @@ final class PartitionedCodegen {
         if (isLocal(f)) {
             return false;
         }
+        // A weak function (the stub of a JDK function without an implementation) is replaced by a definition in the
+        // C runtime when the program is linked; a copy inlined into another partition would keep the stub.
+        if (LLVMGetLinkage(f) == LLVMWeakAnyLinkage) {
+            return false;
+        }
         for (LLVMBasicBlockRef bb = LLVMGetFirstBasicBlock(f); bb != null && !bb.isNull(); bb = LLVMGetNextBasicBlock(bb)) {
             for (LLVMValueRef i = LLVMGetFirstInstruction(bb); i != null && !i.isNull(); i = LLVMGetNextInstruction(i)) {
                 if (!onlyVisibleReferences(i, 0)) {

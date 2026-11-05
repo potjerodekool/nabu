@@ -839,6 +839,16 @@ BIND(int64_t, jcl_java_lang_System_nanoTime, "java.lang.System_nanoTime", (void)
     return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 BIND(void, jcl_java_lang_System_exit, "java.lang.System_exit", (int32_t code)) { fflush(NULL); jcl_exiting = 1; exit(code); }
+/* ProcessHandleImpl (ProcessHandle.current().pid(), Spring Boot's ApplicationPid): the process of this program. The
+ * start time is not known: 0. */
+BIND(void, jcl_ProcessHandleImpl_initNative, "java.lang.ProcessHandleImpl_initNative", (void)) { }
+BIND(int64_t, jcl_ProcessHandleImpl_getCurrentPid0, "java.lang.ProcessHandleImpl_getCurrentPid0", (void)) {
+    return (int64_t)getpid();
+}
+BIND(int64_t, jcl_ProcessHandleImpl_isAlive0, "java.lang.ProcessHandleImpl_isAlive0", (int64_t pid)) {
+    (void)pid;
+    return 0;
+}
 /* EnvSupport.environ0: the environment as a String[] of "NAME=value" (System.getenv()). */
 BIND(void *, jcl_EnvSupport_environ0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.EnvSupport_environ0", (void)) {
     int32_t n = 0;
@@ -2820,6 +2830,10 @@ BIND(void *, jcl_java_lang_Class_getCanonicalName_jstr, "java.lang.Class_getCano
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
 void *jcl_java_lang_Class_getComponentType(void *self) __asm__(JCL_SYM("java.lang.Class_getComponentType"));
+/* Class.componentType (Java 12): the same. */
+BIND(void *, jcl_java_lang_Class_componentType, "java.lang.Class_componentType", (void *self)) {
+    return jcl_java_lang_Class_getComponentType(self);
+}
 static void * jcl_java_lang_Class_getSimpleName (void *self) {
     const char *n = jcl_str(self);
     if (n[0] == '[' && n[1] != '\0') {
@@ -2873,6 +2887,19 @@ BIND(void *, jcl_java_lang_Class_getComponentType, "java.lang.Class_getComponent
         return jcl_class(jcl_desc_name(n + 1));
     }
     return NULL;
+}
+/* Class.arrayType (Java 12): the class of an array of this class ("[Ljava/lang/String;", "[I", "[[I"). */
+BIND(void *, jcl_java_lang_Class_arrayType, "java.lang.Class_arrayType", (void *self)) {
+    const char *n = jcl_str(self);
+    static const struct { const char *name; const char *code; } prims[] = {
+        {"int", "[I"}, {"long", "[J"}, {"boolean", "[Z"}, {"double", "[D"}, {"float", "[F"},
+        {"short", "[S"}, {"byte", "[B"}, {"char", "[C"}
+    };
+    if (n[0] == '[') return jcl_class(jcl_concat("[", n));
+    for (size_t i = 0; i < sizeof prims / sizeof prims[0]; i++) {
+        if (strcmp(n, prims[i].name) == 0) return jcl_class(prims[i].code);
+    }
+    return jcl_class(jcl_concat(jcl_concat("[L", n), ";"));
 }
 /* Reflectieve instantiatie (Class/Constructor zijn VM-gebonden): de backend
  * emitteert per instantieerbare gecompileerde klasse met een no-arg-
@@ -6128,4 +6155,69 @@ BIND(int32_t, jcl_CRC32_updateBytes0, "java.util.zip.CRC32_updateBytes0", (int32
 }
 BIND(int32_t, jcl_CRC32_updateByteBuffer0, "java.util.zip.CRC32_updateByteBuffer0", (int32_t crc, int64_t address, int32_t off, int32_t len)) {
     return (int32_t)jcl_crc_update((uint32_t)crc, (const unsigned char *)(intptr_t)address + off, len);
+}
+
+/* ---- java.lang.Class: nesting, sealing, synthetic (what Spring Boot's binder and bean metadata ask) ---- */
+
+/* The outer class of a nested one ("a/B$C" -> "a/B"); NULL for a top-level class, an array and a primitive. */
+static const char *jcl_outer_name(const char *n) {
+    if (n[0] == '[') return NULL;
+    const char *dollar = strrchr(n, '$');
+    if (dollar == NULL || dollar == n || dollar[1] == 0) return NULL;
+    size_t len = (size_t)(dollar - n);
+    char *copy = (char *)jcl_alloc(len + 1);
+    memcpy(copy, n, len);
+    copy[len] = 0;
+    return copy;
+}
+/* An anonymous ("B$1") or local ("B$1Local") class starts its simple name with a digit. */
+static int jcl_is_member_name(const char *n) {
+    const char *dollar = strrchr(n, '$');
+    return jcl_outer_name(n) != NULL && !(dollar[1] >= '0' && dollar[1] <= '9');
+}
+BIND(int, jcl_java_lang_Class_isMemberClass, "java.lang.Class_isMemberClass", (void *self)) {
+    return jcl_is_member_name(jcl_str(self));
+}
+BIND(void *, jcl_java_lang_Class_getDeclaringClass, "java.lang.Class_getDeclaringClass", (void *self)) {
+    const char *n = jcl_str(self);
+    return jcl_is_member_name(n) ? jcl_class(jcl_outer_name(n)) : NULL;
+}
+BIND(void *, jcl_java_lang_Class_getEnclosingClass, "java.lang.Class_getEnclosingClass", (void *self)) {
+    const char *outer = jcl_outer_name(jcl_str(self));
+    return outer != NULL ? jcl_class(outer) : NULL;
+}
+BIND(void *, jcl_java_lang_Class_getEnclosingMethod, "java.lang.Class_getEnclosingMethod", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getEnclosingConstructor, "java.lang.Class_getEnclosingConstructor", (void *self)) { (void)self; return NULL; }
+BIND(int, jcl_java_lang_Class_isSynthetic, "java.lang.Class_isSynthetic", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_java_lang_Class_isSealed, "java.lang.Class_isSealed", (void *self)) { (void)self; return 0; }
+BIND(void *, jcl_java_lang_Class_getPermittedSubclasses, "java.lang.Class_getPermittedSubclasses", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getRecordComponents, "java.lang.Class_getRecordComponents", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getProtectionDomain, "java.lang.Class_getProtectionDomain", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_getSigners, "java.lang.Class_getSigners", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_Class_asSubclass, "java.lang.Class_asSubclass", (void *self, void *other)) { (void)other; return self; }
+BIND(void *, jcl_java_lang_Class_getDeclaredClasses, "java.lang.Class_getDeclaredClasses", (void *self)) {
+    (void)self;
+    return jcl_arr_typed(0, "[Ljava/lang/Class;");
+}
+BIND(void *, jcl_java_lang_Class_getNestMembers, "java.lang.Class_getNestMembers", (void *self)) {
+    void *arr = jcl_arr_typed(1, "[Ljava/lang/Class;");
+    jcl_arr_set(arr, 0, self);
+    return arr;
+}
+BIND(void *, jcl_java_lang_Class_getAnnotationsByType, "java.lang.Class_getAnnotationsByType", (void *self, void *ann)) {
+    void *found = jcl_java_lang_Class_getAnnotation(self, ann);
+    void *arr = jcl_arr_typed(found != NULL ? 1 : 0, "[Ljava/lang/annotation/Annotation;");
+    if (found != NULL) jcl_arr_set(arr, 0, found);
+    return arr;
+}
+BIND(void *, jcl_java_lang_Class_toString, "java.lang.Class_toString", (void *self)) {
+    const char *n = jcl_str(self);
+    char *dotted = jcl_dup(n);
+    for (char *c = dotted; *c; c++) if (*c == '/') *c = '.';
+    int primitive = strchr(n, '/') == NULL && n[0] != '[' && strchr(n, '.') == NULL
+            && (strcmp(n, "int") == 0 || strcmp(n, "long") == 0 || strcmp(n, "boolean") == 0 || strcmp(n, "double") == 0
+                || strcmp(n, "float") == 0 || strcmp(n, "short") == 0 || strcmp(n, "byte") == 0
+                || strcmp(n, "char") == 0 || strcmp(n, "void") == 0);
+    if (primitive) return nabu_jstring_new(dotted);
+    return nabu_jstring_new(jcl_concat(jcl_java_lang_Class_isInterface(self) ? "interface " : "class ", dotted));
 }

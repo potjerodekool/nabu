@@ -252,6 +252,18 @@ public final class BytecodeReachabilityCompiler {
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         ByteArrayViewRewriter.rewrite(classNode);
         FieldVarHandleRewriter.rewrite(classNode, loader);
+        if ("java/lang/reflect/Parameter".equals(classNode.name)) {
+            // isNamePresent asks the Executable for its real parameter data, a package-private method that the
+            // Method and Constructor objects of the C runtime do not have: the names are never present.
+            for (final MethodNode m : classNode.methods) {
+                if ("isNamePresent".equals(m.name) && "()Z".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_0));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                    });
+                }
+            }
+        }
         if ("java/util/ServiceLoader".equals(classNode.name)) {
             for (final MethodNode m : classNode.methods) {
                 if ("newLookupIterator".equals(m.name) && "()Ljava/util/Iterator;".equals(m.desc)) {
@@ -883,6 +895,7 @@ public final class BytecodeReachabilityCompiler {
             final List<ProxyClassGenerator.ProxySpec> proxies,
             final Map<String, ReflectionDataGenerator.ClassMethods> reflectionMethods) {
         final Map<String, ClassNode> classes = new java.util.LinkedHashMap<>(ProxyClassGenerator.generate(proxies));
+        classes.put(ParameterSupportGenerator.PARAMETER_SUPPORT, ParameterSupportGenerator.generate());
         classes.put(ReflectionDataGenerator.REFLECTION_DATA, ReflectionDataGenerator.generate(reflectionMethods,
                 ProxyClassGenerator.dispatchedMethods(proxies)));
         return classes;

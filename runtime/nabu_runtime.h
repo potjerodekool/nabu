@@ -331,6 +331,7 @@ typedef struct nabu_reflection_info {
     int         annotation_count;
     const nabu_annotation_entry *annotations;
     const char *signature;    /* generieke signatuur van de klasse (typeparameters), of NULL */
+    void      (*class_init)(void); /* de initialisatie van de klasse (Class.forName met initialize), of NULL */
 } nabu_reflection_info;
 
 /**

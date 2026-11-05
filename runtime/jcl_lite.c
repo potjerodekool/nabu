@@ -2789,7 +2789,19 @@ BIND(void *, jcl_java_lang_Class_forName, "java.lang.Class_forName", (void *name
 BIND(void *, jcl_java_lang_Class_forName_s, "java.lang.Class_forName$P523beb0a", (void *name)) { return jcl_java_lang_Class_forName(name); }
 /* Class.forName(String, boolean, ClassLoader): there is one class loader; initialization is lazy anyway. */
 BIND(void *, jcl_java_lang_Class_forName_3, "java.lang.Class_forName$P523beb0aZP2f7ad930", (void *name, uint8_t init, void *loader)) {
-    (void)init; (void)loader;
+    (void)loader;
+    if (init) {
+        /* Initialization on request, as the JVM does: frameworks rely on the static initializer running inside
+         * the call (CGLIB's generated classes read the generator that is current while they are loaded). */
+        const char *n = jcl_str(name);
+        char internal[512];
+        size_t len = strlen(n);
+        if (len > 0 && len < sizeof internal) {
+            for (size_t i = 0; i <= len; i++) internal[i] = n[i] == '.' ? '/' : n[i];
+            const nabu_reflection_info *ri = nabu_lookup_reflection(internal);
+            if (ri != NULL && ri->class_init != NULL) ri->class_init();
+        }
+    }
     return jcl_java_lang_Class_forName(name);
 }
 /* Class.forName(Module, String): als forName(String), maar null i.p.v.

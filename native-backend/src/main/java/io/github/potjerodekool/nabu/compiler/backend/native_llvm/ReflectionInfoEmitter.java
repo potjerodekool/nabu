@@ -207,7 +207,7 @@ public class ReflectionInfoEmitter {
         LLVMSetLinkage(infoGlobal, LLVMExternalLinkage);
         LLVMSetGlobalConstant(infoGlobal, 1);
 
-        final PointerPointer<Pointer> init = new PointerPointer<>(6);
+        final PointerPointer<Pointer> init = new PointerPointer<>(7);
         init.put(0, stringLit(internalName));
         init.put(1, LLVMConstInt(i32, fields.size(), 0));
         init.put(2, fieldsGlobal != null ? fieldsGlobal : LLVMConstNull(i8Ptr));
@@ -215,7 +215,10 @@ public class ReflectionInfoEmitter {
         init.put(4, annotationsGlobal != null ? annotationsGlobal : LLVMConstNull(i8Ptr));
         // The class's generic signature: the bounds of its type variables.
         init.put(5, module.genericSignature() != null ? stringLit(module.genericSignature()) : LLVMConstNull(i8Ptr));
-        final LLVMValueRef constInfo = LLVMConstNamedStruct(reflectionInfoType, init, 6);
+        // The initialization of the class (Class.forName(name, true, loader) runs it), or null without <clinit>.
+        final LLVMValueRef classInitFn = classInit.apply(internalName);
+        init.put(6, classInitFn != null && !classInitFn.isNull() ? classInitFn : LLVMConstNull(i8Ptr));
+        final LLVMValueRef constInfo = LLVMConstNamedStruct(reflectionInfoType, init, 7);
         LLVMSetInitializer(infoGlobal, constInfo);
         Reference.reachabilityFence(init);
         Reference.reachabilityFence(constInfo);
@@ -794,7 +797,8 @@ public class ReflectionInfoEmitter {
             t.put(3, LLVMInt32TypeInContext(ctx));
             t.put(4, LLVMPointerTypeInContext(ctx, 0));
             t.put(5, LLVMPointerTypeInContext(ctx, 0));
-            reflectionInfoType = LLVMStructTypeInContext(ctx, t, 6, 0);
+            t.put(6, LLVMPointerTypeInContext(ctx, 0));
+            reflectionInfoType = LLVMStructTypeInContext(ctx, t, 7, 0);
             Reference.reachabilityFence(t);
         }
     }

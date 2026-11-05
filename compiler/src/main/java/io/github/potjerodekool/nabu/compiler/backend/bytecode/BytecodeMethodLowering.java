@@ -1748,9 +1748,27 @@ public final class BytecodeMethodLowering {
             // override van de runtime-waarde uitkomt, of die nu String,
             // List, een ander JCL-type of een Nabu-klasse is - dus geen
             // per-type speciale afhandeling nodig.
+            // A null field counts 0 (Objects.hashCode), as in the record the compiler would have made.
+            final var nullBlk = new IRBasicBlock(uniqueBlockName());
+            final var notNullBlk = new IRBasicBlock(uniqueBlockName());
+            final var mergeBlk = new IRBasicBlock(uniqueBlockName());
+            for (final var blk : List.of(nullBlk, notNullBlk, mergeBlk)) {
+                builder.currentFunction().addBlock(blk);
+            }
+            final var cell = builder.emitAlloca("rechash." + uniqueBlockName(), IRType.I32);
+            final var isNull = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, value,
+                    IRValue.nullPtr(ptr.pointee()));
+            builder.emitCondBranch(isNull, nullBlk, notNullBlk);
+            builder.setCurrentBlock(nullBlk);
+            builder.emitStore(cell, IRValue.ofI32(0));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(notNullBlk);
             noteMethodReference(internalOwnerFromPtr(ptr), "hashCode", "()I", true);
-            return builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_hashCode", IRType.I32,
-                    List.of(), List.of(value));
+            builder.emitStore(cell, builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_hashCode", IRType.I32,
+                    List.of(), List.of(value)));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(mergeBlk);
+            return builder.emitLoad(cell);
         }
         if (type == IRType.BOOL) {
             return selectI32(value, IRValue.ofI32(1231), IRValue.ofI32(1237));
@@ -1840,9 +1858,28 @@ public final class BytecodeMethodLowering {
             }
             // Zelfde generieke redenering als fieldHashCode(): de statische
             // eigenaar levert de call-naam, virtuele dispatch doet de rest.
+            // Objects.equals: two null fields are equal, one null field is not.
+            final var nullBlk = new IRBasicBlock(uniqueBlockName());
+            final var notNullBlk = new IRBasicBlock(uniqueBlockName());
+            final var mergeBlk = new IRBasicBlock(uniqueBlockName());
+            for (final var blk : List.of(nullBlk, notNullBlk, mergeBlk)) {
+                builder.currentFunction().addBlock(blk);
+            }
+            final var cell = builder.emitAlloca("receq." + uniqueBlockName(), IRType.BOOL);
+            final var aIsNull = builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, a,
+                    IRValue.nullPtr(ptr.pointee()));
+            builder.emitCondBranch(aIsNull, nullBlk, notNullBlk);
+            builder.setCurrentBlock(nullBlk);
+            builder.emitStore(cell, builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, b,
+                    IRValue.nullPtr(ptr.pointee())));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(notNullBlk);
             noteMethodReference(internalOwnerFromPtr(ptr), "equals", "(Ljava/lang/Object;)Z", true);
-            return builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_equals", IRType.BOOL,
-                    List.of(OBJECT_PARAM), List.of(a, b));
+            builder.emitStore(cell, builder.emitCall(CallKind.VIRTUAL, ownerFromPtr(ptr) + "_equals", IRType.BOOL,
+                    List.of(OBJECT_PARAM), List.of(a, b)));
+            builder.emitBranch(mergeBlk);
+            builder.setCurrentBlock(mergeBlk);
+            return builder.emitLoad(cell);
         }
         return builder.emitBinaryOp(IRInstruction.BinaryOp.Op.EQ, a, b);
     }

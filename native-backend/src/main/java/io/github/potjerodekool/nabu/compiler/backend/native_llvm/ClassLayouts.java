@@ -632,9 +632,27 @@ for (IRModule m : modules) {
                         if (instr instanceof IRInstruction.Call raw
                                 && (raw.callKind() == CallKind.INTERFACE || raw.callKind() == CallKind.VIRTUAL)
                                 && raw.function() != null) {
+                            // The emitter always names the call after the interface that declares the method
+                            // (InstructionEmitter: canonicalize): the slot has to exist under that name too, also when the
+                            // class the call names has a declaration of its own (log4j's AbstractLogger.isEnabled, which
+                            // ExtendedLogger declares).
+                            final IRInstruction.Call declaringCall = canonicalize(CallTargets.normalize(raw));
+                            if (declaringCall.function() != null && !declaringCall.function().equals(raw.function())
+                                    && resolveFunction(declaringCall.function()) != null
+                                    && ownedByInterface(declaringCall.function())) {
+                                final IRModule declaringModule =
+                                        modulesByInternalName.get(ownerInternalName(declaringCall.function()));
+                                if (declaringModule != null && Flags.hasFlag(declaringModule.flags, Flags.INTERFACE)) {
+                                    final String declaringKey =
+                                            interfaceSlotKey(declaringCall.function(), declaringCall.paramTypes());
+                                    callTargets.add(declaringKey);
+                                    interfaceSlotSigs.putIfAbsent(declaringKey,
+                                            new InterfaceSlotSig(declaringCall.function(), declaringCall.paramTypes()));
+                                }
+                            }
                             // Only a call that does not name a declared function is rewritten: the others keep their slot.
                             final IRInstruction.Call call = resolveFunction(raw.function()) != null
-                                    ? raw : canonicalize(CallTargets.normalize(raw));
+                                    ? raw : declaringCall;
                             if (call.function() == null || resolveFunction(call.function()) == null) {
                                 continue;
                             }

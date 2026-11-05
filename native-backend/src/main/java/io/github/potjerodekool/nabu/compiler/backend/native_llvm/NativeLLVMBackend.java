@@ -353,9 +353,12 @@ public class NativeLLVMBackend implements Backend {
             final int moduleCount = modules.size();
             LLVMModuleEmitter emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
             emitter.setReflectionRegistry(reflectionRegistry);
-            modules.stream()
-                    .filter(m -> m.functions().stream().anyMatch(f -> f.name.equals("main") && !f.isExternal()))
-                    .findFirst().ifPresent(m -> emitter.setMainClassName(m.name));
+            for (final IRModule m : modules) {
+                if (m.functions().stream().anyMatch(f -> f.name.equals("main") && !f.isExternal())) {
+                    emitter.setMainClassName(m.name);
+                    break;
+                }
+            }
             emitter.emitAll(modules.stream().map(NativeLLVMBackend::withoutReturnOnlyBridges).toList());
             final java.util.List<String> unresolved = emitter.stubUnresolvedSymbols();
             if (!unresolved.isEmpty()) {

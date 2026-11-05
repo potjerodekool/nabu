@@ -45,6 +45,19 @@ public final class LoaderSupport {
         return loader();
     }
 
+    private static java.security.ProtectionDomain protectionDomain;
+
+    /**
+     * {@code Class.getProtectionDomain}: one domain without code source and permissions for every class. Code
+     * (logback's PackagingDataCalculator) reads the code source of it without a null check on the domain.
+     */
+    public static synchronized java.security.ProtectionDomain protectionDomain(final Class<?> type) {
+        if (protectionDomain == null) {
+            protectionDomain = new java.security.ProtectionDomain(null, null);
+        }
+        return protectionDomain;
+    }
+
     public static ClassLoader contextClassLoader(final Thread thread) {
         return loader();
     }

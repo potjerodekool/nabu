@@ -1808,6 +1808,8 @@ const char *nabu_compiled_type_name(const void *p) {
 #endif
 }
 
+extern int nabu_class_is_annotation(const char *internal) __attribute__((weak));
+
 int nabu_instanceof(void *obj, const char *type_name) {
     if (obj == NULL) {
         return 0;
@@ -1836,6 +1838,12 @@ int nabu_instanceof(void *obj, const char *type_name) {
         current = current->super_type;
     }
 
+    /* An annotation object (made by the runtime for an annotation type) is an Annotation. */
+    if (nabu_class_is_annotation != NULL && header->type != NULL
+            && strcmp(type_name, "java/lang/annotation/Annotation") == 0
+            && nabu_class_is_annotation(((nabu_type_info *)header->type)->name)) {
+        return 1;
+    }
     return 0;
 }
 

@@ -849,6 +849,13 @@ BIND(int64_t, jcl_ProcessHandleImpl_isAlive0, "java.lang.ProcessHandleImpl_isAli
     (void)pid;
     return 0;
 }
+/* StackWalkSupport.mainClass0: the Class of the program's main class (nabu_main_class_name, written by the backend). */
+extern const char nabu_main_class_name[] __attribute__((weak));
+BIND(void *, jcl_StackWalkSupport_mainClass0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.StackWalkSupport_mainClass0", (void)) {
+    if (&nabu_main_class_name[0] == NULL) return NULL;
+    return jcl_class(nabu_main_class_name);
+}
+
 /* EnvSupport.environ0: the environment as a String[] of "NAME=value" (System.getenv()). */
 BIND(void *, jcl_EnvSupport_environ0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.EnvSupport_environ0", (void)) {
     int32_t n = 0;
@@ -961,6 +968,9 @@ static void jcl_props_put_system(void) {
      * module-layers, wat een native programma niet heeft. Overschrijfbaar
      * via NABU_PROPERTIES hieronder. */
     jcl_map_put(jcl_props, (void *)"java.locale.providers", (void *)"FALLBACK");
+    /* As in a GraalVM native image: frameworks (Spring's NativeDetector) take their ahead-of-time paths and skip the
+     * class path scanning and module layers a native program does not have. */
+    jcl_map_put(jcl_props, (void *)"org.graalvm.nativeimage.imagecode", (void *)"runtime");
     const char *extra = getenv("NABU_PROPERTIES");
     if (extra != NULL && extra[0] != '\0') {
         char *copy = jcl_dup(extra);
@@ -6039,9 +6049,17 @@ BIND(int32_t, jcl_Class_hashCode, "java.lang.Class_hashCode", (void *self)) {
     while (*s) h = h * 33u + *s++;
     return (int32_t)h;
 }
+/* Whether the class (internal name) is an annotation type of the program: an object the runtime made for an
+ * annotation counts as a java.lang.annotation.Annotation (nabu_instanceof asks). */
+int nabu_class_is_annotation(const char *internal) {
+    int32_t f = jcl_class_flags((void *)internal);
+    return f >= 0 && (f & 0x2000) != 0;
+}
+extern int nabu_instanceof_array(void *obj, const char *wanted);
 BIND(int, jcl_Class_isInstance, "java.lang.Class_isInstance", (void *self, void *obj)) {
     if (obj == NULL) return 0;
     const char *name = jcl_str(self);
+    if (name[0] == '[') return nabu_instanceof_array(obj, name);
     if (nabu_is_jstring(obj)) {
         return strcmp(name, "java/lang/String") == 0 || strcmp(name, "java/lang/Object") == 0
                 || strcmp(name, "java/lang/CharSequence") == 0;

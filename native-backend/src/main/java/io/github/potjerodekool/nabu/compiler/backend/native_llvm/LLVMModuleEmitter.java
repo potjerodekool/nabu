@@ -162,6 +162,7 @@ public void setReflectionRegistry(
         emitEnumTable(modules);
         emitCtorTable(modules);
         emitClassFlagsTable(modules);
+        emitMainClassName();
         emitExceptionTable(modules);
 
         // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
@@ -452,6 +453,28 @@ public void setReflectionRegistry(
         final LLVMValueRef count = LLVMAddGlobal(mod, i32, new BytePointer("nabu_class_flag_count"));
         LLVMSetInitializer(count, LLVMConstInt(i32, entries.size(), 0));
         LLVMSetGlobalConstant(count, 1);
+    }
+
+    private String mainClassName;
+
+    /** The internal name of the class with the entry point; {@code nabu_main_class_name} holds it. */
+    public void setMainClassName(final String mainClassName) {
+        this.mainClassName = mainClassName;
+    }
+
+    /**
+     * Emits {@code nabu_main_class_name}, the class with {@code main}: a native program has no stack to find it in
+     * ({@code StackWalker}, which Spring Boot uses to deduce its main application class).
+     */
+    private void emitMainClassName() {
+        final String name = mainClassName != null ? ClassLayouts.normalizeInternalName(mainClassName) : null;
+        if (name == null) {
+            return;
+        }
+        final LLVMValueRef text = LLVMConstStringInContext(ctx, new BytePointer(name), name.length(), 0);
+        final LLVMValueRef global = LLVMAddGlobal(mod, LLVMTypeOf(text), new BytePointer("nabu_main_class_name"));
+        LLVMSetInitializer(global, text);
+        LLVMSetGlobalConstant(global, 1);
     }
 
     private static boolean flag(final IRModule module, final long flag) {

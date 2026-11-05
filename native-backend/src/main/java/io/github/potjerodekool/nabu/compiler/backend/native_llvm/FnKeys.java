@@ -115,7 +115,11 @@ static String stableSymbol(final LLVMModuleRef mod,
                            final String fnName,
                            final List<IRType> paramTypes) {
     final LLVMValueRef existing = LLVMGetNamedFunction(mod, new BytePointer(fnName));
-    if (existing == null || existing.isNull()) {
+    // Class.forName(String, boolean, ClassLoader) has its own implementation in the runtime under the suffixed name;
+    // whichever overload is declared first would otherwise take the plain name of the one-argument version.
+    final boolean forcedSuffix = "java.lang.Class_forName".equals(fnName) && paramTypes != null
+            && paramTypes.size() == 3;
+    if ((existing == null || existing.isNull()) && !forcedSuffix) {
         return fnName;
     }
     final String suffix = symbolSuffix(paramTypes);

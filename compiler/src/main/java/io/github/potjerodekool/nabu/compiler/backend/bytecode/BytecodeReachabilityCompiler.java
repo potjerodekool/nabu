@@ -251,6 +251,22 @@ public final class BytecodeReachabilityCompiler {
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         ByteArrayViewRewriter.rewrite(classNode);
         FieldVarHandleRewriter.rewrite(classNode, loader);
+        if ("org/springframework/boot/system/JavaVersion".equals(classNode.name)) {
+            // Spring Boot finds out the Java version by looking for methods of JDK classes through reflection
+            // (Console.isTerminal, ...); a native program has no reflection data for the JDK. The classes it runs are
+            // those of the JDK the program was compiled with, which is 25.
+            for (final MethodNode m : classNode.methods) {
+                if ("getJavaVersion".equals(m.name) && "()Lorg/springframework/boot/system/JavaVersion;".equals(m.desc)
+                        && (m.access & Opcodes.ACC_STATIC) != 0) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC,
+                                "org/springframework/boot/system/JavaVersion", "TWENTY_FIVE",
+                                "Lorg/springframework/boot/system/JavaVersion;"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
         if ("java/util/logging/Logger".equals(classNode.name)) {
             // java.util.logging without a LogManager (its initialization reads configuration files and starts the
             // reference queue machinery): a logger is a plain object without a manager, that logs to no handler.

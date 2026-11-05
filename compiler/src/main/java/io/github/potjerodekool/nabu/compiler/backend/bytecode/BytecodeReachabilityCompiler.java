@@ -251,6 +251,34 @@ public final class BytecodeReachabilityCompiler {
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         ByteArrayViewRewriter.rewrite(classNode);
         FieldVarHandleRewriter.rewrite(classNode, loader);
+        if ("java/util/logging/Logger".equals(classNode.name)) {
+            // java.util.logging without a LogManager (its initialization reads configuration files and starts the
+            // reference queue machinery): a logger is a plain object without a manager, that logs to no handler.
+            // Logback's LevelChangePropagator mirrors every level change of Spring Boot's logging to it.
+            for (final MethodNode m : classNode.methods) {
+                if ("demandLogger".equals(m.name)
+                        && "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Class;)Ljava/util/logging/Logger;"
+                        .equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, "java/util/logging/Logger"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.DUP));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ACONST_NULL));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_0));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESPECIAL,
+                                "java/util/logging/Logger", "<init>",
+                                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Class;Ljava/util/logging/LogManager;Z)V",
+                                false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                    m.maxStack = 8;
+                } else if ("checkPermission".equals(m.name) && "()V".equals(m.desc)) {
+                    replaceBody(m, insns -> insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN)));
+                }
+            }
+        }
         if ("java/lang/reflect/Parameter".equals(classNode.name)) {
             // isNamePresent asks the Executable for its real parameter data, a package-private method that the
             // Method and Constructor objects of the C runtime do not have: the names are never present.

@@ -866,6 +866,11 @@ BIND(void *, jcl_java_lang_System_getenv_jstr, "java.lang.System_getenv", (void 
     void *r = (void *)jcl_java_lang_System_getenv(name);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
 }
+/* Whether the object is an array (no object header, so no vtable): the backend tests a receiver that is
+ * statically an Object before calling equals, hashCode or toString on it. */
+int nabu_is_array(void *o) {
+    return o != NULL && nabu_compiled_type_name(o) == NULL && jcl_typed_array_name(o) != NULL;
+}
 BIND(int32_t, jcl_java_lang_System_identityHashCode, "java.lang.System_identityHashCode", (void *o)) {
     return o == NULL ? 0 : (int32_t)((intptr_t)o >> 4);
 }
@@ -3130,6 +3135,7 @@ BIND(void *, jcl_java_lang_Class_newInstance, "java.lang.Class_newInstance", (vo
 }
 /* One class loader: loadClass is Class.forName (ClassNotFoundException for a class the program does not have). */
 /* ClassLoader(String, ClassLoader): a native loader has no JDK state to set up. */
+BIND(void, jcl_java_lang_ClassLoader_init, "java.lang.ClassLoader_init", (void *self)) { (void)self; }
 BIND(void, jcl_java_lang_ClassLoader_init_named, "java.lang.ClassLoader_init$PP523beb0aP2f7ad930", (void *self, void *name, void *parent)) { (void)self; (void)name; (void)parent; }
 BIND(void *, jcl_java_lang_ClassLoader_loadClass, "java.lang.ClassLoader_loadClass", (void *self, void *name)) {
     (void)self;

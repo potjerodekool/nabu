@@ -1703,6 +1703,7 @@ public class InstructionEmitter {
         LLVMTypeRef ptrType = LLVMPointerType(LLVMInt8TypeInContext(ctx), 0);
 
         emitReceiverNullCheck(obj, call.function());
+        final ArrayGuard arrayGuard = emitArrayReceiverGuard(call, receiver, obj);
         // obj.vtable — header-struct veld 1 (via outer struct index 0)
         LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
                 ".header");
@@ -1728,9 +1729,104 @@ public class InstructionEmitter {
                 call.args().size(), call.result());
         Reference.reachabilityFence(args);
 
+        if (arrayGuard != null) {
+            // Both branches meet: the result of the call is a phi of the array branch's and this one's.
+            final LLVMBasicBlockRef objectEnd = LLVMGetInsertBlock(builder);
+            LLVMBuildBr(builder, arrayGuard.join());
+            LLVMPositionBuilderAtEnd(builder, arrayGuard.join());
+            if (call.result() != null && result != null && !result.isNull()) {
+                final LLVMValueRef merged = LLVMBuildPhi(builder, LLVMTypeOf(result), ".array.merge");
+                final PointerPointer<Pointer> values = new PointerPointer<>(2);
+                final PointerPointer<Pointer> blocks = new PointerPointer<>(2);
+                values.put(0, arrayGuard.result());
+                values.put(1, result);
+                blocks.put(0, arrayGuard.arrayEnd());
+                blocks.put(1, objectEnd);
+                LLVMAddIncoming(merged, values, blocks, 2);
+                Reference.reachabilityFence(values);
+                Reference.reachabilityFence(blocks);
+                storeLocal(call.result(), merged);
+            }
+            return true;
+        }
         if (call.result() != null)
             storeLocal(call.result(), result);
         return true;
+    }
+
+    /** The blocks and value of the array branch of {@link #emitArrayReceiverGuard}. */
+    private record ArrayGuard(LLVMBasicBlockRef join, LLVMBasicBlockRef arrayEnd, LLVMValueRef result) {
+    }
+
+    /**
+     * {@code equals}, {@code hashCode} and {@code toString} on a receiver that is statically an Object: at run time
+     * it can be an array, which has no object header and so no vtable (Spring's ObjectUtils.nullSafeEquals compares
+     * arrays this way). An array is recognized by the runtime ({@code nabu_is_array}); Object's own methods
+     * (identity equality and hash code, the {@code [I@hash} text) handle it. Emits the test and the array branch; returns the join block and
+     * the array branch's result (the caller continues in the vtable branch and then branches to the join), or null
+     * without a guard.
+     */
+    private ArrayGuard emitArrayReceiverGuard(final IRInstruction.Call call, final IRValue receiver,
+                                                     final LLVMValueRef obj) {
+        // The array branch calls Object's own method directly: the runtime's version knows arrays.
+        final String helper = switch (call.function() == null ? "" : call.function()) {
+            case "java.lang.Object_equals", "java.lang.Object_hashCode", "java.lang.Object_toString" -> call.function();
+            default -> null;
+        };
+        if (helper == null) {
+            return null;
+        }
+        final ClassLayouts.ClassLayout staticLayout = classLayouts.getFor(receiver.type());
+        if (staticLayout != null && !"java/lang/Object".equals(staticLayout.internalName)) {
+            return null;
+        }
+        final LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+        final LLVMValueRef function = LLVMGetBasicBlockParent(current);
+        final LLVMModuleRef mod = LLVMGetGlobalParent(function);
+        final LLVMTypeRef ptr = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+
+        LLVMValueRef isArrayFn = LLVMGetNamedFunction(mod, "nabu_is_array");
+        final PointerPointer<Pointer> isArrayParams = new PointerPointer<>(1);
+        isArrayParams.put(0, ptr);
+        final LLVMTypeRef isArrayType = LLVMFunctionType(i32, isArrayParams, 1, 0);
+        if (isArrayFn == null || isArrayFn.isNull()) {
+            isArrayFn = LLVMAddFunction(mod, "nabu_is_array", isArrayType);
+            LLVMSetLinkage(isArrayFn, LLVMExternalLinkage);
+        }
+        final List<IRType> fnParams = indirectCallParams(call);
+        final LLVMTypeRef fnType = types.map(new IRType.Function(call.returnType(), fnParams));
+        LLVMValueRef helperFn = LLVMGetNamedFunction(mod, helper);
+        if (helperFn == null || helperFn.isNull()) {
+            helperFn = LLVMAddFunction(mod, helper, fnType);
+            LLVMSetLinkage(helperFn, LLVMExternalLinkage);
+        }
+
+        final String handler = getHandlerLabel();
+        final LLVMBasicBlockRef arrayBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.array"));
+        final LLVMBasicBlockRef objectBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.object"));
+        final LLVMBasicBlockRef joinBB = LLVMAppendBasicBlockInContext(ctx, function, new BytePointer("receiver.join"));
+        if (handler != null) {
+            continuationHandlers.put(arrayBB, handler);
+            continuationHandlers.put(objectBB, handler);
+            continuationHandlers.put(joinBB, handler);
+        }
+        final PointerPointer<Pointer> isArrayArgs = new PointerPointer<>(1);
+        isArrayArgs.put(0, obj);
+        final LLVMValueRef flag = LLVMBuildCall2(builder, isArrayType, isArrayFn, isArrayArgs, 1, ".isarray");
+        Reference.reachabilityFence(isArrayArgs);
+        final LLVMValueRef isArray = LLVMBuildICmp(builder, LLVMIntNE, flag, LLVMConstInt(i32, 0, 0), ".isarray.bool");
+        LLVMBuildCondBr(builder, isArray, arrayBB, objectBB);
+
+        LLVMPositionBuilderAtEnd(builder, arrayBB);
+        final PointerPointer<Pointer> args = buildArgs(call.args());
+        final LLVMValueRef result = LLVMBuildCall2(builder, fnType, helperFn, args, call.args().size(), "");
+        Reference.reachabilityFence(args);
+        final LLVMBasicBlockRef arrayEnd = LLVMGetInsertBlock(builder);
+        LLVMBuildBr(builder, joinBB);
+
+        LLVMPositionBuilderAtEnd(builder, objectBB);
+        return new ArrayGuard(joinBB, arrayEnd, result);
     }
 
     /**

@@ -111,7 +111,6 @@ public final class BytecodeReachabilityCompiler {
             "java/lang/reflect/Method",
             "java/lang/reflect/Field",
             "java/lang/reflect/Constructor",
-            "java/lang/reflect/Parameter",
             "java/lang/reflect/Proxy");
 
     /**

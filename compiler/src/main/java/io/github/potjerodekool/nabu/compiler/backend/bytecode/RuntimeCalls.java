@@ -101,6 +101,8 @@ final class RuntimeCalls {
                     LOADER_SUPPORT, "systemModuleFinder"),
             new Redirect("java/lang/Class", "getProtectionDomain", "()Ljava/security/ProtectionDomain;", false,
                     LOADER_SUPPORT, "protectionDomain"),
+            new Redirect("java/lang/reflect/Method", "getDefaultValue", "()Ljava/lang/Object;", false,
+                    RUNTIME_PACKAGE + "AnnotationSupport", "defaultValue"),
             new Redirect("java/lang/Class", "getPackage", "()Ljava/lang/Package;", false,
                     ParameterSupportGenerator.PARAMETER_SUPPORT, "packageOf"),
             new Redirect("java/lang/reflect/Constructor", "getParameters", "()[Ljava/lang/reflect/Parameter;", false,

@@ -2738,6 +2738,13 @@ static void *jcl_ann_obj(const nabu_annotation_entry *e) {
     return jcl_new_obj(e->type_name, st);
 }
 
+/* AnnotationSupport.blank0(Class): an annotation object of that type with no values (Method.getDefaultValue). */
+BIND(void *, jcl_AnnotationSupport_blank0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.AnnotationSupport_blank0", (void *cls)) {
+    nabu_annotation_entry *e = (nabu_annotation_entry *)jcl_alloc(sizeof *e);
+    e->type_name = jcl_dup(jcl_str(cls));
+    return jcl_ann_obj(e);
+}
+
 static void *jcl_field_obj(const char *cls, const nabu_field_info *f) {
     s_field *st = (s_field *)jcl_alloc(sizeof(s_field));
     st->kind = K_FIELD;
@@ -3118,7 +3125,36 @@ BIND(int, jcl_java_lang_Class_isAssignableFrom, "java.lang.Class_isAssignableFro
     return 0;
 }
 BIND(int, jcl_java_lang_Class_isEnum, "java.lang.Class_isEnum", (void *self)) { return jcl_enum_entry(self) != NULL; }
-BIND(int, jcl_java_lang_Class_isInterface, "java.lang.Class_isInterface", (void *self)) { (void)self; return 0; }
+/* The class-file flags of a class of the program (nabu_class_flags, written by the backend; 0x10000 = record),
+ * or -1 for a class it does not list (a primitive, an array, a class without compiled code). */
+typedef struct { const char *name; int32_t flags; } nabu_class_flag;
+extern const nabu_class_flag nabu_class_flags[];
+extern const int32_t nabu_class_flag_count;
+static const nabu_class_flag **jcl_flags_sorted = NULL;
+static int jcl_flag_cmp(const void *a, const void *b) {
+    return strcmp((*(const nabu_class_flag *const *)a)->name, (*(const nabu_class_flag *const *)b)->name);
+}
+static int32_t jcl_class_flags(void *self) {
+    if (jcl_flags_sorted == NULL) {
+        nabu_rt_lock();
+        if (jcl_flags_sorted == NULL) {
+            const nabu_class_flag **sorted = (const nabu_class_flag **)malloc(sizeof *sorted * (size_t)(nabu_class_flag_count + 1));
+            for (int32_t i = 0; i < nabu_class_flag_count; i++) sorted[i] = &nabu_class_flags[i];
+            qsort(sorted, (size_t)nabu_class_flag_count, sizeof *sorted, jcl_flag_cmp);
+            jcl_flags_sorted = sorted;
+        }
+        nabu_rt_unlock();
+    }
+    nabu_class_flag key = { jcl_str(self), 0 };
+    const nabu_class_flag *k = &key;
+    const nabu_class_flag **hit = (const nabu_class_flag **)bsearch(&k, jcl_flags_sorted,
+            (size_t)nabu_class_flag_count, sizeof *jcl_flags_sorted, jcl_flag_cmp);
+    return hit != NULL ? (*hit)->flags : -1;
+}
+BIND(int, jcl_java_lang_Class_isInterface, "java.lang.Class_isInterface", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x200) != 0;
+}
 BIND(int, jcl_java_lang_Class_isPrimitive, "java.lang.Class_isPrimitive", (void *self)) {
     const char *n = jcl_str(self);
     return strcmp(n, "int") == 0 || strcmp(n, "long") == 0 || strcmp(n, "boolean") == 0
@@ -4325,7 +4361,10 @@ BIND(void *, jcl_java_lang_Class_getPrimitiveClass, "java.lang.Class_getPrimitiv
 /* Assertions staan uit, net als bij een JVM zonder -ea. */
 BIND(int, jcl_java_lang_Class_desiredAssertionStatus0, "java.lang.Class_desiredAssertionStatus0", (void *cls)) { (void)cls; return 0; }
 BIND(int, jcl_java_lang_Class_isHidden, "java.lang.Class_isHidden", (void *self)) { (void)self; return 0; }
-BIND(int, jcl_java_lang_Class_isRecord0, "java.lang.Class_isRecord0", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_java_lang_Class_isRecord0, "java.lang.Class_isRecord0", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x10000) != 0;
+}
 BIND(int64_t, jcl_java_lang_Double_doubleToRawLongBits, "java.lang.Double_doubleToRawLongBits", (double v)) { int64_t r; memcpy(&r, &v, 8); return r; }
 BIND(double, jcl_java_lang_Double_longBitsToDouble, "java.lang.Double_longBitsToDouble", (int64_t v)) { double r; memcpy(&r, &v, 8); return r; }
 BIND(int32_t, jcl_java_lang_Float_floatToRawIntBits, "java.lang.Float_floatToRawIntBits", (float v)) { int32_t r; memcpy(&r, &v, 4); return r; }
@@ -6010,11 +6049,20 @@ BIND(int, jcl_Class_isInstance, "java.lang.Class_isInstance", (void *self, void 
     if (!nabu_jcl_is_object(obj) && jcl_compiled_type_name(obj) == NULL) return 0;
     return nabu_instanceof(obj, name);
 }
-BIND(int32_t, jcl_Class_getModifiers, "java.lang.Class_getModifiers", (void *self)) { (void)self; return 1; }
-BIND(int, jcl_Class_isAnnotation, "java.lang.Class_isAnnotation", (void *self)) { (void)self; return 0; }
+BIND(int32_t, jcl_Class_getModifiers, "java.lang.Class_getModifiers", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f < 0 ? 1 : (f & 0xffff & ~0x1000);
+}
+BIND(int, jcl_Class_isAnnotation, "java.lang.Class_isAnnotation", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x2000) != 0;
+}
 BIND(int, jcl_Class_isAnonymousClass, "java.lang.Class_isAnonymousClass", (void *self)) { (void)self; return 0; }
 BIND(int, jcl_Class_isLocalClass, "java.lang.Class_isLocalClass", (void *self)) { (void)self; return 0; }
-BIND(int, jcl_Class_isRecord, "java.lang.Class_isRecord", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_Class_isRecord, "java.lang.Class_isRecord", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x10000) != 0;
+}
 BIND(void *, jcl_Class_getClassLoader0, "java.lang.Class_getClassLoader0", (void *self)) { (void)self; return NULL; }
 /* Class.toGenericString: no type parameters are recorded, so the type name (as in a message). */
 BIND(void *, jcl_Class_toGenericString, "java.lang.Class_toGenericString", (void *self)) { return nabu_jstring_new(jcl_source_name(jcl_str(self), 0)); }
@@ -6194,7 +6242,10 @@ BIND(void *, jcl_java_lang_Class_getEnclosingClass, "java.lang.Class_getEnclosin
 }
 BIND(void *, jcl_java_lang_Class_getEnclosingMethod, "java.lang.Class_getEnclosingMethod", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_java_lang_Class_getEnclosingConstructor, "java.lang.Class_getEnclosingConstructor", (void *self)) { (void)self; return NULL; }
-BIND(int, jcl_java_lang_Class_isSynthetic, "java.lang.Class_isSynthetic", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_java_lang_Class_isSynthetic, "java.lang.Class_isSynthetic", (void *self)) {
+    int32_t f = jcl_class_flags(self);
+    return f >= 0 && (f & 0x1000) != 0;
+}
 BIND(int, jcl_java_lang_Class_isSealed, "java.lang.Class_isSealed", (void *self)) { (void)self; return 0; }
 BIND(void *, jcl_java_lang_Class_getPermittedSubclasses, "java.lang.Class_getPermittedSubclasses", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_java_lang_Class_getRecordComponents, "java.lang.Class_getRecordComponents", (void *self)) { (void)self; return NULL; }

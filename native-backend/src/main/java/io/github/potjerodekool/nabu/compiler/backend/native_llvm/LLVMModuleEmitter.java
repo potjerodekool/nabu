@@ -161,6 +161,7 @@ public void setReflectionRegistry(
         emitPropertiesMeta();
         emitEnumTable(modules);
         emitCtorTable(modules);
+        emitClassFlagsTable(modules);
         emitExceptionTable(modules);
 
         // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
@@ -390,6 +391,71 @@ public void setReflectionRegistry(
                 new BytePointer("nabu_properties_meta"));
         LLVMSetInitializer(meta, init);
         LLVMSetGlobalConstant(meta, 1);
+    }
+
+    /**
+     * Emits {@code nabu_class_flags} ({@code { i8* internalName, i32 flags }}) and {@code nabu_class_flag_count}: what
+     * {@code Class.isInterface}, {@code isAnnotation}, {@code getModifiers} and {@code isRecord} answer for the classes
+     * of the program. The flags are those of a class file (public 0x1, final 0x10, interface 0x200, abstract 0x400,
+     * synthetic 0x1000, annotation 0x2000, enum 0x4000) plus 0x10000 for a record.
+     */
+    private void emitClassFlagsTable(final List<IRModule> modules) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(2);
+        memberTypes.put(0, ptrType);
+        memberTypes.put(1, i32);
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 2, 0);
+        final List<LLVMValueRef> entries = new java.util.ArrayList<>();
+        final java.util.Set<String> seen = new java.util.HashSet<>();
+        int index = 0;
+        for (final IRModule module : modules) {
+            final String internalName = ClassLayouts.normalizeInternalName(module.name);
+            if (internalName == null || !seen.add(internalName)) {
+                continue;
+            }
+            int flags = 0;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.PUBLIC)) flags |= 0x0001;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.FINAL)) flags |= 0x0010;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.INTERFACE)) flags |= 0x0200 | 0x0400;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.ABSTRACT)) flags |= 0x0400;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.SYNTHETIC)) flags |= 0x1000;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.ANNOTATION)) flags |= 0x2000;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.ENUM)) flags |= 0x4000;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.RECORD)
+                    || (module.superType() instanceof io.github.potjerodekool.nabu.backend.ir.types.IRType.Ptr p
+                        && "Ljava/lang/Record;".equals(p.jvmDescriptor()))) {
+                flags |= 0x10000;
+            }
+            // An enum (without constant bodies) and a record are implicitly final.
+            if ((flags & (0x4000 | 0x10000)) != 0 && (flags & 0x0400) == 0) {
+                flags |= 0x0010;
+            }
+            final LLVMValueRef nameStr = LLVMConstStringInContext(ctx, new BytePointer(internalName),
+                    internalName.length(), 0);
+            final LLVMValueRef nameGlobal = LLVMAddGlobal(mod, LLVMTypeOf(nameStr),
+                    new BytePointer(".flags.name." + (index++)));
+            LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(nameGlobal, 1);
+            LLVMSetInitializer(nameGlobal, nameStr);
+            final LLVMValueRef[] fields = {nameGlobal, LLVMConstInt(i32, flags, 0)};
+            entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
+        }
+        final PointerPointer<Pointer> elems = new PointerPointer<>(Math.max(1, entries.size()));
+        for (int i = 0; i < entries.size(); i++) {
+            elems.put(i, entries.get(i));
+        }
+        final LLVMTypeRef arrayType = LLVMArrayType(entryType, entries.size());
+        final LLVMValueRef table = LLVMAddGlobal(mod, arrayType, new BytePointer("nabu_class_flags"));
+        LLVMSetInitializer(table, LLVMConstArray(entryType, elems, entries.size()));
+        LLVMSetGlobalConstant(table, 1);
+        final LLVMValueRef count = LLVMAddGlobal(mod, i32, new BytePointer("nabu_class_flag_count"));
+        LLVMSetInitializer(count, LLVMConstInt(i32, entries.size(), 0));
+        LLVMSetGlobalConstant(count, 1);
+    }
+
+    private static boolean flag(final IRModule module, final long flag) {
+        return io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags, flag);
     }
 
     /**

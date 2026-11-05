@@ -42,7 +42,7 @@ public final class ReflectionMethods {
     public static Map<String, ClassMethods> resolve(final List<ReflectEntry> entries,
                                                     final CompilerContextImpl compilerContext) {
         final Map<String, ClassMethods> result = new LinkedHashMap<>();
-        for (final ReflectEntry entry : entries) {
+        for (final ReflectEntry entry : withAnnotationTypes(entries, compilerContext)) {
             if (!entry.allDeclaredMethods() && !entry.allPublicMethods() && !entry.allDeclaredConstructors()
                     && !entry.allPublicConstructors() && entry.methods().isEmpty()) {
                 continue;
@@ -79,6 +79,59 @@ public final class ReflectionMethods {
                     : merge(existing, new ClassMethods(declared, publics, constructors)));
         }
         return result;
+    }
+
+    /**
+     * The entries plus one per annotation type that annotates a registered class or one of its members (and the
+     * annotation types on those annotation types): as GraalVM does, the elements of such an annotation type are
+     * reflectively visible, because frameworks (Spring's AttributeMethods) read an annotation through
+     * {@code getDeclaredMethods} of its type.
+     */
+    static List<ReflectEntry> withAnnotationTypes(final List<ReflectEntry> entries,
+                                                  final CompilerContextImpl compilerContext) {
+        final Map<String, ReflectEntry> byName = new LinkedHashMap<>();
+        entries.forEach(e -> byName.putIfAbsent(e.name(), e));
+        final Set<String> seen = new HashSet<>();
+        final Deque<TypeElement> pending = new ArrayDeque<>();
+        for (final ReflectEntry entry : entries) {
+            final TypeElement type = ProxySpecs.load(compilerContext, entry.name());
+            if (type != null) {
+                type.complete();
+                collectAnnotationTypes(type, seen, pending);
+                for (final var member : type.getEnclosedElements()) {
+                    collectAnnotationTypes(member, seen, pending);
+                    if (member instanceof ExecutableElement executable) {
+                        for (final var parameter : executable.getParameters()) {
+                            collectAnnotationTypes(parameter, seen, pending);
+                        }
+                    }
+                }
+            }
+        }
+        final List<ReflectEntry> result = new ArrayList<>(entries);
+        while (!pending.isEmpty()) {
+            final TypeElement annotation = pending.poll();
+            annotation.complete();
+            final String name = annotation.getFlatName();
+            if (!byName.containsKey(name)) {
+                final ReflectEntry added = new ReflectEntry(name, false, false, true, false, List.of(), List.of());
+                byName.put(name, added);
+                result.add(added);
+            }
+            collectAnnotationTypes(annotation, seen, pending);
+        }
+        return result;
+    }
+
+    private static void collectAnnotationTypes(final io.github.potjerodekool.nabu.lang.model.element.Element element,
+                                               final Set<String> seen, final Deque<TypeElement> pending) {
+        for (final var mirror : element.getAnnotationMirrors()) {
+            final var annotationType = mirror.getAnnotationType() != null
+                    ? mirror.getAnnotationType().asTypeElement() : null;
+            if (annotationType != null && seen.add(annotationType.getFlatName())) {
+                pending.add(annotationType);
+            }
+        }
     }
 
     private static ClassMethods merge(final ClassMethods existing, final ClassMethods added) {

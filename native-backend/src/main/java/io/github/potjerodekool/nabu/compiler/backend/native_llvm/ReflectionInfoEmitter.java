@@ -123,6 +123,13 @@ public class ReflectionInfoEmitter {
                 entry = new ReflectEntry(internalName.replace('/', '.'), false, false, false, false,
                         List.of(), List.of());
             }
+            if (entry == null && io.github.potjerodekool.nabu.lang.Flags.hasFlag(module.flags,
+                    io.github.potjerodekool.nabu.lang.Flags.ANNOTATION)) {
+                // An annotation type of the program: its own annotations (the meta-annotations Spring merges, such
+                // as @Component on @Service) are readable, as with GraalVM.
+                entry = new ReflectEntry(internalName.replace('/', '.'), false, false, false, false,
+                        List.of(), List.of());
+            }
             if (entry == null) {
                 continue;
             }

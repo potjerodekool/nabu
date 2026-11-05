@@ -97,6 +97,8 @@ final class RuntimeCalls {
             new Redirect("java/lang/ClassLoader", "getSystemClassLoader",
                     "()Ljava/lang/ClassLoader;", true, LOADER_SUPPORT, "systemClassLoader"),
             new Redirect("java/lang/System", "getenv", "()Ljava/util/Map;", true, ENV_SUPPORT, "getenv"),
+            new Redirect("java/lang/module/ModuleFinder", "ofSystem", "()Ljava/lang/module/ModuleFinder;", true,
+                    LOADER_SUPPORT, "systemModuleFinder"),
             new Redirect("java/lang/Class", "getProtectionDomain", "()Ljava/security/ProtectionDomain;", false,
                     LOADER_SUPPORT, "protectionDomain"),
             new Redirect("java/lang/Class", "getPackage", "()Ljava/lang/Package;", false,

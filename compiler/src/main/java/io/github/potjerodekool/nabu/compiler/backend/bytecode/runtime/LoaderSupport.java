@@ -58,6 +58,26 @@ public final class LoaderSupport {
         return protectionDomain;
     }
 
+    /**
+     * {@code ModuleFinder.ofSystem}: a native program has no module image to read; the finder knows no modules
+     * (Spring's PathMatchingResourcePatternResolver asks for the names of the system modules).
+     */
+    public static java.lang.module.ModuleFinder systemModuleFinder() {
+        return new EmptyModuleFinder();
+    }
+
+    private static final class EmptyModuleFinder implements java.lang.module.ModuleFinder {
+        @Override
+        public java.util.Optional<java.lang.module.ModuleReference> find(final String name) {
+            return java.util.Optional.empty();
+        }
+
+        @Override
+        public java.util.Set<java.lang.module.ModuleReference> findAll() {
+            return java.util.Set.of();
+        }
+    }
+
     public static ClassLoader contextClassLoader(final Thread thread) {
         return loader();
     }

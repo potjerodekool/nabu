@@ -77,8 +77,9 @@ final class JbossLoggingSupportGenerator {
         i.add(new InsnNode(Opcodes.ICONST_0));
         i.add(new LdcInsnNode(org.objectweb.asm.Type.getObjectType(LOGGER)));
         i.add(new InsnNode(Opcodes.AASTORE));
-        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Class", "getConstructor",
-                "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", false));
+        // Not Class.getConstructor: the redirects of the reflection calls do not apply to classes of this package.
+        i.add(new MethodInsnNode(Opcodes.INVOKESTATIC, RuntimeCalls.REFLECT_SUPPORT, "getConstructor",
+                "(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", false));
         // return c.newInstance(new Object[] { log });
         i.add(new InsnNode(Opcodes.ICONST_1));
         i.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/Object"));
@@ -86,8 +87,8 @@ final class JbossLoggingSupportGenerator {
         i.add(new InsnNode(Opcodes.ICONST_0));
         i.add(new VarInsnNode(Opcodes.ALOAD, log));
         i.add(new InsnNode(Opcodes.AASTORE));
-        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/reflect/Constructor", "newInstance",
-                "([Ljava/lang/Object;)Ljava/lang/Object;", false));
+        i.add(new MethodInsnNode(Opcodes.INVOKESTATIC, RuntimeCalls.REFLECT_SUPPORT, "newInstance",
+                "(Ljava/lang/reflect/Constructor;[Ljava/lang/Object;)Ljava/lang/Object;", false));
         i.add(new InsnNode(Opcodes.ARETURN));
         m.maxStack = 8;
         m.maxLocals = withLocale ? 5 : 4;

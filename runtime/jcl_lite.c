@@ -6550,7 +6550,6 @@ static void jcl_inf_reset(int64_t addr) {
     s->adler = 1; s->phase = INF_HDR;
 }
 BIND(void, jcl_Inflater_reset, "java.util.zip.Inflater_reset$I64", (int64_t addr)) { jcl_inf_reset(addr); }
-BIND(void, jcl_Inflater_reset2, "java.util.zip.Inflater_reset", (int64_t addr)) { jcl_inf_reset(addr); }
 static void jcl_inf_end(int64_t addr) {
     jcl_inflater *s = (jcl_inflater *)(intptr_t)addr;
     if (s == NULL) return;
@@ -6559,9 +6558,6 @@ static void jcl_inf_end(int64_t addr) {
 }
 BIND(void, jcl_Inflater_end, "java.util.zip.Inflater_end", (int64_t addr)) { jcl_inf_end(addr); }
 BIND(void, jcl_Inflater_end2, "java.util.zip.Inflater_end$I64", (int64_t addr)) { jcl_inf_end(addr); }
-BIND(int32_t, jcl_Inflater_getAdler, "java.util.zip.Inflater_getAdler", (int64_t addr)) {
-    return (int32_t)((jcl_inflater *)(intptr_t)addr)->adler;
-}
 BIND(int32_t, jcl_Inflater_getAdler2, "java.util.zip.Inflater_getAdler$I64", (int64_t addr)) {
     return (int32_t)((jcl_inflater *)(intptr_t)addr)->adler;
 }

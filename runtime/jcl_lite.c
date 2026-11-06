@@ -6298,6 +6298,290 @@ BIND(int32_t, jcl_CRC32_updateByteBuffer0, "java.util.zip.CRC32_updateByteBuffer
     return (int32_t)jcl_crc_update((uint32_t)crc, (const unsigned char *)(intptr_t)address + off, len);
 }
 
+/* java.util.zip.Inflater natives (the JDK uses zlib): a resumable inflate (RFC 1951) with the zlib wrapper (RFC 1950)
+ * when the stream is not "nowrap". The state keeps the input it has not used yet and a 32 KB window, so input and
+ * output can be supplied in pieces, as Inflater and InflaterInputStream do. */
+typedef struct { uint16_t count[16]; uint16_t symbol[320]; } jcl_huff;
+typedef struct {
+    int nowrap, phase, last;
+    unsigned char *in; size_t in_len, in_cap, in_pos;
+    uint32_t bitbuf; int bitcnt;
+    unsigned char win[32768]; uint32_t wtotal;
+    uint32_t stored_left; int copy_len, copy_dist;
+    jcl_huff lencode, distcode;
+    uint32_t adler;
+    char err[64];
+} jcl_inflater;
+enum { INF_HDR, INF_BLOCK, INF_STORED, INF_CODES, INF_TRAILER, INF_DONE };
+typedef struct { size_t pos; uint32_t buf; int cnt; } jcl_inf_snap;
+
+static int jcl_inf_bits(jcl_inflater *s, int n) {
+    while (s->bitcnt < n) {
+        if (s->in_pos >= s->in_len) return -1;
+        s->bitbuf |= (uint32_t)s->in[s->in_pos++] << s->bitcnt;
+        s->bitcnt += 8;
+    }
+    int v = (int)(s->bitbuf & ((1u << n) - 1));
+    s->bitbuf >>= n;
+    s->bitcnt -= n;
+    return v;
+}
+static int jcl_inf_decode(jcl_inflater *s, const jcl_huff *h) {
+    int code = 0, first = 0, index = 0;
+    for (int len = 1; len <= 15; len++) {
+        int bit = jcl_inf_bits(s, 1);
+        if (bit < 0) return -1;
+        code |= bit;
+        int count = h->count[len];
+        if (code - count < first) return h->symbol[index + (code - first)];
+        index += count; first += count; first <<= 1; code <<= 1;
+    }
+    return -2;
+}
+/* Builds a decoding table; < 0 when the lengths are over-subscribed. */
+static int jcl_inf_construct(jcl_huff *h, const short *length, int n) {
+    short offs[16];
+    for (int i = 0; i < 16; i++) h->count[i] = 0;
+    for (int i = 0; i < n; i++) h->count[length[i]]++;
+    if (h->count[0] == n) return 0;
+    int left = 1;
+    for (int len = 1; len <= 15; len++) { left <<= 1; left -= h->count[len]; if (left < 0) return left; }
+    offs[1] = 0;
+    for (int len = 1; len < 15; len++) offs[len + 1] = offs[len] + h->count[len];
+    for (int i = 0; i < n; i++) if (length[i] != 0) h->symbol[offs[length[i]]++] = (uint16_t)i;
+    return left;
+}
+static const short jcl_inf_lbase[29] = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
+static const short jcl_inf_lext[29] = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
+static const short jcl_inf_dbase[30] = {1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577};
+static const short jcl_inf_dext[30] = {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
+
+static uint32_t jcl_adler32(uint32_t adler, const unsigned char *p, size_t n) {
+    uint32_t a = adler & 0xffff, b = adler >> 16;
+    while (n > 0) {
+        size_t k = n < 5552 ? n : 5552;
+        n -= k;
+        while (k--) { a += *p++; b += a; }
+        a %= 65521; b %= 65521;
+    }
+    return (b << 16) | a;
+}
+
+static int jcl_inf_fail(jcl_inflater *s, const char *msg) { snprintf(s->err, sizeof s->err, "%s", msg); return -1; }
+
+/* 0 = tables built, 1 = needs more input, -1 = error */
+static int jcl_inf_dynamic(jcl_inflater *s) {
+    static const short order[19] = {16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
+    short lengths[320];
+    int nlen = jcl_inf_bits(s, 5), ndist = jcl_inf_bits(s, 5), ncode = jcl_inf_bits(s, 4);
+    if (nlen < 0 || ndist < 0 || ncode < 0) return 1;
+    nlen += 257; ndist += 1; ncode += 4;
+    if (nlen > 286 || ndist > 30) return jcl_inf_fail(s, "too many length or distance symbols");
+    int i;
+    for (i = 0; i < ncode; i++) { int v = jcl_inf_bits(s, 3); if (v < 0) return 1; lengths[order[i]] = (short)v; }
+    for (; i < 19; i++) lengths[order[i]] = 0;
+    jcl_huff cl;
+    if (jcl_inf_construct(&cl, lengths, 19) < 0) return jcl_inf_fail(s, "invalid code lengths set");
+    int idx = 0;
+    while (idx < nlen + ndist) {
+        int sym = jcl_inf_decode(s, &cl);
+        if (sym == -1) return 1;
+        if (sym < 0) return jcl_inf_fail(s, "invalid code lengths set");
+        if (sym < 16) { lengths[idx++] = (short)sym; continue; }
+        int len = 0, rep;
+        if (sym == 16) {
+            if (idx == 0) return jcl_inf_fail(s, "invalid bit length repeat");
+            len = lengths[idx - 1]; rep = jcl_inf_bits(s, 2); if (rep < 0) return 1; rep += 3;
+        } else if (sym == 17) { rep = jcl_inf_bits(s, 3); if (rep < 0) return 1; rep += 3; }
+        else { rep = jcl_inf_bits(s, 7); if (rep < 0) return 1; rep += 11; }
+        if (idx + rep > nlen + ndist) return jcl_inf_fail(s, "invalid bit length repeat");
+        while (rep--) lengths[idx++] = (short)len;
+    }
+    if (lengths[256] == 0) return jcl_inf_fail(s, "invalid code -- missing end-of-block");
+    if (jcl_inf_construct(&s->lencode, lengths, nlen) < 0) return jcl_inf_fail(s, "invalid literal/lengths set");
+    if (jcl_inf_construct(&s->distcode, lengths + nlen, ndist) < 0) return jcl_inf_fail(s, "invalid distances set");
+    return 0;
+}
+
+static void jcl_inf_fixed(jcl_inflater *s) {
+    short lengths[320];
+    int i;
+    for (i = 0; i < 144; i++) lengths[i] = 8;
+    for (; i < 256; i++) lengths[i] = 9;
+    for (; i < 280; i++) lengths[i] = 7;
+    for (; i < 288; i++) lengths[i] = 8;
+    jcl_inf_construct(&s->lencode, lengths, 288);
+    for (i = 0; i < 30; i++) lengths[i] = 5;
+    jcl_inf_construct(&s->distcode, lengths, 30);
+}
+
+#define JCL_INF_EMIT(b) do { unsigned char c_ = (unsigned char)(b); out[o++] = c_; s->win[s->wtotal++ & 32767] = c_; } while (0)
+
+/* Inflates until the input or the output is used up. Returns 0 or -1 (error); *o_out = bytes written. */
+static int jcl_inf_run(jcl_inflater *s, unsigned char *out, size_t outcap, size_t *o_out) {
+    size_t o = 0;
+    int rc = 0;
+    for (;;) {
+        jcl_inf_snap snap = { s->in_pos, s->bitbuf, s->bitcnt };
+        if (s->phase == INF_DONE) break;
+        if (s->phase == INF_HDR) {
+            if (s->nowrap) { s->phase = INF_BLOCK; continue; }
+            int cmf = jcl_inf_bits(s, 8), flg = jcl_inf_bits(s, 8);
+            if (cmf < 0 || flg < 0) goto suspend;
+            if (((cmf << 8) | flg) % 31 != 0) { rc = jcl_inf_fail(s, "incorrect header check"); break; }
+            if ((cmf & 15) != 8) { rc = jcl_inf_fail(s, "unknown compression method"); break; }
+            if (flg & 32) { rc = jcl_inf_fail(s, "preset dictionary not supported"); break; }
+            s->phase = INF_BLOCK;
+        } else if (s->phase == INF_BLOCK) {
+            int last = jcl_inf_bits(s, 1), type = jcl_inf_bits(s, 2);
+            if (last < 0 || type < 0) goto suspend;
+            if (type == 0) {
+                s->bitbuf >>= (s->bitcnt & 7); s->bitcnt -= (s->bitcnt & 7);
+                int len = jcl_inf_bits(s, 16), nlen = jcl_inf_bits(s, 16);
+                if (len < 0 || nlen < 0) goto suspend;
+                if ((len ^ 0xffff) != nlen) { rc = jcl_inf_fail(s, "invalid stored block lengths"); break; }
+                s->stored_left = (uint32_t)len; s->phase = INF_STORED;
+            } else if (type == 1) { jcl_inf_fixed(s); s->phase = INF_CODES; }
+            else if (type == 2) {
+                int r = jcl_inf_dynamic(s);
+                if (r < 0) { rc = -1; break; }
+                if (r > 0) goto suspend;
+                s->phase = INF_CODES;
+            } else { rc = jcl_inf_fail(s, "invalid block type"); break; }
+            s->last = last;
+        } else if (s->phase == INF_STORED) {
+            while (s->stored_left > 0 && o < outcap) {
+                int b = jcl_inf_bits(s, 8);
+                if (b < 0) goto done_loop;
+                JCL_INF_EMIT(b); s->stored_left--;
+            }
+            if (s->stored_left > 0) break;
+            s->phase = s->last ? INF_TRAILER : INF_BLOCK;
+        } else if (s->phase == INF_CODES) {
+            while (s->copy_len > 0 && o < outcap) {
+                JCL_INF_EMIT(s->win[(s->wtotal - (uint32_t)s->copy_dist) & 32767]); s->copy_len--;
+            }
+            if (s->copy_len > 0 || o >= outcap) break;
+            int sym = jcl_inf_decode(s, &s->lencode);
+            if (sym == -1) goto suspend;
+            if (sym < 0 || sym > 285) { rc = jcl_inf_fail(s, "invalid literal/length code"); break; }
+            if (sym < 256) { JCL_INF_EMIT(sym); continue; }
+            if (sym == 256) { s->phase = s->last ? INF_TRAILER : INF_BLOCK; continue; }
+            sym -= 257;
+            int extra = jcl_inf_bits(s, jcl_inf_lext[sym]);
+            if (extra < 0) goto suspend;
+            int len = jcl_inf_lbase[sym] + extra;
+            int dsym = jcl_inf_decode(s, &s->distcode);
+            if (dsym == -1) goto suspend;
+            if (dsym < 0 || dsym >= 30) { rc = jcl_inf_fail(s, "invalid distance code"); break; }
+            int dextra = jcl_inf_bits(s, jcl_inf_dext[dsym]);
+            if (dextra < 0) goto suspend;
+            int dist = jcl_inf_dbase[dsym] + dextra;
+            if ((uint32_t)dist > s->wtotal) { rc = jcl_inf_fail(s, "invalid distance too far back"); break; }
+            s->copy_len = len; s->copy_dist = dist;
+        } else { /* INF_TRAILER */
+            s->bitbuf >>= (s->bitcnt & 7); s->bitcnt -= (s->bitcnt & 7);
+            s->in_pos -= (size_t)(s->bitcnt / 8); s->bitbuf = 0; s->bitcnt = 0;
+            if (!s->nowrap) {
+                if (s->in_len - s->in_pos < 4) break;
+                const unsigned char *p = s->in + s->in_pos;
+                s->stored_left = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+                s->in_pos += 4;
+            }
+            s->phase = INF_DONE;
+        }
+        continue;
+    suspend:
+        s->in_pos = snap.pos; s->bitbuf = snap.buf; s->bitcnt = snap.cnt;
+        break;
+    }
+done_loop:
+    *o_out = o;
+    return rc;
+}
+
+static int64_t jcl_inf_call(int64_t addr, const unsigned char *in, int32_t inlen, unsigned char *out, int32_t outlen) {
+    jcl_inflater *s = (jcl_inflater *)(intptr_t)addr;
+    if (inlen > 0) {
+        if (s->in_pos > 0) {
+            memmove(s->in, s->in + s->in_pos, s->in_len - s->in_pos);
+            s->in_len -= s->in_pos; s->in_pos = 0;
+        }
+        if (s->in_len + (size_t)inlen > s->in_cap) {
+            s->in_cap = (s->in_len + (size_t)inlen) * 2;
+            s->in = (unsigned char *)realloc(s->in, s->in_cap);
+        }
+        memcpy(s->in + s->in_len, in, (size_t)inlen);
+        s->in_len += (size_t)inlen;
+    }
+    size_t produced = 0;
+    int was_done = s->phase == INF_DONE;
+    int rc = was_done ? 0 : jcl_inf_run(s, out, outlen < 0 ? 0 : (size_t)outlen, &produced);
+    s->adler = jcl_adler32(s->adler, out, produced);
+    if (rc == 0 && !was_done && s->phase == INF_DONE && !s->nowrap && s->stored_left != s->adler) {
+        rc = jcl_inf_fail(s, "incorrect data check");
+    }
+    if (rc < 0) {
+        nabu_throw(jcl_throw("java/util/zip/DataFormatException", "java/lang/Exception", jcl_dup(s->err)));
+        return 0;
+    }
+    int finished = s->phase == INF_DONE;
+    size_t left = s->in_len - s->in_pos;
+    int32_t used = inlen; /* unused input stays inside the state: all of it counts as used */
+    if (finished) used = left >= (size_t)inlen ? 0 : inlen - (int32_t)left;
+    return (int64_t)((uint64_t)(used & 0x7fffffff) | ((uint64_t)(produced & 0x7fffffff) << 31)
+            | ((uint64_t)finished << 62));
+}
+
+BIND(int64_t, jcl_Inflater_init, "java.util.zip.Inflater_init", (int32_t nowrap)) {
+    jcl_inflater *s = (jcl_inflater *)calloc(1, sizeof *s);
+    s->nowrap = (nowrap & 0xff) != 0;
+    s->phase = INF_HDR;
+    s->adler = 1;
+    return (int64_t)(intptr_t)s;
+}
+static void jcl_inf_reset(int64_t addr) {
+    jcl_inflater *s = (jcl_inflater *)(intptr_t)addr;
+    unsigned char *in = s->in;
+    size_t cap = s->in_cap;
+    int nowrap = s->nowrap;
+    memset(s, 0, sizeof *s);
+    s->in = in; s->in_cap = cap; s->nowrap = nowrap;
+    s->adler = 1; s->phase = INF_HDR;
+}
+BIND(void, jcl_Inflater_reset, "java.util.zip.Inflater_reset$I64", (int64_t addr)) { jcl_inf_reset(addr); }
+BIND(void, jcl_Inflater_reset2, "java.util.zip.Inflater_reset", (int64_t addr)) { jcl_inf_reset(addr); }
+static void jcl_inf_end(int64_t addr) {
+    jcl_inflater *s = (jcl_inflater *)(intptr_t)addr;
+    if (s == NULL) return;
+    free(s->in);
+    free(s);
+}
+BIND(void, jcl_Inflater_end, "java.util.zip.Inflater_end", (int64_t addr)) { jcl_inf_end(addr); }
+BIND(void, jcl_Inflater_end2, "java.util.zip.Inflater_end$I64", (int64_t addr)) { jcl_inf_end(addr); }
+BIND(int32_t, jcl_Inflater_getAdler, "java.util.zip.Inflater_getAdler", (int64_t addr)) {
+    return (int32_t)((jcl_inflater *)(intptr_t)addr)->adler;
+}
+BIND(int32_t, jcl_Inflater_getAdler2, "java.util.zip.Inflater_getAdler$I64", (int64_t addr)) {
+    return (int32_t)((jcl_inflater *)(intptr_t)addr)->adler;
+}
+BIND(int64_t, jcl_Inflater_bytesBytes, "java.util.zip.Inflater_inflateBytesBytes",
+     (int64_t addr, void *in, int32_t inOff, int32_t inLen, void *out, int32_t outOff, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)in + 8 + inOff, inLen, (unsigned char *)out + 8 + outOff, outLen);
+}
+BIND(int64_t, jcl_Inflater_bytesBuffer, "java.util.zip.Inflater_inflateBytesBuffer",
+     (int64_t addr, void *in, int32_t inOff, int32_t inLen, int64_t outAddr, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)in + 8 + inOff, inLen, (unsigned char *)(intptr_t)outAddr, outLen);
+}
+BIND(int64_t, jcl_Inflater_bufferBytes, "java.util.zip.Inflater_inflateBufferBytes",
+     (int64_t addr, int64_t inAddr, int32_t inLen, void *out, int32_t outOff, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)(intptr_t)inAddr, inLen, (unsigned char *)out + 8 + outOff, outLen);
+}
+BIND(int64_t, jcl_Inflater_bufferBuffer, "java.util.zip.Inflater_inflateBufferBuffer",
+     (int64_t addr, int64_t inAddr, int32_t inLen, int64_t outAddr, int32_t outLen)) {
+    return jcl_inf_call(addr, (const unsigned char *)(intptr_t)inAddr, inLen, (unsigned char *)(intptr_t)outAddr, outLen);
+}
+
 /* ---- java.lang.Class: nesting, sealing, synthetic (what Spring Boot's binder and bean metadata ask) ---- */
 
 /* The outer class of a nested one ("a/B$C" -> "a/B"); NULL for a top-level class, an array and a primitive. */

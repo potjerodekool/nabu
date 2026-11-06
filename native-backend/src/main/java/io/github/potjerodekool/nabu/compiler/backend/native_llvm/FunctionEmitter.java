@@ -607,7 +607,7 @@ public class FunctionEmitter {
             // geketend achter elkaar en vallen door naar @nabu_resume.
             HandlerChain chain = chainByLanding.get(block.label());
             if (chain != null) {
-                emitLandingPadChain(chain);
+                emitLandingPadChain(chain, outerChains(chain, chains));
             }
 
             if (block == fn.blocks().get(0) && classLayouts != null && fn.name != null
@@ -744,6 +744,20 @@ public class FunctionEmitter {
             int endIdx) {
     }
 
+    /** The ranges that enclose {@code chain} in the same function, the nearest (smallest) first. */
+    private static List<HandlerChain> outerChains(final HandlerChain chain, final List<HandlerChain> all) {
+        final List<HandlerChain> outers = new ArrayList<>();
+        for (final HandlerChain other : all) {
+            if (other != chain
+                    && other.startIdx() <= chain.startIdx() && other.endIdx() >= chain.endIdx()
+                    && (other.startIdx() != chain.startIdx() || other.endIdx() != chain.endIdx())) {
+                outers.add(other);
+            }
+        }
+        outers.sort(java.util.Comparator.comparingInt(c -> c.endIdx() - c.startIdx()));
+        return outers;
+    }
+
     /** Sleutel voor een try-range: beide grensblokken bepalen de range. */
     private static String rangeKey(final String tryStart, final String tryEnd) {
         return tryStart + "->" + tryEnd;
@@ -836,7 +850,7 @@ public class FunctionEmitter {
      * {@code @nabu_throw}: de exception wordt niet opnieuw gegooid maar de
      * unwind vervolgd, zodat een buitenliggende handler hem nog kan afvangen.
      */
-    private void emitLandingPadChain(final HandlerChain chain) {
+    private void emitLandingPadChain(final HandlerChain chain, final List<HandlerChain> outers) {
         final String landingLabel = chain.landingLabel();
         final List<String> handlerLabels = chain.handlerLabels();
         final List<String> exceptionTypes = chain.exceptionTypes();
@@ -970,9 +984,42 @@ public class FunctionEmitter {
             LLVMPositionBuilderAtEnd(builder, next);
         }
 
-        // Resume-pad: de exception is door geen enkele clause afgevangen, dus
-        // de unwind vervolgen (een buitenliggende handler kan hem nog pakken).
+        // Resume-pad: de exception is door geen enkele clause afgevangen. Eerst de handlers van de omvattende
+        // try-ranges in deze functie (nabu_resume zet de unwind voort in de aanroeper en slaat die over: Hibernate's
+        // Environment.<clinit> heeft catch IOException [13,102) binnen catch HibernateException [13,115)); daarna
+        // pas de unwind vervolgen.
         LLVMPositionBuilderAtEnd(builder, resumeBlock);
+        for (final HandlerChain outer : outers) {
+            for (int j = 0; j < outer.handlerLabels().size(); j++) {
+                final String outerLabel = outer.handlerLabels().get(j);
+                final String outerType = outer.exceptionTypes().get(j);
+                LLVMBuildStore(builder, exPtr, handlerExceptionSlots.get(outerLabel));
+                final LLVMBasicBlockRef outerBody = handlerBodyBlocks.get(outerLabel);
+                if (outerType == null) {
+                    LLVMBuildBr(builder, outerBody);
+                    return;
+                }
+                final LLVMValueRef typeStr = constants.resolveString(normalizeCatchType(outerType),
+                        io.github.potjerodekool.nabu.backend.ir.IRGlobal.Linkage.PRIVATE);
+                final PointerPointer<Pointer> ccParams = new PointerPointer<>(2);
+                ccParams.put(0, exPtr);
+                ccParams.put(1, typeStr);
+                final PointerPointer<Pointer> ccParamTypes = new PointerPointer<>(2);
+                ccParamTypes.put(0, LLVMTypeOf(exPtr));
+                ccParamTypes.put(1, LLVMTypeOf(typeStr));
+                final LLVMTypeRef canCatchFnType = LLVMFunctionType(i32, ccParamTypes, 2, 0);
+                final LLVMValueRef match = LLVMBuildCall2(builder, canCatchFnType, canCatchFn, ccParams, 2,
+                        "%outer.match");
+                final LLVMValueRef ok = LLVMBuildICmp(builder, LLVMIntNE, match, LLVMConstInt(i32, 0, 0),
+                        "%outer.ok");
+                Reference.reachabilityFence(ccParams);
+                Reference.reachabilityFence(ccParamTypes);
+                final LLVMBasicBlockRef next = LLVMAppendBasicBlockInContext(ctx, currentFn,
+                        new BytePointer("handler." + landingLabel + ".outer." + outerLabel + "." + j));
+                LLVMBuildCondBr(builder, ok, outerBody, next);
+                LLVMPositionBuilderAtEnd(builder, next);
+            }
+        }
         LLVMValueRef resumeFn = globalValueMap.get("@nabu_resume");
         if (resumeFn == null) {
             throw new IllegalStateException("Runtime helper @nabu_resume not defined");

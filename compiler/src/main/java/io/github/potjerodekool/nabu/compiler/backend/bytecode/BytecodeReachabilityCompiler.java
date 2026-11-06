@@ -1544,8 +1544,27 @@ public final class BytecodeReachabilityCompiler {
                 if (m.name.equals(name) && m.desc.equals(desc)) {
                     if (node == classNode || (m.access & org.objectweb.asm.Opcodes.ACC_ABSTRACT) == 0) {
                         queueMethod(new MethodRef(internalName, name, desc, true));
+                        if ((m.access & org.objectweb.asm.Opcodes.ACC_ABSTRACT) == 0) {
+                            return;
+                        }
                     }
-                    return;
+                    break;
+                }
+            }
+        }
+        // No implementation in the class chain: a default method of an interface the class implements. A call on
+        // ServiceRegistry.close() (abstract) is answered by ServiceRegistryImplementor.close(), a default method of
+        // a sub-interface; without lowering that one the itable slot pointed at the body-less abstract method.
+        for (final String ancestor : transitiveAncestors(classNode)) {
+            final ClassNode itf = loadClassNode(ancestor);
+            if (itf == null || (itf.access & org.objectweb.asm.Opcodes.ACC_INTERFACE) == 0) {
+                continue;
+            }
+            for (final MethodNode m : itf.methods) {
+                if (m.name.equals(name) && m.desc.equals(desc)
+                        && (m.access & (org.objectweb.asm.Opcodes.ACC_ABSTRACT | org.objectweb.asm.Opcodes.ACC_STATIC
+                        | org.objectweb.asm.Opcodes.ACC_PRIVATE)) == 0) {
+                    queueMethod(new MethodRef(ancestor, name, desc, true));
                 }
             }
         }

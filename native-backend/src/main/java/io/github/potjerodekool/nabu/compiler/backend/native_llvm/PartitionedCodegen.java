@@ -120,7 +120,13 @@ final class PartitionedCodegen {
         final var codegen = new PartitionedCodegen(partitions);
         final long t0 = System.nanoTime();
         codegen.assignOwners(mod);
-        final LLVMMemoryBufferRef bitcode = LLVMWriteBitcodeToMemoryBuffer(mod);
+        // The bitcode goes to a file that every partition maps: the pages are file backed (the operating system
+        // can drop them) instead of a private copy of hundreds of megabytes in this process.
+        final Path bitcodeFile = objectFiles.get(0).resolveSibling(
+                objectFiles.get(0).getFileName() + ".bc");
+        if (LLVMWriteBitcodeToFile(mod, new BytePointer(bitcodeFile.toString())) != 0) {
+            throw new CompileException("Could not write the bitcode to " + bitcodeFile);
+        }
         final long t1 = System.nanoTime();
         System.err.println("[NativeLLVMBackend] split into " + partitions + " partitions ("
                 + codegen.imported.size() + " small functions copied): "
@@ -128,12 +134,32 @@ final class PartitionedCodegen {
         // The partitions read the bitcode, not the module: with the module still alive a large program (200000
         // functions) holds one more copy of itself during the whole code generation.
         releaseModule.run();
+        releaseJavaHeap();
         try {
-            codegen.compilePartitions(bitcode, triple, pipeline, objectFiles);
+            codegen.compilePartitions(bitcodeFile, triple, pipeline, objectFiles);
         } finally {
-            LLVMDisposeMemoryBuffer(bitcode);
+            try {
+                java.nio.file.Files.deleteIfExists(bitcodeFile);
+            } catch (final java.io.IOException e) {
+                // a temporary file; the next build overwrites it
+            }
         }
         return objectFiles;
+    }
+
+    /**
+     * The Java side of the program (class files, IR) is garbage by now, but the JVM keeps the heap it grew to
+     * (gigabytes for a large program) as long as nothing shrinks it, next to the memory of the code generation.
+     */
+    private static void releaseJavaHeap() {
+        final Runtime rt = Runtime.getRuntime();
+        final long before = rt.totalMemory();
+        System.gc();
+        if (TIMING) {
+            System.err.println("[NativeLLVMBackend] java heap before code generation: committed "
+                    + before / (1 << 20) + " MB -> " + rt.totalMemory() / (1 << 20) + " MB, used "
+                    + (rt.totalMemory() - rt.freeMemory()) / (1 << 20) + " MB");
+        }
     }
 
     // -------------------------------------------------------
@@ -383,12 +409,10 @@ final class PartitionedCodegen {
         return partitions;
     }
 
-    private void compilePartitions(final LLVMMemoryBufferRef bitcode,
+    private void compilePartitions(final Path bitcodeFile,
                                    final String triple,
                                    final String pipeline,
                                    final List<Path> objectFiles) throws CompileException {
-        final BytePointer start = LLVMGetBufferStart(bitcode);
-        final long size = LLVMGetBufferSize(bitcode);
         // Every partition in flight holds its share of the program (functions, and the code generator's own data):
         // all partitions at once is the whole program again. -Dnabu.llvm.codegenThreads=1 compiles them one by one,
         // for a program that is too big for the memory of the machine.
@@ -402,7 +426,7 @@ final class PartitionedCodegen {
             for (int p = 0; p < partitions; p++) {
                 final int partition = p;
                 futures.add(pool.submit(() -> {
-                    compilePartition(partition, start, size, triple, pipeline, objectFiles.get(partition));
+                    compilePartition(partition, bitcodeFile, triple, pipeline, objectFiles.get(partition));
                     return null;
                 }));
             }
@@ -432,16 +456,19 @@ final class PartitionedCodegen {
     private final java.util.concurrent.locks.ReentrantLock splitLock = new java.util.concurrent.locks.ReentrantLock();
 
     private void compilePartition(final int partition,
-                                  final BytePointer start,
-                                  final long size,
+                                  final Path bitcodeFile,
                                   final String triple,
                                   final String pipeline,
                                   final Path objectFile) throws CompileException {
         final LLVMContextRef ctx = LLVMContextCreate();
         final LLVMModuleRef mod = new LLVMModuleRef();
-        final LLVMMemoryBufferRef buffer = LLVMCreateMemoryBufferWithMemoryRange(
-                start, size, new BytePointer("partition" + partition), 0);
+        final LLVMMemoryBufferRef buffer = new LLVMMemoryBufferRef();
         try {
+            final BytePointer bufferError = new BytePointer();
+            if (LLVMCreateMemoryBufferWithContentsOfFile(
+                    new BytePointer(bitcodeFile.toString()), buffer, bufferError) != 0) {
+                throw new CompileException("Could not map " + bitcodeFile + ": " + bufferError.getString());
+            }
             final long t0;
             final long t1;
             splitLock.lock();
@@ -486,7 +513,9 @@ final class PartitionedCodegen {
                 LLVMDisposeTargetMachine(machine);
             }
         } finally {
-            LLVMDisposeMemoryBuffer(buffer);
+            if (!buffer.isNull()) {
+                LLVMDisposeMemoryBuffer(buffer);
+            }
             if (!mod.isNull()) {
                 LLVMDisposeModule(mod);
             }

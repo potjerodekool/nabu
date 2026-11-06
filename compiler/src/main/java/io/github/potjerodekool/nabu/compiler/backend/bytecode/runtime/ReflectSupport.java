@@ -21,6 +21,12 @@ public final class ReflectSupport {
     private ReflectSupport() {
     }
 
+    /** {@code Type.getTypeName()} through the interface: the default is {@code toString()}, which for a Class is
+     * "class java.util.List". (Not redirected again here: this package is left out.) */
+    public static String typeName(final java.lang.reflect.Type type) {
+        return type instanceof Class<?> c ? c.getTypeName() : type.getTypeName();
+    }
+
     public static Method[] getMethods(final Class<?> type) {
         return copy(ReflectionData.methods(type.getName(), true));
     }

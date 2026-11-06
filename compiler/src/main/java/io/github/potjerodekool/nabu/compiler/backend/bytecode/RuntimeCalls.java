@@ -102,6 +102,8 @@ final class RuntimeCalls {
             new Redirect("java/lang/management/ManagementFactory", "getRuntimeMXBean",
                     "()Ljava/lang/management/RuntimeMXBean;", true, RUNTIME_PACKAGE + "ManagementSupport",
                     "runtimeMXBean"),
+            new Redirect("java/lang/Runtime", "version", "()Ljava/lang/Runtime$Version;", true,
+                    RUNTIME_PACKAGE + "ManagementSupport", "runtimeVersion"),
             new Redirect("java/lang/Class", "getProtectionDomain", "()Ljava/security/ProtectionDomain;", false,
                     LOADER_SUPPORT, "protectionDomain"),
             new Redirect("java/lang/reflect/Method", "getDefaultValue", "()Ljava/lang/Object;", false,

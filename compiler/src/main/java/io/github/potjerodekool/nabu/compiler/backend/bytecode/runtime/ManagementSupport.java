@@ -21,6 +21,16 @@ public final class ManagementSupport {
     /** The time the process started, in milliseconds since the epoch (written by the C runtime at start-up). */
     private static native long startTime0();
 
+    private static Runtime.Version version;
+
+    /** {@code Runtime.version()}: the version of the JDK the program was compiled with. */
+    public static synchronized Runtime.Version runtimeVersion() {
+        if (version == null) {
+            version = Runtime.Version.parse("25.0.4+1");
+        }
+        return version;
+    }
+
     public static synchronized RuntimeMXBean runtimeMXBean() {
         if (runtime == null) {
             runtime = new NativeRuntimeMXBean();

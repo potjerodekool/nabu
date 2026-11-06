@@ -2928,3 +2928,10 @@ void nabu_unresolved(const char *symbol) {
     fflush(stderr);
     exit(127);
 }
+
+/* Scanning the class tables (Class.getNestMembers, Class.getDeclaredClasses). */
+int nabu_reflection_table_size(void) { return nabu_reflection_count; }
+const char *nabu_reflection_table_name(int i) { return nabu_reflection_table[i]->type_name; }
+const char *nabu_compiled_type_name_at(int32_t i) {
+    return nabu_compiled_types != NULL && nabu_compiled_types[i] != NULL ? nabu_compiled_types[i]->name : NULL;
+}

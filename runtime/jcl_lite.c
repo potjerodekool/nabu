@@ -6619,13 +6619,56 @@ BIND(void *, jcl_java_lang_Class_getRecordComponents, "java.lang.Class_getRecord
 BIND(void *, jcl_java_lang_Class_getProtectionDomain, "java.lang.Class_getProtectionDomain", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_java_lang_Class_getSigners, "java.lang.Class_getSigners", (void *self)) { (void)self; return NULL; }
 BIND(void *, jcl_java_lang_Class_asSubclass, "java.lang.Class_asSubclass", (void *self, void *other)) { (void)other; return self; }
+extern int nabu_reflection_table_size(void);
+extern const char *nabu_reflection_table_name(int i);
+extern const char *nabu_compiled_type_name_at(int32_t i);
+/* The names of the classes of the program (compiled classes and reflection entries) that start with prefix and,
+ * with direct_only, have no further '$' after it; without duplicates. */
+static int jcl_nested_names(const char *prefix, int direct_only, const char ***out) {
+    size_t plen = strlen(prefix);
+    int cap = 16, n = 0;
+    const char **names = (const char **)jcl_alloc((size_t)cap * sizeof(char *));
+    for (int pass = 0; pass < 2; pass++) {
+        int total = pass == 0 ? (int)nabu_compiled_type_count_for_trace() : nabu_reflection_table_size();
+        for (int i = 0; i < total; i++) {
+            const char *name = pass == 0 ? nabu_compiled_type_name_at(i) : nabu_reflection_table_name(i);
+            if (name == NULL || strncmp(name, prefix, plen) != 0 || name[plen] != '$' || name[plen + 1] == 0) continue;
+            if (name[plen + 1] >= '0' && name[plen + 1] <= '9') continue;
+            if (direct_only && strchr(name + plen + 1, '$') != NULL) continue;
+            int dup = 0;
+            for (int k = 0; k < n && !dup; k++) dup = strcmp(names[k], name) == 0;
+            if (dup) continue;
+            if (n == cap) {
+                const char **bigger = (const char **)jcl_alloc((size_t)cap * 2 * sizeof(char *));
+                memcpy(bigger, names, (size_t)n * sizeof(char *));
+                names = bigger;
+                cap *= 2;
+            }
+            names[n++] = name;
+        }
+    }
+    *out = names;
+    return n;
+}
 BIND(void *, jcl_java_lang_Class_getDeclaredClasses, "java.lang.Class_getDeclaredClasses", (void *self)) {
-    (void)self;
-    return jcl_arr_typed(0, "[Ljava/lang/Class;");
+    const char **names;
+    int n = jcl_nested_names(jcl_str(self), 1, &names);
+    void *arr = jcl_arr_typed(n, "[Ljava/lang/Class;");
+    for (int i = 0; i < n; i++) jcl_arr_set(arr, i, jcl_class(names[i]));
+    return arr;
 }
 BIND(void *, jcl_java_lang_Class_getNestMembers, "java.lang.Class_getNestMembers", (void *self)) {
-    void *arr = jcl_arr_typed(1, "[Ljava/lang/Class;");
-    jcl_arr_set(arr, 0, self);
+    const char *n = jcl_str(self);
+    const char *dollar = strchr(n, '$');
+    size_t hostLen = dollar != NULL && dollar != n ? (size_t)(dollar - n) : strlen(n);
+    char *host = (char *)jcl_alloc(hostLen + 1);
+    memcpy(host, n, hostLen);
+    host[hostLen] = 0;
+    const char **names;
+    int count = jcl_nested_names(host, 0, &names);
+    void *arr = jcl_arr_typed(count + 1, "[Ljava/lang/Class;");
+    jcl_arr_set(arr, 0, jcl_class(host));
+    for (int i = 0; i < count; i++) jcl_arr_set(arr, i + 1, jcl_class(names[i]));
     return arr;
 }
 BIND(void *, jcl_java_lang_Class_getAnnotationsByType, "java.lang.Class_getAnnotationsByType", (void *self, void *ann)) {

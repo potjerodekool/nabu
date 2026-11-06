@@ -54,14 +54,28 @@ public final class ReflectionMethods {
                 // A type the hints name without members: as in a GraalVM image its methods and constructors can be
                 // enumerated (getDeclaredMethods, getMethods) but not called.
                 final List<ReflectedMethod> queryDeclared = new ArrayList<>();
-                for (final ExecutableElement method : methodsOf(type)) {
-                    queryDeclared.add(reflected(method, type));
-                }
                 final List<ReflectedMethod> queryConstructors = new ArrayList<>();
-                for (final ExecutableElement constructor : constructorsOf(type)) {
-                    queryConstructors.add(reflectedConstructor(constructor, type));
+                final List<ReflectedMethod> queryPublics;
+                try {
+                    for (final ExecutableElement method : methodsOf(type)) {
+                        try {
+                            queryDeclared.add(reflected(method, type));
+                        } catch (final RuntimeException e) {
+                            // a signature that cannot be worked out (a class that is not there): not enumerable
+                        }
+                    }
+                    for (final ExecutableElement constructor : constructorsOf(type)) {
+                        try {
+                            queryConstructors.add(reflectedConstructor(constructor, type));
+                        } catch (final RuntimeException e) {
+                            // see above
+                        }
+                    }
+                    queryPublics = publicMethods(type);
+                } catch (final RuntimeException e) {
+                    System.err.println("[nabu] warning: methods of " + entry.name() + " cannot be listed: " + e);
+                    continue;
                 }
-                final List<ReflectedMethod> queryPublics = publicMethods(type);
                 final java.util.Set<String> keys = new HashSet<>();
                 queryDeclared.forEach(m -> keys.add(m.key()));
                 queryPublics.forEach(m -> keys.add(m.key()));
@@ -302,7 +316,16 @@ public final class ReflectionMethods {
         return new ReflectedMethod(ElementSignatures.internalName(owner), ElementSignatures.isInterface(owner),
                 method.getSimpleName(), ElementSignatures.descriptor(method),
                 ElementSignatures.modifiers(method, owner), ElementSignatures.exceptions(method),
-                ElementSignatures.genericSignature(method));
+                genericSignatureOrNull(method));
+    }
+
+    /** The generic signature, or null when it cannot be worked out (a type of a class that is not there). */
+    private static String genericSignatureOrNull(final ExecutableElement method) {
+        try {
+            return ElementSignatures.genericSignature(method);
+        } catch (final RuntimeException e) {
+            return null;
+        }
     }
 
     /** The constructors a type declares. */
@@ -341,7 +364,7 @@ public final class ReflectionMethods {
             modifiers |= ReflectionDataGenerator.ABSTRACT_OWNER;
         }
         return new ReflectedMethod(ElementSignatures.internalName(owner), false, "<init>", descriptor.toString(),
-                modifiers, ElementSignatures.exceptions(constructor), ElementSignatures.genericSignature(constructor));
+                modifiers, ElementSignatures.exceptions(constructor), genericSignatureOrNull(constructor));
     }
 
     /** {@code Class.getMethods}: public methods of the class, its superclasses and all its interfaces. */

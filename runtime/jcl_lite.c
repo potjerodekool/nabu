@@ -856,6 +856,21 @@ BIND(void *, jcl_StackWalkSupport_mainClass0, "io.github.potjerodekool.nabu.comp
     return jcl_class(nabu_main_class_name);
 }
 
+/* The time this process started (ManagementSupport: RuntimeMXBean.getStartTime and getUptime). */
+static int64_t jcl_process_start_ms = 0;
+static void jcl_note_process_start(void) __attribute__((constructor));
+static void jcl_note_process_start(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    jcl_process_start_ms = (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+BIND(int64_t, jcl_ManagementSupport_startTime0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ManagementSupport_startTime0", (void)) {
+    return jcl_process_start_ms;
+}
+/* Loading a native library of the JDK ("management", "net", "nio", ...): the code is part of the program. */
+BIND(void, jcl_java_lang_System_loadLibrary, "java.lang.System_loadLibrary", (void *name)) { (void)name; }
+BIND(void, jcl_java_lang_System_load, "java.lang.System_load", (void *name)) { (void)name; }
+
 /* EnvSupport.environ0: the environment as a String[] of "NAME=value" (System.getenv()). */
 BIND(void *, jcl_EnvSupport_environ0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.EnvSupport_environ0", (void)) {
     int32_t n = 0;

@@ -1443,6 +1443,15 @@ public final class BytecodeMethodLowering {
         while (!tmp.isEmpty()) {
             args.add(tmp.pop());
         }
+        // The operand stack holds a boolean or a char as an int: the concatenation has to print it as the type the
+        // descriptor of the call site names ("true", not "1").
+        for (int i = 0; i < argTypes.length; i++) {
+            if (argTypes[i].getSort() == Type.BOOLEAN) {
+                args.set(i, builder.emitCast(args.get(i), IRType.BOOL));
+            } else if (argTypes[i].getSort() == Type.CHAR) {
+                args.set(i, builder.emitCast(args.get(i), IRType.CHAR));
+            }
+        }
 
         final String recipe;
         if ("makeConcatWithConstants".equals(insn.bsm.getName())) {

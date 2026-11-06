@@ -11,6 +11,7 @@ open module io.github.potjerodekool.nabu.compiler {
     requires org.objectweb.asm; //Used for reading and writing .class files.
     requires java.xml; //Used for parsing plugin.xml files.
     requires java.compiler; //Used to support annotation processing.
+    requires static java.management; //Compiles the RuntimeMXBean of native programs (ManagementSupport).
     requires jdk.compiler; requires io.github.potjerodekool.compiler.api;
     exports io.github.potjerodekool.nabu.compiler.backend.asm;
     exports io.github.potjerodekool.nabu.compiler.resolve.asm;

@@ -939,6 +939,7 @@ public final class BytecodeReachabilityCompiler {
             final Map<String, ReflectionDataGenerator.ClassMethods> reflectionMethods) {
         final Map<String, ClassNode> classes = new java.util.LinkedHashMap<>(ProxyClassGenerator.generate(proxies));
         classes.put(ParameterSupportGenerator.PARAMETER_SUPPORT, ParameterSupportGenerator.generate());
+        classes.put(JbossLoggingSupportGenerator.SUPPORT, JbossLoggingSupportGenerator.generate());
         classes.put(ReflectionDataGenerator.REFLECTION_DATA, ReflectionDataGenerator.generate(reflectionMethods,
                 ProxyClassGenerator.dispatchedMethods(proxies)));
         return classes;
@@ -974,7 +975,8 @@ public final class BytecodeReachabilityCompiler {
         // interfaces, which the closure does not follow.
         for (final String generated : generatedClasses.keySet()) {
             if (!ProxyClassGenerator.PROXY_CLASSES.equals(generated)
-                    && !ReflectionDataGenerator.REFLECTION_DATA.equals(generated)) {
+                    && !ReflectionDataGenerator.REFLECTION_DATA.equals(generated)
+                    && !JbossLoggingSupportGenerator.SUPPORT.equals(generated)) {
                 queueReflectionRoot(new ReflectEntry(generated, true, true, true, true, List.of(), List.of()));
             }
         }

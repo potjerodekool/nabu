@@ -251,6 +251,7 @@ public final class BytecodeReachabilityCompiler {
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         ByteArrayViewRewriter.rewrite(classNode);
         FieldVarHandleRewriter.rewrite(classNode, loader);
+        FieldUpdaterRewriter.rewrite(classNode, loader);
         if ("org/springframework/boot/system/JavaVersion".equals(classNode.name)) {
             // Spring Boot finds out the Java version by looking for methods of JDK classes through reflection
             // (Console.isTerminal, ...); a native program has no reflection data for the JDK. The classes it runs are
@@ -1837,6 +1838,7 @@ public final class BytecodeReachabilityCompiler {
                         : ContinuationBridge.CLASS.equals(name) ? ContinuationBridge.build()
                         : InterruptBridge.CLASS.equals(name) ? InterruptBridge.build()
                         : EmbeddedResources.CLASS.equals(name) ? EmbeddedResources.build(applicationResources)
+                        : FieldUpdaterRewriter.generated(name) != null ? FieldUpdaterRewriter.generated(name)
                         : generatedClasses.containsKey(name) ? generatedClasses.get(name)
                         : name.startsWith(RuntimeCalls.RUNTIME_PACKAGE) ? patchRuntimeClass(EmbeddedResources.runtimeClass(name))
                         : AnnotationAccessors.CLASS.equals(name) ? AnnotationAccessors.build()

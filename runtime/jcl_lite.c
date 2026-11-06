@@ -3194,6 +3194,21 @@ BIND(void *, jcl_java_lang_Class_newInstance, "java.lang.Class_newInstance", (vo
 /* One class loader: loadClass is Class.forName (ClassNotFoundException for a class the program does not have). */
 /* ClassLoader(String, ClassLoader): a native loader has no JDK state to set up. */
 BIND(void, jcl_java_lang_ClassLoader_init, "java.lang.ClassLoader_init", (void *self)) { (void)self; }
+/* The one class loader of a native program (LoaderSupport.NativeClassLoader) has no parent and no packages of its own. */
+BIND(void *, jcl_java_lang_ClassLoader_getParent, "java.lang.ClassLoader_getParent", (void *self)) { (void)self; return NULL; }
+BIND(void, jcl_java_lang_ClassLoader_init_parent, "java.lang.ClassLoader_init$P", (void *self, void *parent)) { (void)self; (void)parent; }
+BIND(void *, jcl_java_lang_ClassLoader_getUnnamedModule, "java.lang.ClassLoader_getUnnamedModule", (void *self)) { (void)self; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_findResource, "java.lang.ClassLoader_findResource", (void *self, void *name)) { (void)self; (void)name; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_definePackage, "java.lang.ClassLoader_definePackage", (void *self, void *name, void *spec)) { (void)self; (void)name; (void)spec; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_getName, "java.lang.ClassLoader_getName", (void *self)) { (void)self; return nabu_jstring_new("app"); }
+BIND(int, jcl_java_lang_ClassLoader_equals, "java.lang.ClassLoader_equals", (void *self, void *other)) { return self == other; }
+BIND(int32_t, jcl_java_lang_ClassLoader_hashCode, "java.lang.ClassLoader_hashCode", (void *self)) { return (int32_t)((intptr_t)self >> 4); }
+BIND(int, jcl_java_lang_ClassLoader_isRegisteredAsParallelCapable, "java.lang.ClassLoader_isRegisteredAsParallelCapable", (void *self)) { (void)self; return 0; }
+BIND(int, jcl_java_lang_ClassLoader_registerAsParallelCapable, "java.lang.ClassLoader_registerAsParallelCapable", (void)) { return 1; }
+BIND(void *, jcl_java_lang_ClassLoader_getDefinedPackage, "java.lang.ClassLoader_getDefinedPackage", (void *self, void *name)) { (void)self; (void)name; return NULL; }
+BIND(void *, jcl_java_lang_ClassLoader_getDefinedPackages, "java.lang.ClassLoader_getDefinedPackages", (void *self)) { (void)self; return jcl_arr_typed(0, "[Ljava/lang/Package;"); }
+BIND(void, jcl_java_lang_ClassLoader_clearAssertionStatus, "java.lang.ClassLoader_clearAssertionStatus", (void *self)) { (void)self; }
+BIND(void, jcl_java_lang_ClassLoader_setDefaultAssertionStatus, "java.lang.ClassLoader_setDefaultAssertionStatus", (void *self, int enabled)) { (void)self; (void)enabled; }
 BIND(void, jcl_java_lang_ClassLoader_init_named, "java.lang.ClassLoader_init$PP523beb0aP2f7ad930", (void *self, void *name, void *parent)) { (void)self; (void)name; (void)parent; }
 BIND(void *, jcl_java_lang_ClassLoader_loadClass, "java.lang.ClassLoader_loadClass", (void *self, void *name)) {
     (void)self;

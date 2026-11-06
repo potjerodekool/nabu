@@ -1346,6 +1346,16 @@ for (IRModule m : modules) {
                 })) {
             return "java.lang.Thread_" + member;
         }
+        // The same for java.lang.ClassLoader, which the C runtime provides (Tomcat's WebappClassLoaderBase calls
+        // getParent, defined in no class of the program).
+        if (!OBJECT_MEMBERS.contains(member.replaceAll("\\$.*", ""))
+                && classes.stream().anyMatch(c -> {
+                    final IRModule m = modulesByInternalName.get(c);
+                    return m != null && m.superType() instanceof IRType.Ptr p
+                            && "Ljava/lang/ClassLoader;".equals(p.jvmDescriptor());
+                })) {
+            return "java.lang.ClassLoader_" + member;
+        }
         final java.util.ArrayDeque<String> pending = new java.util.ArrayDeque<>(classes);
         final Set<String> seen = new HashSet<>(classes);
         while (!pending.isEmpty()) {

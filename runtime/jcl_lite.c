@@ -4121,10 +4121,29 @@ BIND(int, jcl_java_lang_reflect_Method_equals, "java.lang.reflect.Method_equals"
     return a != NULL && b != NULL && strcmp(a->cls, b->cls) == 0 && strcmp(a->name, b->name) == 0
             && strcmp(a->desc, b->desc) == 0;
 }
+/* Field.equals/hashCode (a Field is made again for every lookup, so == does not do): same class and name. */
+BIND(int, jcl_java_lang_reflect_Field_equals, "java.lang.reflect.Field_equals", (void *self, void *other)) {
+    if (self == other) return 1;
+    s_field *a = (s_field *)jcl_state_kind(self, K_FIELD);
+    s_field *b = (s_field *)jcl_state_kind(other, K_FIELD);
+    return a != NULL && b != NULL && a->f != NULL && b->f != NULL && strcmp(a->cls, b->cls) == 0
+            && strcmp(a->f->name, b->f->name) == 0;
+}
+BIND(int, jcl_java_lang_reflect_AccessibleObject_equals, "java.lang.reflect.AccessibleObject_equals", (void *self, void *other)) {
+    return self == other;
+}
 static int32_t jcl_string_hash(const char *s, int dots) {
     int32_t h = 0;
     for (; *s; s++) h = 31 * h + (dots && *s == '/' ? '.' : (unsigned char)*s);
     return h;
+}
+BIND(int32_t, jcl_java_lang_reflect_Field_hashCode, "java.lang.reflect.Field_hashCode", (void *self)) {
+    s_field *f = (s_field *)jcl_state_kind(self, K_FIELD);
+    if (f == NULL || f->f == NULL) return (int32_t)((intptr_t)self >> 4);
+    return jcl_string_hash(f->cls, 1) ^ jcl_string_hash(f->f->name, 0);
+}
+BIND(int32_t, jcl_java_lang_reflect_AccessibleObject_hashCode, "java.lang.reflect.AccessibleObject_hashCode", (void *self)) {
+    return (int32_t)((intptr_t)self >> 4);
 }
 BIND(int32_t, jcl_java_lang_reflect_Method_hashCode, "java.lang.reflect.Method_hashCode", (void *self)) {
     s_method *m = jcl_method_of(self);
@@ -4244,6 +4263,10 @@ BIND(int, jcl_exec_isAnnotationPresent, "java.lang.reflect.Executable_isAnnotati
 }
 JCL_ALIAS1(void *, jcl_exec_getName, "java.lang.reflect.Executable_getName", jcl_java_lang_reflect_Method_getName_jstr)
 JCL_ALIAS1(void *, jcl_exec_getParameterTypes, "java.lang.reflect.Executable_getParameterTypes", jcl_java_lang_reflect_Method_getParameterTypes)
+/* Package-private Executable methods the compiled Parameter and Executable code call. */
+JCL_ALIAS1(void *, jcl_exec_getSharedParameterTypes, "java.lang.reflect.Executable_getSharedParameterTypes", jcl_java_lang_reflect_Method_getParameterTypes)
+JCL_ALIAS1(void *, jcl_exec_getAllGenericParameterTypes, "java.lang.reflect.Executable_getAllGenericParameterTypes", jcl_java_lang_reflect_Method_getGenericParameterTypes)
+JCL_ALIAS1(void *, jcl_exec_toGenericString, "java.lang.reflect.Executable_toGenericString", jcl_java_lang_reflect_Method_toGenericString_jstr)
 JCL_ALIAS1(int32_t, jcl_exec_getParameterCount, "java.lang.reflect.Executable_getParameterCount", jcl_java_lang_reflect_Method_getParameterCount)
 JCL_ALIAS1(void *, jcl_exec_getGenericParameterTypes, "java.lang.reflect.Executable_getGenericParameterTypes", jcl_java_lang_reflect_Method_getGenericParameterTypes)
 JCL_ALIAS1(int32_t, jcl_exec_getModifiers, "java.lang.reflect.Executable_getModifiers", jcl_java_lang_reflect_Method_getModifiers)

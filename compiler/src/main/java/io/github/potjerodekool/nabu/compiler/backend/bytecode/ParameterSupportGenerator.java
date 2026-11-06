@@ -36,7 +36,33 @@ final class ParameterSupportGenerator {
         node.methods.add(parametersOf("ofConstructor", "java/lang/reflect/Constructor"));
         node.methods.add(parametersOf("ofMethod", "java/lang/reflect/Method"));
         node.methods.add(packageOf());
+        node.methods.add(parametersOfExecutable());
         return node;
+    }
+
+    /** {@code static Parameter[] ofExecutable(Executable e)}: the constructor's or the method's parameters. */
+    private static MethodNode parametersOfExecutable() {
+        final MethodNode m = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "ofExecutable",
+                "(Ljava/lang/reflect/Executable;)[L" + PARAMETER + ";", null, null);
+        final LabelNode method = new LabelNode();
+        final var i = m.instructions;
+        i.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        i.add(new TypeInsnNode(Opcodes.INSTANCEOF, "java/lang/reflect/Constructor"));
+        i.add(new JumpInsnNode(Opcodes.IFEQ, method));
+        i.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        i.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/reflect/Constructor"));
+        i.add(new MethodInsnNode(Opcodes.INVOKESTATIC, PARAMETER_SUPPORT, "ofConstructor",
+                "(Ljava/lang/reflect/Constructor;)[L" + PARAMETER + ";", false));
+        i.add(new InsnNode(Opcodes.ARETURN));
+        i.add(method);
+        i.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        i.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/reflect/Method"));
+        i.add(new MethodInsnNode(Opcodes.INVOKESTATIC, PARAMETER_SUPPORT, "ofMethod",
+                "(Ljava/lang/reflect/Method;)[L" + PARAMETER + ";", false));
+        i.add(new InsnNode(Opcodes.ARETURN));
+        m.maxStack = 2;
+        m.maxLocals = 1;
+        return m;
     }
 
     /**

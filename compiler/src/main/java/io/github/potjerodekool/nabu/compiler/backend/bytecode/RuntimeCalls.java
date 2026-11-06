@@ -105,6 +105,8 @@ final class RuntimeCalls {
                     RUNTIME_PACKAGE + "AnnotationSupport", "defaultValue"),
             new Redirect("java/lang/Class", "getPackage", "()Ljava/lang/Package;", false,
                     ParameterSupportGenerator.PARAMETER_SUPPORT, "packageOf"),
+            new Redirect("java/lang/reflect/Executable", "getParameters", "()[Ljava/lang/reflect/Parameter;", false,
+                    ParameterSupportGenerator.PARAMETER_SUPPORT, "ofExecutable"),
             new Redirect("java/lang/reflect/Constructor", "getParameters", "()[Ljava/lang/reflect/Parameter;", false,
                     ParameterSupportGenerator.PARAMETER_SUPPORT, "ofConstructor"),
             new Redirect("java/lang/reflect/Method", "getParameters", "()[Ljava/lang/reflect/Parameter;", false,

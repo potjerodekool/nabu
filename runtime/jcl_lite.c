@@ -4401,6 +4401,16 @@ static void *jcl_library_tostring(void *self) {
     return jcl_object_tostring != NULL ? jcl_object_tostring(self) : NULL;
 }
 
+/* Type.getTypeName() asked through the Type interface: the interface's default is toString(), which for a Class is
+ * "class java.util.List" instead of its type name. */
+extern char *nabu_object_to_string(void *obj);
+BIND(void *, jcl_Type_getTypeName, "java.lang.reflect.Type_getTypeName", (void *self)) {
+    if (self != NULL && jcl_state_kind(self, K_CLASSOBJ) != NULL) {
+        return nabu_jstring_new(jcl_source_name(jcl_str(self), 0));
+    }
+    return nabu_object_to_string(self);
+}
+
 /* Called by the backend instead of nabu_set_object_vtable when it knows
  * Object.toString's slot: the runtime's objects get a copy of Object's
  * vtable with jcl_library_tostring in that slot. */

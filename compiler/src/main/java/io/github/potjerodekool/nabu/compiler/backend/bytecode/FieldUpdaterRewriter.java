@@ -63,10 +63,24 @@ final class FieldUpdaterRewriter {
         }
     }
 
+    /** The classes being rewritten on this thread: loading one of them again would rewrite it again. */
+    private static final ThreadLocal<java.util.Set<String>> ACTIVE = ThreadLocal.withInitial(java.util.HashSet::new);
+
     static void rewrite(final ClassNode classNode, final Function<String, ClassNode> loader) {
         if (classNode.name.startsWith(PREFIX)) {
             return;
         }
+        if (!ACTIVE.get().add(classNode.name)) {
+            return;
+        }
+        try {
+            rewriteMethods(classNode, loader);
+        } finally {
+            ACTIVE.get().remove(classNode.name);
+        }
+    }
+
+    private static void rewriteMethods(final ClassNode classNode, final Function<String, ClassNode> loader) {
         for (final MethodNode method : classNode.methods) {
             if (method.instructions == null || method.instructions.size() == 0) {
                 continue;
@@ -75,14 +89,14 @@ final class FieldUpdaterRewriter {
                 final AbstractInsnNode next = insn.getNext();
                 if (insn instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKESTATIC
                         && "newUpdater".equals(call.name)) {
-                    rewriteCall(method.instructions, call, loader);
+                    rewriteCall(classNode, method.instructions, call, loader);
                 }
                 insn = next;
             }
         }
     }
 
-    private static void rewriteCall(final InsnList instructions, final MethodInsnNode call,
+    private static void rewriteCall(final ClassNode self, final InsnList instructions, final MethodInsnNode call,
                                     final Function<String, ClassNode> loader) {
         Kind kind = null;
         for (final Kind candidate : Kind.values()) {
@@ -114,7 +128,9 @@ final class FieldUpdaterRewriter {
             return;
         }
         final String owner = ownerType.getInternalName();
-        final ClassNode ownerNode = loader.apply(owner);
+        // The owner is usually the class itself (a static field of it holds the updater).
+        final ClassNode ownerNode = owner.equals(self.name) ? self
+                : ACTIVE.get().contains(owner) ? null : loader.apply(owner);
         if (ownerNode == null) {
             return;
         }

@@ -78,7 +78,65 @@ public final class ReflectionMethods {
                     ? new ClassMethods(declared, publics, constructors)
                     : merge(existing, new ClassMethods(declared, publics, constructors)));
         }
+        addInheritedPublicMethods(result, compilerContext);
         return result;
+    }
+
+    /**
+     * {@code getMethods} of a class also returns the public methods its superclasses and interfaces have registered
+     * (GraalVM collects them along the hierarchy): Spring's bean introspection finds {@code setOrder}, which the
+     * hints register on {@code ProxyProcessorSupport}, through {@code getMethods} of the bean class. A method the
+     * class (or a nearer class) overrides stays the nearer one.
+     */
+    private static void addInheritedPublicMethods(final Map<String, ClassMethods> result,
+                                                  final CompilerContextImpl compilerContext) {
+        final Map<String, ClassMethods> extended = new LinkedHashMap<>();
+        for (final var entry : result.entrySet()) {
+            final TypeElement type = ProxySpecs.load(compilerContext, entry.getKey());
+            if (type == null) {
+                continue;
+            }
+            final Map<String, ReflectedMethod> publics = new LinkedHashMap<>();
+            for (final ReflectedMethod m : entry.getValue().publics()) {
+                publics.put(m.name() + m.desc().substring(0, m.desc().indexOf(')') + 1), m);
+            }
+            final Deque<TypeElement> pending = new ArrayDeque<>();
+            final Set<String> seen = new HashSet<>();
+            seen.add(type.getFlatName());
+            enqueueSupertypes(type, pending);
+            while (!pending.isEmpty()) {
+                final TypeElement supertype = pending.poll();
+                if (!seen.add(supertype.getFlatName())) {
+                    continue;
+                }
+                final ClassMethods registered = result.get(supertype.getFlatName());
+                if (registered != null) {
+                    for (final ReflectedMethod m : registered.declared()) {
+                        final boolean isPublic = (m.modifiers() & 0x0001) != 0;
+                        final boolean isStatic = (m.modifiers() & 0x0008) != 0;
+                        if (isPublic && !isStatic && !m.isConstructor()) {
+                            publics.putIfAbsent(m.name() + m.desc().substring(0, m.desc().indexOf(')') + 1), m);
+                        }
+                    }
+                }
+                enqueueSupertypes(supertype, pending);
+            }
+            extended.put(entry.getKey(), new ClassMethods(entry.getValue().declared(),
+                    List.copyOf(publics.values()), entry.getValue().constructors()));
+        }
+        result.putAll(extended);
+    }
+
+    private static void enqueueSupertypes(final TypeElement type, final Deque<TypeElement> pending) {
+        final TypeElement superclass = superclass(type);
+        if (superclass != null) {
+            pending.add(superclass);
+        }
+        for (final TypeMirror itf : type.getInterfaces()) {
+            if (itf.asTypeElement() != null) {
+                pending.add(itf.asTypeElement());
+            }
+        }
     }
 
     /**

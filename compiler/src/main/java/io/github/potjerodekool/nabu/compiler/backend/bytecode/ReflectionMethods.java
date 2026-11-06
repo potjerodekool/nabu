@@ -43,12 +43,32 @@ public final class ReflectionMethods {
                                                     final CompilerContextImpl compilerContext) {
         final Map<String, ClassMethods> result = new LinkedHashMap<>();
         for (final ReflectEntry entry : withAnnotationTypes(entries, compilerContext)) {
-            if (!entry.allDeclaredMethods() && !entry.allPublicMethods() && !entry.allDeclaredConstructors()
-                    && !entry.allPublicConstructors() && entry.methods().isEmpty()) {
-                continue;
-            }
+            final boolean bare = !entry.allDeclaredMethods() && !entry.allPublicMethods()
+                    && !entry.allDeclaredConstructors() && !entry.allPublicConstructors()
+                    && entry.methods().isEmpty();
             final TypeElement type = ProxySpecs.load(compilerContext, entry.name());
             if (type == null) {
+                continue;
+            }
+            if (bare) {
+                // A type the hints name without members: as in a GraalVM image its methods and constructors can be
+                // enumerated (getDeclaredMethods, getMethods) but not called.
+                final List<ReflectedMethod> queryDeclared = new ArrayList<>();
+                for (final ExecutableElement method : methodsOf(type)) {
+                    queryDeclared.add(reflected(method, type));
+                }
+                final List<ReflectedMethod> queryConstructors = new ArrayList<>();
+                for (final ExecutableElement constructor : constructorsOf(type)) {
+                    queryConstructors.add(reflectedConstructor(constructor, type));
+                }
+                final List<ReflectedMethod> queryPublics = publicMethods(type);
+                final java.util.Set<String> keys = new HashSet<>();
+                queryDeclared.forEach(m -> keys.add(m.key()));
+                queryPublics.forEach(m -> keys.add(m.key()));
+                queryConstructors.forEach(m -> keys.add(m.key()));
+                final ClassMethods queryOnly = new ClassMethods(queryDeclared, queryPublics, queryConstructors, keys);
+                final ClassMethods known = result.get(type.getFlatName());
+                result.put(type.getFlatName(), known == null ? queryOnly : merge(known, queryOnly));
                 continue;
             }
             final List<ReflectedMethod> declared = new ArrayList<>();
@@ -96,6 +116,7 @@ public final class ReflectionMethods {
             if (type == null) {
                 continue;
             }
+            final java.util.Set<String> queryOnly = new HashSet<>(entry.getValue().queryOnly());
             final Map<String, ReflectedMethod> publics = new LinkedHashMap<>();
             for (final ReflectedMethod m : entry.getValue().publics()) {
                 publics.put(m.name() + m.desc().substring(0, m.desc().indexOf(')') + 1), m);
@@ -115,14 +136,17 @@ public final class ReflectionMethods {
                         final boolean isPublic = (m.modifiers() & 0x0001) != 0;
                         final boolean isStatic = (m.modifiers() & 0x0008) != 0;
                         if (isPublic && !isStatic && !m.isConstructor()) {
-                            publics.putIfAbsent(m.name() + m.desc().substring(0, m.desc().indexOf(')') + 1), m);
+                            if (publics.putIfAbsent(m.name() + m.desc().substring(0, m.desc().indexOf(')') + 1), m)
+                                    == null && registered.queryOnly().contains(m.key())) {
+                                queryOnly.add(m.key());
+                            }
                         }
                     }
                 }
                 enqueueSupertypes(supertype, pending);
             }
             extended.put(entry.getKey(), new ClassMethods(entry.getValue().declared(),
-                    List.copyOf(publics.values()), entry.getValue().constructors()));
+                    List.copyOf(publics.values()), entry.getValue().constructors(), queryOnly));
         }
         result.putAll(extended);
     }
@@ -208,9 +232,28 @@ public final class ReflectionMethods {
     }
 
     private static ClassMethods merge(final ClassMethods existing, final ClassMethods added) {
-        return new ClassMethods(union(existing.declared(), added.declared()),
-                union(existing.publics(), added.publics()),
-                union(existing.constructors(), added.constructors()));
+        final List<ReflectedMethod> declared = union(existing.declared(), added.declared());
+        final List<ReflectedMethod> publics = union(existing.publics(), added.publics());
+        final List<ReflectedMethod> constructors = union(existing.constructors(), added.constructors());
+        final java.util.Set<String> explicit = new HashSet<>();
+        for (final ClassMethods side : List.of(existing, added)) {
+            for (final var list : List.of(side.declared(), side.publics(), side.constructors())) {
+                for (final ReflectedMethod m : list) {
+                    if (!side.queryOnly().contains(m.key())) {
+                        explicit.add(m.key());
+                    }
+                }
+            }
+        }
+        final java.util.Set<String> queryOnly = new HashSet<>();
+        for (final var list : List.of(declared, publics, constructors)) {
+            for (final ReflectedMethod m : list) {
+                if (!explicit.contains(m.key())) {
+                    queryOnly.add(m.key());
+                }
+            }
+        }
+        return new ClassMethods(declared, publics, constructors, queryOnly);
     }
 
     private static List<ReflectedMethod> union(final List<ReflectedMethod> first, final List<ReflectedMethod> second) {

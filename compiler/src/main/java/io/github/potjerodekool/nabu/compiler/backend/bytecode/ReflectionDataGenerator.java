@@ -92,7 +92,12 @@ public final class ReflectionDataGenerator {
 
     /** The methods of one class: those getDeclaredMethods and getMethods return, and its registered constructors. */
     public record ClassMethods(List<ReflectedMethod> declared, List<ReflectedMethod> publics,
-                               List<ReflectedMethod> constructors) {
+                               List<ReflectedMethod> constructors, java.util.Set<String> queryOnly) {
+
+        public ClassMethods(final List<ReflectedMethod> declared, final List<ReflectedMethod> publics,
+                            final List<ReflectedMethod> constructors) {
+            this(declared, publics, constructors, java.util.Set.of());
+        }
     }
 
     private ReflectionDataGenerator() {
@@ -114,14 +119,22 @@ public final class ReflectionDataGenerator {
             dispatched.putIfAbsent(method.key(), method);
         }
         for (final ClassMethods methods : classes.values()) {
+            // A method that is only registered for queries (a type that the hints name without members) is
+            // returned by getDeclaredMethods but has no call in the dispatcher.
             for (final ReflectedMethod method : methods.declared()) {
-                dispatched.putIfAbsent(method.key(), method);
+                if (!methods.queryOnly().contains(method.key())) {
+                    dispatched.putIfAbsent(method.key(), method);
+                }
             }
             for (final ReflectedMethod method : methods.publics()) {
-                dispatched.putIfAbsent(method.key(), method);
+                if (!methods.queryOnly().contains(method.key())) {
+                    dispatched.putIfAbsent(method.key(), method);
+                }
             }
             for (final ReflectedMethod constructor : methods.constructors()) {
-                dispatched.putIfAbsent(constructor.key(), constructor);
+                if (!methods.queryOnly().contains(constructor.key())) {
+                    dispatched.putIfAbsent(constructor.key(), constructor);
+                }
             }
         }
         node.methods.addAll(methods(classes));

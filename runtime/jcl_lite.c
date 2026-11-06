@@ -3783,6 +3783,10 @@ static void jcl_class_scope(const char *cls, jcl_type_scope *scope, void **varia
     *count = 0;
     if (ri != NULL && ri->signature != NULL && ri->signature[0] == '<') {
         jcl_parse_formals(ri->signature, scope, variables, count);
+    } else if (strcmp(cls, "java/lang/Class") == 0 || strcmp(cls, "java/lang/reflect/Constructor") == 0) {
+        /* The generic classes the runtime provides itself have no reflection data: Class<T> and Constructor<T>.
+         * Without their type variable java.beans' TypeResolver finds Class<X> malformed (0 formal arguments). */
+        jcl_parse_formals("<T:Ljava/lang/Object;>Ljava/lang/Object;", scope, variables, count);
     }
 }
 

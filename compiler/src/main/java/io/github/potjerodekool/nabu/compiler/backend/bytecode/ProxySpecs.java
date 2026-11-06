@@ -36,7 +36,7 @@ public final class ProxySpecs {
             boolean complete = true;
             for (final String name : names) {
                 final TypeElement type = load(compilerContext, name);
-                if (type == null || type.getKind() != ElementKind.INTERFACE) {
+                if (type == null || !ElementSignatures.isInterface(type)) {
                     System.err.println("[nabu] warning: proxy interface " + name
                             + " from the native-image configuration was not found or is no interface");
                     complete = false;

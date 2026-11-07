@@ -38,11 +38,11 @@ class MessageBundleE2eIT {
                 package lib;
                 public interface Msgs { String hello(); }
                 """);
-        Files.writeString(libSrc.resolve("Msgs$bundle.java"), """
+        Files.writeString(libSrc.resolve("Msgs_$bundle.java"), """
                 package lib;
-                public class Msgs$bundle implements Msgs {
-                    public static final Msgs$bundle INSTANCE = new Msgs$bundle();
-                    protected Msgs$bundle() { }
+                public class Msgs_$bundle implements Msgs {
+                    public static final Msgs_$bundle INSTANCE = new Msgs_$bundle();
+                    protected Msgs_$bundle() { }
                     public String hello() { return "hello bundle"; }
                 }
                 """);
@@ -57,7 +57,7 @@ class MessageBundleE2eIT {
         Files.createDirectories(libClasses);
         final int javac = ToolProvider.getSystemJavaCompiler().run(null, null, null, "-d", libClasses.toString(),
                 "-cp", jboss,
-                libSrc.resolve("Msgs.java").toString(), libSrc.resolve("Msgs$bundle.java").toString(),
+                libSrc.resolve("Msgs.java").toString(), libSrc.resolve("Msgs_$bundle.java").toString(),
                 libSrc.resolve("User.java").toString());
         assertEquals(0, javac);
 
@@ -77,7 +77,7 @@ class MessageBundleE2eIT {
         final Path config = out.resolve("META-INF/native-image/test");
         Files.createDirectories(config);
         Files.writeString(config.resolve("reflect-config.json"), """
-                [ { "name": "lib.Msgs$bundle", "fields": [ { "name": "INSTANCE" } ] } ]
+                [ { "name": "lib.Msgs_$bundle", "fields": [ { "name": "INSTANCE" } ] } ]
                 """);
 
         System.setProperty("nabu.runtime",

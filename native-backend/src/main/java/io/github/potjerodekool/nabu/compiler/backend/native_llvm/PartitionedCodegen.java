@@ -160,7 +160,7 @@ final class PartitionedCodegen {
                 final Object histogram = java.lang.management.ManagementFactory.getPlatformMBeanServer().invoke(
                         new javax.management.ObjectName("com.sun.management:type=DiagnosticCommand"),
                         "gcClassHistogram", new Object[] {null}, new String[] {"[Ljava.lang.String;"});
-                final String[] lines = String.valueOf(histogram).split("\R");
+                final String[] lines = String.valueOf(histogram).split("\\R");
                 System.err.println("[NativeLLVMBackend] java heap histogram:");
                 for (int i = 0; i < Math.min(lines.length, 40); i++) {
                     System.err.println("  " + lines[i]);

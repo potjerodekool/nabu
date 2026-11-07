@@ -424,7 +424,12 @@ public class NativeLLVMBackend implements Backend {
             // beschikbaar voor inspectie.
             Path llPath = replaceExtension(outputObj, ".ll");
             long t2 = System.nanoTime();
-            emitLLVMIR(llvmMod, llPath);
+            // A large program has no value names (see above): its .ll is gigabytes nobody reads, and writing it takes
+            // half a minute. -Dnabu.llvm.writeLl=true|false overrides.
+            final String writeLl = System.getProperty("nabu.llvm.writeLl");
+            if (writeLl != null ? Boolean.parseBoolean(writeLl) : !(partitioned && moduleCount > 2000)) {
+                emitLLVMIR(llvmMod, llPath);
+            }
             long t3 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] writing .ll: " + (t3 - t2) / 1_000_000L + " ms");
 

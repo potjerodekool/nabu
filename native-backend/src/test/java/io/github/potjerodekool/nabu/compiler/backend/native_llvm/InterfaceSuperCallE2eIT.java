@@ -44,11 +44,23 @@ class InterfaceSuperCallE2eIT {
                 package lib;
                 public class C implements B { public String n() { return "C" + B.super.n(); } }
                 """);
+        Files.writeString(libSrc.resolve("S.java"), """
+                package lib;
+                public interface S {
+                    static String n(CharSequence cs) { return "S" + cs; }
+                    default String n() { return n("x"); }
+                }
+                """);
+        Files.writeString(libSrc.resolve("D.java"), """
+                package lib;
+                public class D implements S { }
+                """);
         final Path libClasses = tempDir.resolve("libclasses");
         Files.createDirectories(libClasses);
         final int javac = ToolProvider.getSystemJavaCompiler().run(null, null, null, "-d", libClasses.toString(),
                 libSrc.resolve("A.java").toString(), libSrc.resolve("B.java").toString(),
-                libSrc.resolve("C.java").toString());
+                libSrc.resolve("C.java").toString(), libSrc.resolve("S.java").toString(),
+                libSrc.resolve("D.java").toString());
         assertEquals(0, javac);
 
         final Path srcDir = tempDir.resolve("src");
@@ -60,6 +72,8 @@ class InterfaceSuperCallE2eIT {
                     public static void main(String[] args) throws Exception {
                         lib.A a = new lib.C();
                         System.out.println(a.n());
+                        lib.S s = new lib.D();
+                        System.out.println(s.n());
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -112,7 +126,7 @@ class InterfaceSuperCallE2eIT {
         }
         final String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         final int exit = proc.exitValue();
-        assertEquals("CBA\n", output, "exit=" + exit);
+        assertEquals("CBA\nSx\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

@@ -1296,8 +1296,12 @@ public class InstructionEmitter {
         // juiste route is de itable.
         // Not for invokespecial (`Iface.super.m()`, a default method calling the one of its super interface): that is
         // a direct call, also with an interface-typed receiver. Dispatching it ran the override that called it.
+        // Nor for a static call: its first argument is no receiver (MetadataBuildingContext's default
+        // isPreferJavaTimeJdbcTypesEnabled() calls the static one of that name with a ServiceRegistry, which was then
+        // dispatched through the registry's itable).
         if ((call.callKind() == CallKind.INTERFACE
-                || (call.callKind() != CallKind.SPECIAL && isInterfaceReceiver(call)))
+                || (call.callKind() != CallKind.SPECIAL && call.callKind() != CallKind.STATIC
+                    && isInterfaceReceiver(call)))
                 && tryEmitInterfaceCall(call)) {
             return;
         }

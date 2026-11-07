@@ -134,7 +134,10 @@ public final class BytecodeReachabilityCompiler {
             new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
                     "unparkVirtual", "(Ljava/lang/Object;)V", false),
             new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
-                    "backoffVirtual", "(I)V", false));
+                    "backoffVirtual", "(I)V", false),
+            // The run of a Thread subclass that does not override it.
+            new MethodRef("io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport",
+                    "defaultRun", "(Ljava/lang/Thread;)V", false));
 
     /**
      * Klassen die de JDK alleen reflectief instantieert

@@ -2085,6 +2085,21 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
             current = superInternalName(current);
         }
 
+        // A Thread subclass that does not override run() (Tomcat's TaskThread): Thread.run is not compiled, the
+        // thread's target is run by ThreadSupport.defaultRun.
+        if ("java.lang.Runnable_run".equals(interfaceFn.name) && extendsThread(classInternalName)) {
+            final IRModule support = modulesByInternalName.get(
+                    "io/github/potjerodekool/nabu/compiler/backend/bytecode/runtime/ThreadSupport");
+            if (support != null) {
+                for (final IRFunction fn : support.functions()) {
+                    if (fn.name.endsWith("_defaultRun") && !fn.blocks().isEmpty()) {
+                        final LLVMValueRef value = functionValue(fn);
+                        if (value != null) return value;
+                    }
+                }
+            }
+        }
+
         // Geen implementatie in de klassen-keten. Dan pas de interface-functie
         // zelf gebruiken (default-method met body, of abstracte stub) — en alleen
         // als de klasse de interface daadwerkelijk implementeert.
@@ -2095,6 +2110,22 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
             return specific != null ? specific : functionValue(interfaceFn);
         }
         return null;
+    }
+
+    /** Whether the class extends java.lang.Thread (which itself is not a compiled module: follow the declared supers). */
+    private boolean extendsThread(final String internalName) {
+        String c = internalName;
+        for (int depth = 0; c != null && depth < 64; depth++) {
+            final IRModule module = modulesByInternalName.get(c);
+            if (module == null || !(module.superType() instanceof IRType.Ptr p) || p.jvmDescriptor() == null) {
+                return false;
+            }
+            c = fromDescriptor(p.jvmDescriptor());
+            if ("java/lang/Thread".equals(c)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

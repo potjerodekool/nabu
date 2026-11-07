@@ -1048,7 +1048,14 @@ public final class BytecodeMethodLowering {
             case Float f -> IRValue.ofF32(f);
             case Double d -> IRValue.ofFloat(d);
             case String s -> IRValue.ofString(s);
-            case Type t -> new IRValue.ConstClass(new IRType.Ptr(IRType.I8, t.getDescriptor()));
+            case Type t -> {
+                // X.class names the class: it is part of the program (its interfaces and generic signature are what
+                // Class.getGenericInterfaces reports; hibernate-validator reads them of classes it only names).
+                if (t.getSort() == Type.OBJECT) {
+                    noteReference(t.getInternalName());
+                }
+                yield new IRValue.ConstClass(new IRType.Ptr(IRType.I8, t.getDescriptor()));
+            }
             default -> throw new UnsupportedOperationException(
                     "LDC of " + (cst == null ? "null" : cst.getClass())
                             + " not implemented yet (Handle/ConstantDynamic -> invokedynamic related)");

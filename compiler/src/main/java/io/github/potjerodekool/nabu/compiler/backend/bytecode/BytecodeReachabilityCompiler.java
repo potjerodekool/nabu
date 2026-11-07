@@ -1184,6 +1184,7 @@ public final class BytecodeReachabilityCompiler {
         if (!shapedClasses.contains(internal)) {
             return;
         }
+        initializeStringConstants(classNode);
         queueInit(internal);
         if (root.allDeclaredConstructors() || root.allPublicConstructors()
                 || root.methods().stream().anyMatch(m -> "<init>".equals(m.name()))) {
@@ -1206,6 +1207,40 @@ public final class BytecodeReachabilityCompiler {
         for (final var method : root.methods()) {
             queueMethod(new MethodRef(internal, method.name(), null, false));
         }
+    }
+
+    /**
+     * A static final String with a {@code ConstantValue} is not set by {@code <clinit>} (javac inlines its uses) and
+     * its global stays null, a String object cannot be a static initializer here. A class that reflection can read it
+     * of (SpEL's {@code T(Constants).DEFAULT_API_DOCS_URL}) gets the assignments at the start of its {@code <clinit>}.
+     */
+    private static void initializeStringConstants(final ClassNode classNode) {
+        final org.objectweb.asm.tree.InsnList assignments = new org.objectweb.asm.tree.InsnList();
+        for (final org.objectweb.asm.tree.FieldNode field : classNode.fields) {
+            if ((field.access & Opcodes.ACC_STATIC) != 0 && field.value instanceof String text) {
+                assignments.add(new org.objectweb.asm.tree.LdcInsnNode(text));
+                assignments.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.PUTSTATIC, classNode.name,
+                        field.name, field.desc));
+            }
+        }
+        if (assignments.size() == 0) {
+            return;
+        }
+        MethodNode clinit = null;
+        for (final MethodNode m : classNode.methods) {
+            if ("<clinit>".equals(m.name)) {
+                clinit = m;
+                break;
+            }
+        }
+        if (clinit == null) {
+            clinit = new MethodNode(Opcodes.ACC_STATIC, "<clinit>", "()V", null, null);
+            clinit.instructions.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+            clinit.maxLocals = 0;
+            classNode.methods.add(clinit);
+        }
+        clinit.instructions.insert(assignments);
+        clinit.maxStack = Math.max(clinit.maxStack, 1);
     }
 
     /** Alle aanroepdoelen uit de Nabu-source-modules, met of de aanroep virtueel dispatcht. */

@@ -348,7 +348,10 @@ public class NativeLLVMBackend implements Backend {
         final boolean[] builderDisposed = {false};
         final boolean[] contextDisposed = {false};
 
-        try (PointerScope scope = new PointerScope()) {
+        // No PointerScope here: it would hold every JavaCPP object made while emitting (a value reference, a name, a
+        // deallocator each: tens of millions for a large program, gigabytes) until the end of the method, also during
+        // the code generation. The garbage collector frees the few that own native memory.
+        try {
             long t0 = System.nanoTime();
             final int moduleCount = modules.size();
             LLVMModuleEmitter emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);

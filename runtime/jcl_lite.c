@@ -4300,6 +4300,24 @@ BIND(int, jcl_field_isEnumConstant, "java.lang.reflect.Field_isEnumConstant", (v
 BIND(int, jcl_exec_isSynthetic, "java.lang.reflect.Executable_isSynthetic", (void *self)) {
     return jcl_java_lang_reflect_Method_isSynthetic(self);
 }
+/* java.lang.reflect.Member through the interface: the object is a Field, a Method or a Constructor of the C runtime,
+ * no compiled class implements Member (hibernate-validator's ReflectionHelper asks a Member for its declaring class). */
+BIND(void *, jcl_member_getDeclaringClass, "java.lang.reflect.Member_getDeclaringClass", (void *self)) {
+    if (jcl_field_of(self) != NULL) return jcl_java_lang_reflect_Field_getDeclaringClass(self);
+    return jcl_java_lang_reflect_Constructor_getDeclaringClass(self);
+}
+BIND(void *, jcl_member_getName, "java.lang.reflect.Member_getName", (void *self)) {
+    if (jcl_field_of(self) != NULL) return jcl_java_lang_reflect_Field_getName_jstr(self);
+    return jcl_java_lang_reflect_Method_getName_jstr(self);
+}
+BIND(int32_t, jcl_member_getModifiers, "java.lang.reflect.Member_getModifiers", (void *self)) {
+    if (jcl_field_of(self) != NULL) return jcl_java_lang_reflect_Field_getModifiers(self);
+    return jcl_java_lang_reflect_Method_getModifiers(self);
+}
+BIND(int, jcl_member_isSynthetic, "java.lang.reflect.Member_isSynthetic", (void *self)) {
+    if (jcl_field_of(self) != NULL) return 0;
+    return jcl_java_lang_reflect_Method_isSynthetic(self);
+}
 BIND(void *, jcl_field_getAnnotation, "java.lang.reflect.Field_getAnnotation", (void *self, void *ann)) {
     return jcl_java_lang_reflect_AccessibleObject_getAnnotation(self, ann);
 }

@@ -431,6 +431,53 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        if ("java/lang/ClassValue".equals(classNode.name)) {
+            // The values live in a field of java.lang.Class, which the Class objects of a native executable do not
+            // have (the JDK code read garbage): they are kept by ClassValueSupport.
+            final String support = RuntimeCalls.RUNTIME_PACKAGE + "ClassValueSupport";
+            for (final MethodNode m : classNode.methods) {
+                if ("get".equals(m.name) && "(Ljava/lang/Class;)Ljava/lang/Object;".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        final var present = new org.objectweb.asm.tree.LabelNode();
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support, "lookup",
+                                "(Ljava/lang/ClassValue;Ljava/lang/Class;)Ljava/lang/Object;", false));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ASTORE, 2));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 2));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC, support, "ABSENT",
+                                "Ljava/lang/Object;"));
+                        insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IF_ACMPNE, present));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                                "java/lang/ClassValue", "computeValue",
+                                "(Ljava/lang/Class;)Ljava/lang/Object;", false));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ASTORE, 2));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 2));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support, "store",
+                                "(Ljava/lang/ClassValue;Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/Object;",
+                                false));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ASTORE, 2));
+                        insns.add(present);
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 2));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                    m.maxLocals = Math.max(m.maxLocals, 3);
+                    m.maxStack = Math.max(m.maxStack, 4);
+                } else if ("remove".equals(m.name) && "(Ljava/lang/Class;)V".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 1));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, support, "remove",
+                                "(Ljava/lang/ClassValue;Ljava/lang/Class;)V", false));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+                    });
+                }
+            }
+        }
         if ("jdk/internal/util/ReferencedKeyMap".equals(classNode.name)) {
             // toString is for debugging and streams over the keys; the map is the cache of every Locale.
             for (final MethodNode m : classNode.methods) {

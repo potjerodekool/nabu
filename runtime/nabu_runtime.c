@@ -2926,7 +2926,7 @@ void nabu_unresolved(const char *symbol) {
         fprintf(stderr, "    at %s\n", text);
     }
     fflush(stderr);
-    exit(127);
+    _exit(127);
 }
 
 /* Scanning the class tables (Class.getNestMembers, Class.getDeclaredClasses). */

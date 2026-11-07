@@ -33,6 +33,28 @@ public final class ReflectSupport {
         return lookup == null ? Object.class : lookup.lookupClass();
     }
 
+    /** {@code Executable.getAnnotatedReturnType()}: the generic return type, without type annotations. */
+    public static java.lang.reflect.AnnotatedType annotatedReturnType(final java.lang.reflect.Executable executable) {
+        return new SimpleAnnotatedType(executable instanceof Method method
+                ? method.getGenericReturnType() : executable.getDeclaringClass());
+    }
+
+    /** {@code Executable.getAnnotatedParameterTypes()}. */
+    public static java.lang.reflect.AnnotatedType[] annotatedParameterTypes(
+            final java.lang.reflect.Executable executable) {
+        final java.lang.reflect.Type[] types = executable.getGenericParameterTypes();
+        final java.lang.reflect.AnnotatedType[] result = new java.lang.reflect.AnnotatedType[types.length];
+        for (int i = 0; i < types.length; i++) {
+            result[i] = new SimpleAnnotatedType(types[i]);
+        }
+        return result;
+    }
+
+    /** {@code Field.getAnnotatedType()}. */
+    public static java.lang.reflect.AnnotatedType annotatedFieldType(final java.lang.reflect.Field field) {
+        return new SimpleAnnotatedType(field.getGenericType());
+    }
+
     public static Method[] getMethods(final Class<?> type) {
         return copy(ReflectionData.methods(type.getName(), true));
     }

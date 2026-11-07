@@ -385,6 +385,20 @@ static void *jcl_class_unlocked(const char *iname) {
     st->v = jcl_dup(iname);
     void *obj = jcl_alloc(48 + 8);
     nabu_init_object(obj, "java/lang/Class");
+    {
+        /* The type info of Class is made by the runtime, without the interfaces of the real class: a cast of a
+         * Class to Type / AnnotatedElement / GenericDeclaration (Hibernate) would fail. */
+        static const char *const class_interfaces[] = {
+            "java/io/Serializable", "java/lang/reflect/GenericDeclaration", "java/lang/reflect/Type",
+            "java/lang/reflect/AnnotatedElement", "java/lang/invoke/TypeDescriptor",
+            "java/lang/invoke/TypeDescriptor$OfField", "java/lang/constant/Constable"
+        };
+        nabu_type_info *class_ti = (nabu_type_info *)((nabu_object *)obj)->type;
+        if (class_ti != NULL && class_ti->interface_count == 0) {
+            class_ti->interfaces = class_interfaces;
+            class_ti->interface_count = (int)(sizeof class_interfaces / sizeof class_interfaces[0]);
+        }
+    }
     nabu_jcl_set_state(obj, st);
     jcl_class_table[jcl_class_slot(jcl_class_table, jcl_class_cap, iname)] = obj;
     jcl_class_n++;

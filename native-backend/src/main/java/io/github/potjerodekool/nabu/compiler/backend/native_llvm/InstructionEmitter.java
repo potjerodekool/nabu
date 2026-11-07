@@ -1294,7 +1294,10 @@ public class InstructionEmitter {
         // het statische type een interface is maar de call als VIRTUAL is
         // gemarkeerd: het object is dan een concrete implementatie en de enige
         // juiste route is de itable.
-        if ((call.callKind() == CallKind.INTERFACE || isInterfaceReceiver(call))
+        // Not for invokespecial (`Iface.super.m()`, a default method calling the one of its super interface): that is
+        // a direct call, also with an interface-typed receiver. Dispatching it ran the override that called it.
+        if ((call.callKind() == CallKind.INTERFACE
+                || (call.callKind() != CallKind.SPECIAL && isInterfaceReceiver(call)))
                 && tryEmitInterfaceCall(call)) {
             return;
         }

@@ -114,6 +114,12 @@ final class RuntimeCalls {
             new Redirect("org/jboss/logging/Logger", "getMessageLogger",
                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/Class;Ljava/lang/String;Ljava/util/Locale;)"
                             + "Ljava/lang/Object;", true, JbossLoggingSupportGenerator.SUPPORT, "getMessageLogger"),
+            new Redirect("org/jboss/logging/Messages", "getBundle",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/Class;)Ljava/lang/Object;", true,
+                    JbossLoggingSupportGenerator.SUPPORT, "getBundle"),
+            new Redirect("org/jboss/logging/Messages", "getBundle",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/Class;Ljava/util/Locale;)Ljava/lang/Object;", true,
+                    JbossLoggingSupportGenerator.SUPPORT, "getBundle"),
             new Redirect("java/lang/Class", "getProtectionDomain", "()Ljava/security/ProtectionDomain;", false,
                     LOADER_SUPPORT, "protectionDomain"),
             new Redirect("java/lang/reflect/Method", "getDefaultValue", "()Ljava/lang/Object;", false,

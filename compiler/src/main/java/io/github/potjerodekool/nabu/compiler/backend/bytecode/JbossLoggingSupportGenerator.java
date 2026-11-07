@@ -36,6 +36,8 @@ final class JbossLoggingSupportGenerator {
         node.methods.add(messageLogger("getMessageLogger",
                 "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/Class;Ljava/lang/String;Ljava/util/Locale;)"
                         + "Ljava/lang/Object;", true));
+        node.methods.add(messageBundle("(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/Class;)Ljava/lang/Object;", false));
+        node.methods.add(messageBundle("(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/Class;Ljava/util/Locale;)Ljava/lang/Object;", true));
         node.methods.add(nullLookup());
         return node;
     }
@@ -92,6 +94,42 @@ final class JbossLoggingSupportGenerator {
         i.add(new InsnNode(Opcodes.ARETURN));
         m.maxStack = 8;
         m.maxLocals = withLocale ? 5 : 4;
+        return m;
+    }
+
+    /** {@code static Object getBundle(Lookup, Class type[, Locale])}: the {@code Type_$bundle} class, read from its
+     * INSTANCE field (the original finds both through the Lookup). Only the default locale. */
+    private static MethodNode messageBundle(final String desc, final boolean withLocale) {
+        final MethodNode m = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "getBundle", desc, null, null);
+        final var i = m.instructions;
+        i.add(new TypeInsnNode(Opcodes.NEW, "java/lang/StringBuilder"));
+        i.add(new InsnNode(Opcodes.DUP));
+        i.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false));
+        i.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Class", "getName", "()Ljava/lang/String;", false));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+                "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false));
+        i.add(new LdcInsnNode("$bundle"));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+                "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
+                "()Ljava/lang/String;", false));
+        i.add(new InsnNode(Opcodes.ICONST_1));
+        i.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Class", "getClassLoader",
+                "()Ljava/lang/ClassLoader;", false));
+        i.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Class", "forName",
+                "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;", false));
+        // return impl.getField("INSTANCE").get(null);
+        i.add(new LdcInsnNode("INSTANCE"));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Class", "getField",
+                "(Ljava/lang/String;)Ljava/lang/reflect/Field;", false));
+        i.add(new InsnNode(Opcodes.ACONST_NULL));
+        i.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/reflect/Field", "get",
+                "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+        i.add(new InsnNode(Opcodes.ARETURN));
+        m.maxStack = 4;
+        m.maxLocals = withLocale ? 3 : 2;
         return m;
     }
 

@@ -168,6 +168,10 @@ final class PartitionedCodegen {
             } catch (final Exception e) {
                 System.err.println("[NativeLLVMBackend] no heap histogram: " + e);
             }
+            if ("exit".equals(System.getProperty("nabu.heapHistogramThen"))) {
+                System.err.flush();
+                Runtime.getRuntime().halt(3); // a diagnostic run: the code generation itself is not wanted
+            }
         }
         if (TIMING) {
             System.err.println("[NativeLLVMBackend] java heap before code generation: committed "

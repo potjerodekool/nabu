@@ -431,6 +431,20 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        if ("java/lang/Package".equals(classNode.name)) {
+            // The annotations of a package are those of its package-info class, found by name through a class loader
+            // the Package objects of a native executable do not have: no package has annotations (Spring Data asks
+            // for @NonNullApi).
+            for (final MethodNode m : classNode.methods) {
+                if ("getPackageInfo".equals(m.name) && "()Ljava/lang/Class;".equals(m.desc)) {
+                    replaceBody(m, insns -> {
+                        insns.add(new org.objectweb.asm.tree.LdcInsnNode(
+                                org.objectweb.asm.Type.getObjectType("java/lang/Package$PackageInfoProxy")));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
         if ("java/lang/ClassValue".equals(classNode.name)) {
             // The values live in a field of java.lang.Class, which the Class objects of a native executable do not
             // have (the JDK code read garbage): they are kept by ClassValueSupport.

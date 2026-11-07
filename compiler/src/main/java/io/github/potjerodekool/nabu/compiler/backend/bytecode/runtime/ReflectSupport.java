@@ -55,6 +55,32 @@ public final class ReflectSupport {
         return new SimpleAnnotatedType(field.getGenericType());
     }
 
+    /** {@code Class.getModule()} is null in a native program (there are no modules): everything is exported and open
+     * to everybody, and the module is unnamed. These take the null receiver. */
+    public static boolean moduleIsExported(final Module module, final String packageName, final Module other) {
+        return true;
+    }
+
+    public static boolean moduleIsExported(final Module module, final String packageName) {
+        return true;
+    }
+
+    public static boolean moduleIsOpen(final Module module, final String packageName, final Module other) {
+        return true;
+    }
+
+    public static boolean moduleIsOpen(final Module module, final String packageName) {
+        return true;
+    }
+
+    public static boolean moduleIsNamed(final Module module) {
+        return false;
+    }
+
+    public static String moduleName(final Module module) {
+        return null;
+    }
+
     public static Method[] getMethods(final Class<?> type) {
         return copy(ReflectionData.methods(type.getName(), true));
     }

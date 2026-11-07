@@ -295,7 +295,12 @@ public class ConstantResolver {
 
     public LLVMValueRef resolveString(String text, IRGlobal.Linkage linkage) {
         return stringCache.computeIfAbsent(text, s -> {
-            String name = ".str." + Math.abs(s.hashCode());
+            // Strings with the same hash code ("" and "\0", "Aa" and "BB") must not share a global.
+            final String base = ".str." + Math.abs(s.hashCode());
+            String name = base;
+            for (int n = 1; globalValueMap.containsKey("@" + name); n++) {
+                name = base + "." + n;
+            }
 
             // LLVMConstStringInContext maakt [N x i8] — geen builder nodig
             LLVMValueRef strConst = LLVMConstStringInContext(ctx,

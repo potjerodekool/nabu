@@ -35,12 +35,17 @@ class AnnotatedTypeE2eIT {
         Files.writeString(libSrc.resolve("R.java"), """
                 package lib;
                 public class R {
-                    public java.util.List<String> m(int a, String b) { return null; }
+                    @java.lang.annotation.Target(java.lang.annotation.ElementType.TYPE_USE)
+                    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+                    public @interface Nul { }
+                    public java.util.List<String> m(int a, @Nul String b) { return null; }
                     public static String describe() throws Exception {
                         java.lang.reflect.Method m = R.class.getDeclaredMethod("m", int.class, String.class);
                         return m.getAnnotatedReturnType().getType() + " " + m.getAnnotatedParameterTypes().length
                                 + " " + m.getAnnotatedParameterTypes()[1].getType()
-                                + " " + m.getAnnotatedReturnType().getAnnotations().length;
+                                + " " + m.getAnnotatedReturnType().getAnnotations().length
+                                + " " + m.getParameters()[1].getAnnotatedType().isAnnotationPresent(Nul.class)
+                                + " " + m.getParameters()[0].getAnnotatedType().isAnnotationPresent(Nul.class);
                     }
                 }
                 """);
@@ -110,7 +115,7 @@ class AnnotatedTypeE2eIT {
         }
         final String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         final int exit = proc.exitValue();
-        assertEquals("java.util.List<java.lang.String> 2 class java.lang.String 0\n", output, "exit=" + exit);
+        assertEquals("java.util.List<java.lang.String> 2 class java.lang.String 0 true false\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

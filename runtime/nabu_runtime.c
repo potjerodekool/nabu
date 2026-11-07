@@ -2104,7 +2104,8 @@ int nabu_is_jstring(const void *p) {
 }
 
 static size_t nabu_utf8_put(char *out, uint32_t cp) {
-    if (cp < 0x80) { out[0] = (char) cp; return 1; }
+    /* NUL is written as the two bytes C0 80 (modified UTF-8): a C string cannot hold it, and the decoder reads it back. */
+    if (cp < 0x80 && cp != 0) { out[0] = (char) cp; return 1; }
     if (cp < 0x800) {
         out[0] = (char) (0xC0 | (cp >> 6));
         out[1] = (char) (0x80 | (cp & 0x3F));

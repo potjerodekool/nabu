@@ -43,9 +43,13 @@ public final class ReflectSupport {
     public static java.lang.reflect.AnnotatedType[] annotatedParameterTypes(
             final java.lang.reflect.Executable executable) {
         final java.lang.reflect.Type[] types = executable.getGenericParameterTypes();
+        final java.lang.annotation.Annotation[][] annotations = executable.getParameterAnnotations();
         final java.lang.reflect.AnnotatedType[] result = new java.lang.reflect.AnnotatedType[types.length];
         for (int i = 0; i < types.length; i++) {
-            result[i] = new SimpleAnnotatedType(types[i]);
+            // The annotations are those of the last parameters when the executable has synthetic leading ones.
+            final int offset = annotations.length - types.length;
+            result[i] = new SimpleAnnotatedType(types[i],
+                    i + offset >= 0 && i + offset < annotations.length ? annotations[i + offset] : null);
         }
         return result;
     }

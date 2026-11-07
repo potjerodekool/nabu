@@ -2060,7 +2060,28 @@ public final class BytecodeReachabilityCompiler {
         // metadata of the method.
         final List<IRFunction> functions = builder.build().functions();
         final List<List<IRAnnotation>> parameterAnnotations = new ArrayList<>();
-        if (methodNode.visibleParameterAnnotations != null) {
+        if (methodNode.visibleTypeAnnotations != null && !methodNode.visibleTypeAnnotations.isEmpty()) {
+            // A type-use annotation on a parameter type (jspecify's @Nullable) is reported as an annotation of the
+            // parameter: Parameter.getAnnotatedType() of a native executable gets them from there.
+            final int count = Type.getArgumentTypes(methodNode.desc).length;
+            final List<List<AnnotationNode>> merged = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                final List<AnnotationNode> declared = methodNode.visibleParameterAnnotations != null
+                        && i < methodNode.visibleParameterAnnotations.length
+                        ? methodNode.visibleParameterAnnotations[i] : null;
+                merged.add(declared != null ? new ArrayList<>(declared) : new ArrayList<>());
+            }
+            for (final org.objectweb.asm.tree.TypeAnnotationNode annotation : methodNode.visibleTypeAnnotations) {
+                final org.objectweb.asm.TypeReference reference = new org.objectweb.asm.TypeReference(annotation.typeRef);
+                if (reference.getSort() == org.objectweb.asm.TypeReference.METHOD_FORMAL_PARAMETER
+                        && annotation.typePath == null && reference.getFormalParameterIndex() < count) {
+                    merged.get(reference.getFormalParameterIndex()).add(annotation);
+                }
+            }
+            for (final List<AnnotationNode> annotations : merged) {
+                parameterAnnotations.add(irAnnotations(annotations));
+            }
+        } else if (methodNode.visibleParameterAnnotations != null) {
             for (final List<AnnotationNode> annotations : methodNode.visibleParameterAnnotations) {
                 parameterAnnotations.add(irAnnotations(annotations));
             }

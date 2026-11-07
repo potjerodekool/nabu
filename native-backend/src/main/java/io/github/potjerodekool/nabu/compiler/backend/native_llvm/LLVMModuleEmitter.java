@@ -418,6 +418,7 @@ public void setReflectionRegistry(
             int flags = 0;
             if (flag(module, io.github.potjerodekool.nabu.lang.Flags.PUBLIC)) flags |= 0x0001;
             if (flag(module, io.github.potjerodekool.nabu.lang.Flags.FINAL)) flags |= 0x0010;
+            if (flag(module, io.github.potjerodekool.nabu.lang.Flags.STATIC)) flags |= 0x0008;
             if (flag(module, io.github.potjerodekool.nabu.lang.Flags.INTERFACE)) flags |= 0x0200 | 0x0400;
             if (flag(module, io.github.potjerodekool.nabu.lang.Flags.ABSTRACT)) flags |= 0x0400;
             if (flag(module, io.github.potjerodekool.nabu.lang.Flags.SYNTHETIC)) flags |= 0x1000;

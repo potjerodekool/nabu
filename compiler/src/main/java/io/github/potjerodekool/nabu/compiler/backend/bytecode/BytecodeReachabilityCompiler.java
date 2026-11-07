@@ -1486,7 +1486,18 @@ public final class BytecodeReachabilityCompiler {
                     + " shapes + " + methodWorklist.size() + " methods remaining, last: " + qualifiedName);
         }
 
-        final long classFlags = AccessFlags.toNabuFlags(classNode.access);
+        // "static" of a nested class is only in the InnerClasses attribute, not in the access flags of the class file;
+        // Class.getModifiers() (Spring's ClassUtils.isInnerClass) needs it.
+        int effectiveAccess = classNode.access;
+        if (classNode.innerClasses != null) {
+            for (final org.objectweb.asm.tree.InnerClassNode inner : classNode.innerClasses) {
+                if (inner.name.equals(classNode.name)) {
+                    effectiveAccess |= inner.access & Opcodes.ACC_STATIC;
+                    break;
+                }
+            }
+        }
+        final long classFlags = AccessFlags.toNabuFlags(effectiveAccess);
         final var builder = new IRBuilder(classFlags, qualifiedName);
         shapeBuilders.put(internalName, builder);
         // build() geeft steeds hetzelfde (muterende) IRModule-object terug.

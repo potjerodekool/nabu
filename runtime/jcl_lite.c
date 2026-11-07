@@ -3162,9 +3162,37 @@ BIND(int, jcl_java_lang_Class_isArray, "java.lang.Class_isArray", (void *self)) 
  * super-keten/interfaces van het gecompileerde type van o (zoals
  * nabu_instanceof). Sun's Bundles controleert zo of een reflectief geladen
  * klasse een ResourceBundle is. */
+/* The element class name of an array class name ("[Ljava/lang/String;" or "[pkg/Cls" or "[[I"); *primitive is set
+ * for an array of a primitive type. */
+static void jcl_array_element_name(const char *array, char *out, size_t size, int *primitive) {
+    const char *p = array + 1;
+    size_t len = strlen(p);
+    *primitive = 0;
+    if (*p == 'L' && len > 2 && p[len - 1] == ';') {
+        p++;
+        len -= 2;
+    } else if (len == 1 && strchr("ZBCSIJFD", *p) != NULL) {
+        *primitive = 1;
+    }
+    if (len >= size) len = size - 1;
+    memcpy(out, p, len);
+    out[len] = 0;
+}
 BIND(int, jcl_java_lang_Class_isAssignableFrom, "java.lang.Class_isAssignableFrom", (void *self, void *o)) {
     const char *target = jcl_str(self), *from = jcl_str(o);
     if (strcmp(target, from) == 0) return 1;
+    if (from[0] == '[') {
+        /* An array is an Object, Cloneable and Serializable; arrays of references are covariant. */
+        if (strcmp(target, "java/lang/Object") == 0 || strcmp(target, "java/lang/Cloneable") == 0
+                || strcmp(target, "java/io/Serializable") == 0) return 1;
+        if (target[0] != '[') return 0;
+        char a[256], b[256];
+        int pa, pb;
+        jcl_array_element_name(target, a, sizeof a, &pa);
+        jcl_array_element_name(from, b, sizeof b, &pb);
+        if (pa || pb) return 0;
+        return jcl_java_lang_Class_isAssignableFrom(jcl_class(a), jcl_class(b));
+    }
     const nabu_type_info *t = nabu_compiled_type_for(from);
     if (t != NULL && strcmp(target, "java/lang/Object") == 0) return 1;
     for (; t != NULL; t = t->super_type) {
@@ -6160,6 +6188,7 @@ extern int nabu_instanceof_array(void *obj, const char *wanted);
 BIND(int, jcl_Class_isInstance, "java.lang.Class_isInstance", (void *self, void *obj)) {
     if (obj == NULL) return 0;
     const char *name = jcl_str(self);
+    if (strcmp(name, "java/lang/Object") == 0) return 1;   /* every object, an array too */
     if (name[0] == '[') return nabu_instanceof_array(obj, name);
     if (nabu_is_jstring(obj)) {
         return strcmp(name, "java/lang/String") == 0 || strcmp(name, "java/lang/Object") == 0

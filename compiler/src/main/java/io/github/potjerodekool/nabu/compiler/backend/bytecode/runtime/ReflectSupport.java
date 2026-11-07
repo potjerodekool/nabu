@@ -27,6 +27,12 @@ public final class ReflectSupport {
         return type instanceof Class<?> c ? c.getTypeName() : type.getTypeName();
     }
 
+    /** {@code Lookup.lookupClass()}: {@code MethodHandles.lookup()} is null in a native program (see
+     * JbossLoggingSupport); hibernate-validator asks it for the class name of its logger category. */
+    public static Class<?> lookupClass(final java.lang.invoke.MethodHandles.Lookup lookup) {
+        return lookup == null ? Object.class : lookup.lookupClass();
+    }
+
     public static Method[] getMethods(final Class<?> type) {
         return copy(ReflectionData.methods(type.getName(), true));
     }

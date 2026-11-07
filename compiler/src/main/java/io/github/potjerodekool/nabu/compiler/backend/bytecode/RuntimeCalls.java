@@ -106,6 +106,8 @@ final class RuntimeCalls {
                     RUNTIME_PACKAGE + "ManagementSupport", "runtimeVersion"),
             new Redirect("java/lang/invoke/MethodHandles", "lookup", "()Ljava/lang/invoke/MethodHandles$Lookup;", true,
                     JbossLoggingSupportGenerator.SUPPORT, "nullLookup"),
+            new Redirect("java/lang/invoke/MethodHandles$Lookup", "lookupClass", "()Ljava/lang/Class;", false,
+                    REFLECT_SUPPORT, "lookupClass"),
             new Redirect("org/jboss/logging/Logger", "getMessageLogger",
                     "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Object;", true,
                     JbossLoggingSupportGenerator.SUPPORT, "getMessageLogger"),

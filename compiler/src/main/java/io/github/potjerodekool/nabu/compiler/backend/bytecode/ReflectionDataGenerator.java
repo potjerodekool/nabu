@@ -11,6 +11,7 @@ import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.IincInsnNode;
 import org.objectweb.asm.tree.TableSwitchInsnNode;
 import org.objectweb.asm.tree.TryCatchBlockNode;
 import org.objectweb.asm.tree.TypeInsnNode;
@@ -156,14 +157,26 @@ public final class ReflectionDataGenerator {
                     + " declared + " + publics + " public + " + constructors + " constructor entries (" + distinct.size()
                     + " distinct), " + dispatched.size() + " dispatched, " + bytes / 1024 + " KB of strings");
         }
-        node.methods.addAll(methods(classes));
-        node.methods.addAll(constructors(classes));
+        // A method that is in many lists (getMethods repeats the inherited public methods of every class) is made by one
+        // case of get(id), not by code in each list.
+        final Map<ReflectedMethod, Integer> ids = new LinkedHashMap<>();
+        for (final ClassMethods methods : classes.values()) {
+            for (final var list : List.of(methods.declared(), methods.publics(), methods.constructors())) {
+                for (final ReflectedMethod method : list) {
+                    ids.putIfAbsent(method, ids.size());
+                }
+            }
+        }
+        node.methods.addAll(getters(List.copyOf(ids.keySet())));
+        node.methods.addAll(methods(classes, ids));
+        node.methods.addAll(constructors(classes, ids));
         node.methods.addAll(invoke(List.copyOf(dispatched.values())));
         return node;
     }
 
     /** {@code Method[] methods(String className, boolean publicOnly)}, null for a class without data. */
-    private static List<MethodNode> methods(final Map<String, ClassMethods> classes) {
+    private static List<MethodNode> methods(final Map<String, ClassMethods> classes,
+                                            final Map<ReflectedMethod, Integer> ids) {
         final var buckets = bucket(classes.entrySet(), Map.Entry::getKey, CLASSES_PER_METHOD);
         final List<MethodNode> result = new ArrayList<>();
         final List<String> chunkNames = new ArrayList<>();
@@ -175,7 +188,7 @@ public final class ReflectionDataGenerator {
             }
             final var name = "methods$" + i;
             chunkNames.add(name);
-            result.add(methodsChunk(name, buckets.get(i)));
+            result.add(methodsChunk(name, buckets.get(i), ids));
         }
 
         result.add(dispatcher("methods", METHODS_DESC, null, chunkNames, code -> {
@@ -186,7 +199,8 @@ public final class ReflectionDataGenerator {
     }
 
     private static MethodNode methodsChunk(final String name,
-                                           final List<Map.Entry<String, ClassMethods>> classes) {
+                                           final List<Map.Entry<String, ClassMethods>> classes,
+                                           final Map<ReflectedMethod, Integer> ids) {
         final MethodNode node = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name,
                 METHODS_DESC, null, null);
         final InsnList code = node.instructions;
@@ -200,10 +214,10 @@ public final class ReflectionDataGenerator {
             code.add(new JumpInsnNode(Opcodes.IFEQ, next));
             code.add(new VarInsnNode(Opcodes.ILOAD, 1));
             code.add(new JumpInsnNode(Opcodes.IFEQ, declared));
-            methodArray(code, entry.getValue().publics());
+            methodArray(code, entry.getValue().publics(), ids);
             code.add(new InsnNode(Opcodes.ARETURN));
             code.add(declared);
-            methodArray(code, entry.getValue().declared());
+            methodArray(code, entry.getValue().declared(), ids);
             code.add(new InsnNode(Opcodes.ARETURN));
             code.add(next);
         }
@@ -215,7 +229,8 @@ public final class ReflectionDataGenerator {
     }
 
     /** {@code Constructor[] constructors(String className)}, null for a class without data. */
-    private static List<MethodNode> constructors(final Map<String, ClassMethods> classes) {
+    private static List<MethodNode> constructors(final Map<String, ClassMethods> classes,
+                                                 final Map<ReflectedMethod, Integer> ids) {
         final var withConstructors = classes.entrySet().stream()
                 .filter(entry -> !entry.getValue().constructors().isEmpty())
                 .toList();
@@ -230,7 +245,7 @@ public final class ReflectionDataGenerator {
             }
             final var name = "constructors$" + i;
             chunkNames.add(name);
-            result.add(constructorsChunk(name, buckets.get(i)));
+            result.add(constructorsChunk(name, buckets.get(i), ids));
         }
 
         result.add(dispatcher("constructors", CONSTRUCTORS_DESC, null, chunkNames, code -> {
@@ -241,7 +256,8 @@ public final class ReflectionDataGenerator {
     }
 
     private static MethodNode constructorsChunk(final String name,
-                                                final List<Map.Entry<String, ClassMethods>> classes) {
+                                                final List<Map.Entry<String, ClassMethods>> classes,
+                                                final Map<ReflectedMethod, Integer> ids) {
         final MethodNode node = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name,
                 CONSTRUCTORS_DESC, null, null);
         final InsnList code = node.instructions;
@@ -252,7 +268,7 @@ public final class ReflectionDataGenerator {
             code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "equals",
                     "(Ljava/lang/Object;)Z", false));
             code.add(new JumpInsnNode(Opcodes.IFEQ, next));
-            executableArray(code, entry.getValue().constructors(), "java/lang/reflect/Constructor");
+            executableArray(code, entry.getValue().constructors(), "java/lang/reflect/Constructor", ids);
             code.add(new InsnNode(Opcodes.ARETURN));
             code.add(next);
         }
@@ -336,20 +352,150 @@ public final class ReflectionDataGenerator {
         return node;
     }
 
-    private static void methodArray(final InsnList code, final List<ReflectedMethod> methods) {
-        executableArray(code, methods, "java/lang/reflect/Method");
+    private static void methodArray(final InsnList code, final List<ReflectedMethod> methods,
+                                    final Map<ReflectedMethod, Integer> ids) {
+        executableArray(code, methods, "java/lang/reflect/Method", ids);
     }
 
     private static void executableArray(final InsnList code, final List<ReflectedMethod> methods,
-                                        final String elementType) {
+                                        final String elementType, final Map<ReflectedMethod, Integer> ids) {
+        if (ids.size() < 0xD000) {
+            // the ids of the list as the characters of a string (id + 1: no NUL): one call instead of code per entry
+            final StringBuilder chars = new StringBuilder();
+            for (final ReflectedMethod method : methods) {
+                chars.append((char) (ids.get(method) + 1));
+            }
+            final boolean constructors = elementType.equals("java/lang/reflect/Constructor");
+            code.add(new LdcInsnNode(chars.toString()));
+            code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, REFLECTION_DATA, constructors ? "constructorList" : "methodList",
+                    "(Ljava/lang/String;)[L" + elementType + ";", false));
+            return;
+        }
         pushInt(code, methods.size());
         code.add(new TypeInsnNode(Opcodes.ANEWARRAY, elementType));
         for (int i = 0; i < methods.size(); i++) {
             code.add(new InsnNode(Opcodes.DUP));
             pushInt(code, i);
-            pushMethod(code, methods.get(i));
+            pushInt(code, ids.get(methods.get(i)));
+            code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, REFLECTION_DATA, "get", "(I)Ljava/lang/Object;", false));
+            code.add(new TypeInsnNode(Opcodes.CHECKCAST,
+                    methods.get(i).isConstructor() ? "java/lang/reflect/Constructor" : "java/lang/reflect/Method"));
             code.add(new InsnNode(Opcodes.AASTORE));
         }
+    }
+
+    /** Entries of one {@code get$k} method. */
+    private static final int GETS_PER_METHOD = 200;
+
+    /**
+     * {@code Object get(int id)}: a new Method (or Constructor) object for the method with that id, as
+     * {@link #pushMethod} makes it. A switch on the id over chunks, so that no method of the class gets too big.
+     */
+    private static List<MethodNode> getters(final List<ReflectedMethod> methods) {
+        final List<MethodNode> result = new ArrayList<>();
+        final int chunks = (methods.size() + GETS_PER_METHOD - 1) / GETS_PER_METHOD;
+        for (int k = 0; k < chunks; k++) {
+            final int from = k * GETS_PER_METHOD;
+            final int to = Math.min(methods.size(), from + GETS_PER_METHOD);
+            final MethodNode node = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "get$" + k,
+                    "(I)Ljava/lang/Object;", null, null);
+            final InsnList code = node.instructions;
+            final LabelNode other = new LabelNode();
+            final LabelNode[] labels = new LabelNode[to - from];
+            for (int i = 0; i < labels.length; i++) {
+                labels[i] = new LabelNode();
+            }
+            code.add(new VarInsnNode(Opcodes.ILOAD, 0));
+            pushInt(code, from);
+            code.add(new InsnNode(Opcodes.ISUB));
+            code.add(new TableSwitchInsnNode(0, labels.length - 1, other, labels));
+            for (int i = 0; i < labels.length; i++) {
+                code.add(labels[i]);
+                pushMethodObject(code, methods.get(from + i));
+                code.add(new InsnNode(Opcodes.ARETURN));
+            }
+            code.add(other);
+            code.add(new InsnNode(Opcodes.ACONST_NULL));
+            code.add(new InsnNode(Opcodes.ARETURN));
+            node.maxStack = 8;
+            node.maxLocals = 1;
+            result.add(node);
+        }
+        final MethodNode get = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "get",
+                "(I)Ljava/lang/Object;", null, null);
+        final InsnList code = get.instructions;
+        if (chunks == 0) {
+            code.add(new InsnNode(Opcodes.ACONST_NULL));
+            code.add(new InsnNode(Opcodes.ARETURN));
+        } else {
+            final LabelNode other = new LabelNode();
+            final LabelNode[] labels = new LabelNode[chunks];
+            for (int k = 0; k < chunks; k++) {
+                labels[k] = new LabelNode();
+            }
+            code.add(new VarInsnNode(Opcodes.ILOAD, 0));
+            pushInt(code, GETS_PER_METHOD);
+            code.add(new InsnNode(Opcodes.IDIV));
+            code.add(new TableSwitchInsnNode(0, chunks - 1, other, labels));
+            for (int k = 0; k < chunks; k++) {
+                code.add(labels[k]);
+                code.add(new VarInsnNode(Opcodes.ILOAD, 0));
+                code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, REFLECTION_DATA, "get$" + k,
+                        "(I)Ljava/lang/Object;", false));
+                code.add(new InsnNode(Opcodes.ARETURN));
+            }
+            code.add(other);
+            code.add(new InsnNode(Opcodes.ACONST_NULL));
+            code.add(new InsnNode(Opcodes.ARETURN));
+        }
+        get.maxStack = 4;
+        get.maxLocals = 1;
+        result.add(get);
+        result.add(listBuilder("methodList", "java/lang/reflect/Method"));
+        result.add(listBuilder("constructorList", "java/lang/reflect/Constructor"));
+        return result;
+    }
+
+    /**
+     * {@code Element[] name(String ids)}: an array with get(c - 1) for each character c of the string.
+     */
+    private static MethodNode listBuilder(final String name, final String elementType) {
+        final MethodNode node = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name,
+                "(Ljava/lang/String;)[L" + elementType + ";", null, null);
+        final InsnList code = node.instructions;
+        final LabelNode loop = new LabelNode();
+        final LabelNode done = new LabelNode();
+        // a = new Element[ids.length()]
+        code.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false));
+        code.add(new TypeInsnNode(Opcodes.ANEWARRAY, elementType));
+        code.add(new VarInsnNode(Opcodes.ASTORE, 1));
+        code.add(new InsnNode(Opcodes.ICONST_0));
+        code.add(new VarInsnNode(Opcodes.ISTORE, 2));
+        code.add(loop);
+        code.add(new VarInsnNode(Opcodes.ILOAD, 2));
+        code.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        code.add(new InsnNode(Opcodes.ARRAYLENGTH));
+        code.add(new JumpInsnNode(Opcodes.IF_ICMPGE, done));
+        // a[i] = (Element) get(ids.charAt(i) - 1)
+        code.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        code.add(new VarInsnNode(Opcodes.ILOAD, 2));
+        code.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        code.add(new VarInsnNode(Opcodes.ILOAD, 2));
+        code.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "charAt", "(I)C", false));
+        code.add(new InsnNode(Opcodes.ICONST_1));
+        code.add(new InsnNode(Opcodes.ISUB));
+        code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, REFLECTION_DATA, "get", "(I)Ljava/lang/Object;", false));
+        code.add(new TypeInsnNode(Opcodes.CHECKCAST, elementType));
+        code.add(new InsnNode(Opcodes.AASTORE));
+        code.add(new IincInsnNode(2, 1));
+        code.add(new JumpInsnNode(Opcodes.GOTO, loop));
+        code.add(done);
+        code.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        code.add(new InsnNode(Opcodes.ARETURN));
+        node.maxStack = 5;
+        node.maxLocals = 3;
+        return node;
     }
 
     /**
@@ -358,6 +504,13 @@ public final class ReflectionDataGenerator {
      * (as an Object: the caller casts).
      */
     static void pushMethod(final InsnList code, final ReflectedMethod method) {
+        pushMethodObject(code, method);
+        code.add(new TypeInsnNode(Opcodes.CHECKCAST,
+                method.isConstructor() ? "java/lang/reflect/Constructor" : "java/lang/reflect/Method"));
+    }
+
+    /** As {@link #pushMethod}, without the cast. */
+    private static void pushMethodObject(final InsnList code, final ReflectedMethod method) {
         code.add(new LdcInsnNode(Type.getObjectType(method.owner())));
         code.add(new LdcInsnNode(method.name()));
         code.add(new LdcInsnNode(method.desc()));
@@ -375,8 +528,6 @@ public final class ReflectionDataGenerator {
         code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, RuntimeCalls.PROXY_SUPPORT, "method",
                 "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)"
                         + "Ljava/lang/Object;", false));
-        code.add(new TypeInsnNode(Opcodes.CHECKCAST,
-                method.isConstructor() ? "java/lang/reflect/Constructor" : "java/lang/reflect/Method"));
     }
 
     /**

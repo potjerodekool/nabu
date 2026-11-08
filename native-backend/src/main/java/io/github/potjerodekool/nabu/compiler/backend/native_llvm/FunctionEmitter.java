@@ -339,6 +339,13 @@ public class FunctionEmitter {
         }
     }
 
+    /** Functions already compiled in a chunk (see {@link ChunkedCodegen}): a second body for the symbol is dropped. */
+    private java.util.Set<String> compiledNames;
+
+    public void setCompiledNames(final java.util.Set<String> compiledNames) {
+        this.compiledNames = compiledNames;
+    }
+
     /** Completes the line tables; call after all bodies. */
     public void finishDebugInfo() {
         debugLines.finish();
@@ -394,6 +401,12 @@ public class FunctionEmitter {
                 System.err.println("[nabu/LLVM] C-runtime vervangt gecompileerde body: "
                         + LLVMGetValueName(llvmFn).getString());
             }
+            return;
+        }
+
+        // A second IR function with the symbol of one that was compiled in a chunk: without chunks its body ended up
+        // as an unreachable block of the first, so it is dropped here.
+        if (compiledNames != null && compiledNames.contains(LLVMGetValueName(llvmFn).getString())) {
             return;
         }
 

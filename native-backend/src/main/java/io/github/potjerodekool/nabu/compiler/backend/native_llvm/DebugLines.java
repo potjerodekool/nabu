@@ -158,20 +158,31 @@ final class DebugLines {
         }
     }
 
-    /** Completes the debug metadata; call once, after all bodies. */
+    private boolean flagsAdded;
+
+    /**
+     * Completes the debug metadata of the functions emitted so far; call after all bodies, or after a chunk (see
+     * {@link ChunkedCodegen}): the next function then starts a new compile unit.
+     */
     void finish() {
-        if (!any) {
+        if (!any || di == null) {
             return;
         }
         for (final Object[] each : withScope) {
             locateTheRest((LLVMValueRef) each[0], (LLVMMetadataRef) each[1], (Integer) each[2]);
         }
         LLVMDIBuilderFinalize(di);
-        final org.bytedeco.llvm.LLVM.LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
-        LLVMAddModuleFlag(mod, 1, "Debug Info Version", 18,
-                LLVMValueAsMetadata(LLVMConstInt(i32, 3, 0)));
-        LLVMAddModuleFlag(mod, 1, "Dwarf Version", 13,
-                LLVMValueAsMetadata(LLVMConstInt(i32, 4, 0)));
+        if (!flagsAdded) {
+            flagsAdded = true;
+            final org.bytedeco.llvm.LLVM.LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
+            LLVMAddModuleFlag(mod, 1, "Debug Info Version", 18,
+                    LLVMValueAsMetadata(LLVMConstInt(i32, 3, 0)));
+            LLVMAddModuleFlag(mod, 1, "Dwarf Version", 13,
+                    LLVMValueAsMetadata(LLVMConstInt(i32, 4, 0)));
+        }
         LLVMDisposeDIBuilder(di);
+        di = null;
+        unit = null;
+        withScope.clear();
     }
 }

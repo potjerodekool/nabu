@@ -87,6 +87,16 @@ public void setReflectionRegistry(
      *      over klassen heen gedeeld kunnen worden
      *   3. bodies
      */
+    /** Compiles the bodies in chunks while they are emitted (null: all at the end), see {@link ChunkedCodegen}. */
+    private ChunkedCodegen chunker;
+    private long chunkInstructions;
+
+    public void setChunker(final ChunkedCodegen chunker, final long instructionsPerChunk) {
+        this.chunker = chunker;
+        this.chunkInstructions = instructionsPerChunk;
+        functions.setCompiledNames(chunker != null ? chunker.compiledFunctions() : null);
+    }
+
     public void emitAll(List<IRModule> modules) {
         final boolean timing = Boolean.getBoolean("nabu.llvm.phaseTiming");
         long tp = System.nanoTime();
@@ -196,6 +206,7 @@ public void setReflectionRegistry(
 
         tp = lap(timing, "reflection/ctors", tp);
         // 4. Bodies
+        long sinceChunk = 0;
         for (var module : modules) {
             for (IRFunction fn : module.functions()) {
                 // Dezelfde voorstap als het ASM-backend: phi's zijn SSA-
@@ -204,8 +215,17 @@ public void setReflectionRegistry(
                 // naar een temp die in een ander blok gedefinieerd is).
                 if (!fn.isExternal()) {
                     io.github.potjerodekool.nabu.backend.ir.PhiElimination.run(fn);
+                    if (chunker != null) {
+                        for (final var block : fn.blocks()) {
+                            sinceChunk += block.instructions().size();
+                        }
+                    }
                 }
                 functions.emitBody(fn);
+            }
+            if (chunker != null && sinceChunk >= chunkInstructions) {
+                flushChunk();
+                sinceChunk = 0;
             }
         }
 
@@ -214,6 +234,20 @@ public void setReflectionRegistry(
 
         // 5. Array classes, after the bodies that allocate the arrays.
         emitArrayTypeTable(instructions.arrayTypeNames());
+    }
+
+    private void flushChunk() {
+        final long t = System.nanoTime();
+        functions.finishDebugInfo();
+        try {
+            chunker.flush();
+        } catch (final io.github.potjerodekool.nabu.util.CompileException e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+        if (Boolean.getBoolean("nabu.llvm.phaseTiming")) {
+            System.err.println("[LLVMModuleEmitter] chunk " + chunker.objects().size() + ": "
+                    + (System.nanoTime() - t) / 1_000_000L + " ms");
+        }
     }
 
     private static long lap(final boolean on, final String phase, final long since) {
@@ -277,9 +311,12 @@ public void setReflectionRegistry(
         for (LLVMValueRef fn = LLVMGetFirstFunction(mod); fn != null && !fn.isNull();
              fn = LLVMGetNextFunction(fn)) {
             if (LLVMIsDeclaration(fn) == 0 || LLVMGetIntrinsicID(fn) != 0) continue;
-            final var firstUse = LLVMGetFirstUse(fn);
-            if (firstUse == null || firstUse.isNull()) continue;
             final String name = LLVMGetValueName(fn).getString();
+            // With chunks, the callers of a function are gone by now (and the function that was compiled in a chunk
+            // is a declaration again): what was seen while they were there counts.
+            if (chunker != null && chunker.compiledFunctions().contains(name)) continue;
+            final var firstUse = LLVMGetFirstUse(fn);
+            if ((firstUse == null || firstUse.isNull()) && (chunker == null || !chunker.usedDeclarations().contains(name))) continue;
             // Alleen JDK-leden (`pkg.Owner_member`): C-runtime-, libc- en
             // GC-symbolen hebben geen punt in hun naam.
             if (name.indexOf('.') < 0 || name.startsWith("llvm.") || runtime.contains(name)) {

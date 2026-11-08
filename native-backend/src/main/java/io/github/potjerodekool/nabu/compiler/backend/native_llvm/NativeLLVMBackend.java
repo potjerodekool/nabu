@@ -356,6 +356,27 @@ public class NativeLLVMBackend implements Backend {
             final int moduleCount = modules.size();
             LLVMModuleEmitter emitter = new LLVMModuleEmitter(ctx, llvmMod, builder, opts);
             emitter.setReflectionRegistry(reflectionRegistry);
+            // Without optimization the code of a large program is generated while the bodies are emitted, in chunks:
+            // the bodies of the whole program are never in memory at once. -Dnabu.llvm.chunkInstructions=<n> sets the
+            // size of a chunk in IR instructions (0 = off).
+            final boolean singleModule = opts.optLevel() == CompileOptions.OptLevel.NONE
+                    && System.getProperty("nabu.llvm.partitions") == null;
+            final long chunkSize = Long.getLong("nabu.llvm.chunkInstructions",
+                    partitioned && singleModule && modules.size() > 2000 ? 600_000L : 0L);
+            ChunkedCodegen chunker = null;
+            LLVMTargetMachineRef chunkMachine = null;
+            if (chunkSize > 0) {
+                final BytePointer targetErr = new BytePointer();
+                final LLVMTargetRef target = new LLVMTargetRef();
+                if (LLVMGetTargetFromTriple(new BytePointer(triple), target, targetErr) != 0)
+                    throw new CompileException("Unknown target: " + targetErr.getString());
+                chunkMachine = LLVMCreateTargetMachine(target, new BytePointer(triple),
+                        new BytePointer("generic"), new BytePointer(""), LLVMCodeGenLevelNone, LLVMRelocPIC,
+                        LLVMCodeModelDefault);
+                objectFiles(outputObj, 1);
+                chunker = new ChunkedCodegen(llvmMod, chunkMachine, triple, outputObj);
+                emitter.setChunker(chunker, chunkSize);
+            }
             for (final IRModule m : modules) {
                 if (m.functions().stream().anyMatch(f -> f.name.equals("main") && !f.isExternal())) {
                     emitter.setMainClassName(m.name);
@@ -411,6 +432,15 @@ public class NativeLLVMBackend implements Backend {
             System.err.println("[NativeLLVMBackend] emitAll (" + moduleCount + " IR-modules -> LLVM-IR): "
                     + (t1 - t0) / 1_000_000L + " ms");
 
+            if (chunker != null) {
+                System.gc();
+                long tc = System.nanoTime();
+                chunker.finish();
+                System.err.println("[NativeLLVMBackend] last object file of " + chunker.objects().size() + ": "
+                        + (System.nanoTime() - tc) / 1_000_000L + " ms");
+                LLVMDisposeTargetMachine(chunkMachine);
+                return chunker.objects();
+            }
             LLVMSetTarget(llvmMod, new BytePointer(triple));
 
             BytePointer   err       = new BytePointer();

@@ -416,7 +416,8 @@ public class NativeLLVMBackend implements Backend {
             LLVMTargetMachineRef machine = LLVMCreateTargetMachine(
                     targetRef, new BytePointer(triple),
                     new BytePointer("generic"), new BytePointer(""),
-                    LLVMCodeGenLevelDefault, LLVMRelocPIC, LLVMCodeModelDefault);
+                    opts.optLevel() == CompileOptions.OptLevel.NONE ? LLVMCodeGenLevelNone : LLVMCodeGenLevelDefault,
+                    LLVMRelocPIC, LLVMCodeModelDefault);
 
             LLVMSetModuleDataLayout(llvmMod, LLVMCreateTargetDataLayout(machine));
 
@@ -437,7 +438,11 @@ public class NativeLLVMBackend implements Backend {
             long t4 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] validate: " + (t4 - t3) / 1_000_000L + " ms");
 
-            final int partitions = partitioned
+            // Without optimization the code generation is the only work: one module is faster than the split into
+            // partitions (writing, parsing and trimming the bitcode of the whole program), and needs less memory.
+            final boolean single = opts.optLevel() == CompileOptions.OptLevel.NONE
+                    && System.getProperty("nabu.llvm.partitions") == null;
+            final int partitions = partitioned && !single
                     ? PartitionedCodegen.partitionCount(PartitionedCodegen.countDefinedFunctions(llvmMod))
                     : 1;
             final List<Path> objectFiles = objectFiles(outputObj, partitions);

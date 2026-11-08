@@ -320,6 +320,34 @@ public class NabuCompiler implements Compiler {
                 final long reachMillis = (System.nanoTime() - reachStart) / 1_000_000L;
                 System.err.println("[NabuCompiler] Bytecode reachability closure + lowering: "
                         + reachMillis + " ms (" + allModules.size() + " modules in total)");
+                if (Boolean.getBoolean("nabu.closureStats")) {
+                    printClosureStats(allModules);
+                }
+    }
+
+    /** -Dnabu.closureStats=true: modules, functions and instructions of the closure per package (three segments). */
+    private static void printClosureStats(final List<io.github.potjerodekool.nabu.backend.ir.IRModule> modules) {
+        final var stats = new java.util.TreeMap<String, long[]>();
+        for (final var module : modules) {
+            final String[] parts = String.valueOf(module.name).replace('.', '/').split("/");
+            final String pkg = String.join(".", java.util.Arrays.copyOf(parts, Math.min(3, Math.max(1, parts.length - 1))));
+            final long[] row = stats.computeIfAbsent(pkg, k -> new long[3]);
+            row[0]++;
+            for (final var fn : module.functions()) {
+                row[1]++;
+                for (final var block : fn.blocks()) {
+                    row[2] += block.instructions().size();
+                }
+            }
+        }
+        long total = stats.values().stream().mapToLong(r -> r[2]).sum();
+        System.err.println("[closureStats] instructions in total: " + total);
+        stats.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue()[2], a.getValue()[2]))
+                .limit(60)
+                .forEach(e -> System.err.println("[closureStats] " + e.getKey() + ": modules " + e.getValue()[0]
+                        + ", functions " + e.getValue()[1] + ", instructions " + e.getValue()[2]
+                        + " (" + 100 * e.getValue()[2] / Math.max(1, total) + "%)"));
     }
 
     private boolean isIncremental(final CompilerOptions compilerOptions) {

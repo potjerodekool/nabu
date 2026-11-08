@@ -3131,6 +3131,7 @@ BIND(void *, jcl_java_lang_Class_getFields, "java.lang.Class_getFields", (void *
 }
 BIND(void *, jcl_java_lang_Class_getMethod, "java.lang.Class_getMethod", (void *self, void *nm, void *pts)) { (void)self; (void)nm; (void)pts; return NULL; }
 BIND(void *, jcl_java_lang_Class_getMethods, "java.lang.Class_getMethods", (void *self)) { (void)self; return jcl_arr_typed(0, "[Ljava/lang/reflect/Method;"); }
+static int32_t jcl_class_flags(void *self);
 /* De super van de klasse die `self` NOEMT — niet die van het Class-object zelf
  * (dat is altijd java/lang/Class, met Object als super: getSuperclass gaf dan
  * Object.class terug, ook voor Object.class zelf, en picocli's
@@ -3142,6 +3143,12 @@ BIND(void *, jcl_java_lang_Class_getSuperclass, "java.lang.Class_getSuperclass",
     const char *n = jcl_str(self);
     for (size_t i = 0; i < sizeof primitives / sizeof primitives[0]; i++) {
         if (strcmp(n, primitives[i]) == 0) return NULL;
+    }
+    {
+        /* An interface has no superclass (null, not Object): Spring's ReflectionUtils.doWithMethods then goes on with
+         * the super interfaces. */
+        const int32_t flags = jcl_class_flags(self);
+        if (flags >= 0 && (flags & 0x200) != 0) return NULL;
     }
     if (n[0] == '\0' || n[0] == '[' || strcmp(n, "java/lang/Object") == 0) {
         /* Object, primitieven en void hebben geen super; een array heeft

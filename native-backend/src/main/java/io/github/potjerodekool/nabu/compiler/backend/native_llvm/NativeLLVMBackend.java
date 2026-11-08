@@ -402,6 +402,11 @@ public class NativeLLVMBackend implements Backend {
                     // an immutable list: the caller keeps its IR
                 }
             }
+            if (partitioned) {
+                // The Java heap is garbage now (IR, emitter maps) but nothing makes the collector run, so the
+                // process keeps gigabytes of it during the code generation: a full collection returns them.
+                System.gc();
+            }
             long t1 = System.nanoTime();
             System.err.println("[NativeLLVMBackend] emitAll (" + moduleCount + " IR-modules -> LLVM-IR): "
                     + (t1 - t0) / 1_000_000L + " ms");

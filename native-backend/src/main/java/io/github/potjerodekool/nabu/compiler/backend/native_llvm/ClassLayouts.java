@@ -934,18 +934,22 @@ for (IRModule m : modules) {
         return slot != null ? slot : -1;
     }
 
+    /** Function name -> its slot, or -1 when several slots (overloads) share the name; rebuilt when slots are added. */
+    private Map<String, Integer> slotByFunction;
+    private int slotByFunctionFor = -1;
+
     /** Het enige slot van een methodenaam (één overload in gebruik), anders null. */
     private Integer uniqueSlotByName(final Map<String, Integer> slots, final String function) {
-        Integer found = null;
-        for (final Map.Entry<String, Integer> e : slots.entrySet()) {
-            if (function.equals(slotFunction(e.getKey()))) {
-                if (found != null) {
-                    return null;
-                }
-                found = e.getValue();
+        if (slotByFunction == null || slotByFunctionFor != slots.size()) {
+            final Map<String, Integer> index = new HashMap<>();
+            for (final Map.Entry<String, Integer> e : slots.entrySet()) {
+                index.merge(slotFunction(e.getKey()), e.getValue(), (x, y) -> -1);
             }
+            slotByFunction = index;
+            slotByFunctionFor = slots.size();
         }
-        return found;
+        final Integer found = slotByFunction.get(function);
+        return found == null || found < 0 ? null : found;
     }
 
     /** Het unieke symbool voor een constructor die met een methode botst, of null. */
@@ -1930,20 +1934,19 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         layout.itableSlots = interfaceSlots;
         LLVMValueRef[] entries = new LLVMValueRef[interfaceSlots.size()];
         int length = 0;
-        for (Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
+        // Only the slots of the interfaces the class implements (and the slots whose interface is unknown): a
+        // scan over all slots for every class made this the largest part of the build before the code generation.
+        final List<Map.Entry<String, Integer>> candidates = new ArrayList<>(isInterface ? List.of() : slotsOfUnknownOwner());
+        for (final String itf : implemented) {
+            candidates.addAll(slotsByOwner().getOrDefault(itf, List.of()));
+        }
+        for (Map.Entry<String, Integer> slot : candidates) {
             String interfaceMethod = slot.getKey();
-            if (isInterface) {
-                continue;
-            }
-            final String owner = interfaceSlotOwner(interfaceMethod);
-            if (owner != null && !implemented.contains(owner)) {
-                continue;
-            }
             LLVMValueRef implementation = findInterfaceImplementation(layout.internalName, interfaceMethod);
             entries[slot.getValue()] = implementation != null && !implementation.isNull()
                     ? implementation
                     : LLVMConstNull(ptrType);
-            length = slot.getValue() + 1;
+            length = Math.max(length, slot.getValue() + 1);
         }
         entries = java.util.Arrays.copyOf(entries, length);
 
@@ -1972,6 +1975,39 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
     }
 
     private final Set<String> runtimeSymbols = RuntimeSymbols.load();
+
+    private Map<String, List<Map.Entry<String, Integer>>> slotsByOwner;
+    private List<Map.Entry<String, Integer>> slotsOfUnknownOwner;
+    private int slotsIndexedFor = -1;
+
+    private void indexSlotsByOwner() {
+        if (slotsIndexedFor == interfaceSlots.size() && slotsByOwner != null) {
+            return;
+        }
+        final Map<String, List<Map.Entry<String, Integer>>> byOwner = new HashMap<>();
+        final List<Map.Entry<String, Integer>> unknown = new ArrayList<>();
+        for (final Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
+            final String owner = interfaceSlotOwner(slot.getKey());
+            if (owner == null) {
+                unknown.add(slot);
+            } else {
+                byOwner.computeIfAbsent(owner, k -> new ArrayList<>()).add(slot);
+            }
+        }
+        slotsByOwner = byOwner;
+        slotsOfUnknownOwner = unknown;
+        slotsIndexedFor = interfaceSlots.size();
+    }
+
+    private Map<String, List<Map.Entry<String, Integer>>> slotsByOwner() {
+        indexSlotsByOwner();
+        return slotsByOwner;
+    }
+
+    private List<Map.Entry<String, Integer>> slotsOfUnknownOwner() {
+        indexSlotsByOwner();
+        return slotsOfUnknownOwner;
+    }
 
     /** Slot key -> internal name of the interface its call names, or null if unknown. */
     private final Map<String, java.util.Optional<String>> interfaceSlotOwners = new HashMap<>();

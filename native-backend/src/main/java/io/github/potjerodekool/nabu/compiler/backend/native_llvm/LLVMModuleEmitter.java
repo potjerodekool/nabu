@@ -88,6 +88,8 @@ public void setReflectionRegistry(
      *   3. bodies
      */
     public void emitAll(List<IRModule> modules) {
+        final boolean timing = Boolean.getBoolean("nabu.llvm.phaseTiming");
+        long tp = System.nanoTime();
         // 0. Runtime helpers declareren
         declareRuntimeHelpers();
 
@@ -96,17 +98,20 @@ public void setReflectionRegistry(
         //     call-target naar een functie verwijst die hier gedeclareerd is.
         this.classLayouts.indexModules(modules);
 
+        tp = lap(timing, "index", tp);
         // 1. Globals (string-literals, variabelen) — vóór functies
         for (var module : modules)
             for (var global : module.globals().values())
                 globals.emit(global);
 
+        tp = lap(timing, "globals", tp);
         // 2. Alle signaturen — vóór bodies (wederzijdse recursie)
         //    Ook nodig vóór de vtable-opbouw, die functiepointers gebruikt.
         for (var module : modules)
             for (IRFunction fn : module.functions())
                 functions.declareSignature(fn);
 
+        tp = lap(timing, "signatures", tp);
         // 2.5 Laat-externe callee's: calls naar functies die in geen enkele
         //     te-compileren module als IRFunction gedeclareerd zijn (bv.
         //     interface-calls java.util.Iterator_hasNext). Zonder declaratie
@@ -154,6 +159,7 @@ public void setReflectionRegistry(
             }
         }
 
+        tp = lap(timing, "late externals", tp);
         // 3. Objectmodel (struct-layouts + type-info + vtable/itable) — na
         //    signaturen. Ouders vóór kinderen binnen één registerAll.
         this.classLayouts.registerAll(mod, modules);
@@ -165,6 +171,7 @@ public void setReflectionRegistry(
         emitMainClassName();
         emitExceptionTable(modules);
 
+        tp = lap(timing, "object model", tp);
         // 3.5 Reflectie-metadata (reflect-config-geregistreerde klassen):
         //     nabu_reflection_info-globals + @llvm.global_ctors-registratie.
         //     3.6 GC-init hoort in dezelfde ctor-array: één appending global
@@ -187,6 +194,7 @@ public void setReflectionRegistry(
         registerClassInitCtors(ctors, modules);
         ctors.emit();
 
+        tp = lap(timing, "reflection/ctors", tp);
         // 4. Bodies
         for (var module : modules) {
             for (IRFunction fn : module.functions()) {
@@ -201,10 +209,19 @@ public void setReflectionRegistry(
             }
         }
 
+        tp = lap(timing, "bodies", tp);
         functions.finishDebugInfo();
 
         // 5. Array classes, after the bodies that allocate the arrays.
         emitArrayTypeTable(instructions.arrayTypeNames());
+    }
+
+    private static long lap(final boolean on, final String phase, final long since) {
+        final long now = System.nanoTime();
+        if (on) {
+            System.err.println("[LLVMModuleEmitter] " + phase + ": " + (now - since) / 1_000_000L + " ms");
+        }
+        return now;
     }
 
     /**

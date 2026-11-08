@@ -2401,6 +2401,14 @@ public class InstructionEmitter {
      * Retourneert de handler-label als het huidige blok in een try-regio zit,
      * of null als het blok niet beschermd is.
      */
+    /** The label of each block of blockMap; null until needed, reset when the blocks of a function are made. */
+    private Map<LLVMBasicBlockRef, String> blockLabels;
+
+    /** Called by the function emitter when blockMap has been filled for a new function. */
+    void blockMapChanged() {
+        blockLabels = null;
+    }
+
     private String getHandlerLabel() {
         if (functionEmitter == null) return null;
         LLVMBasicBlockRef currentBB = LLVMGetInsertBlock(builder);
@@ -2411,11 +2419,17 @@ public class InstructionEmitter {
         String contHandler = continuationHandlers.get(currentBB);
         if (contHandler != null) return contHandler;
 
-        // Zoek het blok-label op basis van het LLVM blok
-        for (var entry : blockMap.entrySet()) {
-            if (entry.getValue().equals(currentBB)) {
-                return functionEmitter.getHandlerLabel(entry.getKey());
+        // Zoek het blok-label op basis van het LLVM blok (reverse index: per instructie een scan van de blokken
+        // van de functie kostte seconden)
+        if (blockLabels == null) {
+            blockLabels = new HashMap<>();
+            for (var entry : blockMap.entrySet()) {
+                blockLabels.putIfAbsent(entry.getValue(), entry.getKey());
             }
+        }
+        final String label = blockLabels.get(currentBB);
+        if (label != null) {
+            return functionEmitter.getHandlerLabel(label);
         }
         return functionEmitter.getHandlerLabelOfBodyBlock(currentBB);
     }
@@ -2947,14 +2961,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
                     // owner-fundamental. Zoek de global waarvan de key op
                     // `<owner>_<name>` (of `<name>` zelf) eindigt. A linear
                     // scan of every global, so the hit is remembered.
-                    for (var entry : globalValueMap.entrySet()) {
-                        if (entry.getKey().endsWith("$" + n.name())
-                                || entry.getKey().endsWith("." + n.name())
-                                || entry.getKey().endsWith("_" + n.name())) {
-                            v = entry.getValue();
-                            suffixMatches.put(n.name(), v);
-                            break;
-                        }
+                    v = globalBySuffix(n.name());
+                    if (v != null) {
+                        suffixMatches.put(n.name(), v);
                     }
                 }
                 if (v == null) {
@@ -3065,6 +3074,44 @@ private void emitThrow(IRInstruction.Throw throwInst) {
     /** Static fields of System that nabu.runtime.Bootstrap assigns at start-up: they do get a value. */
     private static final java.util.Set<String> BOOTSTRAP_FIELDS = java.util.Set.of(
             "java.lang.System_out", "java.lang.System_err", "java.lang.System_in");
+
+    /** The globals by every suffix that follows a '$', '.' or '_' of their key; built when a scan is first needed. */
+    private Map<String, LLVMValueRef> suffixIndex;
+    private int suffixIndexSize;
+
+    /**
+     * A global whose key ends with {@code $name}, {@code .name} or {@code _name}. An index instead of a scan of
+     * every global per name (seconds for a large program); a global added after the index was made is found by the
+     * scan, which only a name that is not in the index pays for.
+     */
+    private LLVMValueRef globalBySuffix(final String name) {
+        if (suffixIndex == null) {
+            final Map<String, LLVMValueRef> index = new HashMap<>();
+            for (var entry : globalValueMap.entrySet()) {
+                final String key = entry.getKey();
+                for (int p = 0; p < key.length(); p++) {
+                    final char c = key.charAt(p);
+                    if (c == '$' || c == '.' || c == '_') {
+                        index.putIfAbsent(key.substring(p + 1), entry.getValue());
+                    }
+                }
+            }
+            suffixIndex = index;
+            suffixIndexSize = globalValueMap.size();
+        }
+        final LLVMValueRef found = suffixIndex.get(name);
+        if (found != null || globalValueMap.size() == suffixIndexSize) {
+            return found;
+        }
+        for (var entry : globalValueMap.entrySet()) {
+            if (entry.getKey().endsWith("$" + name)
+                    || entry.getKey().endsWith("." + name)
+                    || entry.getKey().endsWith("_" + name)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
 
     private LLVMValueRef declareOutsideStaticField(final IRValue.Named named) {
         final String plain = named.name().startsWith("@")

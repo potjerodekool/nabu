@@ -441,6 +441,7 @@ public class FunctionEmitter {
                     new BytePointer(block.label()));
             blockMap.put(block.label(), bb);
         }
+        instructions.blockMapChanged();
 
         // Pre-scan: TryCatchRegion-metadata → per try-range de handler-keten.
         // Elke range krijgt één landingspad met daarachter een keten van

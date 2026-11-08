@@ -51,13 +51,15 @@ class SocketChannelE2eIT {
                         server.configureBlocking(false);
                         server.register(selector, SelectionKey.OP_ACCEPT);
                         SocketChannel client = SocketChannel.open(new InetSocketAddress("127.0.0.1", port));
+                        client.setOption(StandardSocketOptions.TCP_NODELAY, true);
+                        boolean nodelay = client.getOption(StandardSocketOptions.TCP_NODELAY);
                         int selected = selector.select(5000);
                         SocketChannel peer = server.accept();
                         client.write(ByteBuffer.wrap("hello".getBytes()));
                         peer.configureBlocking(true);
                         ByteBuffer buffer = ByteBuffer.allocate(16);
                         int read = peer.read(buffer);
-                        System.out.println(selected + " " + (port > 0) + " " + read + " "
+                        System.out.println(selected + " " + (port > 0 && nodelay) + " " + read + " "
                                 + new String(buffer.array(), 0, buffer.position()));
                         peer.write(ByteBuffer.wrap("bye".getBytes()));
                         ByteBuffer back = ByteBuffer.allocate(8);

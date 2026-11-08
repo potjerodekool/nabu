@@ -445,6 +445,31 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+        if ("sun/net/ext/ExtendedSocketOptions".equals(classNode.name)) {
+            // The platform options of the jdk.net module register themselves when that class is loaded by name, which
+            // a native program cannot do: there are none, the instance that says so is used.
+            for (final MethodNode m : classNode.methods) {
+                if ("getInstance".equals(m.name) && "()Lsun/net/ext/ExtendedSocketOptions;".equals(m.desc)) {
+                    final String none = "sun/net/ext/ExtendedSocketOptions$NoExtendedSocketOptions";
+                    replaceBody(m, insns -> {
+                        final var present = new org.objectweb.asm.tree.LabelNode();
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC, classNode.name, "instance",
+                                "Lsun/net/ext/ExtendedSocketOptions;"));
+                        insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IFNONNULL, present));
+                        insns.add(new org.objectweb.asm.tree.TypeInsnNode(Opcodes.NEW, none));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.DUP));
+                        insns.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESPECIAL, none, "<init>", "()V",
+                                false));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, "instance",
+                                "Lsun/net/ext/ExtendedSocketOptions;"));
+                        insns.add(present);
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC, classNode.name, "instance",
+                                "Lsun/net/ext/ExtendedSocketOptions;"));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ARETURN));
+                    });
+                }
+            }
+        }
         if ("java/lang/ClassValue".equals(classNode.name)) {
             // The values live in a field of java.lang.Class, which the Class objects of a native executable do not
             // have (the JDK code read garbage): they are kept by ClassValueSupport.

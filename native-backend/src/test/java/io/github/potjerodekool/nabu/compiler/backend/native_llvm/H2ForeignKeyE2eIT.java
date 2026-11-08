@@ -68,10 +68,10 @@ class H2ForeignKeyE2eIT {
                         String ins = "insert into category (id, name) values (1, 'dogs')";
                         attempt("explicit", new String[] {cat, "create table pet (id bigint not null, category_id bigint, name varchar(255), primary key (id))",
                                 "alter table pet add constraint fk1 foreign key (category_id) references category (id)", ins});
-                        if (args.length > 5) attempt("inline", new String[] {cat, "create table pet (id bigint not null, category_id bigint, name varchar(255), primary key (id), foreign key (category_id) references category (id))", ins});
-                        if (args.length > 5) attempt("implicit", new String[] {cat, "create table pet (id bigint not null, category_id bigint, name varchar(255), primary key (id))",
+                        attempt("inline", new String[] {cat, "create table pet (id bigint not null, category_id bigint, name varchar(255), primary key (id), foreign key (category_id) references category (id))", ins});
+                        attempt("implicit", new String[] {cat, "create table pet (id bigint not null, category_id bigint, name varchar(255), primary key (id))",
                                 "alter table pet add constraint fk2 foreign key (category_id) references category", ins});
-                        if (args.length > 5) attempt("nofk", new String[] {cat, "create table pet (id bigint not null, category_id bigint, name varchar(255), primary key (id))", ins});
+                        attempt("nofk", new String[] {cat, "create table pet (id bigint not null, category_id bigint, name varchar(255), primary key (id))", ins});
                     }
                 }
                 """, StandardCharsets.UTF_8);

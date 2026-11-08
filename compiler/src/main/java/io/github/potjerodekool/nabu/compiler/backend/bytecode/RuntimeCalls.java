@@ -157,6 +157,7 @@ final class RuntimeCalls {
             new Redirect("java/net/Inet4AddressImpl", "lookupAllHostAddr", "(Ljava/lang/String;)[Ljava/net/InetAddress;",
                     false, NET_SUPPORT, "lookupAllHostAddr",
                     "(Ljava/lang/Object;Ljava/lang/String;)[Ljava/net/InetAddress;"),
+            new Redirect("java/util/zip/Inflater", "end", "(J)V", true, RUNTIME_PACKAGE + "InflaterSupport", "end"),
             new Redirect("java/lang/Class", "getProtectionDomain", "()Ljava/security/ProtectionDomain;", false,
                     LOADER_SUPPORT, "protectionDomain"),
             new Redirect("java/lang/reflect/Method", "getDefaultValue", "()Ljava/lang/Object;", false,

@@ -6634,7 +6634,9 @@ static void jcl_inf_end(int64_t addr) {
     free(s->in);
     free(s);
 }
-/* (Not "Inflater_end": that is the Java method end(), which hands the work to the static native end(long) below.) */
+/* The static native end(long) is called through InflaterSupport (RuntimeCalls redirect): its own symbol "Inflater_end"
+ * is the one of the Java method end() too, and a C definition of it replaced that method. */
+BIND(void, jcl_Inflater_end3, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.InflaterSupport_end", (int64_t addr)) { jcl_inf_end(addr); }
 BIND(void, jcl_Inflater_end2, "java.util.zip.Inflater_end$I64", (int64_t addr)) { jcl_inf_end(addr); }
 BIND(int32_t, jcl_Inflater_getAdler2, "java.util.zip.Inflater_getAdler$I64", (int64_t addr)) {
     return (int32_t)((jcl_inflater *)(intptr_t)addr)->adler;

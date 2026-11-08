@@ -7457,6 +7457,11 @@ BIND(int64_t, jcl_WEPoll_create, "sun.nio.ch.WEPoll_create", (void)) {
     pthread_mutex_init(&ep->lock, NULL);
     return (int64_t)(intptr_t)ep;
 }
+static int jcl_ep_trace(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("NABU_TRACE_EPOLL") != NULL;
+    return on;
+}
 static jcl_ep_entry *jcl_ep_find(jcl_epoll *ep, jcl_sock fd) {
     for (int i = 0; i < ep->count; i++) if (ep->entries[i].fd == fd) return &ep->entries[i];
     return NULL;
@@ -7468,6 +7473,7 @@ BIND(int32_t, jcl_WEPoll_ctl, "sun.nio.ch.WEPoll_ctl", (int64_t handle, int32_t 
     int result = 0;
     pthread_mutex_lock(&ep->lock);
     jcl_ep_entry *e = jcl_ep_find(ep, fd);
+    if (jcl_ep_trace()) fprintf(stderr, "epoll %p ctl op=%d fd=%d events=%x found=%d\n", (void *)ep, opcode, (int)fd, (unsigned)events, e != NULL);
     if (opcode == 1) {          /* EPOLL_CTL_ADD */
         if (e != NULL) {
             result = 17;
@@ -7488,9 +7494,9 @@ BIND(int32_t, jcl_WEPoll_ctl, "sun.nio.ch.WEPoll_ctl", (int64_t handle, int32_t 
                 ep->count++;
             }
         }
-    } else if (opcode == 3) {   /* EPOLL_CTL_MOD */
+    } else if (opcode == 2) {   /* EPOLL_CTL_MOD (the numbers of wepoll.h, as WEPoll.java: ADD 1, MOD 2, DEL 3) */
         if (e == NULL) result = 2; else e->events = (uint32_t)events;
-    } else if (opcode == 2) {   /* EPOLL_CTL_DEL */
+    } else if (opcode == 3) {   /* EPOLL_CTL_DEL */
         if (e == NULL) {
             result = 2;
         } else {
@@ -7503,65 +7509,92 @@ BIND(int32_t, jcl_WEPoll_ctl, "sun.nio.ch.WEPoll_ctl", (int64_t handle, int32_t 
     pthread_mutex_unlock(&ep->lock);
     return result;
 }
-/* Waits (timeout in ms, -1: for ever) for the registered sockets; fills the event structures at the address. */
+/* Waits (timeout in ms, -1: for ever) for the registered sockets; fills the event structures at the address.
+ * A poll cannot be told about a registration that is made while it waits (epoll_wait sees it): the wait is made in
+ * short slices, each with a new snapshot of the registered sockets, so that a socket that is registered (or armed
+ * again) during the wait is watched within JCL_EP_SLICE_MS. */
+#define JCL_EP_SLICE_MS 5
 BIND(int32_t, jcl_WEPoll_wait, "sun.nio.ch.WEPoll_wait", (int64_t handle, int64_t address, int32_t maxEvents, int32_t timeout)) {
     jcl_epoll *ep = (jcl_epoll *)(intptr_t)handle;
-    pthread_mutex_lock(&ep->lock);
-    const int count = ep->count;
-    jcl_pollfd *fds = (jcl_pollfd *)malloc(sizeof *fds * (size_t)(count > 0 ? count : 1));
-    uint32_t *wanted = (uint32_t *)malloc(sizeof *wanted * (size_t)(count > 0 ? count : 1));
-    int n = 0;
-    for (int i = 0; i < count && fds != NULL && wanted != NULL; i++) {
-        if (ep->entries[i].events == 0) continue;
-        fds[n].fd = ep->entries[i].fd;
-        fds[n].events = jcl_ev_to_sys(ep->entries[i].events);
-        fds[n].revents = 0;
-        wanted[n] = ep->entries[i].events;
-        n++;
-    }
-    pthread_mutex_unlock(&ep->lock);
-    if (fds == NULL || wanted == NULL) {
-        free(fds);
-        free(wanted);
-        jcl_net_socket_fail("epoll_wait", 0);
-        return 0;
-    }
-    int ready;
-    const int released = JCL_NET_BLOCK_BEGIN();
-    if (n == 0) {
-#ifdef _WIN32
-        if (timeout != 0) Sleep(timeout < 0 ? INFINITE : (DWORD)timeout);
-#else
-        if (timeout != 0) poll(NULL, 0, timeout);
-#endif
-        ready = 0;
-    } else {
-        ready = JCL_POLL(fds, n, timeout);
-    }
-    const int err = ready < 0 ? JCL_SOCK_ERRNO() : 0;
-    JCL_NET_BLOCK_END(released);
+    int remaining = timeout;
+    int ready = 0;
+    int err = 0;
     int delivered = 0;
-    if (ready > 0) {
+    for (;;) {
         pthread_mutex_lock(&ep->lock);
-        for (int i = 0; i < n && delivered < maxEvents; i++) {
-            if (fds[i].revents == 0) continue;
-            uint32_t events = jcl_ev_from_sys(fds[i].revents);
-            events &= (wanted[i] | JCL_EV_ERR | JCL_EV_HUP | JCL_EV_NVAL);
-            if (events == 0) continue;
-            char *slot = (char *)(intptr_t)address + (size_t)delivered * JCL_EP_EVENT_SIZE;
-            memset(slot, 0, JCL_EP_EVENT_SIZE);
-            *(uint32_t *)slot = events;
-            *(int32_t *)(slot + JCL_EP_DATA_OFFSET) = (int32_t)fds[i].fd;
-            delivered++;
-            if (wanted[i] & JCL_EV_ONESHOT) {
-                jcl_ep_entry *e = jcl_ep_find(ep, fds[i].fd);
-                if (e != NULL) e->events = 0;
-            }
+        const int count = ep->count;
+        jcl_pollfd *fds = (jcl_pollfd *)malloc(sizeof *fds * (size_t)(count > 0 ? count : 1));
+        uint32_t *wanted = (uint32_t *)malloc(sizeof *wanted * (size_t)(count > 0 ? count : 1));
+        int n = 0;
+        for (int i = 0; i < count && fds != NULL && wanted != NULL; i++) {
+            if (ep->entries[i].events == 0) continue;
+            fds[n].fd = ep->entries[i].fd;
+            fds[n].events = jcl_ev_to_sys(ep->entries[i].events);
+            fds[n].revents = 0;
+            wanted[n] = ep->entries[i].events;
+            n++;
         }
         pthread_mutex_unlock(&ep->lock);
+        if (fds == NULL || wanted == NULL) {
+            free(fds);
+            free(wanted);
+            jcl_net_socket_fail("epoll_wait", 0);
+            return 0;
+        }
+        if (jcl_ep_trace()) {
+            fprintf(stderr, "epoll %p wait n=%d timeout=%d:", (void *)ep, n, (int)remaining);
+            for (int i = 0; i < n; i++) fprintf(stderr, " %d/%x", (int)fds[i].fd, (unsigned)wanted[i]);
+            fprintf(stderr, "\n");
+        }
+        const int slice = (remaining < 0 || remaining > JCL_EP_SLICE_MS) ? JCL_EP_SLICE_MS : remaining;
+        const int released = JCL_NET_BLOCK_BEGIN();
+        if (n == 0) {
+#ifdef _WIN32
+            if (slice != 0) Sleep((DWORD)slice);
+#else
+            if (slice != 0) poll(NULL, 0, slice);
+#endif
+            ready = 0;
+        } else {
+            ready = JCL_POLL(fds, n, slice);
+        }
+        err = ready < 0 ? JCL_SOCK_ERRNO() : 0;
+        JCL_NET_BLOCK_END(released);
+        delivered = 0;
+        if (ready > 0) {
+            pthread_mutex_lock(&ep->lock);
+            for (int i = 0; i < n && delivered < maxEvents; i++) {
+                if (fds[i].revents == 0) continue;
+                uint32_t events = jcl_ev_from_sys(fds[i].revents);
+                events &= (wanted[i] | JCL_EV_ERR | JCL_EV_HUP | JCL_EV_NVAL);
+                if (events == 0) continue;
+                char *slot = (char *)(intptr_t)address + (size_t)delivered * JCL_EP_EVENT_SIZE;
+                memset(slot, 0, JCL_EP_EVENT_SIZE);
+                *(uint32_t *)slot = events;
+                *(int32_t *)(slot + JCL_EP_DATA_OFFSET) = (int32_t)fds[i].fd;
+                delivered++;
+                if (wanted[i] & JCL_EV_ONESHOT) {
+                    jcl_ep_entry *e = jcl_ep_find(ep, fds[i].fd);
+                    if (e != NULL) e->events = 0;
+                }
+            }
+            pthread_mutex_unlock(&ep->lock);
+        }
+        if (jcl_ep_trace() && (ready != 0 || delivered != 0)) {
+            fprintf(stderr, "epoll %p wait -> ready=%d delivered=%d\n", (void *)ep, ready, delivered);
+        }
+        free(fds);
+        free(wanted);
+        if (ready < 0 || delivered > 0) {
+            break;
+        }
+        if (remaining >= 0) {
+            remaining -= slice;
+            if (remaining <= 0) {
+                break;
+            }
+        }
     }
-    free(fds);
-    free(wanted);
     if (ready < 0 && err != JCL_E_INTR) {
         jcl_net_socket_fail("epoll_wait", err);
         return 0;

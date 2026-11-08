@@ -2193,6 +2193,8 @@ public class InstructionEmitter {
      * Emitteert een {@code call} of {@code invoke} (als het huidige blok in een
      * try-regio zit) en retourneert het resultaat.
      */
+    private static final boolean NPE_SITES = Boolean.getBoolean("nabu.npeSites");
+
     /**
      * Een virtuele of interface-aanroep op {@code null} gooit
      * NullPointerException (JLS §15.12.4.4), in plaats van de vtable/itable
@@ -2239,8 +2241,10 @@ public class InstructionEmitter {
         LLVMPositionBuilderAtEnd(builder, isNullBB);
         // De aanroepplek als C-string: nabu_throw_npe meldt hem bij
         // NABU_TRACE_NPE (een samengevoegde null-tak verraadt hem anders niet).
-        final String site = callee + " in " + enclosingFunctionName();
-        final LLVMValueRef siteStr = LLVMBuildGlobalStringPtr(builder, site, ".npe.site");
+        // A string per call site is 60 MB of the petstore and a global each to make: only with -Dnabu.npeSites=true.
+        final LLVMValueRef siteStr = NPE_SITES
+                ? LLVMBuildGlobalStringPtr(builder, callee + " in " + enclosingFunctionName(), ".npe.site")
+                : LLVMConstNull(LLVMPointerTypeInContext(ctx, 0));
         final PointerPointer<Pointer> npeArgs = new PointerPointer<>(1);
         npeArgs.put(0, siteStr);
         emitCallOrInvoke("nabu_throw_npe", npeType, npe, npeArgs, 1, null);

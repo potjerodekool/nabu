@@ -681,10 +681,18 @@ for (IRModule m : modules) {
         // The slots of the interfaces that most classes implement come first: the itable of a class ends at the last
         // slot of an interface it implements, so with the slots in the order of their names a class that implements
         // one rarely used interface got an itable of tens of thousands of entries (a gigabyte for the petstore).
+        //
+        // Interface methods share a slot when no class implements both interfaces: a slot is only read for an object
+        // whose class implements the slot's interface. (Of the 50 million entries of the petstore's itables 99.7% were
+        // null.) Not shared: methods of JDK interfaces and annotations, because objects the C runtime makes
+        // (the library itable) are called through any of those, and methods of an unknown owner.
         final Map<String, Integer> implementers = new HashMap<>();
+        final List<Set<String>> implementedPerClass = new ArrayList<>();
         for (final IRModule module : modules) {
             if (!Flags.hasFlag(module.flags, Flags.INTERFACE)) {
-                for (final String itf : implementedInterfacesWithSupers(normalizeInternalName(module.name))) {
+                final Set<String> implemented = implementedInterfacesWithSupers(normalizeInternalName(module.name));
+                implementedPerClass.add(implemented);
+                for (final String itf : implemented) {
                     implementers.merge(itf, 1, Integer::sum);
                 }
             }
@@ -697,9 +705,95 @@ for (IRModule m : modules) {
                     return owner == null ? Integer.MIN_VALUE : -implementers.getOrDefault(owner, 0);
                 })
                 .thenComparing(java.util.Comparator.naturalOrder()));
-        int slot = 0;
-        for (String target : ordered) {
-            interfaceSlots.put(target, slot++);
+        if (Boolean.getBoolean("nabu.itable.shareSlots") || !"false".equals(System.getProperty("nabu.itable.shareSlots"))) {
+            assignSharedSlots(ordered, implementedPerClass);
+        } else {
+            int slot = 0;
+            for (String target : ordered) {
+                interfaceSlots.put(target, slot++);
+            }
+        }
+    }
+
+    private boolean slotIsExclusive(final String owner) {
+        if (owner == null) return true;
+        if (owner.startsWith("java/") || owner.startsWith("javax/") || owner.startsWith("jdk/")
+                || owner.startsWith("sun/") || owner.startsWith("com/sun/")) {
+            return true;
+        }
+        final IRModule m = modulesByInternalName.get(owner);
+        return m != null && Flags.hasFlag(m.flags, Flags.ANNOTATION);
+    }
+
+    /** Slots in the order of {@code ordered}, the lowest one that no class that implements the owner already uses. */
+    private void assignSharedSlots(final List<String> ordered, final List<Set<String>> implementedPerClass) {
+        final int classes = implementedPerClass.size();
+        final java.util.BitSet[] used = new java.util.BitSet[classes];
+        final Map<String, List<Integer>> classesOf = new HashMap<>();
+        for (int i = 0; i < classes; i++) {
+            used[i] = new java.util.BitSet();
+            for (final String itf : implementedPerClass.get(i)) {
+                classesOf.computeIfAbsent(itf, k -> new ArrayList<>()).add(i);
+            }
+        }
+        final java.util.BitSet exclusive = new java.util.BitSet();
+        final java.util.BitSet taken = new java.util.BitSet();
+        // methods per owner, in order
+        final Map<String, List<String>> byOwner = new java.util.LinkedHashMap<>();
+        final List<String> exclusiveKeys = new ArrayList<>();
+        for (final String key : ordered) {
+            final String owner = interfaceSlotOwner(key);
+            if (slotIsExclusive(owner)) {
+                exclusiveKeys.add(key);
+            } else {
+                byOwner.computeIfAbsent(owner, k -> new ArrayList<>()).add(key);
+            }
+        }
+        int maxSlot = -1;
+        // exclusive ones first at their popularity position: the first-come order of `ordered` is kept by handing out
+        // slots to exclusive methods and owners in that order
+        final Set<String> placedOwners = new HashSet<>();
+        for (final String key : ordered) {
+            final String owner = interfaceSlotOwner(key);
+            if (slotIsExclusive(owner)) {
+                final int s = taken.nextClearBit(0);
+                taken.set(s);
+                exclusive.set(s);
+                interfaceSlots.put(key, s);
+                maxSlot = Math.max(maxSlot, s);
+            } else if (placedOwners.add(owner)) {
+                final java.util.BitSet blocked = new java.util.BitSet();
+                blocked.or(exclusive);
+                final List<Integer> implementing = classesOf.getOrDefault(owner, List.of());
+                for (final int c : implementing) {
+                    blocked.or(used[c]);
+                }
+                final java.util.BitSet mine = new java.util.BitSet();
+                for (final String method : byOwner.get(owner)) {
+                    final int s = blocked.nextClearBit(0);
+                    blocked.set(s);
+                    mine.set(s);
+                    taken.set(s);
+                    interfaceSlots.put(method, s);
+                    maxSlot = Math.max(maxSlot, s);
+                }
+                for (final int c : implementing) {
+                    used[c].or(mine);
+                }
+            }
+        }
+        // a dedicated slot must not be taken by a pooled owner that is placed later at a free index: `exclusive` is
+        // part of every `blocked`, but a slot handed out as exclusive after a pooled owner took the index is a clash
+        final Map<Integer, String> firstKey = new HashMap<>();
+        for (final Map.Entry<String, Integer> e : interfaceSlots.entrySet()) {
+            final String prior = firstKey.putIfAbsent(e.getValue(), e.getKey());
+            if (prior != null && (slotIsExclusive(interfaceSlotOwner(e.getKey())) || slotIsExclusive(interfaceSlotOwner(prior)))) {
+                throw new IllegalStateException("itable slot " + e.getValue() + " shared with an exclusive method: "
+                        + prior + " / " + e.getKey());
+            }
+        }
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            System.err.println("[closureStats] itable slots: " + interfaceSlots.size() + " methods in " + (maxSlot + 1) + " slots");
         }
     }
 
@@ -1048,6 +1142,9 @@ for (IRModule m : modules) {
         // InstructionEmitter.tryEmitInterfaceCall.
         collectInterfacesWithImplementers(order);
         buildLibraryItable(mod);
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            System.err.println("[closureStats] itables: " + ITABLE_STATS[0] + ", entries " + ITABLE_STATS[1] + ", non-null " + ITABLE_STATS[2]);
+        }
     }
 
     /** De itable voor library-objecten (zie {@link #buildLibraryItable}), of null. */
@@ -1100,12 +1197,25 @@ for (IRModule m : modules) {
      */
     private void buildLibraryItable(LLVMModuleRef mod) {
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
-        final int n = interfaceSlots.size();
+        int highest = -1;
+        final Map<Integer, Integer> keysPerSlot = new HashMap<>();
+        for (final Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
+            highest = Math.max(highest, slot.getValue());
+            keysPerSlot.merge(slot.getValue(), 1, Integer::sum);
+        }
+        final int n = highest + 1;
         if (n == 0) {
             return;
         }
         final PointerPointer<Pointer> entries = new PointerPointer<>(n);
+        for (int i = 0; i < n; i++) {
+            entries.put(i, LLVMConstNull(ptrType));
+        }
         for (Map.Entry<String, Integer> slot : interfaceSlots.entrySet()) {
+            // a slot that several interfaces share is not reachable for a library object (see indexInterfaceSlots)
+            if (keysPerSlot.get(slot.getValue()) > 1) {
+                continue;
+            }
             final IRFunction interfaceFn = resolveSlotFunction(slot.getKey());
             final LLVMValueRef value = interfaceFn != null ? functionValue(interfaceFn) : null;
             // Een abstracte interface-methode zonder body heeft alleen een
@@ -1940,6 +2050,9 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
      * wijst de itable van elke klasse naar de eigen implementatie, terwijl de
      * call-site dezelfde index gebruikt — echte dynamische dispatch.
      */
+    /** itables, entries, non-null entries (-Dnabu.closureStats). */
+    static final long[] ITABLE_STATS = new long[3];
+
     private void buildItable(LLVMModuleRef mod, IRModule module, ClassLayout layout) {
         LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         boolean isInterface = Flags.hasFlag(module.flags, Flags.INTERFACE);
@@ -1968,6 +2081,11 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
             length = Math.max(length, slot.getValue() + 1);
         }
         entries = java.util.Arrays.copyOf(entries, length);
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            int filled = 0;
+            for (final LLVMValueRef e : entries) if (e != null && !e.isNull() && LLVMIsNull(e) == 0) filled++;
+            ITABLE_STATS[0]++; ITABLE_STATS[1] += length; ITABLE_STATS[2] += filled;
+        }
 
         String itableName = "_ZNabu" + typeSymbol(layout.internalName) + "Eitable";
         LLVMTypeRef itableType = LLVMArrayType(ptrType, entries.length);

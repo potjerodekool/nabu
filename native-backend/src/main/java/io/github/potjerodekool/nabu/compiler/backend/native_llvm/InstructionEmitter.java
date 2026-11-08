@@ -1666,7 +1666,13 @@ public class InstructionEmitter {
         // (ook binnen Arrays.copyOf) gaat direct naar de runtime. Sinds
         // Object.clone een vtable-slot heeft, las dispatch anders arraydata als
         // vtable-pointer.
-        if (isArrayReceiver(receiver) || isArrayCallee(call)) return false;
+        // An array only has the methods of Object. A receiver whose IR type says "array" for any other method is a
+        // local slot that javac reused (an array of the enhanced for, later a Row): the load keeps the type of the
+        // first store, and a direct call went to the body-less declaration (H2's Row.setValue: `unreachable`).
+        if ((isArrayReceiver(receiver) && call.function() != null && call.function().startsWith("java.lang.Object_"))
+                || isArrayCallee(call)) {
+            return false;
+        }
         LLVMValueRef obj = resolveValue(receiver);
 
         // De IR-laag bewaart het receiver-type soms alleen als een opaque pointer

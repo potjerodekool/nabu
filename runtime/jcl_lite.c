@@ -6634,7 +6634,7 @@ static void jcl_inf_end(int64_t addr) {
     free(s->in);
     free(s);
 }
-BIND(void, jcl_Inflater_end, "java.util.zip.Inflater_end", (int64_t addr)) { jcl_inf_end(addr); }
+/* (Not "Inflater_end": that is the Java method end(), which hands the work to the static native end(long) below.) */
 BIND(void, jcl_Inflater_end2, "java.util.zip.Inflater_end$I64", (int64_t addr)) { jcl_inf_end(addr); }
 BIND(int32_t, jcl_Inflater_getAdler2, "java.util.zip.Inflater_getAdler$I64", (int64_t addr)) {
     return (int32_t)((jcl_inflater *)(intptr_t)addr)->adler;

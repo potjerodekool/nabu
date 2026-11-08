@@ -353,7 +353,8 @@ public final class ReflectionMethods {
                 && !owner.isStatic() && !ElementSignatures.isInterface(owner)
                 && owner.getEnclosingElement() instanceof TypeElement outer
                 && !ElementSignatures.isInterface(outer)
-                && isRealClass(outer)) {
+                && isRealClass(outer)
+                && !declaresEnclosingInstance(constructor, owner, outer)) {
             descriptor.append('L').append(ElementSignatures.internalName(outer)).append(';');
         }
         for (final var parameter : constructor.getParameters()) {
@@ -366,6 +367,21 @@ public final class ReflectionMethods {
         }
         return new ReflectedMethod(ElementSignatures.internalName(owner), false, "<init>", descriptor.toString(),
                 modifiers, ElementSignatures.exceptions(constructor), genericSignatureOrNull(constructor));
+    }
+
+    /**
+     * The constructor of an inner class read from a class file lists the enclosing instance as its first parameter
+     * already (the class file descriptor has it); one of a source class does not.
+     */
+    private static boolean declaresEnclosingInstance(final ExecutableElement constructor, final TypeElement owner,
+                                                     final TypeElement outer) {
+        if (!(owner instanceof io.github.potjerodekool.nabu.compiler.ast.symbol.impl.Symbol symbol)
+                || symbol.getClassFile() == null || symbol.getSourceFile() != null
+                || constructor.getParameters().isEmpty()) {
+            return false;
+        }
+        return ("L" + ElementSignatures.internalName(outer) + ";").equals(
+                ElementSignatures.descriptor(constructor.getParameters().get(0).asType()));
     }
 
     /**

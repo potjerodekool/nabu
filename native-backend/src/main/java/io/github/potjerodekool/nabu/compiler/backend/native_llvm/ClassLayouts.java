@@ -678,8 +678,27 @@ for (IRModule m : modules) {
                 }
             }
         }
+        // The slots of the interfaces that most classes implement come first: the itable of a class ends at the last
+        // slot of an interface it implements, so with the slots in the order of their names a class that implements
+        // one rarely used interface got an itable of tens of thousands of entries (a gigabyte for the petstore).
+        final Map<String, Integer> implementers = new HashMap<>();
+        for (final IRModule module : modules) {
+            if (!Flags.hasFlag(module.flags, Flags.INTERFACE)) {
+                for (final String itf : implementedInterfacesWithSupers(normalizeInternalName(module.name))) {
+                    implementers.merge(itf, 1, Integer::sum);
+                }
+            }
+        }
+        final List<String> ordered = new ArrayList<>(callTargets);
+        ordered.sort(java.util.Comparator
+                .comparingInt((String key) -> {
+                    final String owner = interfaceSlotOwner(key);
+                    // unknown owner: every class has the slot
+                    return owner == null ? Integer.MIN_VALUE : -implementers.getOrDefault(owner, 0);
+                })
+                .thenComparing(java.util.Comparator.naturalOrder()));
         int slot = 0;
-        for (String target : callTargets) {
+        for (String target : ordered) {
             interfaceSlots.put(target, slot++);
         }
     }

@@ -689,11 +689,16 @@ static const nabu_annotation_entry *jcl_entry_owned(const nabu_reflection_info *
 /* An element whose value is an annotation (null if it has none: the
  * default of such an element is not in the metadata). */
 BIND(void *, jcl_ann_annotation, "nabu.runtime.Annotations_annotation", (void *a, void *name, void *type)) {
-    (void)type;
     const nabu_reflection_info *info;
     char *key = jcl_nested_key(a, nabu_cstr(name), &info);
     const nabu_annotation_entry *e = key != NULL ? jcl_entry_owned(info, key) : NULL;
-    return e != NULL ? jcl_ann_obj(e) : NULL;
+    if (e != NULL) return jcl_ann_obj(e);
+    /* Not in the metadata: the element has its default (@Parameter.schema() is an empty @Schema, never null),
+     * an annotation of that type with no values. */
+    if (type == NULL) return NULL;
+    nabu_annotation_entry *blank = (nabu_annotation_entry *)jcl_alloc(sizeof *blank);
+    blank->type_name = jcl_dup(nabu_cstr(type));
+    return jcl_ann_obj(blank);
 }
 /* An element whose value is an array of annotations of `type` (internal name). */
 BIND(void *, jcl_ann_annotations, "nabu.runtime.Annotations_annotations", (void *a, void *name, void *type)) {

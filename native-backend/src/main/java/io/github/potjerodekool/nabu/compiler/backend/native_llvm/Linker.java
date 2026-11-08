@@ -87,6 +87,13 @@ public class Linker {
                 // libgcc_s_seh automatisch.
                 cmd.add(resolveCompiler("gcc"));
                 cmd.add("-g"); cmd.add("-gdwarf-4");
+                // LLVM's lld links the same objects in seconds where GNU ld needs minutes for a program of
+                // hundreds of megabytes of objects with debug information (10 minutes against 2 seconds).
+                final Path lld = findLld();
+                if (lld != null) {
+                    cmd.add("-B" + lld.getParent());
+                    cmd.add("-fuse-ld=lld");
+                }
                 cmd.add("-o"); cmd.add(exe.toString());
                 objects.forEach(o -> cmd.add(o.toString()));
                 addRuntime(cmd, gcStrategy, runtimeObjects);
@@ -121,6 +128,31 @@ public class Linker {
             cmd.add("-lm");
         }
         return cmd;
+    }
+
+    /**
+     * The {@code ld.lld} to link with, or null for the linker of the toolchain: found through
+     * {@code -Dnabu.lld=<path>}, the PATH or the LLVM installation (LLVM_HOME, Program Files); switched off with
+     * {@code -Dnabu.link.lld=false}.
+     */
+    static Path findLld() {
+        if (!"false".equalsIgnoreCase(System.getProperty("nabu.link.lld"))) {
+            final String prop = System.getProperty("nabu.lld");
+            if (prop != null && !prop.isBlank()) {
+                return java.nio.file.Files.isRegularFile(Path.of(prop)) ? Path.of(prop).toAbsolutePath() : null;
+            }
+            final Path onPath = findOnPath(executableName("ld.lld"));
+            if (onPath != null) return onPath.toAbsolutePath();
+            final String home = System.getenv("LLVM_HOME");
+            final List<Path> dirs = new ArrayList<>();
+            if (home != null && !home.isBlank()) dirs.add(Path.of(home, "bin"));
+            dirs.add(Path.of("C:/Program Files/LLVM/bin"));
+            for (final Path dir : dirs) {
+                final Path candidate = dir.resolve(executableName("ld.lld"));
+                if (java.nio.file.Files.isRegularFile(candidate)) return candidate;
+            }
+        }
+        return null;
     }
 
     /**

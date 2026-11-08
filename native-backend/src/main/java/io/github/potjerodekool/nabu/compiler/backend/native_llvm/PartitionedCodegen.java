@@ -489,12 +489,18 @@ final class PartitionedCodegen {
             }
             final long t0;
             final long t1;
+            final long tp = System.nanoTime();
             splitLock.lock();
+            final long tl = System.nanoTime();
             try {
                 if (LLVMParseBitcodeInContext2(ctx, buffer, mod) != 0) {
                     throw new CompileException("Could not read the bitcode of partition " + partition);
                 }
                 t0 = System.nanoTime();
+                if (TIMING) {
+                    System.err.println("[NativeLLVMBackend] partition " + partition + ": waited for the split lock "
+                            + (tl - tp) / 1_000_000L + " ms, parse " + (t0 - tl) / 1_000_000L + " ms");
+                }
                 keepPartition(mod, partition);
                 t1 = System.nanoTime();
             } finally {
@@ -543,6 +549,7 @@ final class PartitionedCodegen {
 
     /** Turns everything another partition owns into declarations. */
     private void keepPartition(final LLVMModuleRef mod, final int partition) throws CompileException {
+        final long k0 = System.nanoTime();
         final List<LLVMValueRef> foreignFunctions = new ArrayList<>();
         for (LLVMValueRef f = LLVMGetFirstFunction(mod); f != null && !f.isNull(); f = LLVMGetNextFunction(f)) {
             if (LLVMIsDeclaration(f) != 0) {
@@ -579,6 +586,7 @@ final class PartitionedCodegen {
             foreignGlobals.add(g);
         }
 
+        final long k1 = System.nanoTime();
         // First drop every foreign body and initializer, so that no foreign
         // definition still uses a local symbol of another partition.
         for (final LLVMValueRef f : foreignFunctions) {
@@ -588,6 +596,7 @@ final class PartitionedCodegen {
             }
             LLVMDeleteFunction(f);
         }
+        final long k2 = System.nanoTime();
         for (final LLVMValueRef g : foreignGlobals) {
             LLVMSetInitializer(g, null);
             if (isLocal(g) || name(g).equals("llvm.global_ctors")) {
@@ -596,6 +605,7 @@ final class PartitionedCodegen {
                 LLVMSetLinkage(g, LLVMExternalLinkage);
             }
         }
+        final long k3 = System.nanoTime();
         for (final LLVMValueRef local : foreignLocals) {
             final LLVMValueRef user = liveUser(local);
             if (user != null) {
@@ -609,6 +619,13 @@ final class PartitionedCodegen {
             } else {
                 LLVMDeleteGlobal(local);
             }
+        }
+        if (TIMING) {
+            final long k4 = System.nanoTime();
+            System.err.println("[NativeLLVMBackend] partition " + partition + " keep: scan " + (k1 - k0) / 1_000_000L
+                    + " ms, functions " + foreignFunctions.size() + " in " + (k2 - k1) / 1_000_000L
+                    + " ms, globals " + foreignGlobals.size() + " in " + (k3 - k2) / 1_000_000L
+                    + " ms, locals " + foreignLocals.size() + " in " + (k4 - k3) / 1_000_000L + " ms");
         }
     }
 

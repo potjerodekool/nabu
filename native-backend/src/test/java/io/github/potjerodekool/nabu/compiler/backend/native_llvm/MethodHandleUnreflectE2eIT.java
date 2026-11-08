@@ -57,9 +57,12 @@ class MethodHandleUnreflectE2eIT {
                         String b = (String) fieldGet.invokeExact(v);
                         fieldSet.invokeExact(v, "field");
                         int t = (int) twice.invokeExact(21);
+                        java.util.function.Supplier<MethodHandle> supplier = () -> getter;
+                        MethodHandle viaSupplier = supplier.get();
+                        String d = (String) viaSupplier.invokeExact(v);
                         MethodHandle bound = getter.bindTo(v).asType(null);
                         Object c = bound.invokeWithArguments(new Object[0]);
-                        return a + " " + b + " " + v.name + " " + t + " " + c;
+                        return a + " " + b + " " + v.name + " " + t + " " + c + " " + d;
                     }
                 }
                 """);
@@ -129,7 +132,7 @@ class MethodHandleUnreflectE2eIT {
         }
         final String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         final int exit = proc.exitValue();
-        assertEquals("made set field 42 field\n", output, "exit=" + exit);
+        assertEquals("made set field 42 field field\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

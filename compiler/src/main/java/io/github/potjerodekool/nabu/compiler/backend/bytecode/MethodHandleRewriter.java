@@ -39,7 +39,12 @@ final class MethodHandleRewriter {
                 continue;
             }
             for (final AbstractInsnNode insn : method.instructions.toArray()) {
-                if (insn instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKEVIRTUAL
+                if (insn instanceof TypeInsnNode cast && cast.getOpcode() == Opcodes.CHECKCAST
+                        && "java/lang/invoke/MethodHandle".equals(cast.desc)) {
+                    // the handles are not MethodHandle objects (MethodHandleSupport.Handle): a cast to the type of a
+                    // generic result (Supplier<MethodHandle>.get) would fail
+                    method.instructions.remove(insn);
+                } else if (insn instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKEVIRTUAL
                         && "java/lang/invoke/MethodHandle".equals(call.owner)
                         && ("invoke".equals(call.name) || "invokeExact".equals(call.name))) {
                     String helper = helpers.get(call.desc);

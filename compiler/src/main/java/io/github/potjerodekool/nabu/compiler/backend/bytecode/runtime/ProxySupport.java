@@ -72,13 +72,47 @@ public final class ProxySupport {
             }
             key.append(interfaces[i].getName());
         }
-        final Object proxy = ProxyClasses.create(key.toString(), h);
+        Object proxy = ProxyClasses.create(key.toString(), h);
+        if (proxy == null) {
+            // The request names interfaces the configuration leaves out because a configured one extends them
+            // (Spring asks for all the interfaces of Hibernate's query class): a proxy that implements the requested
+            // interfaces through the configured ones does.
+            final String[] configured = ProxyClasses.keys();
+            for (int c = 0; proxy == null && c < configured.length; c++) {
+                if (covers(configured[c], interfaces)) {
+                    proxy = ProxyClasses.create(configured[c], h);
+                }
+            }
+        }
         if (proxy == null) {
             throw new IllegalArgumentException(new StringBuilder("No proxy class for the interfaces [")
                     .append(key).append("]: add them to a proxy-config.json under META-INF/native-image")
                     .toString());
         }
         return proxy;
+    }
+
+    /** Whether every requested interface is one of the configured interfaces or a super interface of one. */
+    private static boolean covers(final String configured, final Class<?>[] requested) {
+        final String[] names = configured.split(",");
+        final Class<?>[] have = new Class<?>[names.length];
+        try {
+            for (int i = 0; i < names.length; i++) {
+                have[i] = Class.forName(names[i]);
+            }
+        } catch (final ClassNotFoundException e) {
+            return false;
+        }
+        for (final Class<?> want : requested) {
+            boolean found = false;
+            for (int i = 0; i < have.length && !found; i++) {
+                found = want.isAssignableFrom(have[i]);
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static InvocationHandler getInvocationHandler(final Object proxy) {

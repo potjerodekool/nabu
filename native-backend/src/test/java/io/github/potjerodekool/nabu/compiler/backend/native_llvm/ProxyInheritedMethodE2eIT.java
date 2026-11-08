@@ -55,6 +55,9 @@ class ProxyInheritedMethodE2eIT {
                         Sub p = (Sub) Proxy.newProxyInstance(Main.class.getClassLoader(), new Class<?>[] { Sub.class }, h);
                         System.out.println(p.count());
                         System.out.println(p.name());
+                        Object wider = Proxy.newProxyInstance(Main.class.getClassLoader(),
+                                new Class<?>[] { Sub.class, Base.class }, h);
+                        System.out.println(((Base) wider).count());
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -102,6 +105,8 @@ class ProxyInheritedMethodE2eIT {
                 5
                 name Sub false
                 n
+                count Base true
+                5
                 """, output, "exit=" + exit);
         assertEquals(0, exit, output);
     }

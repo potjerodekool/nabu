@@ -2949,9 +2949,38 @@ void nabu_monitorexit(void *obj) {
     }
 }
 
+/* The process must end when a missing function is called, whatever the trace below runs into (a lock held by
+ * another thread, a slow symbol lookup): a watchdog ends it after a few seconds. */
+static void *nabu_unresolved_watchdog(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 50; i++) {
+#ifdef _WIN32
+        Sleep(100);
+#else
+        usleep(100000);
+#endif
+    }
+    fflush(stderr);
+    _exit(127);
+    return NULL;
+}
+
 void nabu_unresolved(const char *symbol) {
+    static volatile int entered = 0;
+    if (entered) {
+        for (;;) {
+#ifdef _WIN32
+            Sleep(1000);
+#else
+            sleep(1);
+#endif
+        }
+    }
+    entered = 1;
     fprintf(stderr, "nabu: call to a JDK function without an implementation: %s\n",
             symbol != NULL ? symbol : "?");
+    pthread_t watchdog;
+    if (pthread_create(&watchdog, NULL, nabu_unresolved_watchdog, NULL) == 0) pthread_detach(watchdog);
     /* Where it was called from, so the missing function can be traced to the Java code that needs it. */
     uintptr_t frames[64];
     int n = nabu_capture_frames(frames, 64);

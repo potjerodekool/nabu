@@ -230,6 +230,11 @@ public void setReflectionRegistry(
         }
 
         tp = lap(timing, "bodies", tp);
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            System.err.println("[closureStats] devirtualized calls: virtual " + InstructionEmitter.DEVIRTUALIZED[0]
+                    + " (indirect " + InstructionEmitter.VIRTUAL_CALLS[0] + "), interface "
+                    + InstructionEmitter.DEVIRTUALIZED[1] + " (indirect " + InstructionEmitter.INTERFACE_CALLS[0] + ")");
+        }
         functions.finishDebugInfo();
 
         // 5. Array classes, after the bodies that allocate the arrays.

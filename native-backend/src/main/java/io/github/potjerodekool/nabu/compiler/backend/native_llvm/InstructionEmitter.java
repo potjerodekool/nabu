@@ -1658,6 +1658,11 @@ public class InstructionEmitter {
         return dot >= 0 && classLayouts.constructorSymbolName(function.substring(dot + 1)) != null;
     }
 
+    /** Calls turned into direct calls (virtual, interface), and the ones that stayed indirect (-Dnabu.closureStats). */
+    static final long[] DEVIRTUALIZED = new long[2];
+    static final long[] VIRTUAL_CALLS = new long[1];
+    static final long[] INTERFACE_CALLS = new long[1];
+
     private boolean tryEmitVirtualCall(IRInstruction.Call call) {
         if (call.args().isEmpty()) return false;
 
@@ -1737,21 +1742,35 @@ public class InstructionEmitter {
 
         emitReceiverNullCheck(obj, call.function());
         final ArrayGuard arrayGuard = emitArrayReceiverGuard(call, receiver, obj);
-        // obj.vtable — header-struct veld 1 (via outer struct index 0)
-        LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
-                ".header");
-        LLVMValueRef vtablePtrSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_VTABLE,
-                ".vtable.slot");
-        LLVMValueRef vtable = LLVMBuildLoad2(builder, ptrType, vtablePtrSlot, ".vtable");
+        // Closed world: every concrete class under the receiver's class has the same function in this slot
+        // by the class the call names (the verifier guarantees the receiver is one of its instances), not by the IR type
+        // of the receiver: that can be wrong (a class literal typed as the class that calls hashCode on it)
+        final ClassLayouts.ClassLayout named = classLayouts.ownerLayout(call.function());
+        final int namedSlot = named != null && !named.isInterface && named.vtableGlobal != null
+                ? named.vtableSlot(call.function(), slotParams) : -1;
+        final LLVMValueRef direct = namedSlot >= 0 ? classLayouts.monomorphicVirtual(named, namedSlot) : null;
+        LLVMValueRef fnPtr;
+        if (direct != null) {
+            fnPtr = direct;
+            DEVIRTUALIZED[0]++;
+        } else {
+            // obj.vtable — header-struct veld 1 (via outer struct index 0)
+            LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
+                    ".header");
+            LLVMValueRef vtablePtrSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_VTABLE,
+                    ".vtable.slot");
+            LLVMValueRef vtable = LLVMBuildLoad2(builder, ptrType, vtablePtrSlot, ".vtable");
 
-        // vtable[slot]
-        PointerPointer<Pointer> idx = new PointerPointer<>(1);
-        idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
-        LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, vtable, idx, 1,
-                ".vtable.fn");
-        Reference.reachabilityFence(idx);
-        LLVMValueRef fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".fnptr");
+            // vtable[slot]
+            PointerPointer<Pointer> idx = new PointerPointer<>(1);
+            idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
+            LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, vtable, idx, 1,
+                    ".vtable.fn");
+            Reference.reachabilityFence(idx);
+            fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".fnptr");
+            VIRTUAL_CALLS[0]++;
+        }
 
         // Signatuur: (this, paramTypes...) -> returnType
         List<IRType> fnParams = indirectCallParams(call);
@@ -2162,18 +2181,27 @@ public class InstructionEmitter {
         // GEP op de header zelf volstaat (en werkt ook als het ontvangertype
         // tot een pointer zonder descriptor is gedegenereerd).
         emitReceiverNullCheck(obj, call.function());
-        LLVMValueRef itablePtrSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), obj,
-                ClassLayouts.HEADER_SLOT_ITABLE, ".itable.slot");
-        LLVMValueRef itable = LLVMBuildLoad2(builder, ptrType, itablePtrSlot, ".itable");
+        // Closed world: every concrete implementer of the interface has the same function for this method
+        final LLVMValueRef direct = classLayouts.monomorphicInterface(call.function(), call.paramTypes());
+        LLVMValueRef fnPtr;
+        if (direct != null) {
+            fnPtr = direct;
+            DEVIRTUALIZED[1]++;
+        } else {
+            LLVMValueRef itablePtrSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.objectHeaderType(), obj,
+                    ClassLayouts.HEADER_SLOT_ITABLE, ".itable.slot");
+            LLVMValueRef itable = LLVMBuildLoad2(builder, ptrType, itablePtrSlot, ".itable");
 
-        // itable[slot]
-        PointerPointer<Pointer> idx = new PointerPointer<>(1);
-        idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
-        LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, itable, idx, 1,
-                ".itable.fn");
-        Reference.reachabilityFence(idx);
-        LLVMValueRef fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".ifnptr");
+            // itable[slot]
+            PointerPointer<Pointer> idx = new PointerPointer<>(1);
+            idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), slot, 0));
+            LLVMValueRef fnPtrSlot = LLVMBuildGEP2(builder, ptrType, itable, idx, 1,
+                    ".itable.fn");
+            Reference.reachabilityFence(idx);
+            fnPtr = LLVMBuildLoad2(builder, ptrType, fnPtrSlot, ".ifnptr");
+            INTERFACE_CALLS[0]++;
+        }
 
         // Signatuur: (this, paramTypes...) -> returnType
         List<IRType> fnParams = indirectCallParams(call);

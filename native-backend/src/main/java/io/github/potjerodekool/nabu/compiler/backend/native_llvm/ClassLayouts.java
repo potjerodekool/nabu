@@ -150,6 +150,10 @@ public class ClassLayouts {
          */
         private final List<IRFunction> vtableOrder = new ArrayList<>();
         public LLVMValueRef itableGlobal;
+        /** The function in each vtable slot (addresses), for devirtualization; null for an interface. */
+        private long[] vtableAddrs;
+        /** Per slot: the one function that every concrete class under this one has there, 0 none yet, -1 several. */
+        private long[] vtableMono;
         // interface-methode full-naam (Interface_m) -> itable-slot. The slots are global, so every layout shares the
         // map of the ClassLayouts (a copy per class is classes x interface methods entries: out of memory for an
         // application with 30000 classes).
@@ -290,6 +294,73 @@ public class ClassLayouts {
             Integer v = itableSlots.get(interfaceSlotKey(interfaceMethodFullName, paramTypes));
             return v != null ? v : -1;
         }
+    }
+
+    /**
+     * Devirtualization (closed world): a virtual or interface call that every concrete class in the program resolves
+     * to the same function becomes a direct call. {@code -Dnabu.devirt=false} switches it off.
+     */
+    private final boolean DEVIRT = !"false".equals(System.getProperty("nabu.devirt"));
+    private static final long SEVERAL = -1L;
+    /** Interface slot key -> the one function (address) all concrete implementers have, or {@link #SEVERAL}. */
+    private final Map<String, Long> itableMono = new HashMap<>();
+    private final Map<Long, LLVMValueRef> functionByAddress = new HashMap<>();
+
+    private void recordItableTarget(final String slotKey, final LLVMValueRef implementation) {
+        final long address = implementation.address();
+        functionByAddress.putIfAbsent(address, implementation);
+        itableMono.merge(slotKey, address, (a, b) -> a.equals(b) ? a : SEVERAL);
+    }
+
+    /** After all vtables: per class and slot the function that all concrete classes under the class share. */
+    private void computeVtableMono(final List<IRModule> order) {
+        for (final IRModule module : order) {
+            if (Flags.hasFlag(module.flags, Flags.INTERFACE) || Flags.hasFlag(module.flags, Flags.ABSTRACT)) {
+                continue;
+            }
+            final ClassLayout concrete = byInternalName.get(normalizeInternalName(module.name));
+            if (concrete == null || concrete.vtableAddrs == null) {
+                continue;
+            }
+            for (ClassLayout a = concrete; a != null; ) {
+                if (a.vtableAddrs != null) {
+                    if (a.vtableMono == null) {
+                        a.vtableMono = new long[a.vtableAddrs.length];
+                    }
+                    final long[] mono = a.vtableMono;
+                    final int n = Math.min(mono.length, concrete.vtableAddrs.length);
+                    for (int s = 0; s < n; s++) {
+                        final long v = concrete.vtableAddrs[s];
+                        mono[s] = mono[s] == 0 ? v : mono[s] == v ? v : SEVERAL;
+                    }
+                }
+                final String up = superInternalName(a.internalName);
+                a = up != null ? byInternalName.get(up) : null;
+            }
+        }
+    }
+
+    /** The function a virtual call on a receiver of class {@code layout} in {@code slot} always reaches, or null. */
+    public LLVMValueRef monomorphicVirtual(final ClassLayout layout, final int slot) {
+        if (!DEVIRT || layout == null || layout.vtableMono == null || slot < 0 || slot >= layout.vtableMono.length
+                || slotIsExclusive(layout.internalName)) {
+            return null;
+        }
+        final long v = layout.vtableMono[slot];
+        return v > 0 ? functionByAddress.get(v) : null;
+    }
+
+    /** The function an interface call always reaches (every concrete implementer has it), or null. */
+    public LLVMValueRef monomorphicInterface(final String function, final List<IRType> paramTypes) {
+        if (!DEVIRT) {
+            return null;
+        }
+        final String key = interfaceSlotKey(function, paramTypes);
+        if (!interfaceSlots.containsKey(key) || slotIsExclusive(interfaceSlotOwner(key))) {
+            return null;
+        }
+        final Long v = itableMono.get(key);
+        return v != null && v > 0 ? functionByAddress.get(v) : null;
     }
 
     private final LLVMContextRef ctx;
@@ -1141,6 +1212,7 @@ for (IRModule m : modules) {
         // compilatie? Doorslaggevend voor de dispatch-keuze in
         // InstructionEmitter.tryEmitInterfaceCall.
         collectInterfacesWithImplementers(order);
+        computeVtableMono(order);
         buildLibraryItable(mod);
         if (Boolean.getBoolean("nabu.closureStats")) {
             System.err.println("[closureStats] itables: " + ITABLE_STATS[0] + ", entries " + ITABLE_STATS[1] + ", non-null " + ITABLE_STATS[2]);
@@ -1894,8 +1966,10 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         LLVMValueRef vtableInit;
         if (slotFns.isEmpty()) {
             vtableInit = LLVMConstNull(vtableType);
+            layout.vtableAddrs = new long[0];
         } else {
             PointerPointer<Pointer> initArr = new PointerPointer<>(slotFns.size());
+            layout.vtableAddrs = new long[slotFns.size()];
             for (int i = 0; i < slotFns.size(); i++) {
                 IRFunction fn = slotFns.get(i);
                 // Eerst de overload-sleutel: die is uniek per parameterlijst.
@@ -1934,6 +2008,8 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
                             "Vtable function not declared: " + fn.name);
                 emitAbstractSlotStub(fn, fnRef);
                 initArr.put(i, fnRef);
+                layout.vtableAddrs[i] = fnRef.address();
+                functionByAddress.putIfAbsent(fnRef.address(), fnRef);
             }
             vtableInit = LLVMConstArray(ptrType, initArr, slotFns.size());
             Reference.reachabilityFence(initArr);
@@ -2078,6 +2154,10 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
             entries[slot.getValue()] = implementation != null && !implementation.isNull()
                     ? implementation
                     : LLVMConstNull(ptrType);
+            if (DEVIRT && !isInterface && !Flags.hasFlag(module.flags, Flags.ABSTRACT)
+                    && implementation != null && !implementation.isNull()) {
+                recordItableTarget(slot.getKey(), implementation);
+            }
             length = Math.max(length, slot.getValue() + 1);
         }
         entries = java.util.Arrays.copyOf(entries, length);

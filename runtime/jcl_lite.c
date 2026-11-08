@@ -2693,9 +2693,35 @@ BIND(void *, jcl_ShutdownSupport_targetOf0, "io.github.potjerodekool.nabu.compil
 }
 
 
+/* The type info of the reflection objects the runtime makes (Method, Constructor, Field) comes from a cache without the
+ * supers of the real classes: a cast of a Constructor to Member (Spring's BeanUtils & co) or of a Method to
+ * Executable would fail. */
+static void jcl_wire_reflect_type(void *obj, const char *type) {
+    static const char *const executable_interfaces[] = {
+        "java/lang/reflect/Member", "java/lang/reflect/AnnotatedElement", "java/lang/reflect/GenericDeclaration"
+    };
+    static const char *const field_interfaces[] = {
+        "java/lang/reflect/Member", "java/lang/reflect/AnnotatedElement"
+    };
+    nabu_type_info *ti = (nabu_type_info *)((nabu_object *)obj)->type;
+    if (ti == NULL || ti->interface_count != 0) return;
+    char scratch[64];
+    if (strcmp(type, "java/lang/reflect/Method") == 0 || strcmp(type, "java/lang/reflect/Constructor") == 0) {
+        nabu_init_object_ex(scratch, "java/lang/reflect/Executable", "java/lang/reflect/AccessibleObject");
+        nabu_init_object_ex(scratch, type, "java/lang/reflect/Executable");
+        ti->interfaces = executable_interfaces;
+        ti->interface_count = 3;
+    } else if (strcmp(type, "java/lang/reflect/Field") == 0) {
+        nabu_init_object_ex(scratch, type, "java/lang/reflect/AccessibleObject");
+        ti->interfaces = field_interfaces;
+        ti->interface_count = 2;
+    }
+}
+
 static void *jcl_new_obj(const char *type, void *state) {
     void *obj = jcl_alloc(48 + 8);
     nabu_init_object(obj, type);
+    if (strncmp(type, "java/lang/reflect/", 18) == 0) jcl_wire_reflect_type(obj, type);
     if (state != NULL) nabu_jcl_set_state(obj, state);
     return obj;
 }

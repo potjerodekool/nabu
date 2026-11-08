@@ -38,6 +38,7 @@ final class RuntimeCalls {
 
     static final String PROXY_SUPPORT = RUNTIME_PACKAGE + "ProxySupport";
 
+    static final String METHOD_HANDLE_SUPPORT = RUNTIME_PACKAGE + "MethodHandleSupport";
     static final String NET_SUPPORT = RUNTIME_PACKAGE + "NetSupport";
     static final String REFLECT_SUPPORT = RUNTIME_PACKAGE + "ReflectSupport";
 
@@ -158,6 +159,24 @@ final class RuntimeCalls {
                     false, NET_SUPPORT, "lookupAllHostAddr",
                     "(Ljava/lang/Object;Ljava/lang/String;)[Ljava/net/InetAddress;"),
             new Redirect("java/util/zip/Inflater", "end", "(J)V", true, RUNTIME_PACKAGE + "InflaterSupport", "end"),
+            new Redirect("java/lang/invoke/MethodHandles$Lookup", "unreflect", "(Ljava/lang/reflect/Method;)Ljava/lang/invoke/MethodHandle;", false,
+                    METHOD_HANDLE_SUPPORT, "unreflect", "(Ljava/lang/Object;Ljava/lang/reflect/Method;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandles$Lookup", "unreflectGetter", "(Ljava/lang/reflect/Field;)Ljava/lang/invoke/MethodHandle;", false,
+                    METHOD_HANDLE_SUPPORT, "unreflectGetter", "(Ljava/lang/Object;Ljava/lang/reflect/Field;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandles$Lookup", "unreflectSetter", "(Ljava/lang/reflect/Field;)Ljava/lang/invoke/MethodHandle;", false,
+                    METHOD_HANDLE_SUPPORT, "unreflectSetter", "(Ljava/lang/Object;Ljava/lang/reflect/Field;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandles$Lookup", "unreflectConstructor", "(Ljava/lang/reflect/Constructor;)Ljava/lang/invoke/MethodHandle;", false,
+                    METHOD_HANDLE_SUPPORT, "unreflectConstructor", "(Ljava/lang/Object;Ljava/lang/reflect/Constructor;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandle", "asType", "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false,
+                    METHOD_HANDLE_SUPPORT, "asType", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandle", "asFixedArity", "()Ljava/lang/invoke/MethodHandle;", false,
+                    METHOD_HANDLE_SUPPORT, "asFixedArity", "(Ljava/lang/Object;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandle", "bindTo", "(Ljava/lang/Object;)Ljava/lang/invoke/MethodHandle;", false,
+                    METHOD_HANDLE_SUPPORT, "bindTo", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandle", "invokeWithArguments", "([Ljava/lang/Object;)Ljava/lang/Object;", false,
+                    METHOD_HANDLE_SUPPORT, "invokeWithArguments", "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;"),
+            new Redirect("java/lang/invoke/MethodHandle", "toString", "()Ljava/lang/String;", false,
+                    METHOD_HANDLE_SUPPORT, "describe", "(Ljava/lang/Object;)Ljava/lang/String;"),
             new Redirect("java/lang/Class", "getProtectionDomain", "()Ljava/security/ProtectionDomain;", false,
                     LOADER_SUPPORT, "protectionDomain"),
             new Redirect("java/lang/reflect/Method", "getDefaultValue", "()Ljava/lang/Object;", false,

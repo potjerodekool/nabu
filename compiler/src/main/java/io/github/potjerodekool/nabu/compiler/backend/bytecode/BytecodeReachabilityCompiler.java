@@ -254,6 +254,7 @@ public final class BytecodeReachabilityCompiler {
         io.github.potjerodekool.nabu.compiler.backend.bytecode.substitutions.JavaSubstitutions.apply(classNode);
         ByteArrayViewRewriter.rewrite(classNode);
         FieldVarHandleRewriter.rewrite(classNode, loader);
+        MethodHandleRewriter.rewrite(classNode);
         FieldUpdaterRewriter.rewrite(classNode, loader);
         if ("org/springframework/boot/system/JavaVersion".equals(classNode.name)) {
             // Spring Boot finds out the Java version by looking for methods of JDK classes through reflection

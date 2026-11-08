@@ -137,6 +137,25 @@ public final class ReflectionDataGenerator {
                 }
             }
         }
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            long declared = 0, publics = 0, constructors = 0, bytes = 0;
+            final java.util.Set<String> distinct = new java.util.HashSet<>();
+            for (final ClassMethods methods : classes.values()) {
+                declared += methods.declared().size();
+                publics += methods.publics().size();
+                constructors += methods.constructors().size();
+                for (final var list : List.of(methods.declared(), methods.publics(), methods.constructors())) {
+                    for (final ReflectedMethod m : list) {
+                        distinct.add(m.key());
+                        bytes += m.owner().length() + m.name().length() + m.desc().length()
+                                + (m.signature() != null ? m.signature().length() : 0);
+                    }
+                }
+            }
+            System.err.println("[closureStats] reflection data: " + classes.size() + " classes, " + declared
+                    + " declared + " + publics + " public + " + constructors + " constructor entries (" + distinct.size()
+                    + " distinct), " + dispatched.size() + " dispatched, " + bytes / 1024 + " KB of strings");
+        }
         node.methods.addAll(methods(classes));
         node.methods.addAll(constructors(classes));
         node.methods.addAll(invoke(List.copyOf(dispatched.values())));

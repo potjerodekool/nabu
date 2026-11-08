@@ -2820,6 +2820,61 @@ BIND(void *, jcl_AnnotationSupport_blank0, "io.github.potjerodekool.nabu.compile
     return jcl_ann_obj(e);
 }
 
+/* Annotation.equals/hashCode/toString: every getAnnotation builds a new object, so the same annotation is
+ * equal by type and values (TypeDescriptor.annotationsMatch compares annotations of the same parameter). */
+static int jcl_ann_values_equal(const nabu_annotation_value *a, const nabu_annotation_value *b) {
+    if ((a->name == NULL) != (b->name == NULL)) return 0;
+    if (a->name != NULL && strcmp(a->name, b->name) != 0) return 0;
+    if (a->is_string != b->is_string) return 0;
+    if ((a->text == NULL) != (b->text == NULL)) return 0;
+    if (a->text != NULL && strcmp(a->text, b->text) != 0) return 0;
+    return a->num_value == b->num_value;
+}
+BIND(int, jcl_java_lang_Annotation_equals, "java.lang.annotation.Annotation_equals", (void *self, void *other)) {
+    if (self == other) return 1;
+    if (self == NULL || other == NULL) return 0;
+    s_ann *a = (s_ann *)jcl_state_kind(self, K_ANN);
+    s_ann *b = (s_ann *)jcl_state_kind(other, K_ANN);
+    if (a == NULL || b == NULL || a->e == NULL || b->e == NULL) return 0;
+    if (a->e == b->e) return 1;
+    if (strcmp(a->e->type_name, b->e->type_name) != 0) return 0;
+    if (a->e->value_count != b->e->value_count) return 0;
+    for (int i = 0; i < a->e->value_count; i++) {
+        if (!jcl_ann_values_equal(&a->e->values[i], &b->e->values[i])) return 0;
+    }
+    return 1;
+}
+BIND(int32_t, jcl_java_lang_Annotation_hashCode, "java.lang.annotation.Annotation_hashCode", (void *self)) {
+    s_ann *a = (s_ann *)jcl_state_kind(self, K_ANN);
+    if (a == NULL || a->e == NULL) return 0;
+    uint32_t h = 17;
+    for (const char *p = a->e->type_name; *p != 0; p++) h = h * 31u + (unsigned char)*p;
+    for (int i = 0; i < a->e->value_count; i++) {
+        const char *t = a->e->values[i].text;
+        if (t != NULL) for (; *t != 0; t++) h = h * 31u + (unsigned char)*t;
+        h = h * 31u + (uint32_t)(int64_t)a->e->values[i].num_value;
+    }
+    return (int32_t)h;
+}
+BIND(void *, jcl_java_lang_Annotation_toString, "java.lang.annotation.Annotation_toString", (void *self)) {
+    s_ann *a = (s_ann *)jcl_state_kind(self, K_ANN);
+    char buf[1024];
+    if (a == NULL || a->e == NULL) return nabu_jstring_new("@?");
+    int n = snprintf(buf, sizeof buf, "@");
+    for (const char *p = a->e->type_name; *p != 0 && n < 900; p++) buf[n++] = (*p == '/') ? '.' : *p;
+    buf[n++] = '(';
+    for (int i = 0; i < a->e->value_count && n < 900; i++) {
+        const nabu_annotation_value *v = &a->e->values[i];
+        if (i > 0) n += snprintf(buf + n, sizeof buf - n, ", ");
+        if (v->name != NULL) n += snprintf(buf + n, sizeof buf - n, "%s=", v->name);
+        if (v->text != NULL) n += snprintf(buf + n, sizeof buf - n, "%s", v->text);
+        else n += snprintf(buf + n, sizeof buf - n, "%g", v->num_value);
+    }
+    if (n > 1000) n = 1000;
+    snprintf(buf + n, sizeof buf - n, ")");
+    return nabu_jstring_new(buf);
+}
+
 static void *jcl_field_obj(const char *cls, const nabu_field_info *f) {
     s_field *st = (s_field *)jcl_alloc(sizeof(s_field));
     st->kind = K_FIELD;

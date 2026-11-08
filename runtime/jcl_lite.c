@@ -18,6 +18,8 @@
 #include <errno.h>
 #include <pthread.h>
 #ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <direct.h>
 #include <io.h>
@@ -28,6 +30,12 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <poll.h>
 #include <sched.h>
 #include <sys/syscall.h>
@@ -2089,7 +2097,9 @@ BIND(void, jcl_IOUtil_configureBlocking, "sun.nio.ch.IOUtil_configureBlocking", 
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags >= 0) fcntl(fd, F_SETFL, blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK));
 #else
-    (void)blocking;
+    /* Only sockets are configured on Windows (a file channel is always blocking). */
+    u_long mode = blocking ? 0 : 1;
+    ioctlsocket((SOCKET)fd, FIONBIO, &mode);
 #endif
 }
 BIND(int32_t, jcl_IOUtil_fdLimit, "sun.nio.ch.IOUtil_fdLimit", (void)) {
@@ -6749,3 +6759,727 @@ BIND(void *, jcl_java_lang_Class_toString, "java.lang.Class_toString", (void *se
     if (primitive) return nabu_jstring_new(dotted);
     return nabu_jstring_new(jcl_concat(jcl_java_lang_Class_isInterface(self) ? "interface " : "class ", dotted));
 }
+
+/* ===========================================================================
+ * Sockets: java.net.InetAddress & co, sun.nio.ch.Net, SocketDispatcher, the pipe of IOUtil and WEPoll (the selector
+ * of the Windows JDK; here an epoll emulation on poll). IPv4 only. A socket is the int in the `fd` slot of a
+ * FileDescriptor. Values that are Java objects (an InetAddress, an InetSocketAddress) are made by NetSupport.java.
+ * =========================================================================== */
+#ifdef _WIN32
+typedef SOCKET jcl_sock;
+#define JCL_SOCK_FAIL INVALID_SOCKET
+#define JCL_SOCK_CLOSE(s) closesocket(s)
+#define JCL_SOCK_ERRNO() WSAGetLastError()
+#define JCL_E_WOULDBLOCK WSAEWOULDBLOCK
+#define JCL_E_INPROGRESS WSAEWOULDBLOCK
+#define JCL_E_INTR WSAEINTR
+#define JCL_E_ADDRINUSE WSAEADDRINUSE
+#define JCL_E_CONNREFUSED WSAECONNREFUSED
+#define JCL_E_CONNRESET WSAECONNRESET
+#define JCL_E_CONNABORTED WSAECONNABORTED
+#define JCL_E_NETUNREACH WSAENETUNREACH
+#define JCL_E_HOSTUNREACH WSAEHOSTUNREACH
+#define JCL_POLL(fds, n, ms) WSAPoll((fds), (ULONG)(n), (ms))
+typedef WSAPOLLFD jcl_pollfd;
+typedef int jcl_socklen;
+#else
+typedef int jcl_sock;
+#define JCL_SOCK_FAIL (-1)
+#define JCL_SOCK_CLOSE(s) close(s)
+#define JCL_SOCK_ERRNO() errno
+#define JCL_E_WOULDBLOCK EWOULDBLOCK
+#define JCL_E_INPROGRESS EINPROGRESS
+#define JCL_E_INTR EINTR
+#define JCL_E_ADDRINUSE EADDRINUSE
+#define JCL_E_CONNREFUSED ECONNREFUSED
+#define JCL_E_CONNRESET ECONNRESET
+#define JCL_E_CONNABORTED ECONNABORTED
+#define JCL_E_NETUNREACH ENETUNREACH
+#define JCL_E_HOSTUNREACH EHOSTUNREACH
+#define JCL_POLL(fds, n, ms) poll((fds), (nfds_t)(n), (ms))
+typedef struct pollfd jcl_pollfd;
+typedef socklen_t jcl_socklen;
+#endif
+
+/* Winsock has to be started once; a POSIX system needs nothing (SIGPIPE is ignored here, send reports EPIPE). */
+static pthread_once_t jcl_net_once = PTHREAD_ONCE_INIT;
+static void jcl_net_startup_once(void) {
+#ifdef _WIN32
+    WSADATA data;
+    WSAStartup(MAKEWORD(2, 2), &data);
+#else
+    signal(SIGPIPE, SIG_IGN);
+#endif
+}
+static void jcl_net_startup(void) { pthread_once(&jcl_net_once, jcl_net_startup_once); }
+
+/* The blocking calls give up the global lock where there is one (POSIX); on Windows the threads run in parallel. */
+#ifdef _WIN32
+#define JCL_NET_BLOCK_BEGIN() 0
+#define JCL_NET_BLOCK_END(r) ((void)(r))
+#else
+#define JCL_NET_BLOCK_BEGIN() jcl_blocking_begin()
+#define JCL_NET_BLOCK_END(r) jcl_blocking_end(r)
+#endif
+
+#define JCL_IOS_UNAVAILABLE (-2)
+#define JCL_IOS_INTERRUPTED (-3)
+#define JCL_IOS_EOF (-1)
+
+/* The events, the same bits as the epoll constants of WEPoll.java: Net.pollinValue() & co answer these. */
+#define JCL_EV_IN 1
+#define JCL_EV_OUT 4
+#define JCL_EV_ERR 8
+#define JCL_EV_HUP 16
+#define JCL_EV_NVAL 32
+#define JCL_EV_ONESHOT ((uint32_t)1 << 31)
+
+static short jcl_ev_to_sys(uint32_t ev) {
+    short s = 0;
+    if (ev & JCL_EV_IN) s |= POLLIN;
+    if (ev & JCL_EV_OUT) s |= POLLOUT;
+    return s;
+}
+static uint32_t jcl_ev_from_sys(short r) {
+    uint32_t e = 0;
+    if (r & POLLIN) e |= JCL_EV_IN;
+    if (r & POLLOUT) e |= JCL_EV_OUT;
+    if (r & POLLERR) e |= JCL_EV_ERR;
+    if (r & POLLHUP) e |= JCL_EV_HUP;
+    if (r & POLLNVAL) e |= JCL_EV_NVAL;
+    return e;
+}
+
+static const char *jcl_net_reason(int err) {
+    if (err == JCL_E_ADDRINUSE) return "Address already in use";
+    if (err == JCL_E_CONNREFUSED) return "Connection refused";
+    if (err == JCL_E_CONNRESET) return "Connection reset";
+    if (err == JCL_E_CONNABORTED) return "Software caused connection abort";
+    if (err == JCL_E_NETUNREACH) return "Network is unreachable";
+    if (err == JCL_E_HOSTUNREACH) return "No route to host";
+    return NULL;
+}
+static void jcl_net_fail(const char *cls, const char *super, const char *what, int err) {
+    char msg[200];
+    const char *reason = jcl_net_reason(err);
+    if (reason != NULL) snprintf(msg, sizeof msg, "%s: %s", reason, what);
+    else snprintf(msg, sizeof msg, "%s failed (error %d)", what, err);
+    nabu_throw(jcl_throw(cls, super, jcl_dup(msg)));
+}
+static void jcl_net_socket_fail(const char *what, int err) {
+    jcl_net_fail("java/net/SocketException", "java/io/IOException", what, err);
+}
+
+static jcl_sock jcl_sock_of(void *fdObj) {
+    const int fd = jcl_chan_fd(fdObj);
+    return fd < 0 ? JCL_SOCK_FAIL : (jcl_sock)fd;
+}
+
+/* The IPv4 address (host byte order) of an InetAddress: InetAddress.holder.address. */
+static int jcl_inet_ipv4(void *inetAddress, uint32_t *out) {
+    if (inetAddress == NULL) return 0;
+    const intptr_t holderOffset = nabu_instance_field_offset(inetAddress, "holder");
+    if (holderOffset < 0) return 0;
+    void *holder = *(void **)((char *)inetAddress + holderOffset);
+    if (holder == NULL) return 0;
+    const intptr_t addressOffset = nabu_instance_field_offset(holder, "address");
+    if (addressOffset < 0) return 0;
+    *out = (uint32_t)*(int32_t *)((char *)holder + addressOffset);
+    return 1;
+}
+
+static void jcl_sockaddr_in(struct sockaddr_in *sa, uint32_t hostOrderAddress, int port) {
+    memset(sa, 0, sizeof *sa);
+    sa->sin_family = AF_INET;
+    sa->sin_port = htons((unsigned short)port);
+    sa->sin_addr.s_addr = htonl(hostOrderAddress);
+}
+
+static void jcl_sock_set_blocking(jcl_sock s, int blocking) {
+#ifdef _WIN32
+    u_long mode = blocking ? 0 : 1;
+    ioctlsocket(s, FIONBIO, &mode);
+#else
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags >= 0) fcntl(s, F_SETFL, blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK));
+#endif
+}
+
+/* ---- java.net.InetAddress and friends: no IPv6, no interface list ---- */
+BIND(void, jcl_InetAddress_init, "java.net.InetAddress_init", (void)) { jcl_net_startup(); }
+BIND(void, jcl_Inet4Address_init, "java.net.Inet4Address_init", (void)) { }
+BIND(void, jcl_Inet6Address_init, "java.net.Inet6Address_init", (void)) { }
+BIND(uint8_t, jcl_InetAddress_isIPv4Available, "java.net.InetAddress_isIPv4Available", (void)) { return 1; }
+BIND(uint8_t, jcl_InetAddress_isIPv6Supported, "java.net.InetAddress_isIPv6Supported", (void)) { return 0; }
+BIND(void *, jcl_Inet4AddressImpl_getLocalHostName, "java.net.Inet4AddressImpl_getLocalHostName", (void *self)) {
+    (void)self;
+    jcl_net_startup();
+    char name[256];
+    if (gethostname(name, sizeof name) != 0 || name[0] == 0) snprintf(name, sizeof name, "localhost");
+    return nabu_jstring_new(name);
+}
+BIND(void *, jcl_Inet4AddressImpl_getHostByAddr, "java.net.Inet4AddressImpl_getHostByAddr", (void *self, void *addr)) {
+    (void)self; (void)addr;
+    nabu_throw(jcl_throw("java/net/UnknownHostException", "java/io/IOException", "no host name for the address"));
+    return NULL;
+}
+BIND(void *, jcl_Inet6AddressImpl_getLocalHostName, "java.net.Inet6AddressImpl_getLocalHostName", (void *self)) {
+    return jcl_Inet4AddressImpl_getLocalHostName(self);
+}
+BIND(void *, jcl_Inet6AddressImpl_getHostByAddr, "java.net.Inet6AddressImpl_getHostByAddr", (void *self, void *addr)) {
+    return jcl_Inet4AddressImpl_getHostByAddr(self, addr);
+}
+BIND(void, jcl_NetworkInterface_init, "java.net.NetworkInterface_init", (void)) { }
+BIND(void *, jcl_NetworkInterface_getAll, "java.net.NetworkInterface_getAll", (void)) {
+    return jcl_arr_typed(0, "[Ljava/net/NetworkInterface;");
+}
+BIND(void *, jcl_NetworkInterface_getByName0, "java.net.NetworkInterface_getByName0", (void *name)) { (void)name; return NULL; }
+BIND(void *, jcl_NetworkInterface_getByIndex0, "java.net.NetworkInterface_getByIndex0", (int32_t index)) { (void)index; return NULL; }
+BIND(void *, jcl_NetworkInterface_getByInetAddress0, "java.net.NetworkInterface_getByInetAddress0", (void *addr)) { (void)addr; return NULL; }
+BIND(uint8_t, jcl_NetworkInterface_boundInetAddress0, "java.net.NetworkInterface_boundInetAddress0", (void *addr)) { (void)addr; return 0; }
+
+/* ---- NetSupport (the runtime package): what needs more than primitives is done in Java on top of these ---- */
+#define JCL_NS(n) "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.NetSupport_" n
+BIND(int32_t, jcl_NetSupport_fdVal0, JCL_NS("fdVal0"), (void *fdObj)) { return jcl_chan_fd(fdObj); }
+BIND(void, jcl_NetSupport_setFdVal0, JCL_NS("setFdVal0"), (void *fdObj, int32_t fd)) {
+    int32_t *slot = jcl_fd_slot(fdObj);
+    if (slot != NULL) *slot = fd;
+}
+/* The new socket of an accept (the listening socket is the int), IOStatus.UNAVAILABLE when none is waiting. */
+BIND(int32_t, jcl_NetSupport_accept0, JCL_NS("accept0"), (int32_t listening)) {
+    struct sockaddr_in sa;
+    jcl_socklen length = sizeof sa;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const jcl_sock s = accept((jcl_sock)listening, (struct sockaddr *)&sa, &length);
+    const int err = s == JCL_SOCK_FAIL ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    if (s == JCL_SOCK_FAIL) {
+        if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+        if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+        jcl_net_socket_fail("Accept", err);
+        return -1;
+    }
+    return (int32_t)s;
+}
+/* (IPv4 address << 16) | port of the local or the remote end; -1 when there is none. */
+BIND(int64_t, jcl_NetSupport_name0, JCL_NS("name0"), (int32_t fd, uint8_t remote)) {
+    struct sockaddr_in sa;
+    jcl_socklen length = sizeof sa;
+    const int r = remote ? getpeername((jcl_sock)fd, (struct sockaddr *)&sa, &length)
+                         : getsockname((jcl_sock)fd, (struct sockaddr *)&sa, &length);
+    if (r != 0) return -1;
+    return ((int64_t)ntohl(sa.sin_addr.s_addr) << 16) | (int64_t)ntohs(sa.sin_port);
+}
+/* The IPv4 addresses of a host name, 4 bytes each; null when the name is unknown. */
+BIND(void *, jcl_NetSupport_resolve0, JCL_NS("resolve0"), (void *host)) {
+    jcl_net_startup();
+    struct addrinfo hints, *result = NULL;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    if (host == NULL || getaddrinfo(jcl_str(host), NULL, &hints, &result) != 0 || result == NULL) return NULL;
+    char bytes[4 * 16];
+    size_t n = 0;
+    for (struct addrinfo *a = result; a != NULL && n + 4 <= sizeof bytes; a = a->ai_next) {
+        if (a->ai_family != AF_INET) continue;
+        memcpy(bytes + n, &((struct sockaddr_in *)a->ai_addr)->sin_addr, 4);
+        n += 4;
+    }
+    freeaddrinfo(result);
+    if (n == 0) return NULL;
+    void *array = jcl_alloc(8 + n);
+    ((int32_t *)array)[0] = (int32_t)n;
+    ((int32_t *)array)[1] = 1;
+    jcl_arr_set_type(array, "[B");
+    memcpy((char *)array + 8, bytes, n);
+    return array;
+}
+
+/* ---- sun.nio.ch.Net ---- */
+BIND(uint8_t, jcl_Net_isIPv6Available0, "sun.nio.ch.Net_isIPv6Available0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_isReusePortAvailable0, "sun.nio.ch.Net_isReusePortAvailable0", (void)) { return 0; }
+BIND(int32_t, jcl_Net_isExclusiveBindAvailable, "sun.nio.ch.Net_isExclusiveBindAvailable", (void)) { return -1; }
+BIND(uint8_t, jcl_Net_shouldShutdownWriteBeforeClose0, "sun.nio.ch.Net_shouldShutdownWriteBeforeClose0", (void)) { return 1; }
+BIND(uint8_t, jcl_Net_shouldSetBothIPv4AndIPv6Options0, "sun.nio.ch.Net_shouldSetBothIPv4AndIPv6Options0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_canIPv6SocketJoinIPv4Group0, "sun.nio.ch.Net_canIPv6SocketJoinIPv4Group0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_canJoin6WithIPv4Group0, "sun.nio.ch.Net_canJoin6WithIPv4Group0", (void)) { return 0; }
+BIND(uint8_t, jcl_Net_canUseIPv6OptionsWithIPv4LocalAddress0, "sun.nio.ch.Net_canUseIPv6OptionsWithIPv4LocalAddress0", (void)) { return 0; }
+BIND(int16_t, jcl_Net_pollinValue, "sun.nio.ch.Net_pollinValue", (void)) { return JCL_EV_IN; }
+BIND(int16_t, jcl_Net_polloutValue, "sun.nio.ch.Net_polloutValue", (void)) { return JCL_EV_OUT; }
+BIND(int16_t, jcl_Net_pollerrValue, "sun.nio.ch.Net_pollerrValue", (void)) { return JCL_EV_ERR; }
+BIND(int16_t, jcl_Net_pollhupValue, "sun.nio.ch.Net_pollhupValue", (void)) { return JCL_EV_HUP; }
+BIND(int16_t, jcl_Net_pollnvalValue, "sun.nio.ch.Net_pollnvalValue", (void)) { return JCL_EV_NVAL; }
+BIND(int16_t, jcl_Net_pollconnValue, "sun.nio.ch.Net_pollconnValue", (void)) { return JCL_EV_OUT; }
+
+BIND(int32_t, jcl_Net_socket0, "sun.nio.ch.Net_socket0", (uint8_t preferIPv6, uint8_t stream, uint8_t reuse, uint8_t fastLoopback)) {
+    (void)preferIPv6; (void)fastLoopback;
+    jcl_net_startup();
+    const jcl_sock s = socket(AF_INET, stream ? SOCK_STREAM : SOCK_DGRAM, 0);
+    if (s == JCL_SOCK_FAIL) {
+        jcl_net_socket_fail("Socket creation", JCL_SOCK_ERRNO());
+        return -1;
+    }
+#ifndef _WIN32
+    if (reuse) {
+        int one = 1;
+        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
+    }
+#else
+    (void)reuse;   /* SO_REUSEADDR on Windows lets a second socket take the port */
+#endif
+    return (int32_t)s;
+}
+
+BIND(void, jcl_Net_bind0, "sun.nio.ch.Net_bind0", (void *fdObj, uint8_t preferIPv6, uint8_t useExclBind, void *inetAddress, int32_t port)) {
+    (void)preferIPv6; (void)useExclBind;
+    uint32_t address = 0;
+    if (!jcl_inet_ipv4(inetAddress, &address)) {
+        jcl_net_socket_fail("Bind (an address that is not IPv4)", 0);
+        return;
+    }
+    struct sockaddr_in sa;
+    jcl_sockaddr_in(&sa, address, port);
+    if (bind(jcl_sock_of(fdObj), (struct sockaddr *)&sa, sizeof sa) != 0) {
+        const int err = JCL_SOCK_ERRNO();
+        jcl_net_fail("java/net/BindException", "java/net/SocketException", "bind", err);
+    }
+}
+
+BIND(void, jcl_Net_listen, "sun.nio.ch.Net_listen", (void *fdObj, int32_t backlog)) {
+    if (listen(jcl_sock_of(fdObj), backlog) != 0) jcl_net_socket_fail("Listen", JCL_SOCK_ERRNO());
+}
+
+BIND(int32_t, jcl_Net_connect0, "sun.nio.ch.Net_connect0", (uint8_t preferIPv6, void *fdObj, void *inetAddress, int32_t port)) {
+    (void)preferIPv6;
+    uint32_t address = 0;
+    if (!jcl_inet_ipv4(inetAddress, &address)) {
+        jcl_net_socket_fail("Connect (an address that is not IPv4)", 0);
+        return -1;
+    }
+    struct sockaddr_in sa;
+    jcl_sockaddr_in(&sa, address, port);
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int r = connect(jcl_sock_of(fdObj), (struct sockaddr *)&sa, sizeof sa);
+    const int err = r != 0 ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    if (r == 0) return 1;
+    if (err == JCL_E_INPROGRESS || err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+    if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+    jcl_net_fail("java/net/ConnectException", "java/net/SocketException", "connect", err);
+    return -1;
+}
+
+BIND(void, jcl_Net_shutdown, "sun.nio.ch.Net_shutdown", (void *fdObj, int32_t how)) {
+    if (shutdown(jcl_sock_of(fdObj), how) != 0) {
+        const int err = JCL_SOCK_ERRNO();
+        if (err != 10057 /* WSAENOTCONN */ && err != 107 /* ENOTCONN */) jcl_net_socket_fail("Shutdown", err);
+    }
+}
+
+BIND(int32_t, jcl_Net_localPort, "sun.nio.ch.Net_localPort", (void *fdObj)) {
+    struct sockaddr_in sa;
+    jcl_socklen length = sizeof sa;
+    if (getsockname(jcl_sock_of(fdObj), (struct sockaddr *)&sa, &length) != 0) {
+        jcl_net_socket_fail("getsockname", JCL_SOCK_ERRNO());
+        return -1;
+    }
+    return ntohs(sa.sin_port);
+}
+BIND(int32_t, jcl_Net_remotePort, "sun.nio.ch.Net_remotePort", (void *fdObj)) {
+    struct sockaddr_in sa;
+    jcl_socklen length = sizeof sa;
+    if (getpeername(jcl_sock_of(fdObj), (struct sockaddr *)&sa, &length) != 0) {
+        jcl_net_socket_fail("getpeername", JCL_SOCK_ERRNO());
+        return -1;
+    }
+    return ntohs(sa.sin_port);
+}
+
+BIND(int32_t, jcl_Net_getIntOption0, "sun.nio.ch.Net_getIntOption0", (void *fdObj, uint8_t mayNeedConversion, int32_t level, int32_t option)) {
+    (void)mayNeedConversion;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    if (level == SOL_SOCKET && option == SO_LINGER) {
+        struct linger linger;
+        jcl_socklen length = sizeof linger;
+        if (getsockopt(s, level, option, (char *)&linger, &length) != 0) {
+            jcl_net_socket_fail("getsockopt", JCL_SOCK_ERRNO());
+            return 0;
+        }
+        return linger.l_onoff ? (int32_t)linger.l_linger : -1;
+    }
+    int value = 0;
+    jcl_socklen length = sizeof value;
+    if (getsockopt(s, level, option, (char *)&value, &length) != 0) {
+        jcl_net_socket_fail("getsockopt", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return value;
+}
+BIND(void, jcl_Net_setIntOption0, "sun.nio.ch.Net_setIntOption0", (void *fdObj, uint8_t mayNeedConversion, int32_t level, int32_t option, int32_t arg, uint8_t isIPv6)) {
+    (void)mayNeedConversion; (void)isIPv6;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    int r;
+    if (level == SOL_SOCKET && option == SO_LINGER) {
+        struct linger linger;
+        linger.l_onoff = arg >= 0;
+        linger.l_linger = (unsigned short)(arg >= 0 ? arg : 0);
+        r = setsockopt(s, level, option, (const char *)&linger, sizeof linger);
+    } else {
+        int value = arg;
+        r = setsockopt(s, level, option, (const char *)&value, sizeof value);
+    }
+    if (r != 0) jcl_net_socket_fail("setsockopt", JCL_SOCK_ERRNO());
+}
+
+/* Waits for the events (JCL_EV_*) on one socket; the events that happened, 0 on a time-out. */
+BIND(int32_t, jcl_Net_poll, "sun.nio.ch.Net_poll", (void *fdObj, int32_t events, int64_t timeout)) {
+    jcl_pollfd p;
+    p.fd = jcl_sock_of(fdObj);
+    p.events = jcl_ev_to_sys((uint32_t)events);
+    p.revents = 0;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int r = JCL_POLL(&p, 1, (int)(timeout > 2147483647 ? 2147483647 : timeout));
+    JCL_NET_BLOCK_END(released);
+    if (r < 0) {
+        jcl_net_socket_fail("poll", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return r == 0 ? 0 : (int32_t)jcl_ev_from_sys(p.revents);
+}
+/* Whether a non-blocking connect has finished (within the time-out); a failed one throws. */
+BIND(uint8_t, jcl_Net_pollConnect, "sun.nio.ch.Net_pollConnect", (void *fdObj, int64_t timeout)) {
+    const jcl_sock s = jcl_sock_of(fdObj);
+    jcl_pollfd p;
+    p.fd = s;
+    p.events = POLLOUT;
+    p.revents = 0;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int r = JCL_POLL(&p, 1, (int)(timeout > 2147483647 ? 2147483647 : timeout));
+    JCL_NET_BLOCK_END(released);
+    if (r <= 0) return 0;
+    int error = 0;
+    jcl_socklen length = sizeof error;
+    getsockopt(s, SOL_SOCKET, SO_ERROR, (char *)&error, &length);
+    if (error != 0) {
+        jcl_net_fail("java/net/ConnectException", "java/net/SocketException", "connect", error);
+        return 0;
+    }
+    return 1;
+}
+BIND(int32_t, jcl_Net_available, "sun.nio.ch.Net_available", (void *fdObj)) {
+#ifdef _WIN32
+    u_long n = 0;
+    if (ioctlsocket(jcl_sock_of(fdObj), FIONREAD, &n) != 0) {
+        jcl_net_socket_fail("available", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return (int32_t)n;
+#else
+    int n = 0;
+    if (ioctl(jcl_sock_of(fdObj), FIONREAD, &n) != 0) {
+        jcl_net_socket_fail("available", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    return n;
+#endif
+}
+BIND(uint8_t, jcl_Net_discardOOB, "sun.nio.ch.Net_discardOOB", (void *fdObj)) { (void)fdObj; return 0; }
+
+/* ---- sun.nio.ch.SocketDispatcher ---- */
+static int32_t jcl_sock_read_status(int64_t n, int err, int32_t length) {
+    if (n > 0 || length == 0) return (int32_t)n;
+    if (n == 0) return JCL_IOS_EOF;
+    if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+    if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+    if (err == JCL_E_CONNRESET || err == JCL_E_CONNABORTED) {
+        jcl_net_fail("java/net/SocketException", "java/io/IOException", "read", err);
+        return 0;
+    }
+    jcl_net_socket_fail("read", err);
+    return 0;
+}
+BIND(int32_t, jcl_SocketDispatcher_read0, "sun.nio.ch.SocketDispatcher_read0", (void *fdObj, int64_t address, int32_t length)) {
+    const jcl_sock s = jcl_sock_of(fdObj);
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int n = (int)recv(s, (char *)(intptr_t)address, length, 0);
+    const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    return jcl_sock_read_status(n, err, length);
+}
+BIND(int32_t, jcl_SocketDispatcher_write0, "sun.nio.ch.SocketDispatcher_write0", (void *fdObj, int64_t address, int32_t length)) {
+    const jcl_sock s = jcl_sock_of(fdObj);
+    const int released = JCL_NET_BLOCK_BEGIN();
+    const int n = (int)send(s, (const char *)(intptr_t)address, length, 0);
+    const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    if (n >= 0) return n;
+    if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+    if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+    jcl_net_fail("java/net/SocketException", "java/io/IOException", "write", err);
+    return 0;
+}
+/* The gathering and scattering variants: an array of { void *base; size_t length } at the address. */
+typedef struct { void *base; size_t length; } jcl_iovec;
+BIND(int64_t, jcl_SocketDispatcher_readv0, "sun.nio.ch.SocketDispatcher_readv0", (void *fdObj, int64_t address, int32_t count)) {
+    const jcl_iovec *iov = (const jcl_iovec *)(intptr_t)address;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    int64_t total = 0;
+    for (int32_t i = 0; i < count; i++) {
+        if (iov[i].length == 0) continue;
+        const int released = JCL_NET_BLOCK_BEGIN();
+        const int n = (int)recv(s, (char *)iov[i].base, (int)iov[i].length, 0);
+        const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+        JCL_NET_BLOCK_END(released);
+        if (n <= 0) {
+            if (total > 0) return total;
+            return jcl_sock_read_status(n, err, 1);
+        }
+        total += n;
+        if ((size_t)n < iov[i].length) break;
+    }
+    return total;
+}
+BIND(int64_t, jcl_SocketDispatcher_writev0, "sun.nio.ch.SocketDispatcher_writev0", (void *fdObj, int64_t address, int32_t count)) {
+    const jcl_iovec *iov = (const jcl_iovec *)(intptr_t)address;
+    const jcl_sock s = jcl_sock_of(fdObj);
+    int64_t total = 0;
+    for (int32_t i = 0; i < count; i++) {
+        if (iov[i].length == 0) continue;
+        const int released = JCL_NET_BLOCK_BEGIN();
+        const int n = (int)send(s, (const char *)iov[i].base, (int)iov[i].length, 0);
+        const int err = n < 0 ? JCL_SOCK_ERRNO() : 0;
+        JCL_NET_BLOCK_END(released);
+        if (n < 0) {
+            if (total > 0) return total;
+            if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+            if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+            jcl_net_fail("java/net/SocketException", "java/io/IOException", "write", err);
+            return 0;
+        }
+        total += n;
+        if ((size_t)n < iov[i].length) break;
+    }
+    return total;
+}
+BIND(void, jcl_SocketDispatcher_close0, "sun.nio.ch.SocketDispatcher_close0", (int32_t fd)) {
+    if (fd >= 0) JCL_SOCK_CLOSE((jcl_sock)fd);
+}
+
+/* ---- the wake-up pipe of a selector: a connected pair of sockets (a loopback pair on Windows) ---- */
+static int jcl_socket_pair(jcl_sock pair[2]) {
+    jcl_net_startup();
+#ifdef _WIN32
+    const jcl_sock listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == JCL_SOCK_FAIL) return -1;
+    struct sockaddr_in sa;
+    jcl_socklen length = sizeof sa;
+    jcl_sockaddr_in(&sa, 0x7f000001u, 0);
+    pair[0] = pair[1] = JCL_SOCK_FAIL;
+    if (bind(listener, (struct sockaddr *)&sa, sizeof sa) != 0 || listen(listener, 1) != 0
+            || getsockname(listener, (struct sockaddr *)&sa, &length) != 0) {
+        closesocket(listener);
+        return -1;
+    }
+    pair[0] = socket(AF_INET, SOCK_STREAM, 0);
+    if (pair[0] == JCL_SOCK_FAIL || connect(pair[0], (struct sockaddr *)&sa, sizeof sa) != 0) {
+        if (pair[0] != JCL_SOCK_FAIL) closesocket(pair[0]);
+        closesocket(listener);
+        return -1;
+    }
+    pair[1] = accept(listener, NULL, NULL);
+    closesocket(listener);
+    if (pair[1] == JCL_SOCK_FAIL) {
+        closesocket(pair[0]);
+        return -1;
+    }
+    return 0;
+#else
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return -1;
+    pair[0] = sv[0];
+    pair[1] = sv[1];
+    return 0;
+#endif
+}
+/* (read end << 32) | write end. */
+BIND(int64_t, jcl_IOUtil_makePipe, "sun.nio.ch.IOUtil_makePipe", (uint8_t blocking)) {
+    jcl_sock pair[2];
+    if (jcl_socket_pair(pair) != 0) {
+        jcl_net_socket_fail("Pipe creation", JCL_SOCK_ERRNO());
+        return 0;
+    }
+    if (!blocking) {
+        jcl_sock_set_blocking(pair[0], 0);
+        jcl_sock_set_blocking(pair[1], 0);
+    }
+    return ((int64_t)(int32_t)pair[0] << 32) | (int64_t)(uint32_t)(int32_t)pair[1];
+}
+BIND(int32_t, jcl_IOUtil_write1, "sun.nio.ch.IOUtil_write1", (int32_t fd, int8_t byte)) {
+    const char b = (char)byte;
+    const int n = (int)send((jcl_sock)fd, &b, 1, 0);
+    if (n < 0) {
+        const int err = JCL_SOCK_ERRNO();
+        if (err == JCL_E_WOULDBLOCK) return JCL_IOS_UNAVAILABLE;
+        if (err == JCL_E_INTR) return JCL_IOS_INTERRUPTED;
+        jcl_net_socket_fail("write", err);
+    }
+    return n;
+}
+/* Reads and drops what is there; whether anything was. */
+BIND(uint8_t, jcl_IOUtil_drain, "sun.nio.ch.IOUtil_drain", (int32_t fd)) {
+    char buffer[128];
+    int any = 0;
+    for (;;) {
+        const int n = (int)recv((jcl_sock)fd, buffer, sizeof buffer, 0);
+        if (n <= 0) break;
+        any = 1;
+        if (n < (int)sizeof buffer) break;
+    }
+    return (uint8_t)any;
+}
+BIND(int32_t, jcl_IOUtil_drain1, "sun.nio.ch.IOUtil_drain1", (int32_t fd)) {
+    char b;
+    const int n = (int)recv((jcl_sock)fd, &b, 1, 0);
+    return n > 0 ? 1 : 0;
+}
+
+/* ---- WEPoll: epoll on top of poll. The event structure is { uint32 events; (pad); int32 descriptor at +8 } ---- */
+typedef struct { jcl_sock fd; uint32_t events; } jcl_ep_entry;
+typedef struct { pthread_mutex_t lock; jcl_ep_entry *entries; int count; int capacity; } jcl_epoll;
+#define JCL_EP_EVENT_SIZE 16
+#define JCL_EP_DATA_OFFSET 8
+
+BIND(int32_t, jcl_WEPoll_eventSize, "sun.nio.ch.WEPoll_eventSize", (void)) { return JCL_EP_EVENT_SIZE; }
+BIND(int32_t, jcl_WEPoll_eventsOffset, "sun.nio.ch.WEPoll_eventsOffset", (void)) { return 0; }
+BIND(int32_t, jcl_WEPoll_dataOffset, "sun.nio.ch.WEPoll_dataOffset", (void)) { return JCL_EP_DATA_OFFSET; }
+BIND(int64_t, jcl_WEPoll_create, "sun.nio.ch.WEPoll_create", (void)) {
+    jcl_net_startup();
+    jcl_epoll *ep = (jcl_epoll *)calloc(1, sizeof *ep);
+    if (ep == NULL) {
+        jcl_net_socket_fail("epoll_create", 0);
+        return 0;
+    }
+    pthread_mutex_init(&ep->lock, NULL);
+    return (int64_t)(intptr_t)ep;
+}
+static jcl_ep_entry *jcl_ep_find(jcl_epoll *ep, jcl_sock fd) {
+    for (int i = 0; i < ep->count; i++) if (ep->entries[i].fd == fd) return &ep->entries[i];
+    return NULL;
+}
+/* 0 on success, else an errno-like code (EEXIST 17, ENOENT 2, EINVAL 22) like epoll_ctl. */
+BIND(int32_t, jcl_WEPoll_ctl, "sun.nio.ch.WEPoll_ctl", (int64_t handle, int32_t opcode, int64_t socket, int32_t events)) {
+    jcl_epoll *ep = (jcl_epoll *)(intptr_t)handle;
+    const jcl_sock fd = (jcl_sock)socket;
+    int result = 0;
+    pthread_mutex_lock(&ep->lock);
+    jcl_ep_entry *e = jcl_ep_find(ep, fd);
+    if (opcode == 1) {          /* EPOLL_CTL_ADD */
+        if (e != NULL) {
+            result = 17;
+        } else {
+            if (ep->count == ep->capacity) {
+                const int capacity = ep->capacity == 0 ? 64 : ep->capacity * 2;
+                jcl_ep_entry *grown = (jcl_ep_entry *)realloc(ep->entries, sizeof *grown * (size_t)capacity);
+                if (grown == NULL) {
+                    result = 12;
+                } else {
+                    ep->entries = grown;
+                    ep->capacity = capacity;
+                }
+            }
+            if (result == 0) {
+                ep->entries[ep->count].fd = fd;
+                ep->entries[ep->count].events = (uint32_t)events;
+                ep->count++;
+            }
+        }
+    } else if (opcode == 3) {   /* EPOLL_CTL_MOD */
+        if (e == NULL) result = 2; else e->events = (uint32_t)events;
+    } else if (opcode == 2) {   /* EPOLL_CTL_DEL */
+        if (e == NULL) {
+            result = 2;
+        } else {
+            *e = ep->entries[ep->count - 1];
+            ep->count--;
+        }
+    } else {
+        result = 22;
+    }
+    pthread_mutex_unlock(&ep->lock);
+    return result;
+}
+/* Waits (timeout in ms, -1: for ever) for the registered sockets; fills the event structures at the address. */
+BIND(int32_t, jcl_WEPoll_wait, "sun.nio.ch.WEPoll_wait", (int64_t handle, int64_t address, int32_t maxEvents, int32_t timeout)) {
+    jcl_epoll *ep = (jcl_epoll *)(intptr_t)handle;
+    pthread_mutex_lock(&ep->lock);
+    const int count = ep->count;
+    jcl_pollfd *fds = (jcl_pollfd *)malloc(sizeof *fds * (size_t)(count > 0 ? count : 1));
+    uint32_t *wanted = (uint32_t *)malloc(sizeof *wanted * (size_t)(count > 0 ? count : 1));
+    int n = 0;
+    for (int i = 0; i < count && fds != NULL && wanted != NULL; i++) {
+        if (ep->entries[i].events == 0) continue;
+        fds[n].fd = ep->entries[i].fd;
+        fds[n].events = jcl_ev_to_sys(ep->entries[i].events);
+        fds[n].revents = 0;
+        wanted[n] = ep->entries[i].events;
+        n++;
+    }
+    pthread_mutex_unlock(&ep->lock);
+    if (fds == NULL || wanted == NULL) {
+        free(fds);
+        free(wanted);
+        jcl_net_socket_fail("epoll_wait", 0);
+        return 0;
+    }
+    int ready;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    if (n == 0) {
+#ifdef _WIN32
+        if (timeout != 0) Sleep(timeout < 0 ? INFINITE : (DWORD)timeout);
+#else
+        if (timeout != 0) poll(NULL, 0, timeout);
+#endif
+        ready = 0;
+    } else {
+        ready = JCL_POLL(fds, n, timeout);
+    }
+    const int err = ready < 0 ? JCL_SOCK_ERRNO() : 0;
+    JCL_NET_BLOCK_END(released);
+    int delivered = 0;
+    if (ready > 0) {
+        pthread_mutex_lock(&ep->lock);
+        for (int i = 0; i < n && delivered < maxEvents; i++) {
+            if (fds[i].revents == 0) continue;
+            uint32_t events = jcl_ev_from_sys(fds[i].revents);
+            events &= (wanted[i] | JCL_EV_ERR | JCL_EV_HUP | JCL_EV_NVAL);
+            if (events == 0) continue;
+            char *slot = (char *)(intptr_t)address + (size_t)delivered * JCL_EP_EVENT_SIZE;
+            memset(slot, 0, JCL_EP_EVENT_SIZE);
+            *(uint32_t *)slot = events;
+            *(int32_t *)(slot + JCL_EP_DATA_OFFSET) = (int32_t)fds[i].fd;
+            delivered++;
+            if (wanted[i] & JCL_EV_ONESHOT) {
+                jcl_ep_entry *e = jcl_ep_find(ep, fds[i].fd);
+                if (e != NULL) e->events = 0;
+            }
+        }
+        pthread_mutex_unlock(&ep->lock);
+    }
+    free(fds);
+    free(wanted);
+    if (ready < 0 && err != JCL_E_INTR) {
+        jcl_net_socket_fail("epoll_wait", err);
+        return 0;
+    }
+    return delivered;
+}
+BIND(void, jcl_WEPoll_close, "sun.nio.ch.WEPoll_close", (int64_t handle)) {
+    jcl_epoll *ep = (jcl_epoll *)(intptr_t)handle;
+    if (ep == NULL) return;
+    free(ep->entries);
+    pthread_mutex_destroy(&ep->lock);
+    free(ep);
+}
+
+/* No Unix domain sockets: sun.nio.ch.PipeImpl then connects its two ends through TCP on the loopback. */
+BIND(uint8_t, jcl_UnixDomainSockets_init, "sun.nio.ch.UnixDomainSockets_init", (void)) { return 0; }

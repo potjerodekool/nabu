@@ -38,6 +38,7 @@ final class RuntimeCalls {
 
     static final String PROXY_SUPPORT = RUNTIME_PACKAGE + "ProxySupport";
 
+    static final String NET_SUPPORT = RUNTIME_PACKAGE + "NetSupport";
     static final String REFLECT_SUPPORT = RUNTIME_PACKAGE + "ReflectSupport";
 
     static final String SHUTDOWN_SUPPORT = RUNTIME_PACKAGE + "ShutdownSupport";
@@ -146,6 +147,16 @@ final class RuntimeCalls {
                     REFLECT_SUPPORT, "moduleIsNamed"),
             new Redirect("java/lang/Module", "getName", "()Ljava/lang/String;", false,
                     REFLECT_SUPPORT, "moduleName"),
+            new Redirect("sun/nio/ch/Net", "accept",
+                    "(Ljava/io/FileDescriptor;Ljava/io/FileDescriptor;[Ljava/net/InetSocketAddress;)I", true,
+                    NET_SUPPORT, "accept"),
+            new Redirect("sun/nio/ch/Net", "localInetAddress", "(Ljava/io/FileDescriptor;)Ljava/net/InetAddress;", true,
+                    NET_SUPPORT, "localInetAddress"),
+            new Redirect("sun/nio/ch/Net", "remoteInetAddress", "(Ljava/io/FileDescriptor;)Ljava/net/InetAddress;", true,
+                    NET_SUPPORT, "remoteInetAddress"),
+            new Redirect("java/net/Inet4AddressImpl", "lookupAllHostAddr", "(Ljava/lang/String;)[Ljava/net/InetAddress;",
+                    false, NET_SUPPORT, "lookupAllHostAddr",
+                    "(Ljava/lang/Object;Ljava/lang/String;)[Ljava/net/InetAddress;"),
             new Redirect("java/lang/Class", "getProtectionDomain", "()Ljava/security/ProtectionDomain;", false,
                     LOADER_SUPPORT, "protectionDomain"),
             new Redirect("java/lang/reflect/Method", "getDefaultValue", "()Ljava/lang/Object;", false,

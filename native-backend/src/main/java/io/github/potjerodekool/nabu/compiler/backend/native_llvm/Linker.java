@@ -91,6 +91,8 @@ public class Linker {
                 objects.forEach(o -> cmd.add(o.toString()));
                 addRuntime(cmd, gcStrategy, runtimeObjects);
                 addGcLibraries(cmd, gcStrategy);
+                // Winsock: java.net and the NIO channels of the runtime (jcl_lite.c).
+                cmd.add("-lws2_32");
                 if (linkStatic()) {
                     // The MinGW runtime (libgcc, libwinpthread, libstdc++) inside the executable: it then runs
                     // without the toolchain's bin directory on the PATH, and an older libwinpthread-1.dll that comes

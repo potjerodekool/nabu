@@ -515,7 +515,10 @@ final class PartitionedCodegen {
             final LLVMTargetMachineRef machine = LLVMCreateTargetMachine(
                     target, new BytePointer(triple),
                     new BytePointer("generic"), new BytePointer(""),
-                    LLVMCodeGenLevelDefault, LLVMRelocPIC, LLVMCodeModelDefault);
+                    // Without optimization (--opt NONE) the code generator takes its fast path too (FastISel, fast
+                    // register allocation): the build is much faster, the code slower.
+                    pipeline == null ? LLVMCodeGenLevelNone : LLVMCodeGenLevelDefault,
+                    LLVMRelocPIC, LLVMCodeModelDefault);
             try {
                 if (pipeline != null) {
                     NativeLLVMBackend.runPasses(mod, machine, pipeline);

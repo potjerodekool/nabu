@@ -467,15 +467,53 @@ void nabu_set_object_itable(void *itable) {
 static const nabu_type_info *const *nabu_compiled_types = NULL;
 static int32_t nabu_compiled_type_count = 0;
 
+/* Name index of the table (open addressing, built when the table is registered, before any thread runs):
+ * Class.isAssignableFrom and friends look up types by name all the time, and a scan over the tens of thousands
+ * of compiled types made the start of a Spring application minutes long. */
+static int32_t *nabu_type_index = NULL;
+static uint32_t nabu_type_index_size = 0;
+
+static uint32_t nabu_name_hash(const char *s) {
+    uint32_t h = 2166136261u;
+    for (; *s != 0; s++) h = (h ^ (uint8_t)*s) * 16777619u;
+    return h;
+}
+
 void nabu_register_type_infos(const void *table, int32_t count) {
     nabu_compiled_types = (const nabu_type_info *const *)table;
     nabu_compiled_type_count = count;
+    uint32_t size = 16;
+    while (size < (uint32_t)count * 2u) size <<= 1;
+    int32_t *index = (int32_t *)malloc(sizeof(int32_t) * size);
+    if (index == NULL) return;
+    for (uint32_t i = 0; i < size; i++) index[i] = -1;
+    for (int32_t i = 0; i < count; i++) {
+        const nabu_type_info *ti = nabu_compiled_types[i];
+        if (ti == NULL || ti->name == NULL) continue;
+        uint32_t h = nabu_name_hash(ti->name) & (size - 1);
+        while (index[h] >= 0) {
+            if (strcmp(nabu_compiled_types[index[h]]->name, ti->name) == 0) break; /* the first one wins, as the scan did */
+            h = (h + 1) & (size - 1);
+        }
+        if (index[h] < 0) index[h] = i;
+    }
+    nabu_type_index_size = size;
+    nabu_type_index = index;
 }
 
 int32_t nabu_compiled_type_count_for_trace(void) { return nabu_compiled_type_count; }
 
 const nabu_type_info *nabu_compiled_type_for(const char *internal_name) {
     if (internal_name == NULL) return NULL;
+    if (nabu_type_index != NULL) {
+        uint32_t h = nabu_name_hash(internal_name) & (nabu_type_index_size - 1);
+        while (nabu_type_index[h] >= 0) {
+            const nabu_type_info *ti = nabu_compiled_types[nabu_type_index[h]];
+            if (strcmp(ti->name, internal_name) == 0) return ti;
+            h = (h + 1) & (nabu_type_index_size - 1);
+        }
+        return NULL;
+    }
     for (int32_t i = 0; i < nabu_compiled_type_count; i++) {
         const nabu_type_info *ti = nabu_compiled_types[i];
         if (ti != NULL && ti->name != NULL && strcmp(ti->name, internal_name) == 0) return ti;

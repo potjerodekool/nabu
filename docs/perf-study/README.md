@@ -123,8 +123,64 @@ devirtualizes and inlines before LLVM would help far more than raising the LLVM 
 | 2 | JDK intrinsics (`String.equals/hashCode`, `arraycopy`) | +5–10% | String-heavy Jackson/Hibernate paths visible in counts |
 | 5 | Generational GC, bump fast path | +5–15% | 185 MB live heap; GC pressure expected at this scale |
 
-Pending from phase 0: allocation volume per request (counter in `nabu_gc_alloc` under an env variable), `perf record
--g` flame graphs to pinpoint the hot functions within the 11× instruction gap.
+### Flame graph (perf record -g, Nabu -O2, /pet/2, 30 s)
+
+SVGs: `docs/perf-study/flamegraphs/nabu-O2-pet2-30s.svg` (Nabu), `graalvm-pet2-30s.svg` (GraalVM).
+GraalVM's binary has no DWARF debug info; nearly all samples land on `[petstore]` (heavily inlined, stacks
+unresolvable). Nabu's stacks are fully symbolised.
+
+CPU budget for Nabu -O2 (self-time, all threads combined, /pet/2):
+
+| Category | % of total CPU | Note |
+|---|---|---|
+| Application logic (other) | 57% | Spring dispatch, Jackson, Hibernate, H2 — spread across many paths |
+| I/O + syscalls | 8% | `recv`, `epoll_wait`, `fput`, `entry_SYSCALL_64` |
+| Monitor enter/exit | 7% | `nabu_monitorenter` + `nabu_monitorexit` in NIO selector + ConcurrentHashMap |
+| GC marker threads | 8% | Boehm concurrent marker; runs parallel to app |
+| ConcurrentHashMap | 6% | Spring/Jackson/Hibernate lookup caches (`tabAt` + `Traverser_advance`) |
+| Clock reads | 5% | `clock_gettime` / `read_tsc` / Tomcat timeout polling |
+| GC lib (app threads) | 4% | Tracing + collection within app context |
+| GC allocation | 2% | `GC_malloc_kind`, `GC_generic_malloc_many` |
+| Reflection | 2% | `nabu_compiled_type_name`, `jcl_class_slot` |
+| Checkcast | 2% | `nabu_checkcast_class` |
+
+**GC total (marker + lib + alloc): ~14%** — consistent with Windows (-Gc NONE is 13–20% faster).
+
+The 57% "other" is where the 11× instruction gap vs GraalVM lives. Each logical operation (field access, virtual
+call, interface dispatch) emits more instructions than GraalVM because Nabu lacks a middle-end for inlining and
+scalar replacement. The monitor overhead (7%) and ConcurrentHashMap (6%) are individually addressable but
+secondary compared to the instruction-count gap.
+
+Pending from phase 0: allocation volume per request (counter in `nabu_gc_alloc` under an env variable).
+
+## Cheap experiments (Linux x86-64, i9-14900K, same bench setup as phase 0)
+
+Built and benchmarked on 2026-11-09. All variants use `--gc BOEHM`. Benchmarked after a throw-away warm-up run.
+Default = O2, 2 partitions, import-limit 40.
+
+| Variant | `/pet/2` req/s | `/findByStatus` req/s | `/store/inventory` req/s | RSS | start |
+|---------|---------------|----------------------|--------------------------|-----|-------|
+| DEFAULT (O2, 2 partitions, il=40) | 1871 | 1051 | 1039 | 341 MB | 1.1 s |
+| p1 (O2, **1 partition**, il=40) | 1856–1878 | 1064–1069 | 1064–1069 | 342 MB | 1.1 s |
+| il100 (O2, 2 partitions, **il=100**) | 1769 | 999 | 1029 | 341 MB | 1.1 s |
+| O3 (AGGRESSIVE / **-O3**, 2 partitions) | 1786 | 1008 | 1018 | 343 MB | 1.1 s |
+
+Build notes:
+- il100 split: 38 945 small functions copied across partition boundaries (vs 31 943 for DEFAULT/O3).
+- p1 backend time: 578 s (single 500 MB LLVM module). DEFAULT/O3 backend: ~550–560 s (2 × parallel).
+- Measurement noise is ±5–7% on `/pet/2` and ±3–5% on the complex queries (CPU powersave governor).
+
+**Conclusion: none of the cheap experiments move the needle.** All variants land within measurement noise of DEFAULT.
+
+What this tells us:
+- **O3 vs O2**: no gain. LLVM gets too little inlining context from the bytecode front-end regardless of opt level.
+- **1 partition**: no gain. Cross-function inlining within the single LLVM module is not the bottleneck.
+- **Higher import limit**: no gain (slightly worse). More cross-partition copying does not expose new inlining opportunities at this scale.
+
+The bottleneck is at the IR level: too many indirect calls, too little scalar replacement, too few inlined call chains.
+LLVM cannot fix that at O2 or O3 because it cannot see through the indirect dispatches. The path forward is Lever 1
+(compact headers, cuts the 40× LLC-miss delta) and Lever 2 (JDK intrinsics) for near-term gains, then Lever 4
+(middle-end inlining/devirt) for the structural fix.
 
 ## Phase 0 (do this first, on this machine)
 

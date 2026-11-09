@@ -52,7 +52,7 @@ import static org.bytedeco.llvm.global.LLVM.*;
 final class PartitionedCodegen {
 
     /** Functions with at most this many instructions are copied for inlining. */
-    private static final int IMPORT_LIMIT = 40;
+    private static final int IMPORT_LIMIT = Integer.getInteger("nabu.llvm.importLimit", 40);
 
     private static final String XP_SUFFIX = ".xp";
 

@@ -1846,14 +1846,15 @@ int nabu_instanceof(void *obj, const char *type_name) {
     if (obj == NULL) {
         return 0;
     }
-#ifdef _WIN32
     /* Geen object met een header (een kale C-string uit de C-runtime, bv. een
-     * klassenaam die als Class dient): dan is het van geen enkel type een
-     * instantie, in plaats van de tekst als type-info uit te lezen. */
+     * klassenaam die als Class dient, of een object waarvan het eerste woord geen
+     * geldig type-adres is): dan is het van geen enkel type een instantie.
+     * Was #ifdef _WIN32: op Windows returnt nabu_compiled_type_name altijd NULL
+     * en zijn valide objecten herkenbaar via nabu_jcl_is_object. Op Linux werkt
+     * nabu_compiled_type_name via /proc/self/maps — de guard moet ook daar gelden. */
     if (!nabu_jcl_is_object(obj) && nabu_compiled_type_name(obj) == NULL) {
         return 0;
     }
-#endif
 
     nabu_object *header = (nabu_object *)obj;
     nabu_type_info *current = header->type;

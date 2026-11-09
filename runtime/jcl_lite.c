@@ -40,6 +40,10 @@
 #include <poll.h>
 #include <sched.h>
 #include <sys/syscall.h>
+#ifdef __linux__
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+#endif
 #ifndef SYS_pidfd_open
 #define SYS_pidfd_open 434
 #endif
@@ -2009,6 +2013,37 @@ BIND(int32_t, jcl_FileDispatcherImpl_setDirect0, JCL_FDI("setDirect0"), (void *f
 /* The names of these natives are known to RuntimeSymbols (it reads this file), so they are defined on every
  * platform: a native that is only defined on Linux would leave an undefined reference on Windows. */
 BIND(void, jcl_FileDispatcherImpl_init0, "sun.nio.ch.FileDispatcherImpl_init0", (void)) {
+}
+/* File descriptor kept open by UnixDispatcher.init() for dup2-based preClose. */
+#ifndef _WIN32
+static int jcl_unix_preclose_fd = -1;
+#endif
+BIND(void, jcl_UnixDispatcher_init, "sun.nio.ch.UnixDispatcher_init", (void)) {
+#ifndef _WIN32
+    /* Create a socketpair; keep one end as the target for dup2 in preClose0 so that
+     * blocked I/O on a channel gets interrupted when the channel is closed. */
+    int sp[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sp) == 0) {
+        jcl_unix_preclose_fd = sp[0];
+        close(sp[1]);
+    }
+#endif
+}
+BIND(void, jcl_UnixDispatcher_close0, "sun.nio.ch.UnixDispatcher_close0", (void *fdObj)) {
+#ifndef _WIN32
+    int fd = jcl_chan_fd(fdObj);
+    if (fd >= 0) close(fd);
+#else
+    (void)fdObj;
+#endif
+}
+BIND(void, jcl_UnixDispatcher_preClose0, "sun.nio.ch.UnixDispatcher_preClose0", (void *fdObj)) {
+#ifndef _WIN32
+    int fd = jcl_chan_fd(fdObj);
+    if (fd >= 0 && jcl_unix_preclose_fd >= 0) dup2(jcl_unix_preclose_fd, fd);
+#else
+    (void)fdObj;
+#endif
 }
 BIND(int64_t, jcl_FileDispatcherImpl_transferFrom0, "sun.nio.ch.FileDispatcherImpl_transferFrom0",
      (void *src, void *dst, int64_t position, int64_t count, uint8_t append)) {
@@ -7606,3 +7641,99 @@ BIND(void, jcl_WEPoll_close, "sun.nio.ch.WEPoll_close", (int64_t handle)) {
 
 /* No Unix domain sockets: sun.nio.ch.PipeImpl then connects its two ends through TCP on the loopback. */
 BIND(uint8_t, jcl_UnixDomainSockets_init, "sun.nio.ch.UnixDomainSockets_init", (void)) { return 0; }
+
+/* ---- EPoll: Linux epoll used by EPollSelectorImpl/Tomcat NIO. Not used on Windows (WEPoll) or macOS (KQueue). ----
+ * On Linux x86-64, struct epoll_event is packed: { uint32_t events; epoll_data_t data } with sizeof=12,
+ * events at offset 0, data.fd at offset 4. */
+BIND(int32_t, jcl_EPoll_eventSize, "sun.nio.ch.EPoll_eventSize", (void)) {
+#ifdef __linux__
+    return (int32_t)sizeof(struct epoll_event);
+#else
+    return 12;
+#endif
+}
+BIND(int32_t, jcl_EPoll_eventsOffset, "sun.nio.ch.EPoll_eventsOffset", (void)) { return 0; }
+BIND(int32_t, jcl_EPoll_dataOffset, "sun.nio.ch.EPoll_dataOffset", (void)) { return 4; }
+BIND(int32_t, jcl_EPoll_create, "sun.nio.ch.EPoll_create", (void)) {
+#ifdef __linux__
+    int fd = epoll_create1(EPOLL_CLOEXEC);
+    if (fd < 0) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(errno))));
+        return -1;
+    }
+    return fd;
+#else
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "epoll not available"));
+    return -1;
+#endif
+}
+/* Returns 0 on success, or errno on failure (as OpenJDK's EPoll.c does). */
+BIND(int32_t, jcl_EPoll_ctl, "sun.nio.ch.EPoll_ctl", (int32_t epfd, int32_t op, int32_t fd, int32_t events)) {
+#ifdef __linux__
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.events = (uint32_t)events;
+    ev.data.fd = fd;
+    return epoll_ctl(epfd, op, fd, &ev) == 0 ? 0 : errno;
+#else
+    return 22; /* EINVAL */
+#endif
+}
+/* Returns the number of ready events, or -3 (IOStatus.INTERRUPTED) on EINTR. */
+BIND(int32_t, jcl_EPoll_wait, "sun.nio.ch.EPoll_wait",
+     (int32_t epfd, int64_t pollArrayAddress, int32_t numfds, int32_t timeout)) {
+#ifdef __linux__
+    struct epoll_event *events = (struct epoll_event *)(intptr_t)pollArrayAddress;
+    const int released = JCL_NET_BLOCK_BEGIN();
+    int result = epoll_wait(epfd, events, numfds, timeout);
+    const int err = result < 0 ? errno : 0;
+    JCL_NET_BLOCK_END(released);
+    if (result < 0) {
+        if (err == EINTR) return -3; /* IOStatus.INTERRUPTED */
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(err))));
+        return -1;
+    }
+    return result;
+#else
+    (void)pollArrayAddress; (void)numfds; (void)timeout;
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "epoll not available"));
+    return -1;
+#endif
+}
+/* Close epfd when EPollSelectorImpl is closed. */
+BIND(void, jcl_EPoll_close, "sun.nio.ch.EPoll_close", (int32_t epfd)) {
+#ifndef _WIN32
+    if (epfd >= 0) close(epfd);
+#endif
+}
+
+/* ---- EventFD: used by EPollSelectorImpl to implement Selector.wakeup() on Linux. ---- */
+BIND(int32_t, jcl_EventFD_eventfd0, "sun.nio.ch.EventFD_eventfd0", (void)) {
+#ifdef __linux__
+    int efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (efd < 0) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(errno))));
+        return -1;
+    }
+    return efd;
+#else
+    nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception", "eventfd not available"));
+    return -1;
+#endif
+}
+/* Write 1 to the eventfd to wake up the selector. */
+BIND(void, jcl_EventFD_set0, "sun.nio.ch.EventFD_set0", (int32_t efd)) {
+#ifdef __linux__
+    uint64_t val = 1;
+    ssize_t n = write(efd, &val, sizeof val);
+    if (n < 0 && errno != EAGAIN) {
+        nabu_throw(jcl_throw("java/io/IOException", "java/lang/Exception",
+                             jcl_dup(strerror(errno))));
+    }
+#else
+    (void)efd;
+#endif
+}

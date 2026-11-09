@@ -51,23 +51,20 @@ typedef struct nabu_type_info {
  * Object header struct — elke heap-object begint hiermee.
  *
  * De veldvolgorde MOET overeenkomen met ClassLayouts.objectHeaderType() in de
- * native-backend (`{ ptr type, ptr vtable, ptr itable, i32 ref_count, i32
- * monitor, i32 thread }`): de backend schrijft type/vtable/itable zelf in de
- * header, en de runtime leest/schrijft ref_count/monitor/thread_id. Op een
- * 64-bittig target geeft dat offsets 0/8/16/24/28/32 en grootte 40; de
- * C-struct hieronder heeft precies dezelfde layout omdat alle leden
- * standaard-uitlijning hebben.
+ * native-backend (`{ ptr type, ptr vtable, ptr itable, i32 monitor, i32
+ * thread }`): de backend schrijft type/vtable/itable in de header; de runtime
+ * leest/schrijft monitor/thread_id. Op een 64-bittig target geeft dat offsets
+ * 0/8/16/24/28 en grootte 32; de C-struct hieronder heeft precies dezelfde
+ * layout omdat alle leden standaard-uitlijning hebben.
  *
- * Let op: de `monitor_*`-leden worden door nabu_monitorenter/exit gebruikt en
- * stonden vóór dit schema op offset 8 — dus over de vtable heen.
+ * ref_count (voormalig offset 24) is verwijderd: het werd nooit gelezen.
  */
 typedef struct nabu_object {
     void  *type;          /* offset 0  — nabu_type_info* */
     void  *vtable;        /* offset 8  — door de backend gevuld */
     void  *itable;        /* offset 16 — door de backend gevuld */
-    int32_t ref_count;    /* offset 24 — voor reference counting */
-    int32_t monitor_count;/* offset 28 — voor synchronized */
-    int32_t thread_id;    /* offset 32 — welke thread bezit de monitor */
+    int32_t monitor_count;/* offset 24 — voor synchronized */
+    int32_t thread_id;    /* offset 28 — welke thread bezit de monitor */
 } nabu_object;
 
 /** Minimale objectgrootte: één header zonder instantievelden. */

@@ -39,7 +39,7 @@ import static org.bytedeco.llvm.global.LLVM.*;
  * compilatie worden ge-emitteerd.
  *
  * Elke klasse (IRModule) krijgt een LLVM-struct met:
- *   [0] nabu_object header  ({ ptr type, ptr vtable, ptr itable, i32 ref_count, i32 monitor, i32 thread })
+ *   [0] nabu_object header  ({ ptr type, ptr vtable, ptr itable, i32 monitor, i32 thread })
  *   [1..] de instantie-velden — eerst die van de super-klasse (platte
  *         layout, dezelfde struct-indices als de super-klasse), daarna de
  *         eigen instantie-velden van de module.
@@ -465,8 +465,6 @@ public class ClassLayouts {
     public static final int HEADER_SLOT_VTABLE = 1;
     /** Header-struct: itable-pointer-slot. */
     public static final int HEADER_SLOT_ITABLE = 2;
-    /** Header-struct: referentieteller. */
-    public static final int HEADER_SLOT_REF_COUNT = 3;
 
     public ClassLayouts(LLVMContextRef ctx, Map<String, LLVMValueRef> globalValueMap) {
         this.ctx = ctx;
@@ -475,12 +473,12 @@ public class ClassLayouts {
 
     public LLVMTypeRef objectHeaderType() {
         if (headerType == null) {
-            // { ptr type, ptr vtable, ptr itable, i32 ref_count, i32 monitor, i32 thread }
+            // { ptr type, ptr vtable, ptr itable, i32 monitor, i32 thread }
+            // ref_count was removed (never used); 32 bytes instead of 40.
             LLVMTypeRef[] header = {
                     LLVMPointerTypeInContext(ctx, 0),
                     LLVMPointerTypeInContext(ctx, 0),
                     LLVMPointerTypeInContext(ctx, 0),
-                    LLVMInt32TypeInContext(ctx),
                     LLVMInt32TypeInContext(ctx),
                     LLVMInt32TypeInContext(ctx)
             };

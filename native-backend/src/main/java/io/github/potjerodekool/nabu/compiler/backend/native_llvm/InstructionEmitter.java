@@ -731,12 +731,6 @@ public class InstructionEmitter {
                 ".itable.slot");
         LLVMBuildStore(builder, layout.itableGlobal, itableSlot);
 
-        // Het slot van de oude referentieteller blijft in de header zitten (offset 24) en wordt op 0 gezet:
-        // (a collector may give memory that is not cleared: the slot is set explicitly)
-        LLVMValueRef countSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr,
-                ClassLayouts.HEADER_SLOT_REF_COUNT, ".refcount.slot");
-        LLVMBuildStore(builder, LLVMConstInt(LLVMInt32TypeInContext(ctx), 0, 0), countSlot);
     }
 
     private void storeArrayLength(LLVMValueRef array, LLVMValueRef count) {

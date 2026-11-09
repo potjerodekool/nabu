@@ -6120,6 +6120,8 @@ BIND(void, jcl_Continuation_pin, "jdk.internal.vm.Continuation_pin", (void)) { }
 BIND(void, jcl_Continuation_unpin, "jdk.internal.vm.Continuation_unpin", (void)) { }
 BIND(int, jcl_Continuation_isPinned0, "jdk.internal.vm.Continuation_isPinned0", (void *scope)) { (void)scope; return 0; }
 BIND(void, jcl_Continuation_registerNatives, "jdk.internal.vm.Continuation_registerNatives", (void)) { }
+/* no continuations: nothing is parked */
+BIND(void *, jcl_ThreadSupport_parkedFrames0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ThreadSupport_parkedFrames0", (void *c)) { (void)c; return NULL; }
 #endif
 
 /* java.lang.VirtualThread: the JVMTI notifications are not there; the thread that unblocks virtual threads waiting

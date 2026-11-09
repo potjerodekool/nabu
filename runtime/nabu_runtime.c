@@ -28,6 +28,9 @@
 #include <windows.h>
 #else
 #include <stdatomic.h>
+#include <signal.h>
+#include <ucontext.h>
+#include <execinfo.h>
 #endif
 
 /* -------------------------------------------------------
@@ -381,11 +384,43 @@ static const char *nabu_builtin_super_of(const char *name) {
 static pthread_mutex_t nabu_rt_mutex;
 static pthread_once_t nabu_rt_once = PTHREAD_ONCE_INIT;
 
+#ifndef _WIN32
+static void nabu_sigsegv_handler(int sig, siginfo_t *si, void *ctx) {
+    ucontext_t *uc = (ucontext_t *)ctx;
+    void *fault_addr = si->si_addr;
+    void *rip = (void *)uc->uc_mcontext.gregs[REG_RIP];
+    void *rax = (void *)uc->uc_mcontext.gregs[REG_RAX];
+    void *r13 = (void *)uc->uc_mcontext.gregs[REG_R13];
+    dprintf(2, "[nabu crash] sig=%d fault_addr=%p rip=%p rax(itable?)=%p r13(obj?)=%p\n",
+            sig, fault_addr, rip, rax, r13);
+    void *bt[32];
+    int n = backtrace(bt, 32);
+    backtrace_symbols_fd(bt, n, 2);
+    struct sigaction sa;
+    sa.sa_handler = SIG_DFL;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(sig, &sa, NULL);
+    raise(sig);
+}
+static void nabu_install_crash_handler(void) {
+    struct sigaction sa;
+    sa.sa_sigaction = nabu_sigsegv_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+}
+#endif
+
 static void nabu_rt_init(void) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&nabu_rt_mutex, &attr);
+#ifndef _WIN32
+    nabu_install_crash_handler();
+#endif
 }
 
 void nabu_rt_lock(void) {
@@ -397,11 +432,34 @@ void nabu_rt_unlock(void) {
     pthread_mutex_unlock(&nabu_rt_mutex);
 }
 
+/* De vtable/itable van het gecompileerde java.lang.Object; NULL zolang het
+ * programma die niet registreert. Hier gedeclareerd zodat nabu_type_info_for
+ * er al naar kan verwijzen. */
+static void *nabu_object_vtable = NULL;
+static void *nabu_object_itable = NULL;
+
+/* Kopieert vtable/itable van de gecompileerde type_info naar een runtime-cache-entry als
+ * de compiled table al geregistreerd is. Lever 1 fase 2: vtable/itable zitten nu in
+ * type_info, niet meer in de object-header; runtime-objecten (jcl_lite) krijgen zo
+ * de juiste vtable. Veilig onder nabu_rt_mutex. */
+/* Jcl_lite-cache-entries gebruiken altijd nabu_object_vtable en
+ * nabu_object_itable, nooit de gecompileerde vtable/itable van de klasse:
+ * voor interfaces zijn die leeg (nul bytes), wat crasht bij dispatch.
+ * De fallbacks in nabu_type_info_for regelen de toewijzing. */
+static void nabu_type_info_backfill_vtable(nabu_type_info *ti) {
+    (void)ti; /* intentional no-op */
+}
+
 static nabu_type_info *nabu_type_info_for(const char *name) {
     nabu_rt_lock();
     for (int i = 0; i < nabu_type_count; i++) {
         if (strcmp(nabu_type_cache[i].name, name) == 0) {
             nabu_type_info *found = &nabu_type_cache[i];
+            /* Jcl_lite-objecten gebruiken altijd de library-tabellen.
+             * Overschrijf ook wanneer de entry al een waarde heeft: een eerdere
+             * aanmaak kan een lege gecompileerde interface-tabel gekopieerd hebben. */
+            if (nabu_object_vtable != NULL) found->vtable = nabu_object_vtable;
+            if (nabu_object_itable != NULL) found->itable = nabu_object_itable;
             nabu_rt_unlock();
             return found;
         }
@@ -423,6 +481,11 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
     if (builtinSuper != NULL) {
         ti->super_type = nabu_type_info_for(builtinSuper);
     }
+    /* Probeer compiled vtable; als die niet beschikbaar is, gebruik Object's vtable
+     * als fallback voor jcl_lite-typen (Class, ClassLoader, …). */
+    nabu_type_info_backfill_vtable(ti);
+    if (ti->vtable  == NULL) ti->vtable  = nabu_object_vtable;
+    if (ti->itable  == NULL) ti->itable  = nabu_object_itable;
     nabu_rt_unlock();
     return ti;
 }
@@ -435,32 +498,42 @@ static nabu_type_info *nabu_type_info_for(const char *name) {
  * De allocatie zelf doet de backend: alleen die weet welke GC-strategie geldt
  * (GC_malloc / malloc / stack). Zie de commentaar in nabu_runtime.h.
  */
-/* De vtable van het gecompileerde java.lang.Object (zie
- * nabu_set_object_vtable); NULL zolang het programma die niet registreert. */
-static void *nabu_object_vtable = NULL;
-
 /**
  * Registreert de vtable van java.lang.Object. De backend roept dit aan vanuit
  * een vroege module-constructor, vóór elke <clinit>.
  *
- * Library-objecten (jcl-lite) hebben geen eigen vtable, maar belanden wél
- * achter een Object-referentie, en een virtuele aanroep daarop (equals,
- * toString) leest de functiepointer uit header->vtable. Met NULL daar sprong
- * zo'n aanroep naar een willekeurig adres; met Object's vtable krijgen ze het
- * Object-gedrag, zoals een Java-klasse zonder eigen override.
+ * Lever 1 fase 2: de vtable zit nu in type_info, niet meer in de object-header.
+ * Voor jcl_lite-beheerde typen (Class, ClassLoader, …) heeft de backend GEEN
+ * gecompileerde type_info, dus nabu_register_type_infos kan hun vtable NIET
+ * backfillen. Als fallback gebruiken zij Object's vtable: de backend compileert
+ * hun vtable-aanroepen op basis van Object's vtable-layout (geen eigen compiled
+ * type_info → geen eigen vtable-layout). Object's vtable is correct want Class
+ * overschrijft geen van die methoden.
  */
 void nabu_set_object_vtable(void *vtable) {
     nabu_object_vtable = vtable;
+    /* Backfill runtime-cache-entries zonder vtable: dit zijn jcl_lite-objecten
+     * (Class, ClassLoader, …) die de compiled-table niet kent. */
+    nabu_rt_lock();
+    for (int i = 0; i < nabu_type_count; i++) {
+        if (nabu_type_cache[i].vtable == NULL) {
+            nabu_type_cache[i].vtable = vtable;
+        }
+    }
+    nabu_rt_unlock();
 }
-
-/* De library-itable van de backend: per interface-slot de functie van de
- * interface zelf (C-implementatie, default-body of abstracte stub). Zelfde
- * reden als de vtable: een interface-aanroep op een library-object las anders
- * zijn functiepointer uit een NULL-itable. */
-static void *nabu_object_itable = NULL;
 
 void nabu_set_object_itable(void *itable) {
     nabu_object_itable = itable;
+    /* Zelfde backfill-logica als nabu_set_object_vtable: jcl_lite-typen die
+     * vóór deze registratie aangemaakt zijn krijgen alsnog de library-itable. */
+    nabu_rt_lock();
+    for (int i = 0; i < nabu_type_count; i++) {
+        if (nabu_type_cache[i].itable == NULL) {
+            nabu_type_cache[i].itable = itable;
+        }
+    }
+    nabu_rt_unlock();
 }
 
 /* De type-info van elke gecompileerde klasse (geen interfaces), geregistreerd
@@ -500,6 +573,16 @@ void nabu_register_type_infos(const void *table, int32_t count) {
     }
     nabu_type_index_size = size;
     nabu_type_index = index;
+
+    /* Lever 1 fase 2: backfill via nabu_type_info_for op bestaande cache-entries
+     * is niet meer nodig; nabu_set_object_vtable/itable doen dat al. */
+#ifndef NDEBUG
+    {
+        const nabu_type_info *cls_ti = nabu_compiled_type_for("java/lang/Class");
+        dprintf(2, "[nabu_register_type_infos] count=%d cache=%d java/lang/Class vtable=%p\n",
+                count, nabu_type_count, cls_ti ? cls_ti->vtable : (void*)-1L);
+    }
+#endif
 }
 
 int32_t nabu_compiled_type_count_for_trace(void) { return nabu_compiled_type_count; }
@@ -541,9 +624,8 @@ void *nabu_init_object(void *obj, const char *type_name) {
      * geen eigen struct in hangt — de betekenis van de bytes dáárachter is
      * aan de library-implementatie (runtime/jcl_lite.c), niet aan ons. */
     memset(header, 0, sizeof(nabu_object) + sizeof(void *));
+    /* vtable en itable zitten in type_info (Lever 1 fase 2); alleen type zetten. */
     header->type = nabu_type_info_for(type_name);
-    header->vtable = nabu_object_vtable;
-    header->itable = nabu_object_itable;
     return header;
 }
 
@@ -582,17 +664,19 @@ int nabu_jcl_is_object(const void *p) {
 }
 
 /* ---------------------------------------------------------------
- * Library-object state-slot (offset 40; zie JCL_STATE_SLOT in de backend)
+ * Library-object state-slot (offset sizeof(nabu_object); zie JCL_STATE_SLOT in de backend)
  * --------------------------------------------------------------- */
+
+#define NABU_JCL_STATE_IDX (sizeof(nabu_object) / sizeof(void *))
 
 void *nabu_jcl_state(void *obj) {
     if (obj == NULL) return NULL;
-    return ((void **)obj)[5];
+    return ((void **)obj)[NABU_JCL_STATE_IDX];
 }
 
 void nabu_jcl_set_state(void *obj, void *state) {
     if (obj == NULL) return;
-    ((void **)obj)[5] = state;
+    ((void **)obj)[NABU_JCL_STATE_IDX] = state;
 }
 
 /**
@@ -1494,9 +1578,9 @@ void nabu_resume(void *unwind_exc) {
     /* unwind_exc is the Nabu exception object itself, not an _Unwind_Exception: the backend
      * (FunctionEmitter.emitLandingPadChain) already took it out of the wrapper with nabu_catch()
      * before it calls nabu_resume. Handing it to _Unwind_Resume made the unwinder read the
-     * object's fields as unwinder state: private_1 (offset 16, the itable of a class that
-     * implements an interface) is the stop function of a forced unwind, so a rethrown
-     * RuntimeException jumped into read-only data.
+     * object's fields as unwinder state: private_1 (offset 16, into the exception object's
+     * own data) would be misread as the stop function of a forced unwind, so a rethrown
+     * RuntimeException would jump into garbage data.
      *
      * A fresh raise from the landing pad starts a new search above this frame instead. The
      * landing pad lies outside every call-site range of the LSDA (it is not a protected region),
@@ -2099,7 +2183,7 @@ static void *nabu_str_data(size_t n) {
  * (LLVMModuleEmitter.emitExceptionTable). A header-only shell made compiled
  * code that called getMessage() on a caught exception read past its end. */
 typedef struct nabu_exception_entry {
-    const char *name; void *type; void *vtable; void *itable; int64_t size; void (*init)(void *, void *);
+    const char *name; void *type; int64_t size; void (*init)(void *, void *);
 } nabu_exception_entry;
 extern const nabu_exception_entry nabu_exception_table[];
 extern const int32_t nabu_exception_count;
@@ -2110,8 +2194,7 @@ void *nabu_new_exception(const char *internal_name, const char *message) {
         if (strcmp(e->name, internal_name) == 0) {
             nabu_object *obj = (nabu_object *) nabu_str_mem((size_t) e->size);
             obj->type = e->type;
-            obj->vtable = e->vtable;
-            obj->itable = e->itable;
+            /* vtable/itable are now in type_info, not the object header */
             e->init(obj, message != NULL ? nabu_jstring_new(message) : NULL);
             return obj;
         }
@@ -2248,8 +2331,7 @@ static uint32_t nabu_utf8_next(const unsigned char *in, size_t in_len, size_t *i
 static void *nabu_jstring_from_array(unsigned char *arr, int latin1) {
     nabu_jstring *js = (nabu_jstring *) nabu_str_mem(sizeof(nabu_jstring));
     js->header.type = nabu_string_meta.type;
-    js->header.vtable = nabu_string_meta.vtable;
-    js->header.itable = nabu_string_meta.itable;
+    /* vtable/itable zitten in type_info, niet in de object-header */
     js->value = arr;
     js->coder = latin1 ? 0 : 1;
     return js;
@@ -2521,7 +2603,9 @@ char *nabu_object_to_string(void *obj) {
     if (nabu_is_jstring(obj) || nabu_tostring_slot < 0) {
         return (char *) obj;
     }
-    void **vtable = (void **) ((nabu_object *) obj)->vtable;
+    const nabu_type_info *ti = (const nabu_type_info *) ((nabu_object *) obj)->type;
+    if (ti == NULL) return (char *) obj;
+    void **vtable = ti->vtable;
     if (vtable == NULL || vtable[nabu_tostring_slot] == NULL) {
         return (char *) obj;
     }

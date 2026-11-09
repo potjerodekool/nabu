@@ -45,26 +45,24 @@ typedef struct nabu_type_info {
      * eigen type-info), voor Unsafe.objectFieldOffset. */
     const nabu_type_field *instance_fields;
     int         instance_field_count;
+    /* Vtable en itable ingebakken door de backend (slots 8 en 9 in LLVM-IR).
+     * NULL voor library-super-types die niet gecompileerd zijn. */
+    void **vtable;
+    void **itable;
 } nabu_type_info;
 
 /**
  * Object header struct — elke heap-object begint hiermee.
  *
  * De veldvolgorde MOET overeenkomen met ClassLayouts.objectHeaderType() in de
- * native-backend (`{ ptr type, ptr vtable, ptr itable, i32 monitor, i32
- * thread }`): de backend schrijft type/vtable/itable in de header; de runtime
- * leest/schrijft monitor/thread_id. Op een 64-bittig target geeft dat offsets
- * 0/8/16/24/28 en grootte 32; de C-struct hieronder heeft precies dezelfde
- * layout omdat alle leden standaard-uitlijning hebben.
- *
- * ref_count (voormalig offset 24) is verwijderd: het werd nooit gelezen.
+ * native-backend (`{ ptr type, i32 monitor, i32 thread }`): de backend schrijft
+ * type in de header; vtable en itable zitten in nabu_type_info (slot 8 en 9).
+ * Op een 64-bittig target geeft dat offsets 0/8/12 en grootte 16.
  */
 typedef struct nabu_object {
     void  *type;          /* offset 0  — nabu_type_info* */
-    void  *vtable;        /* offset 8  — door de backend gevuld */
-    void  *itable;        /* offset 16 — door de backend gevuld */
-    int32_t monitor_count;/* offset 24 — voor synchronized */
-    int32_t thread_id;    /* offset 28 — welke thread bezit de monitor */
+    int32_t monitor_count;/* offset 8  — voor synchronized */
+    int32_t thread_id;    /* offset 12 — welke thread bezit de monitor */
 } nabu_object;
 
 /** Minimale objectgrootte: één header zonder instantievelden. */
@@ -208,7 +206,7 @@ void nabu_resume(void *unwind_exc);
  * BOEHM onzichtbaar zijn voor de collector en dus permanent lekken.
  *
  * De backend reserveert ná de header één extra pointerwoord voor het
- * *runtime-state-slot* (JCL_STATE_SLOT, offset 40): instancevelden van
+ * *runtime-state-slot* (JCL_STATE_SLOT, offset sizeof(nabu_object)): instancevelden van
  * library-klassen worden volledig door de runtime beheerd (jcl_lite.c) en
  * die hangt haar C-struct aan het object via dit slot. De hele reservering
  * wordt hier nulgezet.
@@ -277,7 +275,7 @@ void *nabu_class_literal_cached(void **slot, const char *iname);
 int nabu_jcl_is_object(const void *p);
 
 /* ---------------------------------------------------------------
- * Library-object state-slot (offset 40, vijfde void*-woord)
+ * Library-object state-slot (offset sizeof(nabu_object) = 16B na Lever 1 fase 2)
  * ---------------------------------------------------------------
  *
  * Library-objecten worden door de backend als `header + slot` geallocceerd;

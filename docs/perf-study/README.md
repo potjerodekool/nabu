@@ -182,6 +182,34 @@ LLVM cannot fix that at O2 or O3 because it cannot see through the indirect disp
 (compact headers, cuts the 40× LLC-miss delta) and Lever 2 (JDK intrinsics) for near-term gains, then Lever 4
 (middle-end inlining/devirt) for the structural fix.
 
+## Lever 1 results (Linux x86-64, i9-14900K, same bench setup as phase 0 — 3000 req/endpoint)
+
+Lever 1 reduces the object header in three phases:
+
+| Phase | Header layout | Header size |
+|-------|--------------|-------------|
+| Phase 0 (baseline) | `{ ptr type, ptr vtable, ptr itable, i32 ref_count, i32 monitor, i32 thread }` | 40 B |
+| Phase 1 | remove unused `ref_count` | 32 B |
+| Phase 2 | vtable + itable moved into `nabu_type_info`; header is `{ ptr type_info, i32 monitor, i32 thread }` | 16 B |
+
+Phase 1 is a pure deletion commit (the field was unused), not separately benchmarked.
+
+### Phase 2 results (2026-11-09, header 32 B → 16 B, vtable/itable in type_info)
+
+| Metric | Phase 0 baseline | Phase 2 | Δ |
+|--------|-----------------|---------|---|
+| `/pet/2` req/s | 1802 | 1801 | ≈ 0% |
+| `/pet/findByStatus` req/s | 1015 | 1055 | +4% |
+| `/store/inventory` req/s | 986 | 1056 | +7% |
+| startup (to first 200) | 1.1 s | 1.1 s | ≈ 0% |
+| RSS after the run | 375 MB | 364 MB | −3% |
+
+**Conclusion:** Phase 2 is within measurement noise on throughput (±5–7% on `/pet/2`, ±3–5% on complex queries).
+The RSS reduction is a modest −11 MB (−3%). The header size halved (32 B → 16 B) but the LLC-miss bottleneck is
+not in the header alone; the vtable/itable pointer indirections remain and allocations are still large.
+
+Planned Phase 3: external monitor (inflate on contention) → header `{ ptr type_info }` = 8 B.
+
 ## Phase 0 (do this first, on this machine)
 
 Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat -e instructions,cycles true`.

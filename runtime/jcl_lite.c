@@ -1088,12 +1088,11 @@ static void *jcl_props_table_populate(void) {
  * object had alleen die van Object, en bv. StaticProperty.getProperty
  * sprong dan naar een slot voorbij het einde van die tabel. */
 /* Een leeg object van een gecompileerde klasse, met haar header. */
-static void *jcl_new_compiled(void *type, void *vtable, void *itable, int64_t size) {
+static void *jcl_new_compiled(void *type, int64_t size) {
     void *self = jcl_alloc((size_t)size);
     nabu_object *h = (nabu_object *)self;
     h->type = type;
-    h->vtable = vtable;
-    h->itable = itable;
+    /* vtable/itable zitten in type_info, niet in de object-header */
     return self;
 }
 
@@ -1111,7 +1110,7 @@ static void *jcl_compiled_properties(void) {
 static void *jcl_compiled_properties_build(void) {
     if (jcl_compiled_props != NULL) return jcl_compiled_props;
     const nabu_properties_meta_t *m = &nabu_properties_meta;
-    void *self = jcl_new_compiled(m->type, m->vtable, m->itable, m->size);
+    void *self = jcl_new_compiled(m->type, m->size);
     m->init(self);
     s_map *t = (s_map *)jcl_state_kind(jcl_props_table(), K_MAP);
     for (int32_t i = 0; t != NULL && i < t->size; i++) {
@@ -3124,7 +3123,7 @@ BIND(void *, jcl_java_lang_Class_arrayType, "java.lang.Class_arrayType", (void *
  * no-arg-constructors; andere geven NoSuchMethodException, zoals de JVM bij
  * een ontbrekende constructor. */
 typedef struct nabu_ctor_entry {
-    const char *name; void *type; void *vtable; void *itable; int64_t size; void (*init)(void *);
+    const char *name; void *type; int64_t size; void (*init)(void *);
 } nabu_ctor_entry;
 extern const nabu_ctor_entry nabu_ctor_table[];
 extern const int32_t nabu_ctor_count;
@@ -3152,7 +3151,7 @@ static void *jcl_no_arg_ctor(void *cls, void *pts) {
 }
 
 static void *jcl_instantiate(const nabu_ctor_entry *e) {
-    void *self = jcl_new_compiled(e->type, e->vtable, e->itable, e->size);
+    void *self = jcl_new_compiled(e->type, e->size);
     e->init(self);
     return self;
 }

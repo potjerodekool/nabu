@@ -102,6 +102,9 @@ public void setReflectionRegistry(
         long tp = System.nanoTime();
         // 0. Runtime helpers declareren
         declareRuntimeHelpers();
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            FieldReachability.report(modules, FieldReachability.analyze(modules));
+        }
 
         // 0.5 Modules indexeren (naam-normalisatie, functie-resolutie, itable-slot-
         //     volgorde). Moet vóór stap 2 en 2.5: die moeten kunnen zien of een

@@ -876,6 +876,16 @@ public void setReflectionRegistry(
                 new BytePointer("nabu_instanceof"), instanceofFnType);
         LLVMSetLinkage(instanceofFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_instanceof", instanceofFn);
+        // int nabu_instanceof_cached(void* obj, i8* type_name, i64* cache): as nabu_instanceof, the cache of the call site
+        // remembers the answer for the last class it saw
+        PointerPointer<Pointer> cachedParams = new PointerPointer<>(3);
+        cachedParams.put(0, i8ptr);
+        cachedParams.put(1, i8ptr);
+        cachedParams.put(2, i8ptr);
+        final LLVMValueRef instanceofCachedFn = LLVMAddFunction(mod, new BytePointer("nabu_instanceof_cached"),
+                LLVMFunctionType(LLVMInt32TypeInContext(ctx), cachedParams, 3, 0));
+        LLVMSetLinkage(instanceofCachedFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_instanceof_cached", instanceofCachedFn);
 
         // --- Throw (altijd nodig) ---
         PointerPointer<Pointer> throwParams = new PointerPointer<>(1);

@@ -1879,6 +1879,25 @@ int nabu_instanceof(void *obj, const char *type_name) {
     return 0;
 }
 
+/* nabu_instanceof with a cache of the call site: *cache holds the class (a type info, so its low bit is free) of the
+ * last object seen there with the answer in the low bit. The answer for a compiled object depends on its class alone. */
+int nabu_instanceof_cached(void *obj, const char *type_name, uintptr_t *cache) {
+    if (obj == NULL) {
+        return 0;
+    }
+    const uintptr_t type = ((const uintptr_t *) obj)[0];
+    const uintptr_t seen = __atomic_load_n(cache, __ATOMIC_RELAXED);
+    if (type != 0 && (seen & ~(uintptr_t) 1) == type) {
+        return (int) (seen & 1);
+    }
+    const int answer = nabu_instanceof(obj, type_name);
+    /* only a class the program made is remembered (an array or an object of the C runtime is not a type info) */
+    if (nabu_compiled_type_name(obj) != NULL) {
+        __atomic_store_n(cache, type | (uintptr_t) (answer != 0), __ATOMIC_RELAXED);
+    }
+    return answer;
+}
+
 /* Whether the internal class name `actual` is `wanted` or a subtype of it (compiled classes only). */
 static int nabu_type_assignable(const char *actual, const char *wanted) {
     if (strcmp(actual, wanted) == 0 || strcmp(wanted, "java/lang/Object") == 0) return 1;
@@ -1913,6 +1932,8 @@ static void nabu_throw_cce(const char *actual, const char *wanted) {
  * object of a compiled class can fail: an object the C runtime made, or a class the program does not know, passes. */
 void *nabu_checkcast_class(void *obj, nabu_type_info *wanted) {
     if (obj == NULL || wanted == NULL) return obj;
+    /* the usual case, without any lookups: the object is of exactly the class that is asked */
+    if (((const nabu_type_info *const *) obj)[0] == wanted) return obj;
     const char *actual = nabu_compiled_type_name(obj);
     if (actual == NULL) return obj;
     for (const nabu_type_info *t = ((nabu_object *) obj)->type; t != NULL; t = t->super_type) {

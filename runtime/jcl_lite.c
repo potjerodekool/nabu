@@ -6731,7 +6731,40 @@ extern const char *nabu_reflection_table_name(int i);
 extern const char *nabu_compiled_type_name_at(int32_t i);
 /* The names of the classes of the program (compiled classes and reflection entries) that start with prefix and,
  * with direct_only, have no further '$' after it; without duplicates. */
+static int jcl_nested_names_scan(const char *prefix, int direct_only, const char ***out);
+
+/* The classes of the program do not change: the answer for a prefix is kept (the scan is over every class there is,
+ * and Class.getDeclaredClasses / getNestMembers are asked again and again by frameworks). */
+typedef struct jcl_nested_entry {
+    const char *prefix; int direct_only; int count; const char **names; struct jcl_nested_entry *next;
+} jcl_nested_entry;
+static jcl_nested_entry *volatile jcl_nested_cache[256];
+
 static int jcl_nested_names(const char *prefix, int direct_only, const char ***out) {
+    unsigned h = (unsigned) direct_only;
+    for (const char *c = prefix; *c; c++) h = h * 31u + (unsigned char) *c;
+    h &= 255;
+    for (jcl_nested_entry *e = __atomic_load_n(&jcl_nested_cache[h], __ATOMIC_ACQUIRE); e != NULL; e = e->next) {
+        if (e->direct_only == direct_only && strcmp(e->prefix, prefix) == 0) {
+            *out = e->names;
+            return e->count;
+        }
+    }
+    const char **names;
+    int n = jcl_nested_names_scan(prefix, direct_only, &names);
+    jcl_nested_entry *entry = (jcl_nested_entry *) jcl_alloc(sizeof(jcl_nested_entry));
+    entry->prefix = jcl_dup(prefix);
+    entry->direct_only = direct_only;
+    entry->count = n;
+    entry->names = names;
+    entry->next = __atomic_load_n(&jcl_nested_cache[h], __ATOMIC_ACQUIRE);
+    while (!__atomic_compare_exchange_n(&jcl_nested_cache[h], &entry->next, entry, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
+    }
+    *out = names;
+    return n;
+}
+
+static int jcl_nested_names_scan(const char *prefix, int direct_only, const char ***out) {
     size_t plen = strlen(prefix);
     int cap = 16, n = 0;
     const char **names = (const char **)jcl_alloc((size_t)cap * sizeof(char *));

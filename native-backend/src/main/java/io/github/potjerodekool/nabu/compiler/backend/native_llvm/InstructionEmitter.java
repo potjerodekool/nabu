@@ -2728,6 +2728,8 @@ public class InstructionEmitter {
     // InstanceOf
     // -------------------------------------------------------
 
+    private int instanceOfCaches = 0;
+
     private void emitInstanceOf(IRInstruction.InstanceOf instanceOf) {
         LLVMValueRef source   = resolveValue(instanceOf.source());
         LLVMTypeRef  boolType = types.map(IRType.BOOL);
@@ -2760,9 +2762,26 @@ public class InstructionEmitter {
                 : instanceOf.type().toString();
         LLVMValueRef classStr = constants.resolveString(className, IRGlobal.Linkage.PRIVATE);
 
-        PointerPointer<Pointer> args = new PointerPointer<>(2);
+        PointerPointer<Pointer> args = new PointerPointer<>(3);
         args.put(0, source);
         args.put(1, classStr);
+
+        // A call site mostly sees one class: it keeps the answer for the last class it saw (the answer depends on the
+        // class alone), so the runtime need not compare names along the superclasses and the interfaces.
+        final LLVMValueRef cachedFn = arrayType ? null : globalValueMap.get("@nabu_instanceof_cached");
+        if (cachedFn != null && !cachedFn.isNull()) {
+            final LLVMModuleRef mod = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+            final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
+            final LLVMValueRef cache = LLVMAddGlobal(mod, i64, new BytePointer(".io.cache." + instanceOfCaches++));
+            LLVMSetLinkage(cache, LLVMInternalLinkage);
+            LLVMSetInitializer(cache, LLVMConstInt(i64, 0, 0));
+            args.put(2, cache);
+            LLVMValueRef cachedResult = LLVMBuildCall2(builder, LLVMGlobalGetValueType(cachedFn), cachedFn, args, 3, "");
+            cachedResult = LLVMBuildTrunc(builder, cachedResult, boolType, new BytePointer(nameOf(instanceOf.result())));
+            storeLocal(instanceOf.result(), cachedResult);
+            Reference.reachabilityFence(args);
+            return;
+        }
 
         LLVMTypeRef  fnType = LLVMGlobalGetValueType(fn);
         LLVMValueRef result = LLVMBuildCall2(builder, fnType, fn, args, 2, "");

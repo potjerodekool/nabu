@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollector;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollectors;
 import io.github.potjerodekool.nabu.util.CompileException;
 
 import java.io.File;
@@ -196,20 +198,16 @@ public class Linker {
             compiler = "gcc";
             flags.add("-g");
         }
-        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
-            flags.add("-DNABU_GC_BOEHM");
-            homebrewPrefix().ifPresent(prefix -> flags.add("-I" + prefix + "/include"));
-        }
-        return RuntimeObjects.get(runtimeSources(), compiler, flags, triple);
+        final GarbageCollector gc = GarbageCollectors.of(gcStrategy);
+        flags.addAll(gc.compileFlags());
+        return RuntimeObjects.get(runtimeSources(gc), compiler, flags, triple);
     }
 
     private static void addRuntimeSources(List<String> cmd,
                                           CompileOptions.GcStrategy gcStrategy) {
-        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
-            cmd.add("-DNABU_GC_BOEHM");
-            homebrewPrefix().ifPresent(prefix -> cmd.add("-I" + prefix + "/include"));
-        }
-        runtimeSources().forEach(src -> cmd.add(src.toString()));
+        final GarbageCollector gc = GarbageCollectors.of(gcStrategy);
+        cmd.addAll(gc.compileFlags());
+        runtimeSources(gc).forEach(src -> cmd.add(src.toString()));
     }
 
     /**
@@ -257,13 +255,16 @@ public class Linker {
      * objectmodel) en jcl_lite (java.lang/java.util-implmentaties). Siblings
      * van {@link #runtimeSource()}; ontbrekende siblings worden overgeslagen.
      */
-    private static List<Path> runtimeSources() {
+    private static List<Path> runtimeSources(final GarbageCollector gc) {
         Path main = runtimeSource();
         if (main == null) return List.of();
         List<Path> srcs = new ArrayList<>();
         srcs.add(main);
         Path jcl = main.resolveSibling("jcl_lite.c");
         if (java.nio.file.Files.exists(jcl)) srcs.add(jcl);
+        // the collector: a file of its own next to the others
+        Path collector = main.resolveSibling(gc.runtimeSource());
+        if (java.nio.file.Files.exists(collector)) srcs.add(collector);
         return srcs;
     }
 
@@ -291,7 +292,8 @@ public class Linker {
                 java.nio.file.Files.copy(in, src,
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-                for (final String extra : new String[] {"nabu_runtime.c", "nabu_runtime.h", "jcl_lite.c"}) {
+                for (final String extra : new String[] {"nabu_runtime.c", "nabu_runtime.h", "jcl_lite.c", "nabu_gc.h",
+                        "gc_boehm.c", "gc_none.c"}) {
                     if (extra.equals(fileName)) continue;
                     try (var e = loader.getResourceAsStream("nabu/runtime/" + extra)) {
                         if (e != null) {
@@ -401,11 +403,7 @@ public class Linker {
 
     private static void addGcLibraries(List<String> cmd,
                                         CompileOptions.GcStrategy gcStrategy) {
-        if (gcStrategy == CompileOptions.GcStrategy.BOEHM) {
-            homebrewPrefix().ifPresent(prefix -> cmd.add("-L" + prefix + "/lib"));
-            cmd.add("-lgc");
-            cmd.add("-lpthread");
-        }
+        cmd.addAll(GarbageCollectors.of(gcStrategy).linkFlags());
     }
 
     /**

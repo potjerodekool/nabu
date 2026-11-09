@@ -463,27 +463,19 @@ public class InstructionEmitter {
         return value;
     }
 
+    private static final boolean ATOMIC_ARRAYS = !"false".equals(System.getProperty("nabu.atomicArrays"));
+
     private void emitAllocaArray(IRInstruction.AllocaArray a) {
         // Layout: [i32 length][ element 0 ][ element 1 ]...
         // Totale bytes = ARRAY_HEADER_SIZE + count * elemSize
         LLVMValueRef count = resolveValue(a.size());
         long elemSize = arrayElementSize(a.allocType());
         LLVMValueRef totalBytes = arrayTotalBytes(count, elemSize);
-        // Switch-expressie: de GcStrategy-cases zijn compiler-gedekt. Een
-        // nieuwe strategie levert dan een compilefout op in plaats van een
-        // misleidende "niet ondersteund"-runtime-exceptie.
-        LLVMValueRef array = switch (opts.gcStrategy()) {
-            case NONE -> LLVMBuildArrayAlloca(builder, LLVMInt8TypeInContext(ctx), totalBytes,
-                    new BytePointer(nameOf(a.result())));
-            case BOEHM -> {
-                LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
-                PointerPointer<Pointer> args = new PointerPointer<>(1);
-                args.put(0, totalBytes);
-                yield LLVMBuildCall2(builder, allocType, allocFn, args, 1,
-                        nameOf(a.result()));
-            }
-        };
+        // An array of primitives has no pointers: the collector need not scan it (the memory of that allocation is not
+        // cleared, so that is done here). -Dnabu.atomicArrays=false switches it off.
+        final boolean pointerFree = ATOMIC_ARRAYS
+                && (a.allocType() instanceof IRType.Int || a.allocType() instanceof IRType.Float);
+        final LLVMValueRef array = emitGcAlloc(totalBytes, pointerFree, nameOf(a.result()));
         storeArrayLength(array, count);
         final String arrayClass = arrayClassName(a);
         storeArrayElemSize(array, elemSize | ((long) (arrayClass != null ? arrayTypeId(arrayClass) : 0) << 8));
@@ -605,24 +597,9 @@ public class InstructionEmitter {
 
         ClassLayouts.ClassLayout layout = classLayouts.getFor(ha.allocType());
         if (layout != null) {
-            // Zie emitAllocaArray: switch-expressie, zodat de exhaustiviteit
-            // van de GcStrategy-cases door de compiler wordt bewaakt.
-            LLVMValueRef obj = switch (opts.gcStrategy()) {
-                case NONE ->
-                    // stack-alloca van de object-struct (voor tests/kleine demo's)
-                    LLVMBuildAlloca(builder, layout.structType,
-                            new BytePointer(nameOf(ha.result())));
-                case BOEHM -> {
-                    long size = sizeOf(layout.structType);
-                    LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                    LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                    LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
-                    PointerPointer<Pointer> args = new PointerPointer<>(1);
-                    args.put(0, sizeVal);
-                    yield LLVMBuildCall2(builder, allocType, allocFn, args, 1,
-                            nameOf(ha.result()));
-                }
-            };
+            final LLVMValueRef obj = emitGcAlloc(
+                    LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), false,
+                    nameOf(ha.result()));
             initObjectHeader(obj, layout);
             storeLocal(ha.result(), obj);
             return;
@@ -688,35 +665,31 @@ public class InstructionEmitter {
     }
 
     /**
-     * Reserveert {@code size} bytes met de allocator van de gekozen GC-strategie:
-     * stack (NONE) of {@code GC_malloc} (BOEHM).
-     *
-     * De switch is bewust een switch-expressie: de GcStrategy-cases zijn dan
-     * compiler-gedekt en een nieuwe strategie levert een compilefout op in plaats
-     * van een stilletjes verkeerde allocator.
+     * Reserveert {@code size} bytes met de allocator van de gekozen collector (zie {@code GarbageCollector}).
      */
     private LLVMValueRef allocForStrategy(final long size, final String name) {
-        return switch (opts.gcStrategy()) {
-            case NONE -> {
-                // Een array-alloca (i8[size]) en géén alloca van het gemapte
-                // type: dat is voor een onbekende klasse `i8` — één byte, terwijl
-                // de header 40 bytes nodig heeft.
-                yield LLVMBuildArrayAlloca(builder, LLVMInt8TypeInContext(ctx),
-                        LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0),
-                        new BytePointer(name));
-            }
-            case BOEHM -> {
-                final LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                if (allocFn == null) {
-                    throw new IllegalStateException("Allocation helper not defined");
-                }
-                final LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                PointerPointer<Pointer> args = new PointerPointer<>(1);
-                args.put(0, sizeVal);
-                yield LLVMBuildCall2(builder, LLVMGlobalGetValueType(allocFn), allocFn, args, 1,
-                        name);
-            }
-        };
+        return emitGcAlloc(LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0), false, name);
+    }
+
+    static final String GC_ALLOC = "@nabu.gc.alloc";
+    static final String GC_ALLOC_ATOMIC = "@nabu.gc.alloc.atomic";
+
+    /**
+     * A call to the allocation function of the collector. Zeroed memory that can hold pointers, or (pointerFree) memory
+     * without pointers that the collector does not scan: that one is not cleared by the allocator, so it is cleared here.
+     */
+    private LLVMValueRef emitGcAlloc(final LLVMValueRef bytes, final boolean pointerFree, final String name) {
+        final LLVMValueRef allocFn = globalValueMap.get(pointerFree ? GC_ALLOC_ATOMIC : GC_ALLOC);
+        if (allocFn == null) {
+            throw new IllegalStateException("Allocation helper not defined");
+        }
+        final PointerPointer<Pointer> args = new PointerPointer<>(1);
+        args.put(0, bytes);
+        final LLVMValueRef memory = LLVMBuildCall2(builder, LLVMGlobalGetValueType(allocFn), allocFn, args, 1, name);
+        if (pointerFree) {
+            LLVMBuildMemSet(builder, memory, LLVMConstInt(LLVMInt8TypeInContext(ctx), 0, 0), bytes, 8);
+        }
+        return memory;
     }
 
     private void initObjectHeader(LLVMValueRef obj, ClassLayouts.ClassLayout layout) {
@@ -739,7 +712,7 @@ public class InstructionEmitter {
         LLVMBuildStore(builder, layout.itableGlobal, itableSlot);
 
         // Het slot van de oude referentieteller blijft in de header zitten (offset 24) en wordt op 0 gezet:
-        // GC_malloc en de stack geven ongeïnitialiseerd geheugen terug.
+        // (a collector may give memory that is not cleared: the slot is set explicitly)
         LLVMValueRef countSlot = LLVMBuildStructGEP2(builder,
                 classLayouts.objectHeaderType(), headerPtr,
                 ClassLayouts.HEADER_SLOT_REF_COUNT, ".refcount.slot");
@@ -2855,22 +2828,8 @@ private void emitThrow(IRInstruction.Throw throwInst) {
             }
             return allocForStrategy(headerSize, ".exc");
         }
-        // Zie emitAllocaArray: switch-expressie, exhaustiviteit wordt bewaakt.
-        LLVMValueRef obj = switch (opts.gcStrategy()) {
-            case NONE -> LLVMBuildAlloca(builder, layout.structType,
-                    new BytePointer(".exc"));
-            case BOEHM -> {
-                long size = sizeOf(layout.structType);
-                LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(ctx), size, 0);
-                LLVMValueRef allocFn = globalValueMap.get("@GC_malloc");
-                if (allocFn == null)
-                    throw new IllegalStateException("Allocation helper missing");
-                LLVMTypeRef allocType = LLVMGlobalGetValueType(allocFn);
-                PointerPointer<Pointer> args = new PointerPointer<>(1);
-                args.put(0, sizeVal);
-                yield LLVMBuildCall2(builder, allocType, allocFn, args, 1, ".exc");
-            }
-        };
+        final LLVMValueRef obj = emitGcAlloc(
+                LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), false, ".exc");
         initObjectHeader(obj, layout);
         return obj;
     }

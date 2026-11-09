@@ -67,6 +67,8 @@ class BoehmRuntimeE2eTest {
                 "x86_64-w64-windows-gnu",
                 CompileOptions.GcStrategy.BOEHM,
                 JavaVersion.MINIMAL_VERSION);
+        // (the double below stands in for libgc and gc_boehm.c: the program is compiled for Boehm, the runtime is built
+        // for a collector that is not Boehm, with the double as its collector)
         final Path obj = tempDir.resolve("boehm-e2e.o");
         new NativeLLVMBackend().compileToObject(module(), opts, obj);
 
@@ -76,7 +78,7 @@ class BoehmRuntimeE2eTest {
         Files.writeString(stub, GC_STUB);
         final Path exe = tempDir.resolve("boehm-e2e.exe");
         final List<String> cmd = new ArrayList<>(List.of(
-                gcc, obj.toString(), stub.toString(), runtimeSource().toString(),
+                gcc, "-DNABU_GC_NONE", obj.toString(), stub.toString(), runtimeSource().toString(),
                 "-o", exe.toString()));
         run(cmd);
 
@@ -226,12 +228,39 @@ class BoehmRuntimeE2eTest {
             #include <stddef.h>
             #include <stdlib.h>
             #include <string.h>
+            #include <pthread.h>
 
             static int  gc_inited = 0;
             static long gc_allocs  = 0;
 
             void GC_init(void) {
                 gc_inited = 1;
+            }
+
+            /* The collector interface of the runtime (runtime/nabu_gc.h), on top of the double. */
+            void nabu_gc_init(void) { GC_init(); }
+            __attribute__((constructor(101))) static void start(void) { nabu_gc_init(); }
+            void *nabu_gc_alloc(size_t n) { return calloc(1, n); }
+            void *nabu_gc_alloc_atomic(size_t n) { return malloc(n); }
+            void *nabu_gc_alloc_pinned(size_t n) { return calloc(1, n); }
+            void *nabu_gc_realloc(void *p, size_t n) { return realloc(p, n); }
+            void nabu_gc_free(void *p) { free(p); }
+            void nabu_gc_discard(void *p) { (void) p; }
+            void nabu_gc_collect(void) { }
+            void nabu_gc_set_finalizer(void *obj, void (*fn)(void *, void *)) { (void) obj; (void) fn; }
+            void nabu_gc_pause(void) { }
+            void nabu_gc_resume(void) { }
+            void nabu_gc_threads_enabled(void) { }
+            int nabu_gc_thread_create(void *(*start)(void *), void *arg, size_t stack_size) {
+                pthread_attr_t attr;
+                pthread_t handle;
+                int rc;
+                pthread_attr_init(&attr);
+                pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+                pthread_attr_setstacksize(&attr, stack_size);
+                rc = pthread_create(&handle, &attr, start, arg);
+                pthread_attr_destroy(&attr);
+                return rc;
             }
 
             void *GC_malloc(size_t size) {
@@ -250,6 +279,11 @@ class BoehmRuntimeE2eTest {
                 memset(p, 0xAB, size);
                 gc_allocs++;
                 return p;
+            }
+
+            void *GC_malloc_atomic(size_t size) {
+                gc_allocs++;
+                return malloc(size);
             }
 
             int nabu_test_gc_inited(void) {

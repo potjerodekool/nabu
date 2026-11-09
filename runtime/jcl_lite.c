@@ -9,6 +9,7 @@
 #define _DARWIN_C_SOURCE
 #endif
 #include "nabu_runtime.h"
+#include "nabu_gc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,18 +45,8 @@
 #endif
 #endif
 
-#ifdef NABU_GC_BOEHM
-#include <gc.h>
-#define JCL_MEM(n) GC_malloc(n)
-#else
-#define JCL_MEM(n) calloc(1, (n))
-#endif
-
-#ifdef NABU_GC_BOEHM
-#define JCL_REALLOC(p, n) GC_realloc((p), (n))
-#else
-#define JCL_REALLOC(p, n) realloc((p), (n))
-#endif
+#define JCL_MEM(n) nabu_gc_alloc(n)
+#define JCL_REALLOC(p, n) nabu_gc_realloc((p), (n))
 
 /* the symbol of a function the compiled code calls by its JDK name; on macOS an asm label is not given the underscore
  * that every other symbol has */
@@ -1702,14 +1693,12 @@ BIND(void *, jcl_fs_getDriveDirectory, JCL_FS("getDriveDirectory$PI32"), (void *
 
 /* --- FileInputStream / FileOutputStream on files ------------------------ */
 
-#ifdef NABU_GC_BOEHM
 /* A FileDescriptor nobody references any more: close its descriptor, as the
  * JDK's cleaner does. The descriptor can have been closed already. */
 static void jcl_fd_finalize(void *fdObj, void *unused) {
     (void)unused;
     jcl_fd_close_slot(jcl_fd_slot(fdObj));
 }
-#endif
 
 static void jcl_open_file(void *self, void *pathString, int flags) {
     const char *path = nabu_cstr(pathString);
@@ -1728,11 +1717,9 @@ static void jcl_open_file(void *self, void *pathString, int flags) {
     int32_t *slot = off >= 0 ? jcl_fd_slot(*(void **)((char *)self + off)) : NULL;
     if (slot != NULL) {
         *slot = fd;
-#ifdef NABU_GC_BOEHM
-        /* The descriptor object refers to its stream (parent), so the two form a cycle:
-         * only the unordered variant finalizes those. */
-        GC_register_finalizer_no_order(*(void **)((char *)self + off), jcl_fd_finalize, NULL, NULL, NULL);
-#endif
+        /* The descriptor object refers to its stream (parent), so the two form a cycle: the collector has to finalize
+         * objects that refer to each other (nabu_gc_set_finalizer does). */
+        nabu_gc_set_finalizer(*(void **)((char *)self + off), jcl_fd_finalize);
     } else {
 #ifdef _WIN32
         _close(fd);
@@ -4775,10 +4762,7 @@ BIND(int32_t, jcl_java_lang_Runtime_availableProcessors, "java.lang.Runtime_avai
 }
 BIND(void, jcl_java_lang_Runtime_gc, "java.lang.Runtime_gc", (void *self)) {
     (void)self;
-#ifdef NABU_GC_BOEHM
-    GC_gcollect();
-    GC_invoke_finalizers();
-#endif
+    nabu_gc_collect();
 }
 BIND(int, jcl_java_lang_Class_desiredAssertionStatus, "java.lang.Class_desiredAssertionStatus", (void *self)) { (void)self; return 0; }
 /* Arrays.copyOf(Object[], int): de JDK-versie vraagt original.getClass() op,
@@ -4895,10 +4879,39 @@ BIND(int32_t, jcl_Unsafe_arrayIndexScale0, "jdk.internal.misc.Unsafe_arrayIndexS
     }
 }
 extern int32_t nabu_compiled_type_count_for_trace(void);
+/* objectFieldOffset1 scans the fields of the class and its supers by name; the JDK asks for the same few offsets again
+ * and again (field updaters, VarHandles), so the answers are kept. */
+typedef struct jcl_ofo_entry { struct jcl_ofo_entry *next; char *cls; char *field; int64_t offset; } jcl_ofo_entry;
+static jcl_ofo_entry *volatile jcl_ofo_cache[1024];
+static int64_t jcl_unsafe_field_offset_slow(const char *cls_name, const char *field);
+
 BIND(int64_t, jcl_Unsafe_objectFieldOffset1, "jdk.internal.misc.Unsafe_objectFieldOffset1", (void *self, void *cls, void *name)) {
     (void)self;
     const char *cls_name = jcl_unsafe_class_name(cls);
     const char *field = nabu_cstr(name);
+    uint32_t h = 2166136261u;
+    for (const char *q = cls_name; *q; q++) h = (h ^ (unsigned char) *q) * 16777619u;
+    for (const char *q = field; *q; q++) h = (h ^ (unsigned char) *q) * 16777619u;
+    jcl_ofo_entry *volatile *bucket = &jcl_ofo_cache[h & 1023];
+    for (jcl_ofo_entry *e = *bucket; e != NULL; e = e->next) {
+        if (strcmp(e->field, field) == 0 && strcmp(e->cls, cls_name) == 0) return e->offset;
+    }
+    const int64_t offset = jcl_unsafe_field_offset_slow(cls_name, field);
+    if (offset >= 0) {
+        jcl_ofo_entry *entry = (jcl_ofo_entry *) JCL_MEM(sizeof *entry);
+        entry->cls = jcl_dup(cls_name);
+        entry->field = jcl_dup(field);
+        entry->offset = offset;
+        for (;;) {
+            jcl_ofo_entry *head = *bucket;
+            entry->next = head;
+            if (__sync_bool_compare_and_swap(bucket, head, entry)) break;
+        }
+    }
+    return offset;
+}
+
+static int64_t jcl_unsafe_field_offset_slow(const char *cls_name, const char *field) {
     /* java.lang.Thread is not compiled: its Unsafe-reached fields (ThreadLocalRandom's seed and probes) live in
      * the room behind the thread object. */
     if (strcmp(cls_name, "java.lang.Thread") == 0 || strcmp(cls_name, "java/lang/Thread") == 0) {
@@ -5030,7 +5043,7 @@ static void *jcl_main_thread(void) {
 /* The Thread object of the running thread: the thread's own, or "main". */
 /* Continuations need the Boehm collector, and fibers (Windows) or ucontext (Linux and macOS, x86-64 and aarch64).
  * They are on unless NABU_CONTINUATIONS=0. */
-#if defined(NABU_GC_BOEHM) && (defined(_WIN32) || ((defined(__linux__) || defined(__APPLE__)) && (defined(__x86_64__) || defined(__aarch64__))))
+#if NABU_GC_CONTINUATIONS && (defined(_WIN32) || ((defined(__linux__) || defined(__APPLE__)) && (defined(__x86_64__) || defined(__aarch64__))))
 #define JCL_CONTINUATIONS_PLATFORM 1
 #else
 #define JCL_CONTINUATIONS_PLATFORM 0
@@ -5141,12 +5154,6 @@ BIND(void, jcl_thread_init_vt, "java.lang.Thread_init$vt", (void *self, void *na
 /* ---------------------------------------------------------------
  * Threads: real native threads that run one at a time (nabu_gil_*), switching where a thread blocks.
  * --------------------------------------------------------------- */
-#ifdef NABU_GC_BOEHM
-extern int GC_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start)(void *), void *arg);
-#define JCL_PTHREAD_CREATE GC_pthread_create
-#else
-#define JCL_PTHREAD_CREATE pthread_create
-#endif
 
 static void (*jcl_thread_run_fn)(void *) = NULL;
 void nabu_set_thread_run_fn(void *fn) { jcl_thread_run_fn = (void (*)(void *))fn; }
@@ -5164,14 +5171,6 @@ static void jcl_throw_new(const char *cls, const char *super, const char *msg) {
 }
 
 /* vthread: a virtual thread that waits (Object.wait on a continuation) is woken by unparking it, a thread by its waiter. */
-#ifdef NABU_GC_BOEHM
-extern void *GC_malloc_uncollectable(size_t n);
-extern void GC_free(void *p);
-#else
-/* without the collector nothing is collected: plain memory is as good as a root */
-#define GC_malloc_uncollectable(n) calloc(1, (n))
-#define GC_free(p) free(p)
-#endif
 typedef struct jcl_waiter { void *obj; volatile int notified; struct jcl_waiter *next; nabu_waiter *waiter; void *vthread; int depth; } jcl_waiter;
 void nabu_set_virtual_unpark_fn(void *fn) { jcl_virtual_unpark_fn = (void (*)(void *))fn; }
 static jcl_waiter *jcl_waiters = NULL;
@@ -5285,7 +5284,7 @@ BIND(int64_t, jcl_ThreadSupport_waitEnter0, "io.github.potjerodekool.nabu.compil
     if (!jcl_owns_monitor(object)) jcl_throw_new("java/lang/IllegalMonitorStateException", "java/lang/RuntimeException", "current thread is not owner");
     if (!nabu_threads_active || !nabu_parallel) return 0;
     /* a root: the waiting virtual thread may be referred to only from here */
-    jcl_waiter *w = (jcl_waiter *)GC_malloc_uncollectable(sizeof *w);
+    jcl_waiter *w = (jcl_waiter *)nabu_gc_alloc_pinned(sizeof *w);
     w->obj = object;
     w->vthread = thread;
     pthread_mutex_lock(&jcl_waiters_lock);
@@ -5308,7 +5307,7 @@ BIND(int, jcl_ThreadSupport_waitLeave0, "io.github.potjerodekool.nabu.compiler.b
     pthread_mutex_unlock(&jcl_waiters_lock);
     nabu_monitor_acquire_n(w->obj, w->depth);
     const int notified = w->notified;
-    GC_free(w);
+    nabu_gc_free(w);
     return notified;
 }
 
@@ -5550,24 +5549,6 @@ BIND(void *, jcl_ThreadSupport_stackTrace0, "io.github.potjerodekool.nabu.compil
     return arr;
 }
 
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
-/* On Windows a thread made by pthread_create gets its whole stack committed at once. A thread made by CreateThread
- * with STACK_SIZE_PARAM_IS_A_RESERVATION only reserves the address space and commits the pages it touches, so a
- * big stack costs nothing until it is used. The collector is told about the thread by hand. */
-extern void GC_allow_register_threads(void);
-extern int GC_register_my_thread(const struct GC_stack_base *base);
-extern int GC_unregister_my_thread(void);
-
-static DWORD WINAPI jcl_windows_thread_main(LPVOID arg) {
-    struct GC_stack_base base;
-    GC_get_stack_base(&base);
-    GC_register_my_thread(&base);
-    jcl_thread_main(arg);
-    GC_unregister_my_thread();
-    return 0;
-}
-#endif
-
 BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     s_thread *st = jcl_thread_state(self);
     /* A virtual thread on a continuation is started by the JDK's VirtualThread (it is scheduled on a carrier). */
@@ -5583,9 +5564,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
         nabu_spin_hints = !nabu_parallel;
         nabu_threads_active = 1;
         nabu_set_wake_hook(jcl_capture_hook);
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
-        GC_allow_register_threads();
-#endif
+        nabu_gc_threads_enabled();
         nabu_gil_acquire();
         nabu_set_wait_slot(&jcl_thread_of(jcl_current_thread())->wait_state);
         jcl_thread_of(jcl_current_thread())->waiter = nabu_waiter_self();
@@ -5597,19 +5576,7 @@ BIND(void, jcl_java_lang_Thread_start, "java.lang.Thread_start", (void *self)) {
     /* A virtual thread is meant to be one of very many: a smaller stack than a platform thread. */
     const size_t stack_size = st->is_virtual ? (size_t)4 << 20 : (size_t)16 << 20;
     jcl_starting_add(self);
-#if defined(_WIN32) && defined(NABU_GC_BOEHM)
-    HANDLE created = CreateThread(NULL, stack_size, jcl_windows_thread_main, st, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
-    int rc = created != NULL ? 0 : -1;
-    if (created != NULL) CloseHandle(created);
-#else
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    pthread_attr_setstacksize(&attr, stack_size);
-    pthread_t handle;
-    int rc = JCL_PTHREAD_CREATE(&handle, &attr, jcl_thread_main, st);
-    pthread_attr_destroy(&attr);
-#endif
+    int rc = nabu_gc_thread_create(jcl_thread_main, st, stack_size);
     if (rc != 0) {
         jcl_starting_remove(self);
         st->state = 2;
@@ -5711,16 +5678,6 @@ BIND(void *, jcl_ThreadSupport_mainThread0, "io.github.potjerodekool.nabu.compil
 #endif
 #endif
 
-struct GC_stack_base;
-extern void GC_push_all_eager(void *bottom, void *top);
-extern void GC_set_push_other_roots(void (*proc)(void));
-extern void (*GC_get_push_other_roots(void))(void);
-extern void *GC_get_my_stackbottom(struct GC_stack_base *sb);
-extern void GC_set_stackbottom(void *gc_thread_handle, const struct GC_stack_base *sb);
-#ifdef NABU_GC_BOEHM
-extern void *GC_malloc_uncollectable(size_t n);
-extern void GC_free(void *p);
-#endif
 
 /* owned: the stack of a continuation; its collector object scans it (jcl_cont_mark), so the root hook skips it */
 typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next_free; int owned; } jcl_region;
@@ -5734,10 +5691,8 @@ typedef struct jcl_region { void *volatile sp; void *hi; struct jcl_region *next
 #define JCL_SWITCH_BEGIN() ((void)0)
 #define JCL_SWITCH_END() ((void)0)
 #else
-extern void GC_disable(void);
-extern void GC_enable(void);
-#define JCL_SWITCH_BEGIN() GC_disable()
-#define JCL_SWITCH_END() GC_enable()
+#define JCL_SWITCH_BEGIN() nabu_gc_pause()
+#define JCL_SWITCH_END() nabu_gc_resume()
 #endif
 
 typedef struct jcl_cont {
@@ -5770,25 +5725,22 @@ static volatile long jcl_region_count = 0;
 static long jcl_region_cap = 0;
 static jcl_region *jcl_region_free = NULL;
 static pthread_mutex_t jcl_region_lock = PTHREAD_MUTEX_INITIALIZER;
-static void (*jcl_old_push_other_roots)(void) = NULL;
 static volatile int jcl_roots_hooked = 0;
 
-static void jcl_push_regions(void) {
+static void jcl_push_regions(void (*scan)(void *lo, void *hi)) {
     jcl_region *volatile *table = jcl_regions;
     const long n = jcl_region_count;
     for (long i = 0; i < n; i++) {
         jcl_region *r = table[i];
         void *sp = r->sp;
-        if (sp != NULL && !r->owned && r->hi != NULL && sp < r->hi) GC_push_all_eager(sp, r->hi);
+        if (sp != NULL && !r->owned && r->hi != NULL && sp < r->hi) scan(sp, r->hi);
     }
-    if (jcl_old_push_other_roots != NULL) jcl_old_push_other_roots();
 }
 
 static jcl_region *jcl_region_new(void *hi) {
     pthread_mutex_lock(&jcl_region_lock);
     if (!jcl_roots_hooked) {
-        jcl_old_push_other_roots = GC_get_push_other_roots();
-        GC_set_push_other_roots(jcl_push_regions);
+        nabu_gc_add_root_scanner(jcl_push_regions);
         jcl_roots_hooked = 1;
     }
     jcl_region *r = jcl_region_free;
@@ -5841,40 +5793,12 @@ static __thread void *jcl_gc_thread = NULL;      /* the collector's handle of th
 static __thread jcl_region *jcl_carrier_region = NULL;
 static __thread jcl_cont *jcl_running = NULL;    /* the continuation running on this thread, innermost */
 
-#ifndef _WIN32
-/* The collector scans the stack of the process's first thread up to GC_stackbottom, that of the others up to the
- * stack end it has recorded for them. */
-static int jcl_on_main_thread(void) {
-    static __thread int known = 0, main_thread = 0;
-    if (!known) {
-#ifdef __APPLE__
-        main_thread = pthread_main_np() != 0;
-#else
-        main_thread = (pid_t)syscall(SYS_gettid) == getpid();
-#endif
-        known = 1;
-    }
-    return main_thread;
-}
-#endif
-
 static void jcl_set_gc_base(void *handle, void *hi) {
-    struct { void *mem_base; } sb;
-    sb.mem_base = hi;
-    GC_set_stackbottom(handle, (const struct GC_stack_base *)&sb);
-#ifndef _WIN32
-    if (jcl_on_main_thread()) GC_stackbottom = (char *)hi;
-#endif
+    nabu_gc_set_stack_base(handle, hi);
 }
 
 static void *jcl_get_gc_base(void) {
-#ifndef _WIN32
-    if (jcl_on_main_thread()) return (void *)GC_stackbottom;
-#endif
-    struct { void *mem_base; } sb;
-    sb.mem_base = NULL;
-    GC_get_my_stackbottom((struct GC_stack_base *)&sb);
-    return sb.mem_base;
+    return nabu_gc_stack_base();
 }
 
 #ifdef _WIN32
@@ -5915,8 +5839,7 @@ static void jcl_cont_claim(jcl_cont *k) {
 static __attribute__((noinline)) void jcl_cont_switch_in(jcl_cont *k) {
     __builtin_unwind_init();
     if (jcl_gc_thread == NULL) {
-        struct { void *mem_base; } sb;
-        jcl_gc_thread = GC_get_my_stackbottom((struct GC_stack_base *)&sb);
+        jcl_gc_thread = nabu_gc_thread_handle();
     }
 #ifdef _WIN32
     if (!IsThreadAFiber()) ConvertThreadToFiber(NULL);
@@ -5972,39 +5895,22 @@ static __attribute__((noinline)) void jcl_cont_switch_out(jcl_cont *k) {
  * its tail field; the thread that runs it, through its frames) the mark procedure also scans the parked stack. The
  * stack of a continuation that nothing refers to any more (an abandoned parked virtual thread) is therefore garbage,
  * and so is everything only that stack refers to; the finalizer gives the stack back. */
-struct GC_ms_entry;
-extern struct GC_ms_entry *GC_mark_and_push(void *obj, struct GC_ms_entry *top, struct GC_ms_entry *limit, void **src);
-extern unsigned GC_new_proc(struct GC_ms_entry *(*proc)(uintptr_t *, struct GC_ms_entry *, struct GC_ms_entry *, uintptr_t));
-extern unsigned GC_new_kind(void **free_list, uintptr_t descriptor, int add_size, int clear);
-extern void **GC_new_free_list(void);
-extern void *GC_malloc_kind(size_t n, int kind);
-extern void GC_register_finalizer_no_order(void *obj, void (*fn)(void *, void *), void *data, void (**old_fn)(void *, void *), void **old_data);
-
-static struct GC_ms_entry *jcl_cont_mark(uintptr_t *addr, struct GC_ms_entry *msp, struct GC_ms_entry *limit, uintptr_t env) {
-    (void)env;
-    jcl_cont *k = (jcl_cont *)addr;
-    uintptr_t *w = addr;
-    for (uintptr_t *end = addr + sizeof(jcl_cont) / sizeof(uintptr_t); w < end; w++) msp = GC_mark_and_push((void *)*w, msp, limit, (void **)w);
+static void jcl_cont_trace(void *obj, void (*mark)(void *candidate)) {
+    jcl_cont *k = (jcl_cont *)obj;
+    uintptr_t *w = (uintptr_t *)obj;
+    for (uintptr_t *end = w + sizeof(jcl_cont) / sizeof(uintptr_t); w < end; w++) mark((void *)*w);
     jcl_region *r = k->region;
     if (r != NULL && r->sp != NULL && r->hi != NULL) {
         uintptr_t *hi = (uintptr_t *)r->hi;
-        for (w = (uintptr_t *)(((uintptr_t)r->sp + 7) & ~(uintptr_t)7); w < hi; w++) msp = GC_mark_and_push((void *)*w, msp, limit, (void **)w);
+        for (w = (uintptr_t *)(((uintptr_t)r->sp + 7) & ~(uintptr_t)7); w < hi; w++) mark((void *)*w);
     }
-    return msp;
 }
 
 #ifndef _WIN32
 static void jcl_stack_unreserve(void);
 #endif
-static int jcl_cont_kind = -1;
 static void *jcl_cont_alloc(void) {
-    pthread_mutex_lock(&jcl_region_lock);
-    if (jcl_cont_kind < 0) {
-        const unsigned proc = GC_new_proc(jcl_cont_mark);
-        jcl_cont_kind = (int)GC_new_kind(GC_new_free_list(), ((uintptr_t)proc << 2) | 2 /* GC_DS_PROC */, 0, 1);
-    }
-    pthread_mutex_unlock(&jcl_region_lock);
-    return GC_malloc_kind(sizeof(jcl_cont), jcl_cont_kind);
+    return nabu_gc_alloc_traced(sizeof(jcl_cont), jcl_cont_trace);
 }
 
 /* Gives back the stack of a continuation that is done or abandoned. */
@@ -6057,10 +5963,7 @@ static int jcl_stack_reserve(void) {
     if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) > jcl_stack_limit) {
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         /* the stacks are not collector memory, so they do not make it collect: abandoned ones may be waiting for a cycle */
-        extern void GC_gcollect(void);
-        extern int GC_invoke_finalizers(void);
-        GC_gcollect();
-        GC_invoke_finalizers();
+        nabu_gc_collect();
         if (__atomic_add_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST) <= jcl_stack_limit) return 1;
         __atomic_sub_fetch(&jcl_stack_count, 1, __ATOMIC_SEQ_CST);
         static int told = 0;
@@ -6129,21 +6032,21 @@ BIND(void, jcl_Continuation_enterSpecial, "jdk.internal.vm.Continuation_enterSpe
         if (!created) {
             jcl_region_release(k->region);
             k->region = NULL;
-            GC_free(k);
+            nabu_gc_free(k);
             jcl_throw_new("java/lang/OutOfMemoryError", "java/lang/Error", "Cannot create a stack for a continuation");
             return;
         }
         *slot = k;
-        GC_register_finalizer_no_order(k, jcl_cont_finalize, NULL, NULL, NULL);
+        nabu_gc_set_finalizer(k, jcl_cont_finalize);
     }
     jcl_cont_claim(k);
     jcl_cont_switch_in(k);
     if (k->state == 3) {
         void *failure = k->failure;
         *slot = NULL;
-        GC_register_finalizer_no_order(k, NULL, NULL, NULL, NULL);
+        nabu_gc_set_finalizer(k, NULL);
         jcl_cont_dispose(k);
-        GC_free(k);
+        nabu_gc_free(k);
         if (failure != NULL) nabu_throw(failure);
     }
 }

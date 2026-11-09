@@ -14,6 +14,7 @@
 #define _GNU_SOURCE
 #endif
 #include "nabu_runtime.h"
+#include "nabu_gc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -611,10 +612,8 @@ static void nabu_exception_cleanup(_Unwind_Reason_Code reason,
                                    struct _Unwind_Exception *exc) {
     (void)reason;
     (void)exc;
-#ifndef NABU_GC_BOEHM
-    free((nabu_unwind_exception *)exc);
-#endif
-    /* With the collector the wrapper is collector memory and is reclaimed there. */
+    /* The wrapper is collector memory: a collector reclaims it by itself, one that does not collect frees it here. */
+    nabu_gc_discard((nabu_unwind_exception *)exc);
 }
 
 /* -------------------------------------------------------
@@ -1432,12 +1431,7 @@ void nabu_throw(void *exception) {
     /* Collector memory, so that the Throwable inside stays reachable while the unwinder holds only
      * this wrapper (malloc memory is not scanned), and so that the wrapper is not leaked: nothing
      * calls the cleanup after a normal catch. */
-#ifdef NABU_GC_BOEHM
-    extern void *GC_malloc(size_t);
-    nabu_unwind_exception *exc = GC_malloc(sizeof(nabu_unwind_exception));
-#else
-    nabu_unwind_exception *exc = malloc(sizeof(nabu_unwind_exception));
-#endif
+    nabu_unwind_exception *exc = nabu_gc_alloc(sizeof(nabu_unwind_exception));
     if (exc == NULL) {
         fprintf(stderr, "nabu: cannot allocate memory for exception\n");
         abort();
@@ -1977,15 +1971,9 @@ int nabu_instanceof_array(void *obj, const char *wanted) {
  * String-concat
  * ------------------------------------------------------- */
 
-#ifdef NABU_GC_BOEHM
-#include <gc.h>
-#define NABU_STR_MEM(n) GC_malloc(n)
+#define NABU_STR_MEM(n) nabu_gc_alloc(n)
 /* Text and bytes hold no pointers: the collector does not scan them. The memory is not cleared. */
-#define NABU_STR_DATA(n) GC_malloc_atomic(n)
-#else
-#define NABU_STR_MEM(n) calloc(1, (n))
-#define NABU_STR_DATA(n) calloc(1, (n))
-#endif
+#define NABU_STR_DATA(n) nabu_gc_alloc_atomic(n)
 
 /* Spiegel van de layout die de backend voor java.lang.String emitteert:
  * header + de instantievelden in classfile-volgorde. */
@@ -2716,14 +2704,8 @@ void nabu_waiter_wake(nabu_waiter *waiter) {
 
 /* collector memory that is a root: an entry holds the monitor and the virtual thread that waits for it, which nothing else
  * may refer to */
-#ifdef NABU_GC_BOEHM
-extern void *GC_malloc_uncollectable(size_t);
-extern void GC_free(void *);
-#else
-/* without the collector nothing is collected: plain memory is as good as a root */
-#define GC_malloc_uncollectable(n) calloc(1, (n))
-#define GC_free(p) free(p)
-#endif
+#define NABU_KEYQ_ALLOC(n) nabu_gc_alloc_pinned(n)
+#define NABU_KEYQ_FREE(p) nabu_gc_free(p)
 
 typedef struct nabu_keyq_entry {
     const void *key;
@@ -2748,7 +2730,7 @@ static unsigned nabu_keyq_bucket(const void *key) {
 static void nabu_keyq_add_entry(const void *key, nabu_waiter *waiter, void *vthread) {
     if (!nabu_parallel) return;
     pthread_once(&nabu_keyq_once, nabu_keyq_init);
-    nabu_keyq_entry *entry = (nabu_keyq_entry *) GC_malloc_uncollectable(sizeof *entry);
+    nabu_keyq_entry *entry = (nabu_keyq_entry *) NABU_KEYQ_ALLOC(sizeof *entry);
     entry->key = key;
     entry->waiter = waiter;
     entry->vthread = vthread;
@@ -2773,7 +2755,7 @@ static void nabu_keyq_remove_entry(const void *key, nabu_waiter *waiter, void *v
         if (entry->key == key && entry->waiter == waiter && entry->vthread == vthread) {
             if (previous != NULL) previous->next = entry->next; else nabu_keyq_heads[bucket] = entry->next;
             if (nabu_keyq_tails[bucket] == entry) nabu_keyq_tails[bucket] = previous;
-            GC_free(entry);
+            NABU_KEYQ_FREE(entry);
             break;
         }
     }

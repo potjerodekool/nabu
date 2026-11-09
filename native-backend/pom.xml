@@ -118,6 +118,9 @@
                     <include>nabu_runtime.c</include>
                     <include>nabu_runtime.h</include>
                     <include>jcl_lite.c</include>
+                    <include>nabu_gc.h</include>
+                    <include>gc_boehm.c</include>
+                    <include>gc_none.c</include>
                 </includes>
             </resource>
         </resources>

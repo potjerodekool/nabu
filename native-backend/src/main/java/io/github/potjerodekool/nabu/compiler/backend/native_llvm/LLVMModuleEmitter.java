@@ -1,6 +1,8 @@
 package io.github.potjerodekool.nabu.compiler.backend.native_llvm;
 
 import io.github.potjerodekool.nabu.backend.CompileOptions;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollector;
+import io.github.potjerodekool.nabu.compiler.backend.native_llvm.gc.GarbageCollectors;
 import io.github.potjerodekool.nabu.backend.ir.IRFunction;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
@@ -54,6 +56,7 @@ public class LLVMModuleEmitter {
         this.ctx   = ctx;
         this.mod   = mod;
         this.opts  = opts;
+        this.gc    = GarbageCollectors.of(opts.gcStrategy());
 
         this.types       = new TypeMapper(ctx);
         this.constants   = new ConstantResolver(ctx, mod, types, globalValueMap);
@@ -88,6 +91,8 @@ public void setReflectionRegistry(
      *   3. bodies
      */
     /** Compiles the bodies in chunks while they are emitted (null: all at the end), see {@link ChunkedCodegen}. */
+    private final GarbageCollector gc;
+
     private ChunkedCodegen chunker;
     private long chunkInstructions;
 
@@ -193,7 +198,7 @@ public void setReflectionRegistry(
         new ReflectionInfoEmitter(ctx, mod, globalValueMap,
                 internalName -> instructions.classInitFunction(internalName, mod))
                 .emit(mod, this.classLayouts, modules, reflectionRegistry, ctors);
-        registerBoehmGcInit(ctors);
+        registerGcInit(ctors);
         registerObjectVtable(ctors);
         registerBootstrapInit(ctors);
         // <clinit>-functies draaien precies één keer (JLS §12.4): lazy via de
@@ -1241,65 +1246,47 @@ public void setReflectionRegistry(
         LLVMSetLinkage(regTypesFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_register_type_infos", regTypesFn);
 
-        // --- GC-specifieke helpers ---
-        switch (opts.gcStrategy()) {
-            case BOEHM -> declareBoehmHelpers(i8ptr, i64);
-            case NONE -> { /* geen extra helpers nodig */ }
-        }
+        declareGcHelpers(i8ptr, i64);
+    }
+
+    /** The two allocation functions of the collector: {@code i8* f(i64)}. The collector starts itself (a constructor in its C file). */
+    private void declareGcHelpers(LLVMTypeRef i8ptr, LLVMTypeRef i64) {
+        final PointerPointer<Pointer> params = new PointerPointer<>(1);
+        params.put(0, i64);
+        final LLVMTypeRef allocType = LLVMFunctionType(i8ptr, params, 1, 0);
+        final LLVMValueRef alloc = LLVMAddFunction(mod, new BytePointer(gc.allocateSymbol()), allocType);
+        LLVMSetLinkage(alloc, LLVMExternalLinkage);
+        globalValueMap.put(InstructionEmitter.GC_ALLOC, alloc);
+        // memory without pointers: not cleared
+        final LLVMValueRef atomic = LLVMAddFunction(mod, new BytePointer(gc.allocateAtomicSymbol()), allocType);
+        LLVMSetLinkage(atomic, LLVMExternalLinkage);
+        globalValueMap.put(InstructionEmitter.GC_ALLOC_ATOMIC, atomic);
+        // void nabu_gc_init(): starts the collector (idempotent; the collector's own constructor calls it too)
+        final LLVMValueRef init = LLVMAddFunction(mod, new BytePointer("nabu_gc_init"),
+                LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0));
+        LLVMSetLinkage(init, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_gc_init", init);
     }
 
     /**
-     * Boehm GC helpers: GC_init() en GC_malloc(size_t) -> i8*.
+     * Starts the collector before anything else of the program: the first of the constructors (the driver
+     * nabu_run_constructors calls them in order; a linker does not always keep to the priorities). It is the same call
+     * for every collector.
      */
-    private void declareBoehmHelpers(LLVMTypeRef i8ptr, LLVMTypeRef i64) {
-        // void GC_init()
-        LLVMTypeRef gcInitType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
-                new PointerPointer<>(0), 0, 0);
-        LLVMValueRef gcInit = LLVMAddFunction(mod,
-                new BytePointer("GC_init"), gcInitType);
-        LLVMSetLinkage(gcInit, LLVMExternalLinkage);
-        globalValueMap.put("@GC_init", gcInit);
-
-        // i8* GC_malloc(size_t)
-        PointerPointer<Pointer> gcMallocParams = new PointerPointer<>(1);
-        gcMallocParams.put(0, i64);
-        LLVMTypeRef gcMallocType = LLVMFunctionType(i8ptr, gcMallocParams, 1, 0);
-        LLVMValueRef gcMalloc = LLVMAddFunction(mod,
-                new BytePointer("GC_malloc"), gcMallocType);
-        LLVMSetLinkage(gcMalloc, LLVMExternalLinkage);
-        globalValueMap.put("@GC_malloc", gcMalloc);
-    }
-
-    /**
-     * BOEHM: zet de collector op vóórdat er ook maar één {@code GC_malloc}
-     * gebeurt. Via {@code @llvm.global_ctors} — niet als eerste instructie van
-     * {@code main} — zodat de init ook draait wanneer de module in een ander
-     * programma gelinkt wordt. De thunk is nodig om de {@code void(void)}-vorm
-     * van een constructor-entry expliciet te maken.
-     */
-    private void registerBoehmGcInit(final ModuleCtors ctors) {
-        if (opts.gcStrategy() != CompileOptions.GcStrategy.BOEHM) {
-            return;
-        }
-        final LLVMValueRef gcInit = globalValueMap.get("@GC_init");
+    private void registerGcInit(final ModuleCtors ctors) {
+        final LLVMValueRef gcInit = globalValueMap.get("@nabu_gc_init");
         if (gcInit == null) {
-            throw new IllegalStateException("Runtime helper @GC_init not defined");
+            throw new IllegalStateException("Runtime helper @nabu_gc_init not defined");
         }
-
-        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx),
-                new PointerPointer<>(0), 0, 0);
-        final LLVMValueRef thunk = LLVMAddFunction(mod,
-                new BytePointer("nabu_gc_init_thunk"), fnType);
+        final LLVMTypeRef fnType = LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0);
+        final LLVMValueRef thunk = LLVMAddFunction(mod, new BytePointer("nabu_gc_init_thunk"), fnType);
         LLVMSetLinkage(thunk, LLVMExternalLinkage);
-
         final LLVMBasicBlockRef block = LLVMAppendBasicBlock(thunk, "entry");
         final LLVMBuilderRef builder = LLVMCreateBuilderInContext(ctx);
         LLVMPositionBuilderAtEnd(builder, block);
-        LLVMBuildCall2(builder, LLVMGlobalGetValueType(gcInit), gcInit,
-                new PointerPointer<>(0), 0, "");
+        LLVMBuildCall2(builder, LLVMGlobalGetValueType(gcInit), gcInit, new PointerPointer<>(0), 0, "");
         LLVMBuildRetVoid(builder);
         LLVMDisposeBuilder(builder);
-
         ctors.add(thunk);
     }
 

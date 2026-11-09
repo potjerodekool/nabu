@@ -21,11 +21,20 @@
 #include "nabu_gc.h"
 
 /* The collector starts before the constructors of the compiled program (default priority) and before main. */
+extern int GC_expand_hp(size_t bytes);
+
 void nabu_gc_init(void) {
     static volatile int started = 0;
     if (!started) {
         started = 1;
         GC_init();
+        /* A program like this starts by building a large object graph. With the small heap the collector begins with it
+         * collects over and over while all of it is still alive (the petstore: 2.7 -> 2.1 s to start, +20 MB resident,
+         * and fewer collections afterwards). GC_INITIAL_HEAP_SIZE in the environment, which the collector reads
+         * itself, takes precedence. */
+        if (getenv("GC_INITIAL_HEAP_SIZE") == NULL) {
+            GC_expand_hp((size_t) 128 << 20);
+        }
     }
 }
 

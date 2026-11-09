@@ -1980,8 +1980,11 @@ int nabu_instanceof_array(void *obj, const char *wanted) {
 #ifdef NABU_GC_BOEHM
 #include <gc.h>
 #define NABU_STR_MEM(n) GC_malloc(n)
+/* Text and bytes hold no pointers: the collector does not scan them. The memory is not cleared. */
+#define NABU_STR_DATA(n) GC_malloc_atomic(n)
 #else
 #define NABU_STR_MEM(n) calloc(1, (n))
+#define NABU_STR_DATA(n) calloc(1, (n))
 #endif
 
 /* Spiegel van de layout die de backend voor java.lang.String emitteert:
@@ -2061,6 +2064,16 @@ void nabu_array_tag(void *arr, const char *name) {
 
 static void *nabu_str_mem(size_t n) {
     void *p = NABU_STR_MEM(n);
+    if (p == NULL) {
+        fprintf(stderr, "nabu: cannot allocate memory for a string\n");
+        abort();
+    }
+    return p;
+}
+
+/* As nabu_str_mem for data without pointers (not cleared, not scanned). */
+static void *nabu_str_data(size_t n) {
+    void *p = NABU_STR_DATA(n);
     if (p == NULL) {
         fprintf(stderr, "nabu: cannot allocate memory for a string\n");
         abort();
@@ -2173,7 +2186,20 @@ const char *nabu_cstr(const void *p) {
     if (byte_len < 0) byte_len = 0;
 
     /* Ruimste geval: elk LATIN1-byte wordt 2 bytes, elke UTF16-unit 3. */
-    char *out = (char *) nabu_str_mem((size_t) byte_len * 2 + 1);
+    if (js->coder == 0) {
+        /* all ASCII (the usual case): the bytes are the C string */
+        int ascii = 1;
+        for (int32_t i = 0; i < byte_len; i++) {
+            if (data[i] == 0 || data[i] >= 0x80) { ascii = 0; break; }
+        }
+        if (ascii) {
+            char *plain = (char *) nabu_str_data((size_t) byte_len + 1);
+            memcpy(plain, data, (size_t) byte_len);
+            plain[byte_len] = 0;
+            return plain;
+        }
+    }
+    char *out = (char *) nabu_str_data((size_t) byte_len * 2 + 1);
     size_t n = 0;
     if (js->coder == 0) {
         for (int32_t i = 0; i < byte_len; i++) n += nabu_utf8_put(out + n, data[i]);
@@ -2195,60 +2221,21 @@ const char *nabu_cstr(const void *p) {
     return out;
 }
 
-void *nabu_jstring_new(const char *utf8) {
-    if (utf8 == NULL) utf8 = "";
-    size_t in_len = strlen(utf8);
-    if (nabu_string_meta.type == NULL) {
-        char *copy = (char *) nabu_str_mem(in_len + 1);
-        memcpy(copy, utf8, in_len + 1);
-        return copy;
+/* The next code point of modified UTF-8 at in[*i]; advances *i. */
+static uint32_t nabu_utf8_next(const unsigned char *in, size_t in_len, size_t *i) {
+    uint32_t cp = in[*i];
+    size_t extra = 0;
+    if (cp >= 0xF0 && cp < 0xF8) { cp &= 0x07; extra = 3; }
+    else if (cp >= 0xE0) { cp &= 0x0F; extra = 2; }
+    else if (cp >= 0xC0) { cp &= 0x1F; extra = 1; }
+    (*i)++;
+    for (; extra > 0 && *i < in_len && (in[*i] & 0xC0) == 0x80; extra--, (*i)++) {
+        cp = (cp << 6) | (in[*i] & 0x3F);
     }
+    return cp;
+}
 
-    /* UTF-8 decoderen naar code points; LATIN1 als alles < 256 is. */
-    uint32_t *cps = (uint32_t *) nabu_str_mem((in_len + 1) * sizeof(uint32_t));
-    size_t count = 0;
-    int latin1 = 1;
-    size_t utf16_units = 0;
-    const unsigned char *in = (const unsigned char *) utf8;
-    for (size_t i = 0; i < in_len;) {
-        uint32_t cp = in[i];
-        size_t extra = 0;
-        if (cp >= 0xF0 && cp < 0xF8) { cp &= 0x07; extra = 3; }
-        else if (cp >= 0xE0) { cp &= 0x0F; extra = 2; }
-        else if (cp >= 0xC0) { cp &= 0x1F; extra = 1; }
-        i++;
-        for (; extra > 0 && i < in_len && (in[i] & 0xC0) == 0x80; extra--, i++) {
-            cp = (cp << 6) | (in[i] & 0x3F);
-        }
-        if (cp > 0xFF) latin1 = 0;
-        utf16_units += cp >= 0x10000 ? 2 : 1;
-        cps[count++] = cp;
-    }
-
-    size_t byte_len = latin1 ? count : utf16_units * 2;
-    unsigned char *arr = (unsigned char *) nabu_str_mem(8 + byte_len);
-    ((int32_t *) arr)[0] = (int32_t) byte_len;
-    if (nabu_byte_array_id < 0) nabu_byte_array_id = nabu_array_type_id("[B");
-    ((int32_t *) arr)[1] = 1 | (nabu_byte_array_id << 8); /* byte[] */
-    unsigned char *data = arr + 8;
-    if (latin1) {
-        for (size_t i = 0; i < count; i++) data[i] = (unsigned char) cps[i];
-    } else {
-        size_t o = 0;
-        for (size_t i = 0; i < count; i++) {
-            uint32_t cp = cps[i];
-            if (cp >= 0x10000) {
-                cp -= 0x10000;
-                uint32_t hi = 0xD800 + (cp >> 10);
-                uint32_t lo = 0xDC00 + (cp & 0x3FF);
-                data[o++] = (unsigned char) (hi & 0xFF); data[o++] = (unsigned char) (hi >> 8);
-                data[o++] = (unsigned char) (lo & 0xFF); data[o++] = (unsigned char) (lo >> 8);
-            } else {
-                data[o++] = (unsigned char) (cp & 0xFF); data[o++] = (unsigned char) (cp >> 8);
-            }
-        }
-    }
-
+static void *nabu_jstring_from_array(unsigned char *arr, int latin1) {
     nabu_jstring *js = (nabu_jstring *) nabu_str_mem(sizeof(nabu_jstring));
     js->header.type = nabu_string_meta.type;
     js->header.vtable = nabu_string_meta.vtable;
@@ -2258,7 +2245,98 @@ void *nabu_jstring_new(const char *utf8) {
     return js;
 }
 
+static unsigned char *nabu_new_byte_array(size_t byte_len) {
+    unsigned char *arr = (unsigned char *) nabu_str_data(8 + byte_len);
+    ((int32_t *) arr)[0] = (int32_t) byte_len;
+    if (nabu_byte_array_id < 0) nabu_byte_array_id = nabu_array_type_id("[B");
+    ((int32_t *) arr)[1] = 1 | (nabu_byte_array_id << 8); /* byte[] */
+    return arr;
+}
+
+void *nabu_jstring_new(const char *utf8) {
+    if (utf8 == NULL) utf8 = "";
+    size_t in_len = strlen(utf8);
+    if (nabu_string_meta.type == NULL) {
+        char *copy = (char *) nabu_str_mem(in_len + 1);
+        memcpy(copy, utf8, in_len + 1);
+        return copy;
+    }
+    const unsigned char *in = (const unsigned char *) utf8;
+
+    /* all ASCII (and no NUL): the bytes are the LATIN1 value */
+    size_t k = 0;
+    while (k < in_len && in[k] < 0x80) k++;
+    if (k == in_len) {
+        unsigned char *arr = nabu_new_byte_array(in_len);
+        memcpy(arr + 8, in, in_len);
+        return nabu_jstring_from_array(arr, 1);
+    }
+
+    /* pass 1: the number of code points and UTF-16 units, and whether everything fits LATIN1 */
+    size_t count = 0;
+    int latin1 = 1;
+    size_t utf16_units = 0;
+    for (size_t i = 0; i < in_len;) {
+        uint32_t cp = nabu_utf8_next(in, in_len, &i);
+        if (cp > 0xFF) latin1 = 0;
+        utf16_units += cp >= 0x10000 ? 2 : 1;
+        count++;
+    }
+    size_t byte_len = latin1 ? count : utf16_units * 2;
+    unsigned char *arr = nabu_new_byte_array(byte_len);
+    unsigned char *data = arr + 8;
+    /* pass 2 */
+    size_t o = 0;
+    for (size_t i = 0; i < in_len;) {
+        uint32_t cp = nabu_utf8_next(in, in_len, &i);
+        if (latin1) {
+            data[o++] = (unsigned char) cp;
+        } else if (cp >= 0x10000) {
+            cp -= 0x10000;
+            uint32_t hi = 0xD800 + (cp >> 10);
+            uint32_t lo = 0xDC00 + (cp & 0x3FF);
+            data[o++] = (unsigned char) (hi & 0xFF); data[o++] = (unsigned char) (hi >> 8);
+            data[o++] = (unsigned char) (lo & 0xFF); data[o++] = (unsigned char) (lo >> 8);
+        } else {
+            data[o++] = (unsigned char) (cp & 0xFF); data[o++] = (unsigned char) (cp >> 8);
+        }
+    }
+    return nabu_jstring_from_array(arr, latin1);
+}
+
 char *nabu_concat(const char *a, const char *b) {
+    /* Two String objects with LATIN1 or UTF16 contents (or null): join the arrays, no conversion in between. */
+    if (nabu_string_meta.type != NULL && (a == NULL || nabu_is_jstring(a)) && (b == NULL || nabu_is_jstring(b))) {
+        static const unsigned char null_bytes[4] = {'n', 'u', 'l', 'l'};
+        const nabu_jstring *ja = (const nabu_jstring *) a;
+        const nabu_jstring *jb = (const nabu_jstring *) b;
+        const unsigned char *da = null_bytes, *db = null_bytes;
+        size_t la = 4, lb = 4;
+        int ca = 0, cb = 0;
+        if (ja != NULL && ja->value != NULL) {
+            la = (size_t) *(const int32_t *) ja->value; da = (const unsigned char *) ja->value + 8; ca = ja->coder;
+        } else if (ja != NULL) { la = 0; }
+        if (jb != NULL && jb->value != NULL) {
+            lb = (size_t) *(const int32_t *) jb->value; db = (const unsigned char *) jb->value + 8; cb = jb->coder;
+        } else if (jb != NULL) { lb = 0; }
+        const int latin1 = ca == 0 && cb == 0;
+        unsigned char *arr;
+        if (latin1) {
+            arr = nabu_new_byte_array(la + lb);
+            memcpy(arr + 8, da, la);
+            memcpy(arr + 8 + la, db, lb);
+        } else {
+            const size_t ua = ca == 0 ? la : la / 2, ub = cb == 0 ? lb : lb / 2;
+            arr = nabu_new_byte_array((ua + ub) * 2);
+            unsigned char *out = arr + 8;
+            if (ca == 0) { for (size_t i = 0; i < ua; i++) { out[2 * i] = da[i]; out[2 * i + 1] = 0; } }
+            else memcpy(out, da, ua * 2);
+            out += ua * 2;
+            if (cb == 0) { for (size_t i = 0; i < ub; i++) { out[2 * i] = db[i]; out[2 * i + 1] = 0; } }
+            else memcpy(out, db, ub * 2);
+        }
+        return (char *) nabu_jstring_from_array(arr, latin1);
+    }
     /* Java: een null-operand in een string-concat wordt "null". */
     a = a == NULL ? "null" : nabu_cstr(a);
     b = b == NULL ? "null" : nabu_cstr(b);

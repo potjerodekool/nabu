@@ -2979,9 +2979,36 @@ static char *jcl_source_name(const char *n, int nested_dots) {
     return base;
 }
 static void * jcl_java_lang_Class_getName (void *self) { return (void *)jcl_binary_name(jcl_str(self)); }
-BIND(void *, jcl_java_lang_Class_getName_jstr, "java.lang.Class_getName", (void *self)) {
+/* Class.getName makes the same String again and again (Spring asks for it at every request): one per name. */
+typedef struct jcl_name_entry { struct jcl_name_entry *next; char *key; void *value; } jcl_name_entry;
+static jcl_name_entry *volatile jcl_name_cache[2048];
+
+static void *jcl_cached_name(const char *key, void *(*make)(void *), void *arg) {
+    uint32_t h = 2166136261u;
+    for (const char *p = key; *p; p++) h = (h ^ (unsigned char) *p) * 16777619u;
+    jcl_name_entry *volatile *bucket = &jcl_name_cache[h & 2047];
+    for (jcl_name_entry *e = *bucket; e != NULL; e = e->next) {
+        if (strcmp(e->key, key) == 0) return e->value;
+    }
+    void *value = make(arg);
+    jcl_name_entry *entry = (jcl_name_entry *) JCL_MEM(sizeof *entry);
+    entry->key = jcl_dup(key);
+    entry->value = value;
+    for (;;) {
+        jcl_name_entry *head = *bucket;
+        entry->next = head;
+        if (__sync_bool_compare_and_swap(bucket, head, entry)) break;
+    }
+    return value;
+}
+
+static void *jcl_class_name_object(void *self) {
     void *r = (void *)jcl_java_lang_Class_getName(self);
     return r == NULL ? NULL : nabu_jstring_new(nabu_cstr(r));
+}
+
+BIND(void *, jcl_java_lang_Class_getName_jstr, "java.lang.Class_getName", (void *self)) {
+    return jcl_cached_name(jcl_str(self), jcl_class_name_object, self);
 }
 static void * jcl_java_lang_Class_getCanonicalName (void *self) { return (void *)jcl_source_name(jcl_str(self), 1); }
 BIND(void *, jcl_java_lang_Class_getCanonicalName_jstr, "java.lang.Class_getCanonicalName", (void *self)) {

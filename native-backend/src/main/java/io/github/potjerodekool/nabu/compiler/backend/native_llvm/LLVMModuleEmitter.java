@@ -1269,6 +1269,14 @@ public void setReflectionRegistry(
         final LLVMValueRef atomic = LLVMAddFunction(mod, new BytePointer(gc.allocateAtomicSymbol()), allocType);
         LLVMSetLinkage(atomic, LLVMExternalLinkage);
         globalValueMap.put(InstructionEmitter.GC_ALLOC_ATOMIC, atomic);
+        // The memory an allocation returns is not reachable by any other pointer yet (noalias), and the function does not
+        // unwind: the optimizer can then tell the new object from everything else.
+        for (final LLVMValueRef allocation : new LLVMValueRef[] {alloc, atomic}) {
+            LLVMAddAttributeAtIndex(allocation, 0,
+                    LLVMCreateEnumAttribute(ctx, LLVMGetEnumAttributeKindForName("noalias", 7), 0));
+            LLVMAddAttributeAtIndex(allocation, -1,
+                    LLVMCreateEnumAttribute(ctx, LLVMGetEnumAttributeKindForName("nounwind", 8), 0));
+        }
         // void nabu_gc_init(): starts the collector (idempotent; the collector's own constructor calls it too)
         final LLVMValueRef init = LLVMAddFunction(mod, new BytePointer("nabu_gc_init"),
                 LLVMFunctionType(LLVMVoidTypeInContext(ctx), new PointerPointer<>(0), 0, 0));

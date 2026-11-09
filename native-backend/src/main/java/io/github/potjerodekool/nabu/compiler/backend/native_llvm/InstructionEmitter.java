@@ -121,6 +121,7 @@ public class InstructionEmitter {
         this.blockMap       = blockMap;
         this.opts           = opts;
         this.classLayouts   = classLayouts;
+        this.tbaa           = new Tbaa(ctx);
     }
 
     public void setLocalValueMap(Map<String, LLVMValueRef> localValueMap) {
@@ -692,6 +693,25 @@ public class InstructionEmitter {
         return memory;
     }
 
+    private final Tbaa tbaa;
+
+    /**
+     * The access tag of a field: its place in the struct and its type. A field a subclass inherits has the index it has
+     * in the superclass, so every route to one field gives one tag; unrelated classes that share an index and a type
+     * share a tag too (they may alias, which is safe).
+     */
+    private String fieldTag(final LLVMValueRef fieldPointer, final LLVMTypeRef type) {
+        final LLVMValueRef gep = LLVMIsAGetElementPtrInst(fieldPointer);
+        if (gep == null || gep.isNull() || LLVMGetNumOperands(gep) != 3) {
+            return null;   // unknown place: no tag (an access without one may alias everything)
+        }
+        final LLVMValueRef index = LLVMGetOperand(gep, 2);
+        if (LLVMIsAConstantInt(index) == null || LLVMIsAConstantInt(index).isNull()) {
+            return null;
+        }
+        return "f" + LLVMConstIntGetZExtValue(index) + "." + Tbaa.typeKey(type);
+    }
+
     private void initObjectHeader(LLVMValueRef obj, ClassLayouts.ClassLayout layout) {
         // obj[0] = header-struct H; daarna H[0]=type-info, H[1]=vtable
         LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
@@ -727,7 +747,7 @@ public class InstructionEmitter {
                 array, idx, 1, ".len.ptr");
         LLVMValueRef countI32 = LLVMBuildIntCast2(builder, count, LLVMInt32TypeInContext(ctx),
                 0, new BytePointer(".len"));
-        LLVMBuildStore(builder, countI32, lenSlot);
+        tbaa.mark(LLVMBuildStore(builder, countI32, lenSlot), "arr.len");
         Reference.reachabilityFence(idx);
     }
 
@@ -744,7 +764,7 @@ public class InstructionEmitter {
         idx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), 1, 0));
         LLVMValueRef slot = LLVMBuildGEP2(builder, LLVMInt32TypeInContext(ctx),
                 array, idx, 1, ".esize.ptr");
-        LLVMBuildStore(builder, LLVMConstInt(LLVMInt32TypeInContext(ctx), elemSize, 0), slot);
+        tbaa.mark(LLVMBuildStore(builder, LLVMConstInt(LLVMInt32TypeInContext(ctx), elemSize, 0), slot), "arr.esize");
         Reference.reachabilityFence(idx);
     }
 
@@ -765,6 +785,7 @@ public class InstructionEmitter {
         LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
         LLVMValueRef val = LLVMBuildLoad2(builder, elemType, elemPtr,
                 new BytePointer(nameOf(al.result())));
+        tbaa.mark(val, "arr." + Tbaa.typeKey(elemType));
         storeLocal(al.result(), val);
     }
 
@@ -774,7 +795,8 @@ public class InstructionEmitter {
         final LLVMValueRef index = resolveValue(as.index());
         emitBoundsCheck(array, index);
         LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
-        LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
+        final LLVMValueRef elementStore = LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
+        tbaa.mark(elementStore, "arr." + Tbaa.typeKey(elemType));
     }
 
     /**
@@ -810,6 +832,7 @@ public class InstructionEmitter {
         zeroIdx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), 0, 0));
         final LLVMValueRef lenPtr = LLVMBuildGEP2(builder, i32, array, zeroIdx, 1, ".arr.len.ptr");
         final LLVMValueRef length = LLVMBuildLoad2(builder, i32, lenPtr, ".arr.len");
+        tbaa.mark(length, "arr.len");
         Reference.reachabilityFence(zeroIdx);
         final LLVMValueRef index32 = coerceInt(index, i32, false);
         // Unsigned: a negative index is a huge one.
@@ -969,6 +992,7 @@ public class InstructionEmitter {
             LLVMTypeRef pointee = types.map(objectFieldPointeeType(target));
             LLVMValueRef val = LLVMBuildLoad2(builder, pointee, llvmPtr,
                     new BytePointer(nameOf(load.result())));
+            tbaa.mark(val, fieldTag(llvmPtr, pointee));
             val = markVolatileLoad(val, (IRValue.Named) ((IRValue.Values) target).values().getLast(), llvmPtr);
             storeLocal(load.result(), val);
             return;
@@ -1196,6 +1220,9 @@ public class InstructionEmitter {
             value = LLVMBuildZExt(builder, value, LLVMInt8TypeInContext(ctx), "volatile.byte");
         }
         final LLVMValueRef storeInstruction = LLVMBuildStore(builder, value, ptr);
+        if (isObjectFieldAccess(target)) {
+            tbaa.mark(storeInstruction, fieldTag(ptr, valueType));
+        }
         if (isVolatileStore) {
             LLVMSetVolatile(storeInstruction, 1);
             makeAtomic(storeInstruction, LLVMTypeOf(value));

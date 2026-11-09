@@ -123,6 +123,20 @@ class BoehmBackendTest {
         assertFalse(ll.contains("call ptr @GC_malloc_atomic("), ll);
     }
 
+    @Test
+    void theHeaderOfAnArrayCarriesTypeBasedAliasInformation() throws Exception {
+        final var b = new IRBuilder("test/Box");
+        b.beginFunction("main", IRType.I32, List.of(), false);
+        b.emitReturn(b.emitArrayLength(b.emitAllocaArray(4, BOX)));
+        b.endFunction();
+
+        final var ll = emit(b.build(), "boehm_tbaa", boehm());
+
+        // the length of an array is memory of its own for the optimizer: no store to a field changes it
+        assertTrue(ll.contains("!tbaa"), "stores of the array header need an access tag:\n" + ll);
+        assertTrue(ll.contains("noalias ptr @GC_malloc("), "an allocation returns memory no other pointer reaches:\n" + ll);
+    }
+
     // -------------------------------------------------------
     // GC_init bij start
     // -------------------------------------------------------

@@ -3003,6 +3003,28 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         if (fn == null || constants.isRawStrings()) {
             return name;
         }
+        // The runtime looks the name up (a hash of the whole name and a comparison) at every call; the Class object
+        // of a name never changes, so the code keeps it in a global of its own per name.
+        final LLVMValueRef cached = globalValueMap.get("@nabu_class_literal_cached");
+        if (cached != null && !cached.isNull()) {
+            final LLVMModuleRef module = LLVMGetGlobalParent(LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder)));
+            final String className = ConstantResolver.classNameFromDescriptor(c.type());
+            LLVMValueRef slot = classLiteralSlots.get(className);
+            if (slot == null) {
+                final LLVMTypeRef ptr = LLVMPointerTypeInContext(ctx, 0);
+                slot = LLVMAddGlobal(module, ptr, new BytePointer(".class.slot." + classLiteralSlots.size()));
+                LLVMSetLinkage(slot, LLVMInternalLinkage);
+                LLVMSetInitializer(slot, LLVMConstNull(ptr));
+                classLiteralSlots.put(className, slot);
+            }
+            final PointerPointer<Pointer> cachedArgs = new PointerPointer<>(2);
+            cachedArgs.put(0, slot);
+            cachedArgs.put(1, name);
+            final LLVMValueRef cachedClass = LLVMBuildCall2(builder, LLVMGlobalGetValueType(cached), cached,
+                    cachedArgs, 2, ".class");
+            Reference.reachabilityFence(cachedArgs);
+            return cachedClass;
+        }
         final PointerPointer<Pointer> args = new PointerPointer<>(1);
         args.put(0, name);
         final LLVMValueRef cls = LLVMBuildCall2(builder, LLVMGlobalGetValueType(fn), fn,
@@ -3010,6 +3032,9 @@ private void emitThrow(IRInstruction.Throw throwInst) {
         Reference.reachabilityFence(args);
         return cls;
     }
+
+    /** The global that keeps the Class object of a class literal, by class name (see emitClassLiteral). */
+    private final Map<String, LLVMValueRef> classLiteralSlots = new java.util.HashMap<>();
 
     /**
      * Een statisch veld en een methode van dezelfde klasse kunnen dezelfde

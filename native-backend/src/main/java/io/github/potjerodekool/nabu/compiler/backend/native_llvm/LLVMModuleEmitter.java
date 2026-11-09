@@ -1147,6 +1147,14 @@ public void setReflectionRegistry(
                 LLVMFunctionType(i8ptr, classLitParams, 1, 0));
         LLVMSetLinkage(classLitFn, LLVMExternalLinkage);
         globalValueMap.put("@nabu_class_literal", classLitFn);
+        // void *nabu_class_literal_cached(void **slot, const char *name): the slot keeps the answer
+        final PointerPointer<Pointer> classLitCachedParams = new PointerPointer<>(2);
+        classLitCachedParams.put(0, i8ptr);
+        classLitCachedParams.put(1, i8ptr);
+        final LLVMValueRef classLitCachedFn = LLVMAddFunction(mod, new BytePointer("nabu_class_literal_cached"),
+                LLVMFunctionType(i8ptr, classLitCachedParams, 2, 0));
+        LLVMSetLinkage(classLitCachedFn, LLVMExternalLinkage);
+        globalValueMap.put("@nabu_class_literal_cached", classLitCachedFn);
 
         // --- void nabu_set_object_vtable(i8* vtable) ---
         PointerPointer<Pointer> setVtableParams = new PointerPointer<>(1);

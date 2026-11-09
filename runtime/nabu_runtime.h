@@ -269,6 +269,9 @@ const nabu_type_info *nabu_compiled_type_for(const char *internal_name);
  */
 void *nabu_class_literal(const char *iname);
 
+/* As nabu_class_literal; *slot keeps the Class object of the name, so a call site looks the name up once. */
+void *nabu_class_literal_cached(void **slot, const char *iname);
+
 /**
  * Of `p` een library-object is waarvan de type-pointer ín de runtime-type-cache
  * staat, en dus géén raw char*-literal. Zie implementatie voor de heuristiek.

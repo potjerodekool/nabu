@@ -408,6 +408,15 @@ static void *jcl_class_unlocked(const char *iname) {
  * backend geeft de interne naam ("pkg/Cls", "[pkg/Cls") of, voor een
  * primitief, de JVM-descriptor ("I"); die laatste wordt de naam die
  * Class.getPrimitiveClass ("int") ook gebruikt, zodat int.class == Integer.TYPE. */
+void *nabu_class_literal_cached(void **slot, const char *iname) {
+    void *cls = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+    if (cls == NULL) {
+        cls = nabu_class_literal(iname);
+        __atomic_store_n(slot, cls, __ATOMIC_RELEASE);
+    }
+    return cls;
+}
+
 void *nabu_class_literal(const char *iname) {
     if (iname != NULL && iname[0] != '\0' && iname[1] == '\0') {
         switch (iname[0]) {

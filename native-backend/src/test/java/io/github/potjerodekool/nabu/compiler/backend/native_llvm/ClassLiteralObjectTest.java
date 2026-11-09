@@ -69,7 +69,8 @@ class ClassLiteralObjectTest {
     void classLiteralIsRuntimeClassObjectNotRawName() throws Exception {
         final String ll = compileAndReadLl(modules());
 
-        assertTrue(Pattern.compile("call ptr @nabu_class_literal\\(ptr @[^)]+\\)").matcher(ll).find(),
+        // the runtime interns the Class object per name; the code keeps the answer in a global per name
+        assertTrue(Pattern.compile("call ptr @nabu_class_literal_cached\\(ptr @[^,]+, ptr @[^)]+\\)").matcher(ll).find(),
                 "Een class-literal moet via nabu_class_literal een Class-object worden:\n" + ll);
         assertTrue(ll.contains("c\"pkg/Outer$Nested\\00\""),
                 "nabu_class_literal krijgt de interne naam:\n" + ll);

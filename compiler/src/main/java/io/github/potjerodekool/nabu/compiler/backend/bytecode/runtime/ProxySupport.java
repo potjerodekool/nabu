@@ -31,7 +31,10 @@ public final class ProxySupport {
      * signature (or null).
      */
     private static native Object method0(Class<?> declaring, String name, String descriptor, int modifiers,
-                                         String exceptions, String signature);
+                                         String exceptions, String signature, String parameters);
+
+    /** The name of parameter {@code index} of a Method or Constructor made by {@link #method0}, or null if unknown. */
+    public static native String parameterName(Object executable, int index);
 
     /** "owner#name#descriptor" of a Method or Constructor made by {@link #method0}, else null. */
     private static native String methodKey(Object executable);
@@ -48,12 +51,13 @@ public final class ProxySupport {
      * declared in an interface).
      */
     public static Object method(final Class<?> declaring, final String name, final String descriptor,
-                                final int modifiers, final String exceptions, final String signature) {
+                                final int modifiers, final String exceptions, final String signature,
+                                final String parameters) {
         final String key = declaring.getName().concat("#").concat(name).concat("#").concat(descriptor);
         synchronized (METHODS) {
             Object method = METHODS.get(key);
             if (method == null) {
-                method = method0(declaring, name, descriptor, modifiers, exceptions, signature);
+                method = method0(declaring, name, descriptor, modifiers, exceptions, signature, parameters);
                 METHODS.put(key, method);
             }
             return method;

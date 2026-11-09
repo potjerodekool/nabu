@@ -316,7 +316,29 @@ public final class ReflectionMethods {
         return new ReflectedMethod(ElementSignatures.internalName(owner), ElementSignatures.isInterface(owner),
                 method.getSimpleName(), ElementSignatures.descriptor(method),
                 ElementSignatures.modifiers(method, owner), ElementSignatures.exceptions(method),
-                genericSignatureOrNull(method));
+                genericSignatureOrNull(method), parameterNames(method, 0));
+    }
+
+    /**
+     * The names of the parameters as the class file gave them, or null: a name that is no name ("arg0", the placeholder
+     * of a class file without them) means the file has none, and Parameter.isNamePresent says so.
+     * {@code leading} parameters are in the descriptor but not in the element (the enclosing instance of an inner class).
+     */
+    private static List<String> parameterNames(final ExecutableElement executable, final int leading) {
+        final List<String> names = new ArrayList<>();
+        for (int i = 0; i < leading; i++) {
+            names.add("this$0");
+        }
+        int index = 0;
+        for (final var parameter : executable.getParameters()) {
+            final String name = parameter.getSimpleName();
+            if (name == null || name.isEmpty() || name.equals("arg" + index) || name.contains(",")) {
+                return null;
+            }
+            names.add(name);
+            index++;
+        }
+        return names.isEmpty() ? null : names;
     }
 
     /** The generic signature, or null when it cannot be worked out (a type of a class that is not there). */
@@ -349,6 +371,7 @@ public final class ReflectionMethods {
      */
     private static ReflectedMethod reflectedConstructor(final ExecutableElement constructor, final TypeElement owner) {
         final var descriptor = new StringBuilder("(");
+        int leading = 0;
         if (owner.getNestingKind() == io.github.potjerodekool.nabu.lang.model.element.NestingKind.MEMBER
                 && !owner.isStatic() && !ElementSignatures.isInterface(owner)
                 && owner.getEnclosingElement() instanceof TypeElement outer
@@ -356,6 +379,7 @@ public final class ReflectionMethods {
                 && isRealClass(outer)
                 && !declaresEnclosingInstance(constructor, owner, outer)) {
             descriptor.append('L').append(ElementSignatures.internalName(outer)).append(';');
+            leading = 1;
         }
         for (final var parameter : constructor.getParameters()) {
             descriptor.append(ElementSignatures.descriptor(parameter.asType()));
@@ -366,7 +390,8 @@ public final class ReflectionMethods {
             modifiers |= ReflectionDataGenerator.ABSTRACT_OWNER;
         }
         return new ReflectedMethod(ElementSignatures.internalName(owner), false, "<init>", descriptor.toString(),
-                modifiers, ElementSignatures.exceptions(constructor), genericSignatureOrNull(constructor));
+                modifiers, ElementSignatures.exceptions(constructor), genericSignatureOrNull(constructor),
+                parameterNames(constructor, leading));
     }
 
     /**

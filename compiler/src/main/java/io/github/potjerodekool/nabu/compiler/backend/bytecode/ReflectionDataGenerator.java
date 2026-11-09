@@ -67,11 +67,17 @@ public final class ReflectionDataGenerator {
      * declared exceptions (internal names) and generic signature (or null).
      */
     public record ReflectedMethod(String owner, boolean ownerIsInterface, String name, String desc, int modifiers,
-                                  List<String> exceptions, String signature) {
+                                  List<String> exceptions, String signature, List<String> parameterNames) {
 
         public ReflectedMethod(final String owner, final boolean ownerIsInterface, final String name,
                                final String desc, final int modifiers) {
-            this(owner, ownerIsInterface, name, desc, modifiers, List.of(), null);
+            this(owner, ownerIsInterface, name, desc, modifiers, List.of(), null, null);
+        }
+
+        public ReflectedMethod(final String owner, final boolean ownerIsInterface, final String name,
+                               final String desc, final int modifiers, final List<String> exceptions,
+                               final String signature) {
+            this(owner, ownerIsInterface, name, desc, modifiers, exceptions, signature, null);
         }
 
         boolean isConstructor() {
@@ -525,9 +531,15 @@ public final class ReflectionDataGenerator {
         } else {
             code.add(new LdcInsnNode(method.signature()));
         }
+        // the names of the parameters, comma-separated (Parameter.getName), or null when the class file has none
+        if (method.parameterNames() == null || method.parameterNames().isEmpty()) {
+            code.add(new InsnNode(Opcodes.ACONST_NULL));
+        } else {
+            code.add(new LdcInsnNode(String.join(",", method.parameterNames())));
+        }
         code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, RuntimeCalls.PROXY_SUPPORT, "method",
-                "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)"
-                        + "Ljava/lang/Object;", false));
+                "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;"
+                        + "Ljava/lang/String;)Ljava/lang/Object;", false));
     }
 
     /**

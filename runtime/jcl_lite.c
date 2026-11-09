@@ -3696,6 +3696,7 @@ BIND(void, jcl_java_lang_reflect_Field_set, "java.lang.reflect.Field_set", (void
  * parameter i "name(descriptor)#i". */
 typedef struct {
     int kind; char *cls; char *name; char *desc; int32_t modifiers; char *exceptions; char *signature;
+    char *params;   /* the names of the parameters, comma-separated, or NULL */
 } s_method;
 
 /* Set by the compiler next to the access flags: declared in an interface
@@ -3712,7 +3713,7 @@ static int jcl_is_constructor(const s_method *m) { return strcmp(m->name, "<init
 /* ProxySupport.method0(Class declaring, String name, String descriptor, int modifiers,
  *                      String exceptions, String signature): a Method, or a Constructor for <init>. */
 BIND(void *, jcl_proxy_method0, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ProxySupport_method0",
-     (void *cls, void *name, void *desc, int32_t modifiers, void *exceptions, void *signature)) {
+     (void *cls, void *name, void *desc, int32_t modifiers, void *exceptions, void *signature, void *params)) {
     s_method *st = (s_method *)jcl_alloc(sizeof(s_method));
     st->kind = K_METHOD;
     st->cls = jcl_dup(jcl_str(cls));
@@ -3721,7 +3722,27 @@ BIND(void *, jcl_proxy_method0, "io.github.potjerodekool.nabu.compiler.backend.b
     st->modifiers = modifiers;
     st->exceptions = exceptions != NULL ? jcl_dup(jcl_str(exceptions)) : NULL;
     st->signature = signature != NULL ? jcl_dup(jcl_str(signature)) : NULL;
+    st->params = params != NULL ? jcl_dup(jcl_str(params)) : NULL;
     return jcl_new_obj(jcl_is_constructor(st) ? "java/lang/reflect/Constructor" : "java/lang/reflect/Method", st);
+}
+
+/* ProxySupport.parameterName(Object method, int index): the name the class file gave the parameter, or null. */
+BIND(void *, jcl_proxy_parameterName, "io.github.potjerodekool.nabu.compiler.backend.bytecode.runtime.ProxySupport_parameterName",
+     (void *method, int32_t index)) {
+    s_method *m = jcl_method_of(method);
+    if (m == NULL || m->params == NULL || index < 0) return NULL;
+    const char *p = m->params;
+    for (int32_t i = 0; i < index; i++) {
+        p = strchr(p, ',');
+        if (p == NULL) return NULL;
+        p++;
+    }
+    const char *end = strchr(p, ',');
+    size_t n = end != NULL ? (size_t)(end - p) : strlen(p);
+    char *name = (char *)jcl_alloc(n + 1);
+    memcpy(name, p, n);
+    name[n] = 0;
+    return nabu_jstring_new(name);
 }
 
 /* ProxySupport.methodKey(Object): "owner#name#descriptor", or null for an

@@ -302,10 +302,19 @@ public final class BytecodeReachabilityCompiler {
         }
         if ("java/lang/reflect/Parameter".equals(classNode.name)) {
             // isNamePresent asks the Executable for its real parameter data, a package-private method that the
-            // Method and Constructor objects of the C runtime do not have: the names are never present.
+            // Method and Constructor objects of the C runtime do not have. The names are there when ParameterSupport
+            // gave the parameter one (from the MethodParameters of the class file): isNamePresent is name != null.
             for (final MethodNode m : classNode.methods) {
                 if ("isNamePresent".equals(m.name) && "()Z".equals(m.desc)) {
                     replaceBody(m, insns -> {
+                        final org.objectweb.asm.tree.LabelNode none = new org.objectweb.asm.tree.LabelNode();
+                        insns.add(new org.objectweb.asm.tree.VarInsnNode(Opcodes.ALOAD, 0));
+                        insns.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETFIELD,
+                                "java/lang/reflect/Parameter", "name", "Ljava/lang/String;"));
+                        insns.add(new org.objectweb.asm.tree.JumpInsnNode(Opcodes.IFNULL, none));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_1));
+                        insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
+                        insns.add(none);
                         insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_0));
                         insns.add(new org.objectweb.asm.tree.InsnNode(Opcodes.IRETURN));
                     });
@@ -1787,7 +1796,12 @@ public final class BytecodeReachabilityCompiler {
                 if (node.interfaces != null) pending.addAll(node.interfaces);
                 current = node.superName;
             }
-            while (!pending.isEmpty() && matches.isEmpty()) {
+            // Every super-interface that declares the method. JVMS 5.4.3.3: the method is the maximally specific one,
+            // and a default method wins from an abstract declaration (a sub-interface can implement what its
+            // super-interface leaves abstract, reached by another path of the hierarchy).
+            final Map<String, ClassNode> declaring = new java.util.LinkedHashMap<>();
+            final Map<String, List<MethodNode>> declared = new HashMap<>();
+            while (!pending.isEmpty()) {
                 final String itf = pending.poll();
                 if (!seen.add(itf)
                         || alreadyCompiledQualifiedNames.contains(itf.replace('/', '.'))) {
@@ -1795,18 +1809,48 @@ public final class BytecodeReachabilityCompiler {
                 }
                 final ClassNode node = loadClassNode(itf);
                 if (node == null) continue;
+                final List<MethodNode> found = new ArrayList<>();
                 for (final MethodNode m : node.methods) {
                     if (m.name.equals(ref.name())
                             && (ref.desc() == null || m.desc.equals(ref.desc()))) {
-                        matches.add(m);
+                        found.add(m);
                     }
                 }
-                if (!matches.isEmpty()) {
-                    declaringInternal = itf;
-                    declaringNode = node;
-                } else if (node.interfaces != null) {
+                if (!found.isEmpty()) {
+                    declaring.put(itf, node);
+                    declared.put(itf, found);
+                }
+                if (node.interfaces != null) {
                     pending.addAll(node.interfaces);
                 }
+            }
+            String chosen = null;
+            for (final String itf : declaring.keySet()) {
+                final boolean hasBody = declared.get(itf).stream().anyMatch(m -> (m.access & Opcodes.ACC_ABSTRACT) == 0);
+                if (!hasBody) {
+                    continue;
+                }
+                boolean overridden = false;
+                for (final String other : declaring.keySet()) {
+                    if (!other.equals(itf)
+                            && declared.get(other).stream().anyMatch(m -> (m.access & Opcodes.ACC_ABSTRACT) == 0)
+                            && interfaceExtends(other, itf)) {
+                        overridden = true;
+                        break;
+                    }
+                }
+                if (!overridden) {
+                    chosen = itf;
+                    break;
+                }
+            }
+            if (chosen == null && !declaring.isEmpty()) {
+                chosen = declaring.keySet().iterator().next();
+            }
+            if (chosen != null) {
+                matches.addAll(declared.get(chosen));
+                declaringInternal = chosen;
+                declaringNode = declaring.get(chosen);
             }
         }
 
@@ -1870,6 +1914,23 @@ public final class BytecodeReachabilityCompiler {
                 }
             }
         }
+    }
+
+    /** Whether interface {@code sub} is {@code sup} or extends it, through any path. */
+    private boolean interfaceExtends(final String sub, final String sup) {
+        if (sub.equals(sup)) {
+            return true;
+        }
+        final ClassNode node = loadClassNode(sub);
+        if (node == null || node.interfaces == null) {
+            return false;
+        }
+        for (final String parent : node.interfaces) {
+            if (interfaceExtends(parent, sup)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** key ("owner#name#desc") -> the body-less declaration lowered by {@link #lowerDeclaration}. */

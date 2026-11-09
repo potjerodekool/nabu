@@ -1563,6 +1563,9 @@ for (IRModule m : modules) {
         }
         final java.util.ArrayDeque<String> pending = new java.util.ArrayDeque<>(classes);
         final Set<String> seen = new HashSet<>(classes);
+        // Every super-interface that declares the member (JVMS 5.4.3.3): the maximally specific default method wins
+        // from an abstract declaration that another path of the hierarchy reaches first.
+        final List<String> declaringInterfaces = new ArrayList<>();
         while (!pending.isEmpty()) {
             final IRModule module = modulesByInternalName.get(pending.poll());
             if (module == null) continue;
@@ -1570,15 +1573,54 @@ for (IRModule m : modules) {
                 if (!(implemented instanceof IRType.Ptr p) || p.jvmDescriptor() == null) continue;
                 final String itf = normalizeInternalName(fromDescriptor(p.jvmDescriptor()));
                 if (!modulesByInternalName.containsKey(itf) || !seen.add(itf)) continue;
-                if (declaresMember(itf, member, profile)) return itf.replace('/', '.') + "_" + member;
+                if (declaresMember(itf, member, profile)) declaringInterfaces.add(itf);
                 pending.add(itf);
             }
+        }
+        if (!declaringInterfaces.isEmpty()) {
+            for (final String itf : declaringInterfaces) {
+                if (!hasBody(itf, member)) continue;
+                boolean overridden = false;
+                for (final String other : declaringInterfaces) {
+                    if (!other.equals(itf) && hasBody(other, member) && interfaceExtends(other, itf)) {
+                        overridden = true;
+                        break;
+                    }
+                }
+                if (!overridden) return itf.replace('/', '.') + "_" + member;
+            }
+            return declaringInterfaces.getFirst().replace('/', '.') + "_" + member;
         }
         // Een interface erft de publieke methoden van Object (JLS §9.2).
         if (declaresMember("java/lang/Object", member, profile)) {
             return "java.lang.Object_" + member;
         }
         return callTarget;
+    }
+
+    /** Whether the module has a function {@code member} with a body (a default method, not an abstract declaration). */
+    private boolean hasBody(final String internalName, final String member) {
+        final IRModule module = modulesByInternalName.get(internalName);
+        if (module == null) return false;
+        final String name = internalName.replace('/', '.') + "_" + member;
+        for (final IRFunction fn : module.functions()) {
+            if (name.equals(fn.name) && !fn.blocks().isEmpty()) return true;
+        }
+        return false;
+    }
+
+    /** Whether interface {@code sub} is {@code sup} or extends it, through any path. */
+    private boolean interfaceExtends(final String sub, final String sup) {
+        if (sub.equals(sup)) return true;
+        final IRModule module = modulesByInternalName.get(sub);
+        if (module == null) return false;
+        for (final IRType implemented : module.interfaces()) {
+            if (implemented instanceof IRType.Ptr p && p.jvmDescriptor() != null
+                    && interfaceExtends(normalizeInternalName(fromDescriptor(p.jvmDescriptor())), sup)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

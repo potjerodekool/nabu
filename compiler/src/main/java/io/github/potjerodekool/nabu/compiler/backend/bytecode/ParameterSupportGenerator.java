@@ -129,7 +129,11 @@ final class ParameterSupportGenerator {
         i.add(new VarInsnNode(Opcodes.ILOAD, 3));
         i.add(new TypeInsnNode(Opcodes.NEW, PARAMETER));
         i.add(new InsnNode(Opcodes.DUP));
-        i.add(new InsnNode(Opcodes.ACONST_NULL));
+        // the name the class file gave the parameter (MethodParameters), or null: then arg0, arg1, ...
+        i.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        i.add(new VarInsnNode(Opcodes.ILOAD, 3));
+        i.add(new MethodInsnNode(Opcodes.INVOKESTATIC, RuntimeCalls.PROXY_SUPPORT, "parameterName",
+                "(Ljava/lang/Object;I)Ljava/lang/String;", false));
         i.add(new InsnNode(Opcodes.ICONST_0));
         i.add(new VarInsnNode(Opcodes.ALOAD, 0));
         i.add(new VarInsnNode(Opcodes.ILOAD, 3));

@@ -774,8 +774,8 @@ BIND(void *, jcl_java_lang_Object_clone, "java.lang.Object_clone", (void *self))
         size_t sz = ti->size > NABU_HEADER_SIZE ? ti->size : NABU_HEADER_SIZE;
         void *c = jcl_alloc(sz);
         memcpy(c, self, sz);
-        ((nabu_object *)c)->monitor_count = 0;
-        ((nabu_object *)c)->thread_id = 0;
+        /* Het gekloonde object heeft een nieuw adres: het externe monitor-record
+         * hoeft niet gereset te worden — er is er nog geen voor dit adres. */
         return c;
     }
     if (!nabu_jcl_is_object(self)) {
@@ -5263,8 +5263,8 @@ static void jcl_notify(void *obj, int all) {
 }
 
 static int jcl_owns_monitor(void *obj) {
-    nabu_object *h = (nabu_object *)obj;
-    return h->monitor_count > 0 && h->thread_id == nabu_current_thread_id();
+    nabu_monitor *m = nabu_monitor_find(obj);
+    return m != NULL && m->count > 0 && m->owner == nabu_current_thread_id();
 }
 
 /* Throws InterruptedException (and clears the flag) when the running thread was interrupted. */
@@ -5285,7 +5285,6 @@ BIND(void, jcl_java_lang_Object_notifyAll, "java.lang.Object_notifyAll", (void *
 }
 
 BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t timeout)) {
-    nabu_object *h = (nabu_object *)self;
     if (!jcl_owns_monitor(self)) jcl_throw_new("java/lang/IllegalMonitorStateException", "java/lang/RuntimeException", "current thread is not owner");
     s_thread *cur = jcl_thread_of(jcl_carrier_thread());
     jcl_check_interrupt(cur);
@@ -5294,8 +5293,9 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
         if (timeout > 0) jcl_sleep_ms(timeout);
         return;
     }
+    nabu_monitor *m = nabu_monitor_get(self);
     const int me = nabu_current_thread_id();
-    const int32_t depth = h->monitor_count;
+    const int32_t depth = m->count;
     nabu_waiter *me_waiter = nabu_waiter_self();
     jcl_waiter w = { self, 0, NULL, me_waiter, NULL, 0 };
     pthread_mutex_lock(&jcl_waiters_lock);
@@ -5303,8 +5303,8 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     while (*tail != NULL) tail = &(*tail)->next;
     *tail = &w;
     pthread_mutex_unlock(&jcl_waiters_lock);
-    h->monitor_count = 0;
-    __atomic_store_n(&h->thread_id, 0, __ATOMIC_SEQ_CST);
+    m->count = 0;
+    __atomic_store_n(&m->owner, 0, __ATOMIC_SEQ_CST);
     if (__atomic_load_n(&nabu_monitor_waiters, __ATOMIC_SEQ_CST) > 0 || !nabu_parallel) {
         nabu_keyq_wake_one(self);
     }
@@ -5331,13 +5331,13 @@ BIND(void, jcl_Object_wait0, "java.lang.Object_wait0", (void *self, int64_t time
     for (;;) {
         const unsigned long ticket = nabu_waiter_ticket(me_waiter);
         int free_word = 0;
-        if (__atomic_compare_exchange_n(&h->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
+        if (__atomic_compare_exchange_n(&m->owner, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
         nabu_waiter_wait(me_waiter, ticket, -1);
     }
     __atomic_sub_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
     nabu_keyq_remove(self, me_waiter);
     nabu_wait_mark(0);
-    h->monitor_count = depth;
+    m->count = depth;
     if (!w.notified) jcl_check_interrupt(cur);
 }
 

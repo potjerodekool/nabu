@@ -208,7 +208,36 @@ Phase 1 is a pure deletion commit (the field was unused), not separately benchma
 The RSS reduction is a modest −11 MB (−3%). The header size halved (32 B → 16 B) but the LLC-miss bottleneck is
 not in the header alone; the vtable/itable pointer indirections remain and allocations are still large.
 
-Planned Phase 3: external monitor (inflate on contention) → header `{ ptr type_info }` = 8 B.
+### Phase 3 results (2026-11-10, header 16 B → 8 B, external monitor table)
+
+Phase 3 moves `monitor_count` and `thread_id` out of the object header into an external open-addressed
+hash table (lockless scan via atomic key reads, CAS for new insertions, entries never deleted).
+Header is now `{ ptr type_info }` = 8 bytes.
+
+Implementation notes:
+- First attempt used a locked table (`nabu_rt_lock` on every monitorenter/exit): **−20% regression** —
+  the global recursive mutex dominated the hot path.
+- Final design: 8 M-entry static table (128 MB BSS, lazy OS pages), lockless open-addressing, no tombstones.
+  Table is large enough that entries are never evicted during the benchmark (9500 total requests).
+
+| Metric | Phase 2 | Phase 3 | Δ |
+|--------|---------|---------|---|
+| `/pet/2` req/s | 1801 | 1571 | −13% |
+| `/pet/findByStatus` req/s | 1055 | 966 | −8% |
+| `/store/inventory` req/s | 1056 | 973 | −8% |
+| startup (to first 200) | 1.1 s | 1.2 s | +9% |
+| RSS after the run | 364 MB | 732 MB | **+101%** |
+
+**Conclusion:** External monitor table is a regression for this workload. The petstore with Hibernate/H2
+creates ~508 unique synchronized objects per request; with 9500 total requests, ~4.8 M table entries
+accumulate, requiring a 128 MB BSS table (essentially all pages touched → ~128 MB physical RSS). Throughput
+decreases 8–13% from the extra hash-table probe on every `monitorenter`/`monitorexit` (previously a direct
+field read of `header.monitor_count`). The 8-byte header saving is negligible against the 128 MB table cost.
+
+**When Phase 3 would help:** workloads where only a small fraction of heap objects are ever synchronized.
+For a 200 MB heap with 2 MB of monitored objects (1%), Phase 3 would save ~25 MB from smaller headers and
+add only ~2 MB of table entries. The petstore is an adversarial case: Hibernate/H2 synchronizes nearly every
+per-request object.
 
 ## Phase 0 (do this first, on this machine)
 

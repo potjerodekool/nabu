@@ -219,12 +219,12 @@
     </dependency>
   </dependencies>
   <properties>
-    <it.forks>3</it.forks>
-    <maven.compiler.target>21</maven.compiler.target>
     <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
     <maven.compiler.source>21</maven.compiler.source>
+    <javacpp.version>1.5.13</javacpp.version>
+    <it.forks>3</it.forks>
+    <maven.compiler.target>21</maven.compiler.target>
     <failsafe.version>3.5.3</failsafe.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <javacpp.version>1.5.13</javacpp.version>
   </properties>
 </project>

@@ -461,10 +461,11 @@ public class ClassLayouts {
 
     /** Header-struct: type-pointer-slot. */
     public static final int HEADER_SLOT_TYPE   = 0;
-    /** Header-struct: vtable-pointer-slot. */
-    public static final int HEADER_SLOT_VTABLE = 1;
-    /** Header-struct: itable-pointer-slot. */
-    public static final int HEADER_SLOT_ITABLE = 2;
+
+    /** Type-info-struct: vtable-pointer-slot (slot 8). */
+    public static final int TYPE_INFO_SLOT_VTABLE = 8;
+    /** Type-info-struct: itable-pointer-slot (slot 9). */
+    public static final int TYPE_INFO_SLOT_ITABLE = 9;
 
     public ClassLayouts(LLVMContextRef ctx, Map<String, LLVMValueRef> globalValueMap) {
         this.ctx = ctx;
@@ -473,11 +474,9 @@ public class ClassLayouts {
 
     public LLVMTypeRef objectHeaderType() {
         if (headerType == null) {
-            // { ptr type, ptr vtable, ptr itable, i32 monitor, i32 thread }
-            // ref_count was removed (never used); 32 bytes instead of 40.
+            // { ptr type, i32 monitor, i32 thread }
+            // vtable and itable moved to type_info (slots 8 and 9); 16 bytes.
             LLVMTypeRef[] header = {
-                    LLVMPointerTypeInContext(ctx, 0),
-                    LLVMPointerTypeInContext(ctx, 0),
                     LLVMPointerTypeInContext(ctx, 0),
                     LLVMInt32TypeInContext(ctx),
                     LLVMInt32TypeInContext(ctx)
@@ -1204,6 +1203,7 @@ for (IRModule m : modules) {
             if (layout != null) {
                 buildVtable(mod, m, layout);
                 buildItable(mod, m, layout);
+                updateTypeInfoVtableItable(layout);
             }
         }
         // Fase C: welke interfaces hebben implementerende klassen in deze
@@ -2231,6 +2231,30 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         globalValueMap.put("@" + itableName, itableGlobal);
     }
 
+    /**
+     * Re-initialises the type_info global with the vtable and itable that were
+     * built after the initial type_info was created.  Called after buildVtable
+     * and buildItable have both completed for the layout.
+     */
+    private void updateTypeInfoVtableItable(ClassLayout layout) {
+        if (layout.typeInfoGlobal == null) return;
+        LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        LLVMValueRef vtable = layout.vtableGlobal != null ? layout.vtableGlobal : LLVMConstNull(ptrType);
+        LLVMValueRef itable = layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType);
+        LLVMValueRef existing = LLVMGetInitializer(layout.typeInfoGlobal);
+        LLVMTypeRef infoType = LLVMGlobalGetValueType(layout.typeInfoGlobal);
+        PointerPointer<Pointer> newFields = new PointerPointer<>(10);
+        for (int i = 0; i < 8; i++) {
+            newFields.put(i, LLVMGetOperand(existing, i));
+        }
+        newFields.put(8, vtable);
+        newFields.put(9, itable);
+        LLVMValueRef newInit = LLVMConstNamedStruct(infoType, newFields, 10);
+        LLVMSetInitializer(layout.typeInfoGlobal, newInit);
+        Reference.reachabilityFence(newFields);
+        Reference.reachabilityFence(newInit);
+    }
+
     private final Set<String> runtimeSymbols = RuntimeSymbols.load();
 
     private Map<String, List<Map.Entry<String, Integer>>> slotsByOwner;
@@ -2614,8 +2638,8 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
 
         final List<String> interfaces = implementedInterfaceNames(module);
 
-        // init
-        PointerPointer<Pointer> initFields = new PointerPointer<>(8);
+        // init — vtable/itable filled in later by updateTypeInfoVtableItable
+        PointerPointer<Pointer> initFields = new PointerPointer<>(10);
         initFields.put(0, nameGlobalVal);
         initFields.put(1, LLVMConstInt(i64, size, 0));
         initFields.put(2, superPtr);
@@ -2624,7 +2648,9 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         initFields.put(5, LLVMConstInt(i32, interfaces.size(), 0));
         initFields.put(6, instanceFieldArray(mod, internalName, instanceFields));
         initFields.put(7, LLVMConstInt(i32, instanceFields.size(), 0));
-        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 8);
+        initFields.put(8, LLVMConstNull(i8Ptr));  // vtable placeholder
+        initFields.put(9, LLVMConstNull(i8Ptr));  // itable placeholder
+        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 10);
         LLVMSetInitializer(infoGlobal, init);
         Reference.reachabilityFence(initFields);
         Reference.reachabilityFence(init);
@@ -2676,7 +2702,7 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         long size = LLVMABISizeOfType(dl, objectHeaderType());
         LLVMDisposeTargetData(dl);
 
-        PointerPointer<Pointer> initFields = new PointerPointer<>(8);
+        PointerPointer<Pointer> initFields = new PointerPointer<>(10);
         initFields.put(0, nameGlobalVal);
         initFields.put(1, LLVMConstInt(i64, size, 0));
         initFields.put(2, parentInfo != null ? parentInfo : LLVMConstNull(i8Ptr));
@@ -2685,7 +2711,9 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         initFields.put(5, LLVMConstInt(i32, 0, 0));
         initFields.put(6, LLVMConstNull(i8Ptr));
         initFields.put(7, LLVMConstInt(i32, 0, 0));
-        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 8);
+        initFields.put(8, LLVMConstNull(i8Ptr));  // vtable (none for library super types)
+        initFields.put(9, LLVMConstNull(i8Ptr));  // itable
+        LLVMValueRef init = LLVMConstNamedStruct(infoType, initFields, 10);
         LLVMSetInitializer(infoGlobal, init);
         Reference.reachabilityFence(initFields);
         Reference.reachabilityFence(init);
@@ -2698,13 +2726,13 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
     /**
      * {@code struct nabu_type_info { i8* name, i64 size, i8* super_type,
      * i32 field_count, i8** interfaces, i32 interface_count,
-     * nabu_type_field* instance_fields, i32 instance_field_count }} — moet
-     * overeenkomen met runtime/nabu_runtime.h.
+     * nabu_type_field* instance_fields, i32 instance_field_count,
+     * void** vtable, void** itable }} — moet overeenkomen met runtime/nabu_runtime.h.
      */
     LLVMTypeRef typeInfoStructType() {
         LLVMTypeRef i8Ptr = LLVMPointerTypeInContext(ctx, 0);
         LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
-        PointerPointer<Pointer> info = new PointerPointer<>(8);
+        PointerPointer<Pointer> info = new PointerPointer<>(10);
         info.put(0, i8Ptr);
         info.put(1, LLVMInt64TypeInContext(ctx));
         info.put(2, i8Ptr);
@@ -2713,7 +2741,9 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
         info.put(5, i32);
         info.put(6, i8Ptr);
         info.put(7, i32);
-        LLVMTypeRef infoType = LLVMStructTypeInContext(ctx, info, 8, 0);
+        info.put(8, i8Ptr);  // vtable
+        info.put(9, i8Ptr);  // itable
+        LLVMTypeRef infoType = LLVMStructTypeInContext(ctx, info, 10, 0);
         Reference.reachabilityFence(info);
         return infoType;
     }

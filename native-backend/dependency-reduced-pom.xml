@@ -20,6 +20,9 @@
           <include>nabu_runtime.c</include>
           <include>nabu_runtime.h</include>
           <include>jcl_lite.c</include>
+          <include>nabu_gc.h</include>
+          <include>gc_boehm.c</include>
+          <include>gc_none.c</include>
         </includes>
       </resource>
     </resources>
@@ -216,12 +219,12 @@
     </dependency>
   </dependencies>
   <properties>
-    <maven.compiler.source>21</maven.compiler.source>
-    <maven.compiler.target>21</maven.compiler.target>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
-    <javacpp.version>1.5.13</javacpp.version>
-    <failsafe.version>3.5.3</failsafe.version>
     <it.forks>3</it.forks>
+    <maven.compiler.target>21</maven.compiler.target>
+    <bytedeco.version>21.1.8-1.5.13</bytedeco.version>
+    <maven.compiler.source>21</maven.compiler.source>
+    <failsafe.version>3.5.3</failsafe.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <javacpp.version>1.5.13</javacpp.version>
   </properties>
 </project>

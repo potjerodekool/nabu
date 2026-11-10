@@ -241,15 +241,11 @@ public class ConstantResolver {
         LLVMSetLinkage(arrayGlobal, LLVMPrivateLinkage);
         LLVMSetInitializer(arrayGlobal, arrayConst);
 
-        // Header: type-info, vtable, itable, en de rest op nul.
+        // Header: type-info; vtable/itable zitten in type_info (Lever 1 fase 2).
         final int headerFields = LLVMCountStructElementTypes(stringHeaderType);
         final LLVMValueRef[] header = new LLVMValueRef[headerFields];
         header[0] = stringTypeInfo;
-        header[1] = stringVtable != null ? stringVtable
-                : LLVMConstNull(LLVMStructGetTypeAtIndex(stringHeaderType, 1));
-        header[2] = stringItable != null ? stringItable
-                : LLVMConstNull(LLVMStructGetTypeAtIndex(stringHeaderType, 2));
-        for (int i = 3; i < headerFields; i++) {
+        for (int i = 1; i < headerFields; i++) {
             header[i] = LLVMConstNull(LLVMStructGetTypeAtIndex(stringHeaderType, i));
         }
 

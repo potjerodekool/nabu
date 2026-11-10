@@ -562,11 +562,14 @@ public void setReflectionRegistry(
     private void emitCtorTable(final List<IRModule> modules) {
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
-        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(6);
-        for (int i = 0; i < 6; i++) {
-            memberTypes.put(i, i == 4 ? i64 : ptrType);
-        }
-        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 6, 0);
+        // { i8* name, i8* type, i64 size, i8* init } — vtable/itable in type_info
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(4);
+        memberTypes.put(0, ptrType);
+        memberTypes.put(1, ptrType);
+        memberTypes.put(2, i64);
+        memberTypes.put(3, ptrType);
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 4, 0);
+        Reference.reachabilityFence(memberTypes);
         final List<LLVMValueRef> entries = new java.util.ArrayList<>();
         final java.util.Set<String> seen = new java.util.HashSet<>();
         final LLVMTargetDataRef dl = LLVMCreateTargetData(new BytePointer(""));
@@ -594,7 +597,7 @@ public void setReflectionRegistry(
                             "L" + internalName + ";"));
             LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
                     new BytePointer("_ZNabu" + this.classLayouts.typeSymbol(internalName) + "Etype_info"));
-            if (initValue == null || initValue.isNull() || layout == null || layout.vtableGlobal == null
+            if (initValue == null || initValue.isNull() || layout == null
                     || typeInfo == null || typeInfo.isNull()) {
                 continue;
             }
@@ -605,11 +608,10 @@ public void setReflectionRegistry(
             LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
             LLVMSetGlobalConstant(nameGlobal, 1);
             LLVMSetInitializer(nameGlobal, nameStr);
+            // vtable/itable are in type_info now; entry only needs name, type, size, init
             final LLVMValueRef[] fields = {
                     nameGlobal,
                     typeInfo,
-                    layout.vtableGlobal,
-                    layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType),
                     LLVMConstInt(i64, LLVMABISizeOfType(dl, layout.structType), 0),
                     initValue};
             entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
@@ -640,11 +642,14 @@ public void setReflectionRegistry(
     private void emitExceptionTable(final List<IRModule> modules) {
         final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
         final LLVMTypeRef i64 = LLVMInt64TypeInContext(ctx);
-        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(6);
-        for (int i = 0; i < 6; i++) {
-            memberTypes.put(i, i == 4 ? i64 : ptrType);
-        }
-        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 6, 0);
+        // { i8* name, i8* type, i64 size, i8* init } — vtable/itable in type_info
+        final PointerPointer<Pointer> memberTypes = new PointerPointer<>(4);
+        memberTypes.put(0, ptrType);
+        memberTypes.put(1, ptrType);
+        memberTypes.put(2, i64);
+        memberTypes.put(3, ptrType);
+        final LLVMTypeRef entryType = LLVMStructTypeInContext(ctx, memberTypes, 4, 0);
+        Reference.reachabilityFence(memberTypes);
         final List<LLVMValueRef> entries = new java.util.ArrayList<>();
         final java.util.Set<String> wanted = new java.util.HashSet<>(
                 io.github.potjerodekool.nabu.backend.RuntimeExceptions.CLASSES);
@@ -671,7 +676,7 @@ public void setReflectionRegistry(
                             "L" + internalName + ";"));
             final LLVMValueRef typeInfo = LLVMGetNamedGlobal(mod,
                     new BytePointer("_ZNabu" + this.classLayouts.typeSymbol(internalName) + "Etype_info"));
-            if (initValue == null || initValue.isNull() || layout == null || layout.vtableGlobal == null
+            if (initValue == null || initValue.isNull() || layout == null
                     || typeInfo == null || typeInfo.isNull()) {
                 continue;
             }
@@ -682,11 +687,10 @@ public void setReflectionRegistry(
             LLVMSetLinkage(nameGlobal, LLVMPrivateLinkage);
             LLVMSetGlobalConstant(nameGlobal, 1);
             LLVMSetInitializer(nameGlobal, nameStr);
+            // vtable/itable are in type_info now; entry only needs name, type, size, init
             final LLVMValueRef[] fields = {
                     nameGlobal,
                     typeInfo,
-                    layout.vtableGlobal,
-                    layout.itableGlobal != null ? layout.itableGlobal : LLVMConstNull(ptrType),
                     LLVMConstInt(i64, LLVMABISizeOfType(dl, layout.structType), 0),
                     initValue};
             entries.add(LLVMConstNamedStruct(entryType, new PointerPointer<>(fields), fields.length));
@@ -1096,11 +1100,11 @@ public void setReflectionRegistry(
         LLVMSetGlobalConstant(excNameGlobal, 1);
         LLVMSetInitializer(excNameGlobal, excNameStr);
 
-        // struct nabu_type_info { i8* name, i64 size, i8* super_type, i32 field_count,
-        //                         i8** interfaces, i32 interface_count,
-        //                         nabu_type_field* instance_fields, i32 instance_field_count }
+        // struct nabu_type_info { name, size, super_type, field_count,
+        //                         interfaces, interface_count, instance_fields, instance_field_count,
+        //                         vtable, itable }
         LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
-        PointerPointer<Pointer> excInfoTypes = new PointerPointer<>(8);
+        PointerPointer<Pointer> excInfoTypes = new PointerPointer<>(10);
         excInfoTypes.put(0, i8ptr);
         excInfoTypes.put(1, i64);
         excInfoTypes.put(2, i8ptr);
@@ -1109,7 +1113,9 @@ public void setReflectionRegistry(
         excInfoTypes.put(5, i32);
         excInfoTypes.put(6, i8ptr);
         excInfoTypes.put(7, i32);
-        LLVMTypeRef excInfoType = LLVMStructTypeInContext(ctx, excInfoTypes, 8, 0);
+        excInfoTypes.put(8, i8ptr);  // vtable
+        excInfoTypes.put(9, i8ptr);  // itable
+        LLVMTypeRef excInfoType = LLVMStructTypeInContext(ctx, excInfoTypes, 10, 0);
         Reference.reachabilityFence(excInfoTypes);
 
         LLVMValueRef excTypeInfo = LLVMAddGlobal(mod, excInfoType,
@@ -1117,7 +1123,7 @@ public void setReflectionRegistry(
         LLVMSetLinkage(excTypeInfo, LLVMExternalLinkage);
         LLVMSetGlobalConstant(excTypeInfo, 1);
 
-        PointerPointer<Pointer> excInfoFields = new PointerPointer<>(8);
+        PointerPointer<Pointer> excInfoFields = new PointerPointer<>(10);
         excInfoFields.put(0, excNameGlobal);
         excInfoFields.put(1, LLVMConstInt(i64, 0, 0));
         excInfoFields.put(2, LLVMConstNull(i8ptr));
@@ -1126,7 +1132,9 @@ public void setReflectionRegistry(
         excInfoFields.put(5, LLVMConstInt(i32, 0, 0));
         excInfoFields.put(6, LLVMConstNull(i8ptr));
         excInfoFields.put(7, LLVMConstInt(i32, 0, 0));
-        LLVMValueRef excInit = LLVMConstNamedStruct(excInfoType, excInfoFields, 8);
+        excInfoFields.put(8, LLVMConstNull(i8ptr));
+        excInfoFields.put(9, LLVMConstNull(i8ptr));
+        LLVMValueRef excInit = LLVMConstNamedStruct(excInfoType, excInfoFields, 10);
         LLVMSetInitializer(excTypeInfo, excInit);
         Reference.reachabilityFence(excInit);
         globalValueMap.put("@nabu_exception_typeinfo", excTypeInfo);

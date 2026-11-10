@@ -612,7 +612,7 @@ public class InstructionEmitter {
 
     /**
      * Extra bytes ná de object-header voor het runtime-state-slot van
-     * library-objecten (offset 40, vijfde void*-woord).
+     * library-objecten (offset sizeof(nabu_object) = 16B na Lever 1 fase 2).
      *
      * <p>De backend kent de instancevelden van niet-gecompileerde klassen
      * niet — veldtoegang loopt volledig via de runtime ({@code
@@ -713,24 +713,13 @@ public class InstructionEmitter {
     }
 
     private void initObjectHeader(LLVMValueRef obj, ClassLayouts.ClassLayout layout) {
-        // obj[0] = header-struct H; daarna H[0]=type-info, H[1]=vtable
+        // obj[0] = header-struct H; H[0]=type-info (vtable/itable are in type_info, not the header)
         LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
                 ".header");
         LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
                 classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_TYPE,
                 ".type.slot");
         LLVMBuildStore(builder, layout.typeInfoGlobal, typeSlot);
-
-        LLVMValueRef vtableSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_VTABLE,
-                ".vtable.slot");
-        LLVMBuildStore(builder, layout.vtableGlobal, vtableSlot);
-
-        LLVMValueRef itableSlot = LLVMBuildStructGEP2(builder,
-                classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_ITABLE,
-                ".itable.slot");
-        LLVMBuildStore(builder, layout.itableGlobal, itableSlot);
-
     }
 
     private void storeArrayLength(LLVMValueRef array, LLVMValueRef count) {
@@ -1748,11 +1737,15 @@ public class InstructionEmitter {
             fnPtr = direct;
             DEVIRTUALIZED[0]++;
         } else {
-            // obj.vtable — header-struct veld 1 (via outer struct index 0)
+            // obj.type_info.vtable — header[0]=type_info, type_info[8]=vtable
             LLVMValueRef headerPtr = LLVMBuildStructGEP2(builder, layout.structType, obj, 0,
                     ".header");
+            LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_TYPE,
+                    ".type.slot");
+            LLVMValueRef typeInfo = LLVMBuildLoad2(builder, ptrType, typeSlot, ".typeinfo");
             LLVMValueRef vtablePtrSlot = LLVMBuildStructGEP2(builder,
-                    classLayouts.objectHeaderType(), headerPtr, ClassLayouts.HEADER_SLOT_VTABLE,
+                    classLayouts.typeInfoStructType(), typeInfo, ClassLayouts.TYPE_INFO_SLOT_VTABLE,
                     ".vtable.slot");
             LLVMValueRef vtable = LLVMBuildLoad2(builder, ptrType, vtablePtrSlot, ".vtable");
 
@@ -2182,9 +2175,14 @@ public class InstructionEmitter {
             fnPtr = direct;
             DEVIRTUALIZED[1]++;
         } else {
-            LLVMValueRef itablePtrSlot = LLVMBuildStructGEP2(builder,
+            // obj (= header) [0]=type_info, type_info[9]=itable
+            LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
                     classLayouts.objectHeaderType(), obj,
-                    ClassLayouts.HEADER_SLOT_ITABLE, ".itable.slot");
+                    ClassLayouts.HEADER_SLOT_TYPE, ".type.slot");
+            LLVMValueRef typeInfo = LLVMBuildLoad2(builder, ptrType, typeSlot, ".typeinfo");
+            LLVMValueRef itablePtrSlot = LLVMBuildStructGEP2(builder,
+                    classLayouts.typeInfoStructType(), typeInfo,
+                    ClassLayouts.TYPE_INFO_SLOT_ITABLE, ".itable.slot");
             LLVMValueRef itable = LLVMBuildLoad2(builder, ptrType, itablePtrSlot, ".itable");
 
             // itable[slot]

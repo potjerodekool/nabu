@@ -534,6 +534,19 @@ typedef struct nabu_string_meta_t {
 
 extern nabu_string_meta_t nabu_string_meta;
 
+/**
+ * Layout van een gecompileerd java.lang.String-object (Lever 1 fase 3: 8-byte header).
+ * value: pointer naar byte[] (int32_t length op offset 0, data op offset 8).
+ * coder: 0 = LATIN1, 1 = UTF16 (little-endian).
+ */
+typedef struct nabu_jstring {
+    nabu_object header;
+    void   *value;        /* byte[]: int32_t lengte op 0, data op 8 */
+    int8_t  coder;        /* 0 = LATIN1, 1 = UTF16 (little endian) */
+    int32_t hash;
+    int8_t  hash_is_zero;
+} nabu_jstring;
+
 /* ---------------------------------------------------------------
  * java.util.Properties (uit bytecode gecompileerd)
  * ---------------------------------------------------------------

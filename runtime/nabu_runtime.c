@@ -2083,14 +2083,6 @@ int nabu_instanceof_array(void *obj, const char *wanted) {
 
 /* Spiegel van de layout die de backend voor java.lang.String emitteert:
  * header + de instantievelden in classfile-volgorde. */
-typedef struct nabu_jstring {
-    nabu_object header;
-    void   *value;        /* byte[]: int32 lengte op 0, data op 8 */
-    int8_t  coder;        /* 0 = LATIN1, 1 = UTF16 (little endian) */
-    int32_t hash;
-    int8_t  hash_is_zero;
-} nabu_jstring;
-
 /* Array classes: the upper 24 bits of the element-size word index
  * nabu_array_type_names (emitted by the backend, the types the program
  * allocates) and, from nabu_array_type_count on, the types the runtime met

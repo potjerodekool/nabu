@@ -856,6 +856,61 @@ BIND(void, jcl_java_lang_System_arraycopy, "java.lang.System_arraycopy", (void *
     size_t es = jcl_arr_esize(src);
     memmove((char *)dst + 8 + (size_t)dstPos * es, (const char *)src + 8 + (size_t)srcPos * es, (size_t)len * es);
 }
+
+/* ---- Lever 2: JDK string intrinsics ----------------------------------------
+ * The compiled bytecode of String.hashCode / String.equals has a clinit-once
+ * check and a safepoint poll on EVERY loop iteration.  These C replacements use
+ * memcmp / a plain int loop — GCC can auto-vectorise both.
+ * petstore.1.o carries STRONG symbols for these; objcopy --weaken-symbol
+ * lets the BIND definitions here win at link time.
+ * --------------------------------------------------------------------------- */
+
+/* Array data layout: int32_t length at offset 0, element data at offset 8. */
+#define JCL_ARR_DATA(a) ((const uint8_t *)(a) + 8)
+
+BIND(int32_t, jcl_String_hashCode, "java.lang.String_hashCode", (void *self)) {
+    nabu_jstring *s = (nabu_jstring *)self;
+    int32_t h = s->hash;
+    if (h != 0 || s->hash_is_zero) return h;
+
+    int32_t len     = *(const int32_t *)s->value;
+    const uint8_t *d = JCL_ARR_DATA(s->value);
+
+    if (s->coder == 0) {
+        /* LATIN1: each byte is an unsigned char value (0–255) */
+        for (int32_t i = 0; i < len; i++)
+            h = 31 * h + d[i];
+    } else {
+        /* UTF16 LE: two bytes per char, low byte first */
+        int32_t nc = len >> 1;
+        for (int32_t i = 0; i < nc; i++) {
+            uint16_t c = (uint16_t)d[2*i] | ((uint16_t)d[2*i+1] << 8);
+            h = 31 * h + (int32_t)c;
+        }
+    }
+
+    if (h == 0) s->hash_is_zero = 1;
+    else        s->hash = h;
+    return h;
+}
+
+BIND(int32_t, jcl_String_equals, "java.lang.String_equals", (void *self, void *other)) {
+    if (self == other) return 1;
+    if (!nabu_is_jstring(other)) return 0;
+
+    const nabu_jstring *a = (const nabu_jstring *)self;
+    const nabu_jstring *b = (const nabu_jstring *)other;
+
+    if (a->coder != b->coder) return 0;
+
+    int32_t la = *(const int32_t *)a->value;
+    int32_t lb = *(const int32_t *)b->value;
+    if (la != lb) return 0;
+    if (la == 0)  return 1;
+
+    return memcmp(JCL_ARR_DATA(a->value), JCL_ARR_DATA(b->value), (size_t)la) == 0;
+}
+
 BIND(int64_t, jcl_java_lang_System_currentTimeMillis, "java.lang.System_currentTimeMillis", (void)) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);

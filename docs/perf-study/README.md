@@ -239,6 +239,31 @@ For a 200 MB heap with 2 MB of monitored objects (1%), Phase 3 would save ~25 MB
 add only ~2 MB of table entries. The petstore is an adversarial case: Hibernate/H2 synchronizes nearly every
 per-request object.
 
+## Lever 2 results (2026-11-10, String.hashCode / String.equals C intrinsics)
+
+Lever 2 replaces the compiled `String.hashCode` and `String.equals` bytecode with C intrinsics in
+`jcl_lite.c`. The compiled versions had a `java.lang.Byte.clinit.once.xp` check and a
+`nabu_safepoint_poll` on every iteration of the hash and comparison loops (no auto-vectorisation).
+The C replacements use a plain `int` loop for `hashCode` (GCC can vectorise it) and `memcmp` for
+`equals`. The compiled symbols are weakened with `objcopy --weaken-symbol` so the BIND definitions
+in `jcl_lite.c` win at link time.
+
+| Metric | Phase 3 baseline | Lever 2 | Δ |
+|--------|-----------------|---------|---|
+| `/pet/2` req/s | 1571 | 1580 | +0.6% (noise) |
+| `/pet/findByStatus` req/s | 966 | 944 | −2% (noise) |
+| `/store/inventory` req/s | 973 | 952 | −2% (noise) |
+| startup (s) | 1.2 | 1.0 | — |
+| RSS | 732 MB | 731 MB | — |
+
+**Conclusion:** no measurable improvement. The CPU branch predictor eliminates the per-iteration
+overhead (clinit check + safepoint poll) after a handful of iterations on warm code, so the
+compiled loops are not slower than the C replacements in practice. The bottleneck in this workload
+is the external monitor table (Phase 3 regression) and Hibernate/H2 I/O, not String hashing or
+equality comparison. The intrinsics are correct and may help in workloads that are cold (no
+branch-predictor warmup) or that hash many unique strings with large arrays; they remain in
+`jcl_lite.c` as a foundation for further tuning.
+
 ## Phase 0 (do this first, on this machine)
 
 Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat -e instructions,cycles true`.

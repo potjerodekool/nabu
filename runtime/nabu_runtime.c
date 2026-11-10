@@ -3001,80 +3001,12 @@ void nabu_set_monitor_virtual_fns(void *(*current)(void), void (*park)(void), vo
     nabu_monitor_unpark_fn = unpark;
 }
 
-/* -------------------------------------------------------
- * External monitor table (Lever 1 fase 3)
- *
- * monitor_count en owner zijn niet meer in nabu_object opgeslagen.
- * Ze leven in een statische open-addressed hash-tabel.  Sleutel = object-ptr.
- *
- * Ontwerp: open adressering met lineaire probing.
- *   NULL     = nooit gebruikt (probe-keten eindigt hier)
- *   DEAD_KEY = tombstone (GC heeft obj vrijgemaakt; slot herbruikbaar)
- *   ptr      = live entry
- *
- * Hergebruik: zodra een object wordt vrijgemaakt door de GC roept
- * nabu_mon_cleanup de CAS aan die ptr→DEAD_KEY zet.  Daarna kan een nieuw
- * object het slot claimen via CAS van DEAD_KEY→obj.  De probe-keten blijft
- * intact (NULL wordt nooit hergebruikt als DEAD_KEY), zodat de scan veilig is.
- * ------------------------------------------------------- */
-
-/* Externe monitortabel: 8 M entries (128 MB BSS, lazy pages), genoeg voor 9500 reqs zonder
- * hergebruik.  Entries worden nooit verwijderd; probe-keten eindigt bij NULL.
- * Indien in de toekomst hergebruik nodig is: sla DEAD_KEY (=(void*)1) in als tombstone via
- * een GC-finalizer, zoals beschreven in het commit-commentaar van Phase 3. */
-#define NABU_MON_CAP  (1 << 23)
-
-typedef struct nabu_mon_entry {
-    void * volatile key;  /* NULL = vrij (keten-einde), anders bezet */
-    nabu_monitor    mon;  /* inline — adres stabiel zolang de tabel leeft */
-} nabu_mon_entry;
-
-static nabu_mon_entry nabu_mon_table[NABU_MON_CAP]; /* zero-init */
-
-static nabu_mon_entry *nabu_mon_scan(void *obj) {
-    int i = (int)(((uintptr_t)obj >> 3) & (NABU_MON_CAP - 1));
-    for (int probe = 0; probe < NABU_MON_CAP; probe++, i = (i + 1) & (NABU_MON_CAP - 1)) {
-        void *k = __atomic_load_n(&nabu_mon_table[i].key, __ATOMIC_ACQUIRE);
-        if (k == NULL) return NULL;
-        if (k == obj)  return &nabu_mon_table[i];
-    }
-    return NULL;
-}
-
-nabu_monitor *nabu_monitor_get(void *obj) {
-    nabu_mon_entry *e = nabu_mon_scan(obj);
-    if (e != NULL) return &e->mon;
-
-    int i = (int)(((uintptr_t)obj >> 3) & (NABU_MON_CAP - 1));
-    for (int probe = 0; probe < NABU_MON_CAP; probe++, i = (i + 1) & (NABU_MON_CAP - 1)) {
-        void *k = __atomic_load_n(&nabu_mon_table[i].key, __ATOMIC_ACQUIRE);
-        if (k == obj)  return &nabu_mon_table[i].mon;  /* concurrent insert */
-        if (k != NULL) continue;
-
-        void *expected = NULL;
-        if (__atomic_compare_exchange_n(&nabu_mon_table[i].key, &expected, obj,
-                                        0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
-            nabu_mon_table[i].mon.count = 0;
-            nabu_mon_table[i].mon.owner = 0;
-            return &nabu_mon_table[i].mon;
-        }
-        return nabu_monitor_get(obj);  /* CAS mislukt: opnieuw */
-    }
-    fprintf(stderr, "nabu: external monitor table full (%d entries)\n", NABU_MON_CAP);
-    abort();
-}
-
-nabu_monitor *nabu_monitor_find(void *obj) {
-    nabu_mon_entry *e = nabu_mon_scan(obj);
-    return e != NULL ? &e->mon : NULL;
-}
-
 /* Object.wait: gives up the monitor completely, returns how many times the thread held it. */
 int nabu_monitor_release_all(void *obj) {
-    nabu_monitor *m = nabu_monitor_get(obj);
-    const int depth = m->count;
-    m->count = 0;
-    __atomic_store_n(&m->owner, 0, __ATOMIC_SEQ_CST);
+    nabu_object *header = (nabu_object *)obj;
+    const int depth = header->monitor_count;
+    header->monitor_count = 0;
+    __atomic_store_n(&header->thread_id, 0, __ATOMIC_SEQ_CST);
     nabu_held_monitor_count -= depth;
     if (nabu_parallel) {
         if (__atomic_load_n(&nabu_monitor_waiters, __ATOMIC_SEQ_CST) > 0) nabu_keyq_wake_one(obj);
@@ -3087,7 +3019,7 @@ int nabu_monitor_release_all(void *obj) {
 /* Gets the monitor back, as many times as it was held. */
 void nabu_monitor_acquire_n(void *obj, int depth) {
     nabu_monitorenter(obj);
-    nabu_monitor_get(obj)->count = depth;
+    ((nabu_object *)obj)->monitor_count = depth;
     nabu_held_monitor_count += depth - 1;
 }
 
@@ -3097,20 +3029,20 @@ void nabu_monitorenter(void *obj) {
         nabu_throw_npe("monitorenter");
     }
     nabu_held_monitor_count++;
-    nabu_monitor *m = nabu_monitor_get(obj);
+    nabu_object *header = (nabu_object *)obj;
     const int me = nabu_thread_id;
     if (nabu_parallel) {
-        /* owner is the lock word: 0 free, else the owner; only the owner touches count */
-        if (m->owner != me) {
+        /* thread_id is the lock word: 0 free, else the owner; only the owner touches monitor_count */
+        if (header->thread_id != me) {
             int free_word = 0;
-            if (!__atomic_compare_exchange_n(&m->owner, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            if (!__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                 void *vthread = nabu_monitor_current_vthread_fn != NULL ? nabu_monitor_current_vthread_fn() : NULL;
                 if (vthread != NULL) {
                     nabu_keyq_add_entry(obj, NULL, vthread);
                     __atomic_add_fetch(&nabu_monitor_waiters, 1, __ATOMIC_SEQ_CST);
                     for (;;) {
                         free_word = 0;
-                        if (__atomic_compare_exchange_n(&m->owner, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                        if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                             break;
                         }
                         nabu_monitor_park_fn();
@@ -3125,7 +3057,7 @@ void nabu_monitorenter(void *obj) {
                     for (;;) {
                         const unsigned long ticket = nabu_waiter_ticket(waiter);
                         free_word = 0;
-                        if (__atomic_compare_exchange_n(&m->owner, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                        if (__atomic_compare_exchange_n(&header->thread_id, &free_word, me, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
                             break;
                         }
                         nabu_waiter_wait(waiter, ticket, -1);
@@ -3135,21 +3067,21 @@ void nabu_monitorenter(void *obj) {
                     nabu_wait_mark(0);
                 }
             }
-            m->count = 1;
+            header->monitor_count = 1;
         } else {
-            m->count++;
+            header->monitor_count++;
         }
         return;
     }
-    if (m->count > 0 && m->owner != me) {
+    if (header->monitor_count > 0 && header->thread_id != me) {
         nabu_wait_mark(3);
-        while (m->count > 0 && m->owner != me) {
+        while (header->monitor_count > 0 && header->thread_id != me) {
             nabu_gil_wait(-1);
         }
         nabu_wait_mark(0);
     }
-    m->count++;
-    m->owner = me;
+    header->monitor_count++;
+    header->thread_id = me;
 }
 
 void nabu_monitorexit(void *obj) {
@@ -3158,19 +3090,19 @@ void nabu_monitorexit(void *obj) {
         fprintf(stderr, "nabu: synchronized on null object\n");
         abort();
     }
-    nabu_monitor *m = nabu_monitor_get(obj);
+    nabu_object *header = (nabu_object *)obj;
     if (nabu_parallel) {
-        if (--m->count == 0) {
-            __atomic_store_n(&m->owner, 0, __ATOMIC_SEQ_CST);
+        if (--header->monitor_count == 0) {
+            __atomic_store_n(&header->thread_id, 0, __ATOMIC_SEQ_CST);
             if (__atomic_load_n(&nabu_monitor_waiters, __ATOMIC_SEQ_CST) > 0) {
                 nabu_keyq_wake_one(obj);
             }
         }
         return;
     }
-    m->count--;
-    if (m->count == 0) {
-        m->owner = 0;
+    header->monitor_count--;
+    if (header->monitor_count == 0) {
+        header->thread_id = 0;
         nabu_gil_signal();
     }
 }

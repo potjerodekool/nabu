@@ -55,32 +55,17 @@ typedef struct nabu_type_info {
  * Object header struct — elke heap-object begint hiermee.
  *
  * De veldvolgorde MOET overeenkomen met ClassLayouts.objectHeaderType() in de
- * native-backend (`{ ptr type_info }`): de backend schrijft type_info in de header.
- * Vtable en itable zitten in nabu_type_info (slot 8 en 9) since fase 2.
- * Monitor staat in een externe tabel (nabu_monitor_get/find) since fase 3.
- * Op een 64-bittig target geeft dat offset 0 en grootte 8.
+ * native-backend (`{ ptr type, i32 monitor, i32 thread }`): de backend schrijft
+ * type in de header; vtable en itable zitten in nabu_type_info (slot 8 en 9).
+ * Op een 64-bittig target geeft dat offsets 0/8/12 en grootte 16.
  */
 typedef struct nabu_object {
-    void  *type;          /* offset 0  — nabu_type_info* */
+    void    *type;          /* offset 0  — nabu_type_info* */
+    int32_t  monitor_count; /* offset 8  — voor synchronized */
+    int32_t  thread_id;     /* offset 12 — welke thread bezit de monitor */
 } nabu_object;
 
-/**
- * Extern monitor-record: gealloceerd on-demand per object (Lever 1 fase 3).
- * Stabiele pointer — wordt nooit verplaatst — zodat parallelle paden de velden
- * atomisch kunnen benaderen.
- */
-typedef struct nabu_monitor {
-    int32_t  owner;  /* thread_id van de eigenaar, 0 = vrij (atomisch lock-word) */
-    int32_t  count;  /* recursie-diepte; alleen de eigenaar schrijft dit */
-} nabu_monitor;
-
-/** Zoekt of maakt het externe monitor-record voor obj.  Nooit NULL. */
-nabu_monitor *nabu_monitor_get(void *obj);
-
-/** Zoekt het externe monitor-record voor obj; NULL als er nog geen is. */
-nabu_monitor *nabu_monitor_find(void *obj);
-
-/** Minimale objectgrootte: één header zonder instantievelden (8 B na Lever 1 fase 3). */
+/** Minimale objectgrootte: één header zonder instantievelden (16 B). */
 #define NABU_HEADER_SIZE ((size_t) sizeof(nabu_object))
 
 /**

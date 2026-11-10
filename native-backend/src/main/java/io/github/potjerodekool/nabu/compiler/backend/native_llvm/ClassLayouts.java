@@ -476,11 +476,12 @@ public class ClassLayouts {
 
     public LLVMTypeRef objectHeaderType() {
         if (headerType == null) {
-            // { ptr type_info } — 8 bytes.
-            // monitor/thread moved to external nabu_monitor table (Lever 1 phase 3).
-            // vtable/itable are in type_info (slots 8/9) since phase 2.
+            // { ptr type, i32 monitor, i32 thread }
+            // vtable and itable moved to type_info (slots 8 and 9); 16 bytes.
             LLVMTypeRef[] header = {
-                    LLVMPointerTypeInContext(ctx, 0)
+                    LLVMPointerTypeInContext(ctx, 0),
+                    LLVMInt32TypeInContext(ctx),
+                    LLVMInt32TypeInContext(ctx)
             };
             PointerPointer<Pointer> pp = new PointerPointer<>(header.length);
             for (int i = 0; i < header.length; i++) pp.put(i, header[i]);

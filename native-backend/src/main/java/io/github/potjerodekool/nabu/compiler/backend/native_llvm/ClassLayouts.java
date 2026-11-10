@@ -138,6 +138,8 @@ public class ClassLayouts {
          * een lege array laadde. Dispatch hoort daar via de itable te lopen.
          */
         public boolean isInterface;
+        /** True iff this class carries the {@code final} modifier. */
+        public boolean isFinal;
         // full-method-naam (Owner_method) -> vtable-slot
         private final Map<String, Integer> virtualSlots = new LinkedHashMap<>();
         /**
@@ -1826,6 +1828,7 @@ for (IRModule m : modules) {
         ClassLayout layout = new ClassLayout(internalName, structType, typeInfo);
         // Een interface heeft geen klassen-vtable; dispatch loopt via de itable.
         layout.isInterface = Flags.hasFlag(module.flags, Flags.INTERFACE);
+        layout.isFinal     = Flags.hasFlag(module.flags, Flags.FINAL);
         layout.fieldIndexToStructIndex.putAll(indexMap);
         for (int i = 0; i < fields.size(); i++) {
             if (i > 0) layout.instanceFieldTypes.add(fields.get(i));
@@ -2846,6 +2849,16 @@ private void buildVtable(LLVMModuleRef mod, IRModule module, ClassLayout layout)
 
 public ClassLayout get(String internalName) {
         return byInternalName.get(normalizeInternalName(internalName));
+    }
+
+    /**
+     * True iff {@code internalName} is a final class (not an interface) in this
+     * compilation.  Final classes have no subclasses, so an instanceof check is
+     * a simple pointer equality against the class's type_info global.
+     */
+    public boolean isFinalClass(String internalName) {
+        final ClassLayout layout = get(internalName);
+        return layout != null && layout.isFinal && !layout.isInterface && layout.typeInfoGlobal != null;
     }
 
     /**

@@ -264,6 +264,31 @@ equality comparison. The intrinsics are correct and may help in workloads that a
 branch-predictor warmup) or that hash many unique strings with large arrays; they remain in
 `jcl_lite.c` as a foundation for further tuning.
 
+## Lever 3 results (2026-11-10, inline final-class instanceof — pointer compare, no call)
+
+Lever 3 replaces calls to `nabu_instanceof_cached` for `final` classes with an inline pointer compare.
+The old path: null check → load inline-cache slot → compare → conditional call into the runtime cache.
+The new path: null check → load `obj->type` → compare against `&C_type_info`. No function call, no
+cache-slot global per call site.
+
+Implementation: `InstructionEmitter.emitFinalClassInstanceOf` emits a two-block CFG (null-check block
+→ type-check block → merge phi). The binary is ~167 KB smaller (no cache-slot globals).
+
+| Metric | Phase 3 baseline | Lever 3 | Δ |
+|--------|-----------------|---------|---|
+| `/pet/2` req/s | 1571 | 1611 | +2.5% (noise) |
+| `/pet/findByStatus` req/s | 966 | 947 | −2% (noise) |
+| `/store/inventory` req/s | 973 | 970 | ≈ 0% |
+| startup (to first 200) | 1.2 s | 1.1 s | ≈ 0% |
+| RSS after the run | 732 MB | 732 MB | — |
+
+**Conclusion:** no measurable improvement. All three endpoints land within measurement noise (±5–7%
+on `/pet/2`, ±3–5% on complex queries). The bottleneck in this workload remains the external monitor
+table introduced in Phase 3: every `monitorenter`/`monitorexit` probes the hash table, which
+completely masks the savings from eliminating the instanceof call overhead. The inline isinstance
+optimization is correct and reduces binary size; it may show a gain in workloads where `instanceof`
+is on the hot path but monitor contention is not (e.g. pure business-logic or type-dispatch loops).
+
 ## Phase 0 (do this first, on this machine)
 
 Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat -e instructions,cycles true`.

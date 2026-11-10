@@ -2754,6 +2754,12 @@ public class InstructionEmitter {
                 : instanceOf.type().toString();
         LLVMValueRef classStr = constants.resolveString(className, IRGlobal.Linkage.PRIVATE);
 
+        // Lever 3: inline final-class instanceof — a single pointer comparison, no call, no cache slot.
+        if (!arrayType && classLayouts.isFinalClass(className)) {
+            emitFinalClassInstanceOf(source, classLayouts.get(className), boolType, instanceOf);
+            return;
+        }
+
         PointerPointer<Pointer> args = new PointerPointer<>(3);
         args.put(0, source);
         args.put(1, classStr);
@@ -2781,6 +2787,52 @@ public class InstructionEmitter {
         result = LLVMBuildTrunc(builder, result, boolType,
                 new BytePointer(nameOf(instanceOf.result())));
         storeLocal(instanceOf.result(), result);
+    }
+
+    /**
+     * Lever 3: emit an inline {@code instanceof} for a final class.
+     * <p>
+     * Result is {@code (source != null) && (source->type == layout.typeInfoGlobal)}.
+     * No function call, no cache slot: a single pointer load + compare.
+     */
+    private void emitFinalClassInstanceOf(LLVMValueRef source,
+                                          ClassLayouts.ClassLayout layout,
+                                          LLVMTypeRef boolType,
+                                          IRInstruction.InstanceOf instanceOf) {
+        final LLVMTypeRef ptrType = LLVMPointerTypeInContext(ctx, 0);
+        final LLVMValueRef nullPtr = LLVMConstNull(ptrType);
+
+        final LLVMBasicBlockRef entryBB = LLVMGetInsertBlock(builder);
+        final LLVMValueRef currentFn = LLVMGetBasicBlockParent(entryBB);
+        final LLVMBasicBlockRef checkBB = LLVMAppendBasicBlockInContext(ctx, currentFn, ".io3.check");
+        final LLVMBasicBlockRef mergeBB = LLVMAppendBasicBlockInContext(ctx, currentFn, ".io3.merge");
+
+        // null → false (jump straight to merge block)
+        final LLVMValueRef isNull = LLVMBuildICmp(builder, LLVMIntEQ, source, nullPtr, "");
+        LLVMBuildCondBr(builder, isNull, mergeBB, checkBB);
+
+        // checkBB: load type pointer and compare with the final class's type_info global
+        LLVMPositionBuilderAtEnd(builder, checkBB);
+        final LLVMValueRef typeSlot = LLVMBuildStructGEP2(builder,
+                classLayouts.objectHeaderType(), source, ClassLayouts.HEADER_SLOT_TYPE, "");
+        final LLVMValueRef actualType = LLVMBuildLoad2(builder, ptrType, typeSlot, "");
+        final LLVMValueRef typeMatch = LLVMBuildICmp(builder, LLVMIntEQ,
+                actualType, layout.typeInfoGlobal, "");
+        LLVMBuildBr(builder, mergeBB);
+
+        // mergeBB: phi(false from entryBB null-path, typeMatch from checkBB)
+        LLVMPositionBuilderAtEnd(builder, mergeBB);
+        final LLVMValueRef phi = LLVMBuildPhi(builder, boolType,
+                new BytePointer(nameOf(instanceOf.result())));
+        final PointerPointer<Pointer> inVals   = new PointerPointer<>(2);
+        final PointerPointer<Pointer> inBlocks = new PointerPointer<>(2);
+        inVals.put(0, LLVMConstInt(boolType, 0, 0)).put(1, typeMatch);
+        inBlocks.put(0, entryBB).put(1, checkBB);
+        LLVMAddIncoming(phi, inVals, inBlocks, 2);
+        Reference.reachabilityFence(inVals);
+        Reference.reachabilityFence(inBlocks);
+
+        storeLocal(instanceOf.result(), phi);
     }
 
     // -------------------------------------------------------

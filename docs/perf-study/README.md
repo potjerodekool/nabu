@@ -289,6 +289,31 @@ completely masks the savings from eliminating the instanceof call overhead. The 
 optimization is correct and reduces binary size; it may show a gain in workloads where `instanceof`
 is on the hot path but monitor contention is not (e.g. pure business-logic or type-dispatch loops).
 
+## Phase 3 revert (2026-11-10, restore inline monitor fields — back to 16 B header)
+
+Levers 2 and 3 confirmed that Phase 3's external monitor table is the entire bottleneck:
+both levers showed no improvement because every `monitorenter`/`monitorexit` probes the
+hash table, masking all other savings. Reverted to the Phase 2 layout (16 B header with
+inline `monitor_count` + `thread_id`). Levers 2 and 3 are retained.
+
+| Metric | Phase 3 | Revert (= Phase 2 layout) | Δ vs Phase 3 |
+|--------|---------|--------------------------|--------------|
+| `/pet/2` req/s | 1571 | 1688 | +7% |
+| `/pet/findByStatus` req/s | 966 | 984 | +2% |
+| `/store/inventory` req/s | 973 | 983 | +1% |
+| startup (to first 200) | 1.2 s | 1.1 s | ≈ 0% |
+| RSS after the run | 732 MB | 366 MB | **−50%** |
+
+The throughput numbers are within measurement noise of the Phase 2 baseline (1801/1055/1056),
+confirming the regression is fully explained by the external monitor table. RSS is back to
+364–366 MB (Phase 2 level). Levers 2+3 are still in; they had no measurable effect on their
+own and remain as a foundation for future experiments.
+
+**Current state (Lever 2 + Lever 3 on Phase 2 layout):**
+- Object header: `{ void *type, int32_t monitor_count, int32_t thread_id }` = 16 bytes
+- String intrinsics: `String.hashCode`/`equals` in `jcl_lite.c` (BIND, strong symbol)
+- Inline instanceof: final classes use a pointer compare, no call, no cache-slot global
+
 ## Phase 0 (do this first, on this machine)
 
 Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat -e instructions,cycles true`.

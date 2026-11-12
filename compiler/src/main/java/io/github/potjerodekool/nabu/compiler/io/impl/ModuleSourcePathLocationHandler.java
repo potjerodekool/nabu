@@ -36,6 +36,7 @@ public class ModuleSourcePathLocationHandler extends BasicLocationHandler implem
             return;
         }
         isInit = true;
+        System.err.println("[DEBUG4] initModules called on " + System.identityHashCode(this) + " sourcePath=" + sourcePath);
 
         if (sourcePath != null) {
             final var modules = Paths.get(sourcePath);

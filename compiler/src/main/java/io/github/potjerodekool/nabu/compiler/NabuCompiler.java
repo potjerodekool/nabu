@@ -449,13 +449,14 @@ public class NabuCompiler implements Compiler {
     public CompilerContextImpl configure(final CompilerOptions compilerOptions) {
         final var fullOptions = withDefaults(compilerOptions);
 
+        final var fileManager = new NabuCFileManager();
+        fileManager.processOptions(fullOptions);
         final var compilerContext = new CompilerContextImpl(
-                new NabuCFileManager(),
+                fileManager,
                 fullOptions,
                 new PluginRegistry(),
                 AsmClassElementLoader::new
         );
-        final var fileManager = compilerContext.getFileManager();
         setup(fileManager, fullOptions);
 
         return compilerContext;

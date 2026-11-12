@@ -114,6 +114,8 @@ public class FunctionEmitter {
             }
             case IRInstruction.Cast cast -> out.add(cast.source());
             case IRInstruction.CondBranch condBranch -> out.add(condBranch.condition());
+            case IRInstruction.TableSwitch tableSwitch -> out.add(tableSwitch.selector());
+            case IRInstruction.LookupSwitch lookupSwitch -> out.add(lookupSwitch.selector());
             case IRInstruction.Return ret -> {
                 if (ret.value() != null) {
                     out.add(ret.value());
@@ -233,6 +235,13 @@ public class FunctionEmitter {
             case IRInstruction.Branch branch -> emitBranch(branch);
             case IRInstruction.Cast cast -> emitCast(cast);
             case IRInstruction.CondBranch condBranch -> emitCondBranch(condBranch);
+            case IRInstruction.TableSwitch tableSwitch -> {
+                // TODO: emit JVM tableswitch. Voorlopig fallback: no-op (de IR
+                // moet nog een CondBranch-chain bevatten om correct te werken).
+            }
+            case IRInstruction.LookupSwitch lookupSwitch -> {
+                // TODO: emit JVM lookupswitch. Voorlopig fallback: no-op.
+            }
             case IRInstruction.IndirectCall indirectCall -> emitIndirectCall(indirectCall);
             case IRInstruction.InstanceOf instanceOf -> emitInstanceOf(instanceOf);
             case IRInstruction.Throw throwInst -> emitThrow(throwInst);

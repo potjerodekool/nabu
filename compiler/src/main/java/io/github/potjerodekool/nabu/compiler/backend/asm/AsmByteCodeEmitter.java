@@ -773,6 +773,8 @@ private static void collectValue(final IRValue value,
                 indirectCall.args().forEach(arg -> collectValue(arg, slots, slotTypes));
             }
             case IRInstruction.CondBranch condBranch -> collectValue(condBranch.condition(), slots, slotTypes);
+            case IRInstruction.TableSwitch tableSwitch -> collectValue(tableSwitch.selector(), slots, slotTypes);
+            case IRInstruction.LookupSwitch lookupSwitch -> collectValue(lookupSwitch.selector(), slots, slotTypes);
             case IRInstruction.Return returnInst -> collectValue(returnInst.value(), slots, slotTypes);
             case IRInstruction.Cast cast -> {
                 collectValue(cast.result(), slots, slotTypes);

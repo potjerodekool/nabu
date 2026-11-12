@@ -80,6 +80,18 @@ public final class ValueRewriter {
                         ? new IRInstruction.CondBranch(c, cb.trueLabel(), cb.falseLabel(), cb.location())
                         : cb;
             }
+            case IRInstruction.TableSwitch ts -> {
+                final var s = replaceValue(ts.selector(), onTemp);
+                yield (s != ts.selector())
+                        ? new IRInstruction.TableSwitch(s, ts.low(), ts.high(), ts.defaultLabel(), ts.caseLabels(), ts.location())
+                        : ts;
+            }
+            case IRInstruction.LookupSwitch ls -> {
+                final var s = replaceValue(ls.selector(), onTemp);
+                yield (s != ls.selector())
+                        ? new IRInstruction.LookupSwitch(s, ls.defaultLabel(), ls.keys(), ls.caseLabels(), ls.location())
+                        : ls;
+            }
             case IRInstruction.Return ret -> {
                 if (ret.value() == null) yield ret;
                 final var v = replaceValue(ret.value(), onTemp);

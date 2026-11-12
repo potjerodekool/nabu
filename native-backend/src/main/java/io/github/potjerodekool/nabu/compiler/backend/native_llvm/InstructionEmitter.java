@@ -189,6 +189,8 @@ public class InstructionEmitter {
             case IRInstruction.IndirectCall ic -> emitIndirectCall(ic);
             case IRInstruction.Branch        br -> emitBranch(br);
             case IRInstruction.CondBranch    cb -> emitCondBranch(cb);
+            case IRInstruction.TableSwitch    ts -> { /* TODO: native tableswitch */ }
+            case IRInstruction.LookupSwitch   ls -> { /* TODO: native lookupswitch */ }
             case IRInstruction.Return       ret -> emitReturn(ret);
             case IRInstruction.Cast           c -> emitCast(c);
             case IRInstruction.Phi           p -> emitPhi(p);

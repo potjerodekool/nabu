@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import java.util.List;
 import java.util.Objects;
 
-public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.ArrayStore, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.StackAlloc, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion, IRInstruction.Unreachable {
+public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.ArrayStore, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.LookupSwitch, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.StackAlloc, IRInstruction.Store, IRInstruction.TableSwitch, IRInstruction.Throw, IRInstruction.TryCatchRegion, IRInstruction.Unreachable {
 
     /** Resultaat van de instructie; null als de instructie void is. */
     IRValue result();
@@ -157,6 +157,33 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
             IRValue condition,
             String         trueLabel,
             String         falseLabel,
+            SourceLocation location
+    ) implements IRInstruction {
+        public IRValue result() { return null; }
+    }
+
+    // -------------------------------------------------------
+    // Switch-dispatch (tableswitch / lookupswitch)
+    // -------------------------------------------------------
+
+    /** Dichte integer-switch: emitteert een JVM tableswitch. */
+    record TableSwitch(
+            IRValue selector,
+            int            low,
+            int            high,
+            String         defaultLabel,
+            List<String>   caseLabels,
+            SourceLocation location
+    ) implements IRInstruction {
+        public IRValue result() { return null; }
+    }
+
+    /** Spaarse integer-switch: emitteert een JVM lookupswitch. */
+    record LookupSwitch(
+            IRValue selector,
+            String         defaultLabel,
+            List<Integer>  keys,
+            List<String>   caseLabels,
             SourceLocation location
     ) implements IRInstruction {
         public IRValue result() { return null; }

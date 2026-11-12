@@ -5398,11 +5398,25 @@ if (argVal != null) args.add(argVal);
                         if (caseValue != null) {
                             // A String is compared with equals, not by reference (JLS 14.11.2): a null
                             // selector throws NullPointerException.
-                            IRValue eq = isStringType(selector.type())
-                                    ? builder.emitCall(CallKind.VIRTUAL, "java.lang.String_equals", IRType.BOOL,
-                                            List.of(new IRType.Ptr(IRType.I8, "Ljava/lang/Object;")),
-                                            List.of(selector, caseValue))
-                                    : builder.emitBinaryOp(Op.EQ, selector, caseValue);
+                            // Voor strings eerst hashCode vergelijken (snelle afwijzing), daarna equals:
+                            // dit is de javac-strategie (hashCode-dispatch) in light-weight vorm.
+                            IRValue eq;
+                            if (isStringType(selector.type())) {
+                                final var hashCodeSelector = builder.emitCall(
+                                        CallKind.VIRTUAL, "java.lang.String_hashCode", IRType.I32,
+                                        List.of(), List.of(selector));
+                                final var hashCodeCase = builder.emitCall(
+                                        CallKind.VIRTUAL, "java.lang.String_hashCode", IRType.I32,
+                                        List.of(), List.of(caseValue));
+                                final var hashEq = builder.emitBinaryOp(Op.EQ, hashCodeSelector, hashCodeCase);
+                                final var equalsCall = builder.emitCall(
+                                        CallKind.VIRTUAL, "java.lang.String_equals", IRType.BOOL,
+                                        List.of(new IRType.Ptr(IRType.I8, "Ljava/lang/Object;")),
+                                        List.of(selector, caseValue));
+                                eq = builder.emitBinaryOp(Op.AND, hashEq, equalsCall);
+                            } else {
+                                eq = builder.emitBinaryOp(Op.EQ, selector, caseValue);
+                            }
                             match = (match == null)
                                     ? eq
                                     : builder.emitBinaryOp(Op.OR, match, eq);

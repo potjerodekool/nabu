@@ -1,0 +1,39 @@
+name: Native Backend Tests
+
+on:
+  push:
+    branches: [ main, perf-study ]
+  pull_request:
+    branches: [ main, perf-study ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Java
+      uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+        cache: 'maven'
+
+    - name: Install native toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc libgc-dev
+
+    - name: Build compiler-api
+      run: |
+        mvn -B -o install -pl compiler-api -am -DskipTests -Dmaven.javadoc.skip=true
+
+    - name: Build and test native-backend
+      run: |
+        mvn -B test -pl native-backend -Dnabu.gcc=/usr/bin/gcc

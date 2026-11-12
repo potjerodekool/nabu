@@ -13,7 +13,7 @@ public class CUnionType extends AbstractType implements UnionType {
 
     private final List<TypeMirror> alternatives;
 
-    protected CUnionType(final CClassType classType,
+    public CUnionType(final CClassType classType,
                          final List<TypeMirror> alternatives) {
         super(null);
         this.alternatives = List.copyOf(alternatives);

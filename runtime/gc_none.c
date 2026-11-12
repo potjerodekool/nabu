@@ -28,8 +28,18 @@ static void *nabu_none_check(void *p) {
 }
 
 /* What the compiled code calls: zeroed memory, and memory that the code clears itself. */
-void *nabu_none_alloc(size_t n) { return nabu_none_check(calloc(1, n)); }
-void *nabu_none_alloc_atomic(size_t n) { return nabu_none_check(malloc(n)); }
+static volatile size_t nabu_gc_alloc_bytes = 0;
+static void nabu_gc_alloc_stats_report(void) {
+    if (getenv("NABU_GC_ALLOC_STATS") != NULL) {
+        fprintf(stderr, "[nabu/gc] total allocated bytes: %zu\n", nabu_gc_alloc_bytes);
+    }
+}
+__attribute__((constructor)) static void nabu_gc_alloc_stats_init(void) {
+    atexit(nabu_gc_alloc_stats_report);
+}
+
+void *nabu_none_alloc(size_t n) { nabu_gc_alloc_bytes += n; return nabu_none_check(calloc(1, n)); }
+void *nabu_none_alloc_atomic(size_t n) { nabu_gc_alloc_bytes += n; return nabu_none_check(malloc(n)); }
 
 void *nabu_gc_alloc(size_t n) { return nabu_none_alloc(n); }
 void *nabu_gc_alloc_atomic(size_t n) { return nabu_none_alloc_atomic(n); }

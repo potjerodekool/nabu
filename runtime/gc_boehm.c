@@ -42,8 +42,18 @@ __attribute__((constructor(101))) static void nabu_boehm_init(void) {
     nabu_gc_init();
 }
 
-void *nabu_gc_alloc(size_t n) { return GC_malloc(n); }
-void *nabu_gc_alloc_atomic(size_t n) { return GC_malloc_atomic(n); }
+static volatile size_t nabu_gc_alloc_bytes = 0;
+static void nabu_gc_alloc_stats_report(void) {
+    if (getenv("NABU_GC_ALLOC_STATS") != NULL) {
+        fprintf(stderr, "[nabu/gc] total allocated bytes: %zu\n", nabu_gc_alloc_bytes);
+    }
+}
+__attribute__((constructor(102))) static void nabu_gc_alloc_stats_init(void) {
+    atexit(nabu_gc_alloc_stats_report);
+}
+
+void *nabu_gc_alloc(size_t n) { nabu_gc_alloc_bytes += n; return GC_malloc(n); }
+void *nabu_gc_alloc_atomic(size_t n) { nabu_gc_alloc_bytes += n; return GC_malloc_atomic(n); }
 void *nabu_gc_alloc_pinned(size_t n) { return GC_malloc_uncollectable(n); }
 void *nabu_gc_realloc(void *p, size_t n) { return GC_realloc(p, n); }
 void nabu_gc_free(void *p) { GC_free(p); }
@@ -247,5 +257,6 @@ void *nabu_gc_alloc_traced(size_t n, void (*trace)(void *obj, void (*mark)(void 
     }
     NABU_BOEHM_UNLOCK();
     if (kind < 0) return NULL;
+    nabu_gc_alloc_bytes += n;
     return GC_malloc_kind(n, kind);
 }

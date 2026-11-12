@@ -818,8 +818,25 @@ public final class BytecodeReachabilityCompiler {
         final var code = init.instructions;
         code.add(new org.objectweb.asm.tree.TypeInsnNode(org.objectweb.asm.Opcodes.NEW, "java/lang/System$1"));
         code.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.DUP));
+        // JDK 21: System$1(SecurityManager); JDK 25+: System$1(). Kies op basis van de
+        // draaiende JDK, zodat de bootstrap op beide werkt.
+        String systemOneCtorDesc = "()V";
+        try {
+            final Class<?> c = Class.forName("java.lang.System$1", false, Object.class.getClassLoader());
+            try {
+                c.getDeclaredConstructor();
+                systemOneCtorDesc = "()V";
+            } catch (NoSuchMethodException e) {
+                systemOneCtorDesc = "(Ljava/lang/SecurityManager;)V";
+            }
+        } catch (ClassNotFoundException e) {
+            systemOneCtorDesc = "()V";
+        }
+        if ("(Ljava/lang/SecurityManager;)V".equals(systemOneCtorDesc)) {
+            code.add(new org.objectweb.asm.tree.InsnNode(org.objectweb.asm.Opcodes.ACONST_NULL));
+        }
         code.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESPECIAL,
-                "java/lang/System$1", "<init>", "()V", false));
+                "java/lang/System$1", "<init>", systemOneCtorDesc, false));
         code.add(new org.objectweb.asm.tree.MethodInsnNode(org.objectweb.asm.Opcodes.INVOKESTATIC,
                 "jdk/internal/access/SharedSecrets", "setJavaLangAccess",
                 "(Ljdk/internal/access/JavaLangAccess;)V", false));
@@ -2263,6 +2280,15 @@ public final class BytecodeReachabilityCompiler {
                     final String owner = ((org.objectweb.asm.tree.MethodInsnNode) insn).owner;
                     if (!owner.startsWith("[")) {
                         queueInit(owner);
+                    }
+                }
+                case Opcodes.INVOKESPECIAL -> {
+                    final var mi = (org.objectweb.asm.tree.MethodInsnNode) insn;
+                    if (!mi.owner.startsWith("[")) {
+                        queueMethod(new MethodRef(mi.owner, mi.name, mi.desc, false));
+                        if ("<init>".equals(mi.name)) {
+                            queueInstantiate(mi.owner);
+                        }
                     }
                 }
                 case Opcodes.INVOKEDYNAMIC -> {

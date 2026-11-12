@@ -7,6 +7,8 @@ import io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction;
 import io.github.potjerodekool.nabu.backend.ir.IRModule;
 import io.github.potjerodekool.nabu.backend.ir.types.IRType;
 import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
+import io.github.potjerodekool.nabu.backend.nativeimage.GraalVMNativeImageConfig.ReflectEntry;
+import io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry;
 import io.github.potjerodekool.nabu.lang.Flags;
 
 import org.bytedeco.javacpp.BytePointer;
@@ -127,6 +129,12 @@ public class ClassLayouts {
         public final LLVMTypeRef structType;
         public final Map<Integer, Integer> fieldIndexToStructIndex = new LinkedHashMap<>();
         public final List<LLVMTypeRef> instanceFieldTypes = new ArrayList<>();
+        /**
+         * The simple names of the instance fields dead-field elimination left out of this struct. A read of such a
+         * field becomes {@code undef} and a store a no-op; the set is per class because the reflection configuration
+         * can keep a name in one class that is eliminated in another.
+         */
+        public final Set<String> eliminatedFieldNames = new HashSet<>();
         public final LLVMValueRef typeInfoGlobal;
         public LLVMValueRef vtableGlobal;
         /**
@@ -173,6 +181,11 @@ public class ClassLayouts {
         public int structIndex(int fieldIndex) {
             Integer v = fieldIndexToStructIndex.get(fieldIndex);
             return v != null ? v : -1;
+        }
+
+        /** Whether dead-field elimination left a field with this name out of this struct. */
+        public boolean isEliminatedField(final String name) {
+            return eliminatedFieldNames.contains(name);
         }
 
         /** De functienaam die in {@code slot} staat volgens de canonieke volgorde. */
@@ -371,6 +384,44 @@ public class ClassLayouts {
     private final Map<String, ClassLayout> byInternalName = new LinkedHashMap<>();
     // normalized internal name -> module (voor super-resolutie)
     private final Map<String, IRModule> modulesByInternalName = new LinkedHashMap<>();
+
+    /**
+     * Which instance fields the program reads (see {@link FieldReachability}); null when elimination is off. A field
+     * that is never read is left out of the object struct: it takes room in every instance for nothing.
+     */
+    private FieldReachability reachability;
+    /** Fields reachable by name through the runtime's reflection data: those must keep their slot. */
+    private ReflectionRegistry reflectionRegistry;
+    /** The names of the fields that were left out of a struct (for the diagnostics of a field access). */
+    private final Set<String> eliminatedFieldNames = new HashSet<>();
+
+    /** Passes the read/write analysis of the whole batch in; null keeps every field. */
+    public void setFieldReachability(final FieldReachability reachability) {
+        this.reachability = reachability;
+    }
+
+    /** The reflection configuration of the batch: a registered field must keep its slot (the runtime reads it by name). */
+    public void setReflectionRegistry(final ReflectionRegistry reflectionRegistry) {
+        this.reflectionRegistry = reflectionRegistry;
+    }
+
+    /** Whether a field was deliberately left out of the struct (a read becomes undef, a write a no-op). */
+    public boolean isEliminatedField(final String name) {
+        return eliminatedFieldNames.contains(name);
+    }
+
+    /** How many instance fields were left out of structs in this build (dead-field elimination). */
+    private int eliminatedFieldCount;
+
+    /** Adds to the count of eliminated instance fields (called from {@link #registerStruct}). */
+    void addEliminatedFieldCount(final int n) {
+        eliminatedFieldCount += n;
+    }
+
+    /** How many instance fields were left out of structs in this build (dead-field elimination). */
+    public int eliminatedFieldCount() {
+        return eliminatedFieldCount;
+    }
     /** Call-target -> het target op de declarerende eigenaar (zie {@link #canonicalize}). */
     private final Map<String, String> declaringTargets = new HashMap<>();
     /** Interne klassenaam -> de lid-namen van de functies die de module declareert. */
@@ -1779,13 +1830,19 @@ for (IRModule m : modules) {
         int counter = 0;        // telt ALLE (eigen) velden (mimic computeFieldIndex)
         int structIdx = 1 + superInstanceCount; // struct-index na header + super-velden
         var indexMap = new LinkedHashMap<Integer, Integer>();
+        final java.util.Set<String> eliminatedHere = new java.util.HashSet<>();
 
         for (IRField field : module.fields()) {
             boolean isStatic = Flags.hasFlag(field.flags(), Flags.STATIC);
             if (!isStatic) {
-                indexMap.put(counter, structIdx);
-                fields.add(mapFieldType(field.type()));
-                structIdx++;
+                if (keepInstanceField(module, field)) {
+                    indexMap.put(counter, structIdx);
+                    fields.add(mapFieldType(field.type()));
+                    structIdx++;
+                } else {
+                    eliminatedHere.add(field.name());
+                    eliminatedFieldNames.add(field.name());
+                }
             }
             counter++;
         }
@@ -1831,6 +1888,8 @@ for (IRModule m : modules) {
         layout.isInterface = Flags.hasFlag(module.flags, Flags.INTERFACE);
         layout.isFinal     = Flags.hasFlag(module.flags, Flags.FINAL);
         layout.fieldIndexToStructIndex.putAll(indexMap);
+        layout.eliminatedFieldNames.addAll(eliminatedHere);
+        addEliminatedFieldCount(eliminatedHere.size());
         for (int i = 0; i < fields.size(); i++) {
             if (i > 0) layout.instanceFieldTypes.add(fields.get(i));
         }
@@ -1839,6 +1898,34 @@ for (IRModule m : modules) {
         if (module.name != null && !module.name.equals(internalName)) {
             byInternalName.put(module.name, layout);
         }
+    }
+
+    /**
+     * Whether an instance field keeps its slot in the struct. Dead-field elimination leaves out a field the program
+     * never reads (a field that is only written takes room in every instance for nothing). The test is by simple
+     * name over the whole batch, the conservative reading of {@link FieldReachability}: a name that is read
+     * somewhere stays everywhere, which also covers the runtime reaching a field by name (reflection, Unsafe).
+     *
+     * <p>Kept regardless: volatile fields (a dropped store would drop its memory ordering), public fields (the
+     * runtime's {@code allPublicFields} reads inherited ones too), and fields the reflection configuration names.</p>
+     */
+    private boolean keepInstanceField(final IRModule module, final IRField field) {
+        if (reachability == null) {
+            return true;
+        }
+        if (Flags.hasFlag(field.flags(), Flags.VOLATILE) || Flags.hasFlag(field.flags(), Flags.PUBLIC)) {
+            return true;
+        }
+        return reachability.isRead(field.name()) || reflectionKeeps(module, field);
+    }
+
+    /** Whether the reflection configuration of the batch makes this field reachable by name at run time. */
+    private boolean reflectionKeeps(final IRModule module, final IRField field) {
+        if (reflectionRegistry == null) {
+            return false;
+        }
+        final ReflectEntry entry = reflectionRegistry.entryFor(normalizeInternalName(module.name));
+        return entry != null && entry.includesField(field.name(), Flags.hasFlag(field.flags(), Flags.PUBLIC));
     }
 
     /**

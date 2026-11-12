@@ -3,6 +3,14 @@
 Handover for a session on a Linux (Ubuntu) machine. Written 2026-11-09 from a Windows session. Everything below that is
 a number was measured there; everything marked *estimate* is a guess to be replaced by measurements.
 
+> **Current-status note (added 2026-11-11).** This file is a dated research log: each section records the state at the
+> time it was written, so older numbers (e.g. "the object header is 40 bytes") are that phase's baseline, not the
+> present layout. The **current object header is 16 bytes** — `{ void *type, int32_t monitor_count, int32_t thread_id }`
+> — with the vtable and itable in `nabu_type_info` (slots 8 and 9); this is the Phase 2 layout. The Phase 3 experiment
+> that shrank the header to 8 bytes with an external monitor table was measured as a regression and reverted (see
+> *Phase 3 results* and *Current state* below). This matches `ClassLayouts.objectHeaderType()` and `struct nabu_object`
+> in `nabu_runtime.h`, and the object model in `site/backends/llvm/internals.md`.
+
 ## Goal (decided by the owner)
 
 The petstore demo built with `nabu-native-image` must come within **1.5x of GraalVM `native-image`** on all three:
@@ -314,6 +322,35 @@ own and remain as a foundation for future experiments.
 - String intrinsics: `String.hashCode`/`equals` in `jcl_lite.c` (BIND, strong symbol)
 - Inline instanceof: final classes use a pointer compare, no call, no cache-slot global
 
+## Dead-field elimination (2026-11-11, `-Dnabu.deadFields=false` turns it off)
+
+A field the program never reads is left out of the object struct (`FieldReachability` + `ClassLayouts`):
+it only takes room in every instance. The test is by simple field name over the whole batch, so a name
+that is read anywhere stays in every class that declares it — that also covers the runtime reading a
+field by name (`String.value`, `File.path`, `Unsafe`). `volatile`, `public` and reflection-configured
+fields keep their slot; a read of an eliminated field becomes `undef` and a store a no-op.
+
+Measured on this machine (x86-64, JDK 25 GraalVM CE, `-O2`/DEFAULT, BOEHM, 16 partitions):
+
+| Probe | Field | deadFields on | deadFields off | Δ |
+|---|---|---|---|---|
+| 400 000 `Box` objects, two write-only fields | peak RSS | 29 464 kB | 36 380 kB | **−6 916 kB (−19 %)** |
+| `app/Main$Box` type_info | object size | 24 B | 32 B | −8 B (−25 %) |
+| probe executable | `.exe` | 10 388 312 B | 10 404 816 B | −16 504 B (−0.16 %) |
+| probe module | `.ll` | 82 920 488 B | 83 044 330 B | −123 842 B (−0.15 %) |
+| `StringConstantFieldE2eIT` closure (1643 modules) | `.exe` | 10 623 552 B | 10 636 024 B | −12 472 B (−0.12 %) |
+| idem | `.ll` | 82 369 678 B | 82 484 247 B | −114 569 B (−0.14 %) |
+
+`-Dnabu.closureStats=true` on that closure: **195 JDK instance fields (1349 B) and 2 program fields
+(12 B) are never read by name** — the upper bound of what elimination removes (volatile, public and
+reflection fields are kept, so the real number is a little lower). A build with closureStats now also
+prints how many fields were actually left out: `[nabu/LLVM] dead-field elimination: N instance fields
+left out of object structs`. The 8 B/object in the probe is the
+two write-only fields (`int` + `long`); the rest of the RSS delta is JDK objects allocated during the
+run. The executable barely changes: dead fields are data, not code. The win is memory, proportional to
+how many instances of the affected classes are live — for a program that allocates a lot it is large,
+for a small one it is negligible.
+
 ## Phase 0 (do this first, on this machine)
 
 Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat -e instructions,cycles true`.
@@ -343,7 +380,8 @@ Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat
 - The Linux and macOS runtime already exist (`runtime/*.c`, `.github/workflows/native-linux-arm.yml`). The ITs
   (`native-backend`, 146 + 149 unit tests) passed on Linux arm64 and macOS earlier; run them on x86-64 first.
 - Build knobs: `-Dnabu.closureStats=true`, `-Dnabu.reachability.why=<text>`, `-Dnabu.llvm.phaseTiming=true`,
-  `-Dnabu.llvm.partitions=N`, `-Dnabu.devirt=false`, `-Dnabu.tbaa=false`, `-Dnabu.atomicArrays=false`.
+  `-Dnabu.llvm.partitions=N`, `-Dnabu.devirt=false`, `-Dnabu.tbaa=false`, `-Dnabu.atomicArrays=false`,
+  `-Dnabu.deadFields=false`.
   The runtime compiles to `~/.nabu/cache/runtime/<hash>`; a changed C file makes a new entry.
 
 ## Pitfalls found
@@ -372,6 +410,7 @@ Hardware counters need bare metal or a VM that exposes the PMU; check `perf stat
 ## Where the code is
 
 - Object model, layouts, vtables/itables, devirtualization: `native-backend/.../ClassLayouts.java`
+- Dead-field elimination (which instance fields are read): `native-backend/.../FieldReachability.java`
 - Instruction selection (allocation, casts, calls, field and array access): `InstructionEmitter.java`
 - Module emission and runtime declarations: `LLVMModuleEmitter.java`; partitions: `PartitionedCodegen.java`
 - Closure (reachability, lowering of JDK/library bytecode): `compiler/.../backend/bytecode/BytecodeReachabilityCompiler.java`

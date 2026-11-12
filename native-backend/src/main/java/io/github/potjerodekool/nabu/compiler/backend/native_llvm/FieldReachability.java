@@ -28,10 +28,24 @@ import java.util.Set;
  */
 final class FieldReachability {
 
+    /** {@code -Dnabu.deadFields=false} keeps every instance field in the object struct (dead-field elimination off). */
+    static boolean eliminate() {
+        return !"false".equals(System.getProperty("nabu.deadFields"));
+    }
+
     /** Instance fields that are read somewhere, as "owner-internal-name#name" of the class that names them. */
     final Set<String> read = new HashSet<>();
     /** Instance fields that are written somewhere. */
     final Set<String> written = new HashSet<>();
+    /**
+     * The simple names of every instance field that is read anywhere, regardless of the class that declares it.
+     *
+     * <p>The conservative key for elimination: a name that is read somewhere is never left out of a struct,
+     * whichever class declares it. That also covers access by name at run time (the runtime reaches fields such as
+     * {@code String.value} and {@code File.path} through {@code nabu_instance_field_offset}, not through an IR
+     * field access).</p>
+     */
+    final Set<String> readNames = new HashSet<>();
 
     private static final Map<Class<?>, Method[]> ACCESSORS = new HashMap<>();
 
@@ -86,6 +100,7 @@ final class FieldReachability {
             final String key = fieldKey(values);
             if (key != null) {
                 read.add(key);
+                readNames.add(((IRValue.Named) values.values().getLast()).name());
             }
             for (final IRValue value : values.values()) {
                 if (!(value instanceof IRValue.Named)) {
@@ -95,8 +110,11 @@ final class FieldReachability {
             return;
         }
         if (node instanceof IRValue.Named named) {
-            if (!named.isStatic() && named.ownerType() != null) {
-                read.add(keyOf(named));
+            if (!named.isStatic()) {
+                readNames.add(named.name());
+                if (named.ownerType() != null) {
+                    read.add(keyOf(named));
+                }
             }
             return;
         }
@@ -151,13 +169,18 @@ final class FieldReachability {
         return owner + "#" + named.name();
     }
 
+    /**
+     * Whether any instance field with this simple name is read somewhere. The conservative test for leaving a field
+     * out of the object struct: a name that is read anywhere stays in every class that declares it.
+     */
+    boolean isRead(final String name) {
+        return readNames.contains(name);
+    }
+
     /** Prints how many instance fields are never read, JDK and other (-Dnabu.closureStats). */
     static void report(final Collection<IRModule> modules, final FieldReachability reach) {
         // a read through a subclass names the subclass: match by field name over the class and its descendants
-        final Set<String> readNames = new HashSet<>();
-        for (final String key : reach.read) {
-            readNames.add(key.substring(key.indexOf('#') + 1));
-        }
+        final Set<String> readNames = reach.readNames;
         long[] fields = new long[2];
         long[] unread = new long[2];
         long[] bytes = new long[2];

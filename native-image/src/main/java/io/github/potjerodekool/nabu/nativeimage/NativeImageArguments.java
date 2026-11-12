@@ -22,9 +22,12 @@ import java.util.jar.JarFile;
  * @param outputDir the directory the executable is written to
  * @param gc        the garbage collector: BOEHM or NONE
  * @param opt       the optimization level: NONE, DEFAULT or AGGRESSIVE
+ * @param debug     emit full debug info (DWARF) in the executable and the object files (off by default)
  * @param strict    fail the build instead of producing a program that can fail on a missing JDK method
  * @param keepWork  keep the directory with the intermediate files
  * @param staticLink link the runtime of the toolchain into the executable (Windows/MinGW; the default there)
+ * @param strip     strip the symbol table from the executable afterwards (smaller, but stack traces lose function
+ *                  names)
  * @param action    what to do
  * @param warnings  options that are accepted but have no effect
  * @param excludes  prefixes of class names (dots or slashes) that are treated as not on the class path
@@ -35,9 +38,11 @@ public record NativeImageArguments(List<Path> classPath,
                                    Path outputDir,
                                    String gc,
                                    String opt,
+                                   boolean debug,
                                    boolean strict,
                                    boolean keepWork,
                                    boolean staticLink,
+                                   boolean strip,
                                    Action action,
                                    List<String> warnings,
                                    List<String> excludes) {
@@ -70,9 +75,11 @@ public record NativeImageArguments(List<Path> classPath,
         Path outputDir = null;
         String gc = "BOEHM";
         String opt = "DEFAULT";
+        boolean debug = false;
         boolean strict = false;
         boolean keepWork = false;
         boolean staticLink = windows;
+        boolean strip = false;
         Action action = Action.BUILD;
 
         for (int i = 0; i < args.size(); i++) {
@@ -99,12 +106,16 @@ public record NativeImageArguments(List<Path> classPath,
                 gc = arg.substring("--gc=".length()).toUpperCase();
             } else if (arg.equals("--opt")) {
                 opt = value(args, ++i, arg).toUpperCase();
-            } else if (arg.matches("-O[0-3s]")) {
+            } else if (arg.matches("-O[0-3sz]")) {
                 opt = switch (arg.charAt(2)) {
                     case '0' -> "NONE";
                     case '3' -> "AGGRESSIVE";
+                    case 's' -> "SIZE";
+                    case 'z' -> "SIZE_AGGRESSIVE";
                     default -> "DEFAULT";
                 };
+            } else if (arg.equals("-g") || arg.equals("--debug")) {
+                debug = true;
             } else if (arg.equals("--strict") || arg.equals("--no-fallback")) {
                 strict = true;
             } else if (arg.equals("--exclude")) {
@@ -119,6 +130,8 @@ public record NativeImageArguments(List<Path> classPath,
                 staticLink = true;
             } else if (arg.equals("--dynamic")) {
                 staticLink = false;
+            } else if (arg.equals("--strip")) {
+                strip = true;
             } else if (arg.equals("--verbose") || arg.equals("--install-exit-handlers")) {
                 warnings.add(arg + " has no effect");
             } else if (arg.startsWith("-H:") || arg.startsWith("-R:") || arg.startsWith("-J")
@@ -134,8 +147,8 @@ public record NativeImageArguments(List<Path> classPath,
         }
 
         if (action != Action.BUILD) {
-            return new NativeImageArguments(classPath, null, imageName, outputDir, gc, opt, strict, keepWork,
-                    staticLink, action, warnings, List.copyOf(excludes));
+            return new NativeImageArguments(classPath, null, imageName, outputDir, gc, opt, debug, strict, keepWork,
+                    staticLink, strip, action, warnings, List.copyOf(excludes));
         }
 
         String mainClass;
@@ -179,12 +192,12 @@ public record NativeImageArguments(List<Path> classPath,
         if (!List.of("BOEHM", "NONE").contains(gc)) {
             throw new UsageException("unknown --gc value " + gc + ", use BOEHM or NONE");
         }
-        if (!List.of("NONE", "DEFAULT", "AGGRESSIVE").contains(opt)) {
-            throw new UsageException("unknown --opt value " + opt + ", use NONE, DEFAULT or AGGRESSIVE");
+        if (!List.of("NONE", "DEFAULT", "AGGRESSIVE", "SIZE", "SIZE_AGGRESSIVE").contains(opt)) {
+            throw new UsageException("unknown --opt value " + opt + ", use NONE, DEFAULT, AGGRESSIVE, SIZE or SIZE_AGGRESSIVE");
         }
         return new NativeImageArguments(List.copyOf(classPath), mainClass, imageName,
-                outputDir != null ? outputDir : Path.of("."), gc, opt, strict, keepWork, staticLink, action,
-                List.copyOf(warnings), List.copyOf(excludes));
+                outputDir != null ? outputDir : Path.of("."), gc, opt, debug, strict, keepWork, staticLink, strip,
+                action, List.copyOf(warnings), List.copyOf(excludes));
     }
 
     private static String value(final List<String> args, final int index, final String option)

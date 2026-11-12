@@ -62,6 +62,19 @@ public class InstructionEmitter {
     // constructor ('this(...)') deelt het object van de eerste aanroep, dus
     // is er maar één HeapAlloc voor twee *_init-calls.
     private IRValue lastAllocatedObject;
+    /** LLVM-waarden die zeker niet-null zijn (alloc-resultaten): null-checks erop zijn overbodig. */
+    private final java.util.Set<LLVMValueRef> knownNonNull = new java.util.HashSet<>();
+    /** Per-blok tracking van waarden die in dit blok al als niet-null zijn gecheckt. */
+    private final java.util.Set<LLVMValueRef> blockNonNull = new java.util.HashSet<>();
+    private LLVMBasicBlockRef blockNonNullOwner;
+    // Dataflow-analyses per functie (null/bounds). Null als niet beschikbaar.
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis nullnessAnalysis;
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis intervalAnalysis;
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness>> nullnessResult;
+    private io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> intervalResult;
+    private String currentIrBlockLabel;
+    /** Lengtes van stack-arrays (AllocaArray) met constante grootte. */
+    private final java.util.Map<LLVMValueRef, Long> arrayLengths = new java.util.HashMap<>();
     // Naam van de functie die momenteel geëmitteerd wordt (diagnostiek).
     private String currentFunctionName;
     // Naam van de 'this'-parameter van de huidige constructor.
@@ -78,6 +91,10 @@ public class InstructionEmitter {
         this.currentFunctionName = fn != null ? fn.name : null;
         this.pendingConstructorAllocs.clear();
         this.lastAllocatedObject = null;
+        this.knownNonNull.clear();
+        this.blockNonNull.clear();
+        this.blockNonNullOwner = null;
+        this.arrayLengths.clear();
         this.inConstructor = fn != null && fn.isConstructor();
         this.thisParameterName = fn != null && fn.isConstructor() && !fn.params.isEmpty()
                 ? nameOf(fn.params.get(0))
@@ -137,6 +154,26 @@ public class InstructionEmitter {
         this.functionEmitter = functionEmitter;
     }
 
+    public void setNullnessAnalysis(io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis a) {
+        this.nullnessAnalysis = a;
+    }
+
+    public void setIntervalAnalysis(io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis a) {
+        this.intervalAnalysis = a;
+    }
+
+    public void setNullnessResult(io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness>> r) {
+        this.nullnessResult = r;
+    }
+
+    public void setIntervalResult(io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowResult<java.util.Map<String, io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Interval>> r) {
+        this.intervalResult = r;
+    }
+
+    public void setCurrentIrBlock(String label) {
+        this.currentIrBlockLabel = label;
+    }
+
     // -------------------------------------------------------
     // Dispatch
     // -------------------------------------------------------
@@ -161,6 +198,7 @@ public class InstructionEmitter {
             case IRInstruction.Unreachable     u -> emitUnreachable();
             case IRInstruction.Pop            p -> emitPop(p);
             case IRInstruction.HeapAlloc      ha -> emitHeapAlloc(ha);
+            case IRInstruction.StackAlloc     sa -> emitStackAlloc(sa);
             case IRInstruction.ArrayLoad      al -> emitArrayLoad(al);
             case IRInstruction.ArrayStore     as -> emitArrayStore(as);
             case IRInstruction.ArrayLength    al -> emitArrayLength(al);
@@ -478,6 +516,9 @@ public class InstructionEmitter {
                 && (a.allocType() instanceof IRType.Int || a.allocType() instanceof IRType.Float);
         final LLVMValueRef array = emitGcAlloc(totalBytes, pointerFree, nameOf(a.result()));
         storeArrayLength(array, count);
+        if (LLVMIsConstant(count) != 0 && LLVMIsAConstantInt(count) != null) {
+            arrayLengths.put(array, LLVMConstIntGetSExtValue(count));
+        }
         final String arrayClass = arrayClassName(a);
         storeArrayElemSize(array, elemSize | ((long) (arrayClass != null ? arrayTypeId(arrayClass) : 0) << 8));
         storeLocal(a.result(), array);
@@ -603,11 +644,45 @@ public class InstructionEmitter {
                     nameOf(ha.result()));
             initObjectHeader(obj, layout);
             storeLocal(ha.result(), obj);
+            knownNonNull.add(obj);
             return;
         }
 
         // Fallback: geen bekende klasse — zoals voorheen een vaste buffer
         runHeapAllocFallback(ha);
+    }
+
+    private void emitStackAlloc(IRInstruction.StackAlloc sa) {
+        // Stack-allocation van een niet-ontsnappend object: alloca van de struct,
+        // header-init, en registratie voor constructor-koppeling.
+        pendingConstructorAllocs.addLast(sa.result());
+        lastAllocatedObject = sa.result();
+
+        ClassLayouts.ClassLayout layout = classLayouts.getFor(sa.allocType());
+        if (layout != null && sizeOf(layout.structType) <= 512) {
+            // Alloca in het entry-blok (domineert de hele functie; mem2reg).
+            LLVMBasicBlockRef current = LLVMGetInsertBlock(builder);
+            LLVMBasicBlockRef entry = LLVMGetEntryBasicBlock(LLVMGetBasicBlockParent(current));
+            LLVMValueRef firstInstr = LLVMGetFirstInstruction(entry);
+            boolean hoist = firstInstr != null && !firstInstr.isNull();
+            if (hoist) LLVMPositionBuilder(builder, entry, firstInstr);
+
+            LLVMValueRef ptr = LLVMBuildAlloca(builder, layout.structType,
+                    new BytePointer(nameOf(sa.result())));
+            if (hoist) LLVMPositionBuilderAtEnd(builder, current);
+
+            // Alloca is niet gezeroed: reference-velden zouden anders garbage bevatten.
+            LLVMBuildMemSet(builder, ptr, LLVMConstInt(LLVMInt8TypeInContext(ctx), 0, 0),
+                    LLVMConstInt(LLVMInt64TypeInContext(ctx), sizeOf(layout.structType), 0), 8);
+            initObjectHeader(ptr, layout);
+            storeLocal(sa.result(), ptr);
+            knownNonNull.add(ptr);
+            return;
+        }
+
+        // Fallback: onbekende klasse -> heap-alloc (stack-grootte onbekend).
+        final IRInstruction.HeapAlloc ha = new IRInstruction.HeapAlloc(sa.result(), sa.allocType(), sa.location());
+        emitHeapAlloc(ha);
     }
 
     /**
@@ -764,7 +839,7 @@ public class InstructionEmitter {
         LLVMValueRef array = resolveValue(al.array());
         LLVMTypeRef elemType = types.map(al.elemType());
         final LLVMValueRef index = resolveValue(al.index());
-        emitBoundsCheck(array, index);
+        emitBoundsCheck(array, index, al.array(), al.index());
         LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
         LLVMValueRef val = LLVMBuildLoad2(builder, elemType, elemPtr,
                 new BytePointer(nameOf(al.result())));
@@ -776,7 +851,7 @@ public class InstructionEmitter {
         LLVMValueRef array = resolveValue(as.array());
         LLVMTypeRef elemType = types.map(as.elemType());
         final LLVMValueRef index = resolveValue(as.index());
-        emitBoundsCheck(array, index);
+        emitBoundsCheck(array, index, as.array(), as.index());
         LLVMValueRef elemPtr = arrayElementPtr(array, index, elemType);
         final LLVMValueRef elementStore = LLVMBuildStore(builder, toElementWidth(resolveValue(as.value()), elemType), elemPtr);
         tbaa.mark(elementStore, "arr." + Tbaa.typeKey(elemType));
@@ -805,11 +880,49 @@ public class InstructionEmitter {
     }
 
     /** Throws ArrayIndexOutOfBoundsException (or NullPointerException for a null array) for a bad index. */
-    private void emitBoundsCheck(final LLVMValueRef array, final LLVMValueRef index) {
+    private void emitBoundsCheck(final LLVMValueRef array, final LLVMValueRef index,
+                                final IRValue arrayIr, final IRValue indexIr) {
         if (LLVMGetTypeKind(LLVMTypeOf(index)) != LLVMIntegerTypeKind) {
             return;
         }
-        emitReceiverNullCheck(array, "array access");
+        // Dataflow: als de array bewezen non-null is, sla de null-check over.
+        boolean skipNull = false;
+        if (nullnessResult != null && arrayIr instanceof IRValue.Temp at) {
+            final var m = nullnessResult.in(currentIrBlockLabel);
+            if (m != null && m.get(at.name()) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
+                skipNull = true;
+            }
+        }
+        // Dataflow: als de index bewezen in-bounds is, sla de hele check over.
+        boolean skipAll = false;
+        if (intervalResult != null && indexIr instanceof IRValue.Temp it) {
+            final var m = intervalResult.in(currentIrBlockLabel);
+            if (m != null) {
+                final var iv = m.get(it.name());
+                if (iv != null && !iv.isTop() && !iv.isBottom()) {
+                    final Long len = arrayLengths.get(array);
+                    if (len != null && iv.lo() >= 0 && iv.hi() < len) {
+                        skipAll = true;
+                    }
+                }
+            }
+        }
+        if (skipAll) return;
+
+        // Const index binnen een bekende lengte: check overbodig.
+        final Long len = arrayLengths.get(array);
+        if (len != null && LLVMIsConstant(index) != 0 && LLVMIsAConstantInt(index) != null) {
+            final long idx = LLVMConstIntGetSExtValue(index);
+            if (idx >= 0 && idx < len) {
+                return;
+            }
+        }
+        if (!skipNull) {
+            emitReceiverNullCheck(array, "array access");
+        } else {
+            // nog steeds null-check op blok-niveau? knownNonNull bevat de LLVM-waarde al.
+            knownNonNull.add(array);
+        }
         final LLVMTypeRef i32 = LLVMInt32TypeInContext(ctx);
         final PointerPointer<Pointer> zeroIdx = new PointerPointer<>(1);
         zeroIdx.put(0, LLVMConstInt(LLVMInt64TypeInContext(ctx), 0, 0));
@@ -2223,9 +2336,35 @@ public class InstructionEmitter {
      * {@code catch (Exception)}. De worp loopt via {@link #emitCallOrInvoke},
      * zodat een omringende try hem vangt.
      */
+    private String tempNameOf(final LLVMValueRef obj) {
+        for (final var e : localValueMap.entrySet()) {
+            if (e.getValue() == obj) return e.getKey();
+        }
+        return null;
+    }
+
     private void emitReceiverNullCheck(final LLVMValueRef obj, final String callee) {
         if (LLVMIsConstant(obj) != 0 && LLVMIsNull(obj) == 0) {
             return; // niet-null constante, bv. een String-literal
+        }
+        // Dataflow: als de bijbehorende IR-temp bewezen non-null is, sla over.
+        if (nullnessResult != null) {
+            final String tn = tempNameOf(obj);
+            if (tn != null) {
+                final var m = nullnessResult.in(currentIrBlockLabel);
+                if (m != null && m.get(tn) == io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.Nullness.NON_NULL) {
+                    knownNonNull.add(obj);
+                    return;
+                }
+            }
+        }
+        final LLVMBasicBlockRef here = LLVMGetInsertBlock(builder);
+        if (here != blockNonNullOwner) {
+            blockNonNull.clear();
+            blockNonNullOwner = here;
+        }
+        if (knownNonNull.contains(obj) || blockNonNull.contains(obj)) {
+            return; // reeds bekend niet-null in dit blok
         }
         LLVMValueRef npe = globalValueMap.get("@nabu_throw_npe");
         final PointerPointer<Pointer> npeParams = new PointerPointer<>(1);
@@ -2270,6 +2409,8 @@ public class InstructionEmitter {
         emitCallOrInvoke("nabu_throw_npe", npeType, npe, npeArgs, 1, null);
         LLVMBuildUnreachable(builder);
         LLVMPositionBuilderAtEnd(builder, nonNullBB);
+        blockNonNull.add(obj);
+        blockNonNullOwner = nonNullBB;
     }
 
     private LLVMValueRef emitCallOrInvoke(String calleeName,
@@ -3523,6 +3664,11 @@ private void emitThrow(IRInstruction.Throw throwInst) {
             }
         }
         int structIndex = layout.structIndex(fieldIndex);
+        if (structIndex < 0 && classLayouts.isEliminatedField(named.name())) {
+            // Left out of the struct on purpose (dead-field elimination): a read becomes undef, a write a no-op.
+            // No fallback to a same-named field of another class, that would alias the two.
+            return null;
+        }
         if (structIndex < 0) {
             // De teller-index uit het IR is een HINT: de frontend telt over
             // getEnclosedElements(), terwijl de IRModule ook synthetische

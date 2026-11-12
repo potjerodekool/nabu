@@ -121,6 +121,7 @@
                     <include>nabu_gc.h</include>
                     <include>gc_boehm.c</include>
                     <include>gc_none.c</include>
+                    <include>nabu_profile_rt.c</include>
                 </includes>
             </resource>
         </resources>

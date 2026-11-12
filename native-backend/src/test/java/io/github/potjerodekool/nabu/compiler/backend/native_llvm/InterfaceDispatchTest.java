@@ -259,14 +259,15 @@ class InterfaceDispatchTest {
     /** De initialiserende constanten van de global met de gegeven naam. */
     private static String globalInitializer(String ll, String name) {
         // LLVM quoteert een symboolnaam alleen als dat nodig is (bv. bij een '$').
-        int at = ll.indexOf("@\"" + name + "\"");
-        int quoted = at < 0 ? at : at + 1;
-        if (quoted < 0) at = ll.indexOf("@" + name);
-        if (at < 0) return "";
-        int start = ll.indexOf(" = ", at);
-        if (start < 0) return "";
-        int end = ll.indexOf('\n', start);
-        return ll.substring(start, end < 0 ? ll.length() : end);
+        for (String line : ll.split("\\n")) {
+            String trimmed = line.trim();
+            if ((trimmed.startsWith("@" + name + " =")
+                    || trimmed.startsWith("@\"" + name + "\" ="))
+                    && trimmed.contains(" = ")) {
+                return trimmed.substring(trimmed.indexOf(" = "));
+            }
+        }
+        return "";
     }
 
     /**

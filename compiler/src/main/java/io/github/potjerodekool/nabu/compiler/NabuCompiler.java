@@ -154,10 +154,11 @@ public class NabuCompiler implements Compiler {
             // bronbestanden heen in één backend-run worden opgelost.
             final var gcStrategy = getGcStrategy(compilerOptions);
             final var optLevel = getOptLevel(compilerOptions);
+            final var debugInfo = getDebugInfo(compilerOptions);
             final var classPath = getClassPath(compilerOptions);
             final var compileOptions = new CompileOptions(
                     optLevel,
-                    false,
+                    debugInfo,
                     null,
                     gcStrategy,
                     targetVersion,
@@ -186,13 +187,13 @@ public class NabuCompiler implements Compiler {
                 }
                     SsaBuilder.run(module);
 
-                    final var optimized = Optimizer.optimize(module);
-
-                    allModules.add(optimized);
+                    // Optimalisatie wordt uitgesteld tot na de closure, zodat de inliner
+                    // een globale callee-map over alle modules (bron + closure) heeft.
+                    allModules.add(module);
 
                     if (producedBySource != null) {
                         producedBySource.computeIfAbsent(sourceName, k -> new ArrayList<>())
-                                .add(optimized.name.replace('.', '/') + ".class");
+                                .add(module.name.replace('.', '/') + ".class");
                     }
                 }
             }
@@ -316,7 +317,16 @@ public class NabuCompiler implements Compiler {
                 final long reachStart = System.nanoTime();
                 // allModules bevat op dit punt alleen de Nabu-source-modules:
                 // de sluiting volgt hun aanroepen.
-                allModules.addAll(reachabilityCompiler.compileClosure(reflectionRoots, java.util.List.copyOf(allModules)));
+                final var closureModules = reachabilityCompiler.compileClosure(reflectionRoots, java.util.List.copyOf(allModules));
+                allModules.addAll(closureModules);
+
+                // Cross-module optimalisatie: globale inliner over alle modules (bron + closure),
+                // gevolgd door de per-functie passes. -Dnabu.optimizeClosure=false schakelt het uit.
+                if (!"false".equals(System.getProperty("nabu.optimizeClosure", "true"))) {
+                    final var optimized = io.github.potjerodekool.nabu.backend.ir.Optimizer.optimizeAll(allModules);
+                    allModules.clear();
+                    allModules.addAll(optimized);
+                }
                 final long reachMillis = (System.nanoTime() - reachStart) / 1_000_000L;
                 System.err.println("[NabuCompiler] Bytecode reachability closure + lowering: "
                         + reachMillis + " ms (" + allModules.size() + " modules in total)");
@@ -402,9 +412,18 @@ public class NabuCompiler implements Compiler {
             return CompileOptions.OptLevel.valueOf(raw.trim().toUpperCase());
         } catch (final IllegalArgumentException e) {
             System.err.println("nabu: unknown --opt value '" + raw
-                    + "', use NONE, DEFAULT or AGGRESSIVE. Falling back to DEFAULT.");
+                    + "', use NONE, DEFAULT, AGGRESSIVE, SIZE or SIZE_AGGRESSIVE. Falling back to DEFAULT.");
             return CompileOptions.OptLevel.DEFAULT;
         }
+    }
+
+    /**
+     * Whether the native backend emits full debug info (DWARF), via the {@code --debug} compiler option. Off by
+     * default: the object files and the executable stay much smaller. Stack traces keep the method names and, for the
+     * program's own source, the file and line either way (the backend's line tables).
+     */
+    private boolean getDebugInfo(final CompilerOptions compilerOptions) {
+        return compilerOptions.getOption(CompilerOption.DEBUG, false, Boolean.class);
     }
 
     private CompileOptions.GcStrategy getGcStrategy(final CompilerOptions compilerOptions) {

@@ -32,6 +32,8 @@ module io.github.potjerodekool.compiler.api {
     exports io.github.potjerodekool.nabu.backend;
     exports io.github.potjerodekool.nabu.debug;
     exports io.github.potjerodekool.nabu.backend.ir.optimize;
+    exports io.github.potjerodekool.nabu.backend.ir.dataflow;
+    exports io.github.potjerodekool.nabu.backend.ir.dataflow.analysis;
     exports io.github.potjerodekool.nabu.backend.nativeimage;
     requires org.antlr.antlr4.runtime;
     requires org.objectweb.asm;

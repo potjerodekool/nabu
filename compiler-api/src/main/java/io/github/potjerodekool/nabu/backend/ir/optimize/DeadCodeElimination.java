@@ -174,6 +174,7 @@ public class DeadCodeElimination implements OptimizationPass {
             case IRInstruction.ArrayLength ignored -> true;
             case IRInstruction.Cast ignored -> true;
             case IRInstruction.Phi ignored -> false; // phis worden apart behandeld
+            case IRInstruction.StackAlloc ignored -> true; // stack-alloc van ongebruikt object is effect-vrij
             default -> false; // Alloca, Store, Call, Branch, etc. hebben side-effects
         };
     }

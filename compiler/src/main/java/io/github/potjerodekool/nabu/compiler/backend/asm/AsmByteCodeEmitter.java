@@ -758,6 +758,7 @@ private static void collectValue(final IRValue value,
                 }
             }
             case IRInstruction.HeapAlloc heapAlloc -> collectValue(heapAlloc.result(), slots, slotTypes);
+            case IRInstruction.StackAlloc stackAlloc -> collectValue(stackAlloc.result(), slots, slotTypes);
             case IRInstruction.AllocaArray allocaArray -> {
                 collectValue(allocaArray.result(), slots, slotTypes);
                 collectValue(allocaArray.size(), slots, slotTypes);
@@ -1034,6 +1035,7 @@ private static void resolveSlotTypeConflicts(final Map<Integer, IRType> slotType
             case IRInstruction.ArrayLength al -> writes.add(al.result());
             case IRInstruction.AllocaArray al -> writes.add(al.result());
             case IRInstruction.HeapAlloc heapAlloc -> writes.add(heapAlloc.result());
+            case IRInstruction.StackAlloc stackAlloc -> writes.add(stackAlloc.result());
             case IRInstruction.Cast c -> writes.add(c.result());
             case IRInstruction.InstanceOf i -> writes.add(i.result());
             default -> {}

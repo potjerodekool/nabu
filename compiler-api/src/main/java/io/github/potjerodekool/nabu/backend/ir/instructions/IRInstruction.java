@@ -9,7 +9,7 @@ import io.github.potjerodekool.nabu.backend.ir.values.IRValue;
 import java.util.List;
 import java.util.Objects;
 
-public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.ArrayStore, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion, IRInstruction.Unreachable {
+public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstruction.AllocaArray, IRInstruction.ArrayLength, IRInstruction.ArrayLoad, IRInstruction.ArrayStore, IRInstruction.BinaryOp, IRInstruction.Branch, IRInstruction.Call, IRInstruction.Cast, IRInstruction.CondBranch, IRInstruction.HeapAlloc, IRInstruction.IndirectCall, IRInstruction.InstanceOf, IRInstruction.Load, IRInstruction.MonitorEnter, IRInstruction.MonitorExit, IRInstruction.Move, IRInstruction.Phi, IRInstruction.Pop, IRInstruction.Return, IRInstruction.StackAlloc, IRInstruction.Store, IRInstruction.Throw, IRInstruction.TryCatchRegion, IRInstruction.Unreachable {
 
     /** Resultaat van de instructie; null als de instructie void is. */
     IRValue result();
@@ -105,6 +105,17 @@ public sealed interface IRInstruction permits IRInstruction.Alloca, IRInstructio
     }
 
     record HeapAlloc(
+            IRValue result,
+            IRType allocType,
+            SourceLocation location
+    ) implements IRInstruction {}
+
+    /**
+     * Stack-allocation van een object dat niet ontsnapt uit de methode. Wordt door de backend
+     * als een {@code alloca} van de bijbehorende struct neergezet (met header-init), zodat de
+     * collector het niet ziet en er geen heap-verkeer is.
+     */
+    record StackAlloc(
             IRValue result,
             IRType allocType,
             SourceLocation location

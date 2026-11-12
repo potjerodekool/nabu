@@ -576,13 +576,6 @@ void nabu_register_type_infos(const void *table, int32_t count) {
 
     /* Lever 1 fase 2: backfill via nabu_type_info_for op bestaande cache-entries
      * is niet meer nodig; nabu_set_object_vtable/itable doen dat al. */
-#ifndef NDEBUG
-    {
-        const nabu_type_info *cls_ti = nabu_compiled_type_for("java/lang/Class");
-        dprintf(2, "[nabu_register_type_infos] count=%d cache=%d java/lang/Class vtable=%p\n",
-                count, nabu_type_count, cls_ti ? cls_ti->vtable : (void*)-1L);
-    }
-#endif
 }
 
 int32_t nabu_compiled_type_count_for_trace(void) { return nabu_compiled_type_count; }

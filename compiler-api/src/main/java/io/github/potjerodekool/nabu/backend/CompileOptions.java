@@ -36,7 +36,7 @@ public record CompileOptions(
         this(optLevel, debugInfo, targetTriple, gcStrategy, javaVersion, List.of());
     }
 
-    public enum OptLevel { NONE, DEFAULT, AGGRESSIVE }
+    public enum OptLevel { NONE, DEFAULT, AGGRESSIVE, SIZE, SIZE_AGGRESSIVE }
 
     public enum GcStrategy {
         NONE,

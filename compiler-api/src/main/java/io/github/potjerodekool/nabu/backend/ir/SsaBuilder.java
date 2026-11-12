@@ -34,6 +34,7 @@ public class SsaBuilder {
     }
 
     public static void run(final IRFunction function) {
+        io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowCache.invalidate(function);
         if (function.blocks().isEmpty()) return;
 
         // Stap 1: Verzamel alle alloca's

@@ -103,7 +103,7 @@ public class NativeLLVMBackend implements Backend {
 
         Path exe = replaceExtension(outFile,
                 triple.contains("windows") ? ".exe" : "");
-        Linker.link(objectFiles, exe, triple, opts.gcStrategy());
+        Linker.link(objectFiles, exe, triple, opts.gcStrategy(), opts.debugInfo());
         copyRuntimeData(exe);
     }
 
@@ -484,7 +484,7 @@ public class NativeLLVMBackend implements Backend {
             if (partitions > 1) {
                 LLVMDisposeTargetMachine(machine);
                 PartitionedCodegen.compile(llvmMod, partitions, triple,
-                        opts.optLevel() != CompileOptions.OptLevel.NONE ? pipeline(opts.optLevel()) : null,
+                        opts.optLevel() != CompileOptions.OptLevel.NONE ? effectivePipeline(opts.optLevel()) : null,
                         objectFiles, () -> {
                             // The context too: it keeps the types, constants and metadata of the whole program
                             // alive, also after the module is gone.
@@ -595,14 +595,26 @@ public class NativeLLVMBackend implements Backend {
     private void optimize(LLVMModuleRef mod,
                           LLVMTargetMachineRef machine,
                           CompileOptions.OptLevel level) throws CompileException {
-        runPasses(mod, machine, pipeline(level));
+        runPasses(mod, machine, effectivePipeline(level));
+    }
+
+    /** Returns the PGO-override pipeline if set, otherwise the default pipeline for {@code level}. */
+    private static String effectivePipeline(CompileOptions.OptLevel level) {
+        // PGO override: -Dnabu.pgo.pipeline=<pipeline string>
+        // Examples:
+        //   instrument: pgo-instr-gen,default<O2>
+        //   use:        pgo-instr-use</abs/path/to/profile.profdata>,default<O2>
+        String pgoPipeline = System.getProperty("nabu.pgo.pipeline");
+        return pgoPipeline != null && !pgoPipeline.isBlank() ? pgoPipeline : pipeline(level);
     }
 
     private static String pipeline(CompileOptions.OptLevel level) {
         return switch (level) {
-            case NONE       -> "mem2reg";
-            case DEFAULT    -> "default<O2>";
-            case AGGRESSIVE -> "default<O3>";
+            case NONE             -> "mem2reg";
+            case DEFAULT          -> "default<O2>";
+            case AGGRESSIVE       -> "default<O3>";
+            case SIZE             -> "default<Os>";
+            case SIZE_AGGRESSIVE  -> "default<Oz>";
         };
     }
 

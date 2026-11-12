@@ -65,12 +65,14 @@ public class LLVMModuleEmitter {
         this.instructions = new InstructionEmitter(
                 builder, ctx, types, constants, globalValueMap, blockMap, opts, classLayouts);
         this.functions   = new FunctionEmitter(
-                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts);
+                ctx, mod, builder, types, constants, instructions, globalValueMap, blockMap, classLayouts,
+                opts.debugInfo());
     }
 
 public void setReflectionRegistry(
             final io.github.potjerodekool.nabu.backend.nativeimage.ReflectionRegistry reflectionRegistry) {
         this.reflectionRegistry = reflectionRegistry;
+        this.classLayouts.setReflectionRegistry(reflectionRegistry);
     }
 
     /**
@@ -107,8 +109,17 @@ public void setReflectionRegistry(
         long tp = System.nanoTime();
         // 0. Runtime helpers declareren
         declareRuntimeHelpers();
-        if (Boolean.getBoolean("nabu.closureStats")) {
-            FieldReachability.report(modules, FieldReachability.analyze(modules));
+        // Which instance fields does the program read? Dead-field elimination leaves the others out of the object
+        // struct (FieldReachability); the same scan feeds the closureStats report.
+        final boolean eliminate = FieldReachability.eliminate();
+        if (eliminate || Boolean.getBoolean("nabu.closureStats")) {
+            final FieldReachability reach = FieldReachability.analyze(modules);
+            if (Boolean.getBoolean("nabu.closureStats")) {
+                FieldReachability.report(modules, reach);
+            }
+            if (eliminate) {
+                this.classLayouts.setFieldReachability(reach);
+            }
         }
 
         // 0.5 Modules indexeren (naam-normalisatie, functie-resolutie, itable-slot-
@@ -181,6 +192,10 @@ public void setReflectionRegistry(
         // 3. Objectmodel (struct-layouts + type-info + vtable/itable) — na
         //    signaturen. Ouders vóór kinderen binnen één registerAll.
         this.classLayouts.registerAll(mod, modules);
+        if (Boolean.getBoolean("nabu.closureStats")) {
+            System.err.println("[nabu/LLVM] dead-field elimination: " + this.classLayouts.eliminatedFieldCount()
+                    + " instance fields left out of object structs");
+        }
         emitStringMeta();
         emitPropertiesMeta();
         emitEnumTable(modules);

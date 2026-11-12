@@ -172,6 +172,7 @@ public final class ValueRewriter {
             case IRInstruction.Alloca ignored -> ignored;
             case IRInstruction.Branch ignored -> ignored;
             case IRInstruction.HeapAlloc ignored -> ignored;
+            case IRInstruction.StackAlloc ignored -> ignored;
             case IRInstruction.TryCatchRegion ignored -> ignored;
             case IRInstruction.Unreachable ignored -> ignored;
         };

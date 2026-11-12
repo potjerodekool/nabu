@@ -27,7 +27,8 @@ The toolchain it needs (gcc or clang, libgc) is described in [Installing the LLV
 | `-o` | name of the executable (default: the class name in lower case, or the name of the jar) |
 | `-d`, `--output-dir` | where the executable is written (default: the current directory) |
 | `--gc` | `BOEHM` (default) or `NONE` |
-| `-O0` … `-O3`, `--opt` | `NONE`, `DEFAULT` or `AGGRESSIVE` |
+| `-O0` … `-O3`, `-Os`, `-Oz`, `--opt` | `NONE`, `DEFAULT`, `AGGRESSIVE`, `SIZE` or `SIZE_AGGRESSIVE` |
+| `-g`, `--debug` | emit full debug info (DWARF) in the executable and the object files. Off by default: smaller output and far less memory while compiling. With it, JDK methods that LLVM inlined become frames of a stack trace too |
 | `--strict`, `--no-fallback` | fail the build when the program or its libraries call a method that has no implementation (a `native` method of the program, a library method that could not be compiled) |
 | `--static` | link the runtime of the toolchain into the executable. This is the default on Windows: the executable runs without the MinGW `bin` directory on the `PATH` |
 | `--dynamic` | do not link it in (Windows): the executable needs the MinGW DLLs, `libwinpthread-1.dll`, on the `PATH` |

@@ -26,7 +26,9 @@ import static org.bytedeco.llvm.global.LLVM.*;
  * that of the inlined function, not of the function the symbol names.</p>
  *
  * <p>Only line tables are emitted, no types or variables. Functions compiled
- * from bytecode have no source line and no debug location.</p>
+ * from bytecode have no source line and no debug location, unless debug info
+ * is on: then they get a subprogram of their own too, which costs one
+ * subprogram per function (200000 for a program that compiles the JDK).</p>
  */
 final class DebugLines {
 
@@ -42,6 +44,14 @@ final class DebugLines {
     private final LLVMModuleRef mod;
     private final LLVMBuilderRef builder;
 
+    /**
+     * Whether functions that do not come from source get a subprogram too. Only with debug info
+     * ({@code --debug}) and unless {@code -Dnabu.inlineInfo=false}: a subprogram per JDK function is
+     * the bulk of the debug info of an executable. Functions compiled from source always get their
+     * line table, so a stack trace keeps the file and line of the program itself.
+     */
+    private final boolean inlineInfo;
+
     private LLVMDIBuilderRef di;
     private LLVMMetadataRef unit;
     private boolean any;
@@ -56,10 +66,14 @@ final class DebugLines {
     private final java.util.ArrayList<Object[]> withScope = new java.util.ArrayList<>();
     private final java.util.ArrayDeque<Object[]> outer = new java.util.ArrayDeque<>();
 
-    DebugLines(final LLVMContextRef ctx, final LLVMModuleRef mod, final LLVMBuilderRef builder) {
+    DebugLines(final LLVMContextRef ctx,
+               final LLVMModuleRef mod,
+               final LLVMBuilderRef builder,
+               final boolean debugInfo) {
         this.ctx = ctx;
         this.mod = mod;
         this.builder = builder;
+        this.inlineInfo = debugInfo && INLINE_INFO;
     }
 
     /** Starts a function: gives {@code llvmFn} a subprogram when {@code fn} comes from source. */
@@ -71,7 +85,7 @@ final class DebugLines {
         }
         final boolean fromSource = location != null && location.isKnown() && location.file() != null
                 && !location.file().endsWith(SYNTHETIC_FILE_SUFFIX) && !location.file().startsWith("<");
-        if (!fromSource && !INLINE_INFO) {
+        if (!fromSource && !inlineInfo) {
             return;
         }
         if (LLVMGetSubprogram(llvmFn) != null) {

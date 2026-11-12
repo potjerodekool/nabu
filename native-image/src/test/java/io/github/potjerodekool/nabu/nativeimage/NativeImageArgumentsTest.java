@@ -74,6 +74,13 @@ class NativeImageArgumentsTest {
     }
 
     @Test
+    void debugInfoIsOffByDefaultAndSwitchedOnByGOrDebug() throws Exception {
+        assertTrue(!NativeImageArguments.parse(List.of("a.Main")).debug());
+        assertTrue(NativeImageArguments.parse(List.of("-g", "a.Main")).debug());
+        assertTrue(NativeImageArguments.parse(List.of("--debug", "a.Main")).debug());
+    }
+
+    @Test
     void optionsOfGraalVmAreIgnoredWithAWarning() throws Exception {
         final var arguments = NativeImageArguments.parse(List.of("-H:+ReportExceptionStackTraces",
                 "--initialize-at-build-time=a.B", "-march=native", "a.Main"));

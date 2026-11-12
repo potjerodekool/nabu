@@ -98,14 +98,15 @@ public class FunctionEmitter {
                            InstructionEmitter instructions,
                            Map<String, LLVMValueRef> globalValueMap,
                            Map<String, LLVMBasicBlockRef> blockMap,
-                           ClassLayouts classLayouts) {
+                           ClassLayouts classLayouts,
+                           boolean debugInfo) {
         this.ctx            = ctx;
         this.mod            = mod;
         this.builder        = builder;
         this.types          = types;
         this.constants      = constants;
         this.instructions   = instructions;
-        this.debugLines     = new DebugLines(ctx, mod, builder);
+        this.debugLines     = new DebugLines(ctx, mod, builder, debugInfo);
         this.globalValueMap = globalValueMap;
         this.blockMap       = blockMap;
         this.classLayouts   = classLayouts;
@@ -354,6 +355,22 @@ public class FunctionEmitter {
     private void emitBodyInner(IRFunction fn) {
         if (fn.isExternal()) return;
         currentFnNameForDiagnostics = fn.name;
+
+        // Dataflow-analyses voor null/bounds-check eliminatie.
+        try {
+            final var nullnessAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.NullnessAnalysis();
+            final var intervalAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis();
+            final var nullnessResult = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
+                    fn, nullnessAnalysis);
+            final var intervalResult = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
+                    fn, intervalAnalysis);
+            instructions.setNullnessResult(nullnessResult);
+            instructions.setIntervalResult(intervalResult);
+        } catch (Throwable t) {
+            // Conservatief: bij falen geen optimalisatie, checks blijven.
+            instructions.setNullnessResult(null);
+            instructions.setIntervalResult(null);
+        }
 
         // Per beschermd blok de binnenste handler-keten (zie de pre-scan).
         Map<String, HandlerChain> chainByProtected = new HashMap<>();
@@ -651,6 +668,7 @@ public class FunctionEmitter {
                 instructions.getLocalValueMap().put(exnName, exn);
             }
 
+            instructions.setCurrentIrBlock(block.label());
             for (var instr : block.instructions()) {
                 if (instr instanceof IRInstruction.TryCatchRegion) continue;
                 if (preEmitted.contains(instr)) continue;

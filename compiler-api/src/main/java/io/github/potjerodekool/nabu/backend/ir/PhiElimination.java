@@ -30,6 +30,7 @@ public class PhiElimination {
     }
 
     public static void run(final IRFunction function) {
+        io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowCache.invalidate(function);
         // Stap 1: Verzamel alle phi-instructies per blok
         final Map<String, List<IRInstruction.Phi>> phisByBlock = new LinkedHashMap<>();
         for (final var block : function.blocks()) {

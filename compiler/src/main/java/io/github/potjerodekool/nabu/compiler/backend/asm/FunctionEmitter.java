@@ -243,6 +243,7 @@ public class FunctionEmitter {
                 // dat weggegooid hoeft te worden.
             }
             case IRInstruction.HeapAlloc heapAlloc -> emitHeapAlloc(heapAlloc);
+            case IRInstruction.StackAlloc stackAlloc -> emitHeapAlloc(new IRInstruction.HeapAlloc(stackAlloc.result(), stackAlloc.allocType(), stackAlloc.location()));
             case IRInstruction.ArrayLoad arrayLoad -> emitArrayLoad(arrayLoad);
             case IRInstruction.ArrayStore arrayStore -> emitArrayStore(arrayStore);
             case IRInstruction.Phi phi -> throw new IllegalStateException(

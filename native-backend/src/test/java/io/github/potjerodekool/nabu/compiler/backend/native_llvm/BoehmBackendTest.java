@@ -81,11 +81,9 @@ class BoehmBackendTest {
         // De header moet in IR gezet worden; de runtime doet dat niet, want die
         // kent de layout niet.
         assertTrue(ll.contains(".type.slot"), "geen type-info in de header:\n" + ll);
-        assertTrue(ll.contains(".vtable.slot"), "geen vtable in de header:\n" + ll);
-        assertTrue(ll.contains(".itable.slot"), "geen itable in de header:\n" + ll);
-        // Ook de teller begint op 0, ook al gebruikt BOEHM 'm niet: een header
-        // met ongeïnitialiseerd geheugen erin is een debugging-valkuil.
-        assertTrue(ll.contains("store i32 0, ptr %.refcount.slot"), ll);
+        // vtable and itable now live in the type_info, not in the object header (Lever 1 phase 2);
+        // the header is { type, monitor_count, thread_id } and monitor_count/thread_id start at 0
+        // through zeroed GC_malloc memory, so no explicit store is emitted.
 
         // En nergens een malloc: dat zou een object opleveren dat de collector
         // nooit ziet en dus nooit vrijgeeft.
@@ -286,10 +284,10 @@ class BoehmBackendTest {
         assertFalse(ll.contains("@GC_malloc"), ll);
         assertFalse(ll.contains("@GC_init"), ll);
         // no collection: the objects come from the allocator of gc_none.c (nothing lives on the stack: an object can
-        // outlive the function that made it). 48 = sizeof(nabu_object) (40, see runtime/nabu_runtime.h) plus the
+        // outlive the function that made it). 24 = sizeof(nabu_object) (16, see runtime/nabu_runtime.h) plus the
         // runtime state slot of 8 bytes (JCL_STATE_SLOT) for a class the program does not know; when the header
         // grows, this number must too.
-        assertTrue(ll.contains("call ptr @nabu_none_alloc(i64 48)"),
+        assertTrue(ll.contains("call ptr @nabu_none_alloc(i64 24)"),
                 "onbekende klasse alloceert te weinig:\n" + ll);
         assertFalse(ll.contains("alloca i8, i64 48"), ll);
         assertTrue(ll.contains("call ptr @nabu_init_object("), ll);

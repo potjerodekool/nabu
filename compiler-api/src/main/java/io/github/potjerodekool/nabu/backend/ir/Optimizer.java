@@ -71,7 +71,7 @@ public class Optimizer {
         for (final IRModule m : modules) {
             for (final IRFunction f : m.functions()) {
                 if (f.isExternal()) continue;
-                globalInliner.run(f);
+                if (on("inline")) globalInliner.run(f);
             }
         }
 
@@ -230,22 +230,30 @@ public class Optimizer {
         // 'Expected I, but found .'). Pass-by-pass vekken in de pipeline loop
         // is het onderzoekaandachtsveld (BISECT).
         // Stap 1: Verwijder onnodige branches (bestaande logica)
-        irFunction = removeRedundantBranches(irFunction);
+        if (on("branches")) irFunction = removeRedundantBranches(irFunction);
 
         // Stap 1b: Elimineer onbereikbare blokken op basis van SCCP.
-        irFunction = removeUnreachableBlocks(irFunction);
+        if (on("unreachable")) irFunction = removeUnreachableBlocks(irFunction);
 
         // Stap 2: alle passes draaien nu op alle functies. GVN is per-blok en
         // slaat Phis over (eigen value number), dus Phi-veilig in deze vorm.
-        new io.github.potjerodekool.nabu.backend.ir.optimize.ConstantFolder().run(irFunction);
-        new io.github.potjerodekool.nabu.backend.ir.optimize.CopyPropagation().run(irFunction);
-        new io.github.potjerodekool.nabu.backend.ir.optimize.GlobalValueNumbering().run(irFunction);
-        new io.github.potjerodekool.nabu.backend.ir.optimize.DeadCodeElimination().run(irFunction);
+        if (on("fold")) new io.github.potjerodekool.nabu.backend.ir.optimize.ConstantFolder().run(irFunction);
+        if (on("copyprop")) new io.github.potjerodekool.nabu.backend.ir.optimize.CopyPropagation().run(irFunction);
+        if (on("gvn")) new io.github.potjerodekool.nabu.backend.ir.optimize.GlobalValueNumbering().run(irFunction);
+        if (on("dce")) new io.github.potjerodekool.nabu.backend.ir.optimize.DeadCodeElimination().run(irFunction);
         // Tweede ronde: constant folding kan na GVN nieuwe constanten opleveren.
-        new io.github.potjerodekool.nabu.backend.ir.optimize.ConstantFolder().run(irFunction);
-        new io.github.potjerodekool.nabu.backend.ir.optimize.DeadCodeElimination().run(irFunction);
+        if (on("fold")) new io.github.potjerodekool.nabu.backend.ir.optimize.ConstantFolder().run(irFunction);
+        if (on("dce")) new io.github.potjerodekool.nabu.backend.ir.optimize.DeadCodeElimination().run(irFunction);
 
         return irFunction;
+    }
+
+    /**
+     * Switch per optimizer pass for bisecting a miscompilation: {@code -Dnabu.opt.<pass>=false} skips it
+     * (inline, branches, unreachable, fold, copyprop, gvn, dce).
+     */
+    private static boolean on(final String pass) {
+        return !"false".equalsIgnoreCase(System.getProperty("nabu.opt." + pass));
     }
 
     /**

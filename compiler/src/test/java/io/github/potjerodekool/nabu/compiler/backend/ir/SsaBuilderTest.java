@@ -648,6 +648,7 @@ class InstructionPrinter {
             case IRInstruction.Store store -> acceptStore(store);
             case IRInstruction.Throw throwInstruction -> acceptThrow(throwInstruction);
             case IRInstruction.TryCatchRegion tryCatchRegion -> acceptTryCatchRegion(tryCatchRegion);
+            default -> builder.append(instruction); // e.g. the switch instructions
         }
     }
 

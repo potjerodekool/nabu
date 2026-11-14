@@ -67,6 +67,12 @@ class OpenWorldInterpreterE2eIT {
                 public class Main {
                     public static void main(String[] args) throws Exception {
                         System.out.println(org.nabu.interp.Interp.callStaticInt("plugin.Adder", "combine", 5, 4));
+                        try {
+                            Class.forName("plugin.Missing");
+                            System.out.println("found");
+                        } catch (ClassNotFoundException e) {
+                            System.out.println("missing");
+                        }
                         System.out.println(Class.forName("plugin.Adder").getName());
                     }
                 }
@@ -129,7 +135,7 @@ class OpenWorldInterpreterE2eIT {
         }
         final String output = new String(Files.readAllBytes(log), StandardCharsets.UTF_8).replace("\r\n", "\n");
         final int exit = proc.exitValue();
-        assertEquals("46\nplugin.Adder\n", output, "exit=" + exit);
+        assertEquals("46\nmissing\nplugin.Adder\n", output, "exit=" + exit);
         assertEquals(0, exit, output);
     }
 }

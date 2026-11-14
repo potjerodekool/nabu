@@ -304,6 +304,13 @@ public class Optimizer {
     /** Elimineert onbereikbare basic blocks op basis van SCCP. */
     private static IRFunction removeUnreachableBlocks(IRFunction irFunction) {
         if (irFunction.isExternal() || irFunction.blocks().isEmpty()) return irFunction;
+        // The handler blocks of a try/catch have no CFG predecessor (the exception reaches them), so SCCP, which
+        // starts at the entry block, marks them unreachable and they would be deleted: no catch would ever match.
+        for (final var block : irFunction.blocks()) {
+            for (final var instr : block.instructions()) {
+                if (instr instanceof IRInstruction.TryCatchRegion) return irFunction;
+            }
+        }
         final var sccp = io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.SparseConditionalConstantPropagation.analyze(irFunction);
         final var original = irFunction.blocks();
         final var newBlocks = new ArrayList<IRBasicBlock>();

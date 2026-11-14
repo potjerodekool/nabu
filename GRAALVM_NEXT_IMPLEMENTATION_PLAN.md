@@ -57,9 +57,11 @@ geïnterpreteerd: uitvoer `46`; `Class.forName("plugin.Adder")` geeft de klasse.
 - Windows-fixes: `dlfcn.h`/`sys/time.h` guards, `;` als classpath-scheiding,
   `nabu_runtime.c` bouwde niet op Windows door een ongeguarde `#include <dlfcn.h>`
   (sinds commit `4949196d`).
-- Bekend probleem, los van de interpreter: een `catch` rond `Class.forName` voor
-  een onbekende klasse vangt de `ClassNotFoundException` niet (ook niet
-  `catch (Throwable)`); het programma stopt met de stacktrace.
+- `catch` werkte nergens in de native images (ook niet zonder interpreter): `Optimizer.removeUnreachableBlocks`
+  (SCCP vanaf het entry-blok) verwijderde de handlerblokken van try/catch, want die hebben geen CFG-voorganger.
+  Sinds commit `6e985a23` (globale optimizer over de closure). Opgelost: functies met een `TryCatchRegion` worden
+  niet meer op onbereikbare blokken gefilterd; `OptimizerTest.handlerBlockOfTryCatchSurvives` bewaakt het en de IT
+  controleert nu ook `catch (ClassNotFoundException)` rond `Class.forName`.
 - Lokale IT-voorwaarde: SYSTEM-optie is `java.home` (de bestaande ITs wijzen naar
   `compiler/src/test/resources`, dat hier geen `lib/jrt-fs.jar`/`modules` heeft en
   dus ook faalt).

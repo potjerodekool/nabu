@@ -125,9 +125,9 @@ class ReflectionBridgeE2eIT {
         Process proc = pb.redirectErrorStream(true).start();
         String output = new String(proc.getInputStream().readAllBytes());
         int exit = proc.waitFor();
-        assertEquals(40, exit,
-                "Brug-exe-exit-code faalde (verwacht 40 = offset van \"count\" na de\n"
-                        + "40-byte nabu_object-header in het officiële emit-object-model).\n"
+        assertEquals(16, exit,
+                "Brug-exe-exit-code faalde (verwacht 16 = offset van \"count\" na de\n"
+                        + "16-byte nabu_object-header in het officiële emit-object-model).\n"
                         + "Output:\n" + output);
     }
 }

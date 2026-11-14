@@ -62,6 +62,13 @@ geïnterpreteerd: uitvoer `46`; `Class.forName("plugin.Adder")` geeft de klasse.
   Sinds commit `6e985a23` (globale optimizer over de closure). Opgelost: functies met een `TryCatchRegion` worden
   niet meer op onbereikbare blokken gefilterd; `OptimizerTest.handlerBlockOfTryCatchSurvives` bewaakt het en de IT
   controleert nu ook `catch (ClassNotFoundException)` rond `Class.forName`.
+- Stack-allocatie (`StackAllocation`/`EscapeAnalysis`) was onveilig en liet `JdkRuntimeE2eIT` crashen (0xC0000005)
+  en 24 van de `ThreadsE2eIT`-tests falen. Oorzaken: aliassen via Cast/Move/Phi en doorgegeven parameters werden niet
+  gevolgd, allocaties in lussen kwamen in aanmerking, VIRTUAL/INTERFACE-calls werden als bekende callee behandeld, en
+  de ontvanger van een constructor-call is in de IR impliciet (de emitter koppelt die aan de laatste alloc), dus de
+  analyse zag hem niet en `DeadCodeElimination` verwijderde een `StackAlloc` die ongebruikt leek (`this` werd `undef`).
+  Opgelost in `185231f6` en `4807d1b8`; `EscapeAnalysisTest` bewaakt het. Schakelaars om te bisecten:
+  `-Dnabu.opt.<inline|branches|unreachable|fold|copyprop|gvn|dce>=false`, `-Dnabu.stackAlloc=false`.
 - Lokale IT-voorwaarde: SYSTEM-optie is `java.home` (de bestaande ITs wijzen naar
   `compiler/src/test/resources`, dat hier geen `lib/jrt-fs.jar`/`modules` heeft en
   dus ook faalt).

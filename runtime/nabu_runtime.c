@@ -24,6 +24,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
+#include <dlfcn.h>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -418,9 +419,6 @@ static void nabu_rt_init(void) {
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&nabu_rt_mutex, &attr);
-#ifndef _WIN32
-    nabu_install_crash_handler();
-#endif
 }
 
 void nabu_rt_lock(void) {
@@ -589,13 +587,166 @@ const nabu_type_info *nabu_compiled_type_for(const char *internal_name) {
             if (strcmp(ti->name, internal_name) == 0) return ti;
             h = (h + 1) & (nabu_type_index_size - 1);
         }
+    } else {
+        for (int32_t i = 0; i < nabu_compiled_type_count; i++) {
+            const nabu_type_info *ti = nabu_compiled_types[i];
+            if (ti != NULL && ti->name != NULL && strcmp(ti->name, internal_name) == 0) return ti;
+        }
+    }
+    /* Fallback: interpreted types (runtime-registered, niet in de compiled table). */
+    return nabu_interpreted_type_for(internal_name);
+}
+
+/* -------------------------------------------------------
+ * Interpreted types (runtime-registered, voor de bytecode-interpreter)
+ * ------------------------------------------------------- */
+
+#define NABU_MAX_INTERPRETED_TYPES 4096
+
+static nabu_type_info **nabu_interpreted_types = NULL;
+static int32_t nabu_interpreted_type_count_val = 0;
+static int32_t nabu_interpreted_type_cap = 0;
+
+const nabu_type_info *nabu_interpreted_type_for(const char *internal_name) {
+    if (internal_name == NULL) return NULL;
+    nabu_rt_lock();
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        const nabu_type_info *ti = nabu_interpreted_types[i];
+        if (ti != NULL && ti->name != NULL && strcmp(ti->name, internal_name) == 0) {
+            nabu_rt_unlock();
+            return ti;
+        }
+    }
+    nabu_rt_unlock();
+    return NULL;
+}
+
+int32_t nabu_interpreted_type_count(void) {
+    return nabu_interpreted_type_count_val;
+}
+
+nabu_type_info *nabu_register_interpreted_type(const char *name,
+                                                const char *super_name,
+                                                size_t size,
+                                                void **vtable,
+                                                void **itable) {
+    if (name == NULL) return NULL;
+    nabu_rt_lock();
+    /* search existing */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        nabu_type_info *ti = nabu_interpreted_types[i];
+        if (ti != NULL && ti->name != NULL && strcmp(ti->name, name) == 0) {
+
+            nabu_rt_unlock();
+            return ti;
+        }
+    }
+
+    /* Bestaande registratie? Return de bestaande (idempotent). */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        nabu_type_info *ti = nabu_interpreted_types[i];
+        if (ti != NULL && ti->name != NULL && strcmp(ti->name, name) == 0) {
+            /* Update vtable/itable/super indien aangeleverd. */
+            if (vtable != NULL) ti->vtable = vtable;
+            if (itable != NULL) ti->itable = itable;
+            if (size != 0) ti->size = size;
+            if (super_name != NULL) {
+                const nabu_type_info *st = nabu_compiled_type_for(super_name);
+                if (st == NULL) st = nabu_interpreted_type_for(super_name);
+                ti->super_type = (nabu_type_info *)st;
+            }
+            nabu_rt_unlock();
+            return ti;
+        }
+    }
+    if (nabu_interpreted_type_count_val >= nabu_interpreted_type_cap) {
+        int32_t newcap = nabu_interpreted_type_cap == 0 ? 64 : nabu_interpreted_type_cap * 2;
+        if (newcap > NABU_MAX_INTERPRETED_TYPES) newcap = NABU_MAX_INTERPRETED_TYPES;
+        nabu_type_info **arr = (nabu_type_info **)realloc(nabu_interpreted_types,
+                                                           sizeof(nabu_type_info *) * newcap);
+        if (arr == NULL) {
+            nabu_rt_unlock();
+            return NULL;
+        }
+        nabu_interpreted_types = arr;
+        nabu_interpreted_type_cap = newcap;
+    }
+    nabu_type_info *ti = (nabu_type_info *)calloc(1, sizeof(nabu_type_info));
+    if (ti == NULL) {
+        nabu_rt_unlock();
         return NULL;
     }
-    for (int32_t i = 0; i < nabu_compiled_type_count; i++) {
-        const nabu_type_info *ti = nabu_compiled_types[i];
-        if (ti != NULL && ti->name != NULL && strcmp(ti->name, internal_name) == 0) return ti;
+    ti->name = strdup(name);
+    ti->size = size == 0 ? sizeof(nabu_object) : size;
+    ti->field_count = 0;
+    ti->interface_count = 0;
+    ti->interfaces = NULL;
+    ti->instance_fields = NULL;
+    ti->instance_field_count = 0;
+    ti->vtable = vtable;
+    ti->itable = itable;
+    if (super_name == NULL || strcmp(super_name, "java/lang/Object") == 0) {
+        /* Probeer compiled Object; anders NULL. */
+        const nabu_type_info *obj = nabu_compiled_type_for("java/lang/Object");
+        if (obj == NULL) obj = nabu_interpreted_type_for("java/lang/Object");
+        ti->super_type = (nabu_type_info *)obj;
+    } else {
+        const nabu_type_info *st = nabu_compiled_type_for(super_name);
+        if (st == NULL) st = nabu_interpreted_type_for(super_name);
+        ti->super_type = (nabu_type_info *)st;
     }
-    return NULL;
+    /* Fallback vtable/itable naar Object's als niet gezet. */
+    if (ti->vtable == NULL) {
+        const nabu_type_info *obj = nabu_compiled_type_for("java/lang/Object");
+        if (obj != NULL) ti->vtable = obj->vtable;
+    }
+    if (ti->itable == NULL) {
+        const nabu_type_info *obj = nabu_compiled_type_for("java/lang/Object");
+        if (obj != NULL) ti->itable = obj->itable;
+    }
+    nabu_interpreted_types[nabu_interpreted_type_count_val++] = ti;
+    nabu_rt_unlock();
+    return ti;
+}
+
+/* -------------------------------------------------------
+ * JIT hook (Fase 4): no-op default in v1
+ * ------------------------------------------------------- */
+
+static nabu_jit_compile_fn nabu_jit_fn = NULL;
+
+void nabu_register_jit(nabu_jit_compile_fn fn) {
+    nabu_jit_fn = fn;
+}
+
+/* Try to load Cranelift JIT from shared library. */
+void nabu_jit_init(void) {
+    /* Try dlopen on the Cranelift shared library. */
+    void *handle = dlopen("libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
+    if (handle == NULL) {
+        /* Try absolute path. */
+        handle = dlopen("/tmp/opencode/libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
+    }
+    if (handle == NULL) return;
+    /* Look up cranelift_init and cranelift_compile_to_so (preferred) or cranelift_compile_bytecode (fallback). */
+    typedef int (*init_fn)(void);
+    typedef void *(*compile_fn)(const uint8_t *, size_t, const char *, const char *);
+    init_fn init = (init_fn)dlsym(handle, "cranelift_init");
+    compile_fn compile = (compile_fn)dlsym(handle, "cranelift_compile_to_so");
+    if (compile == NULL) {
+        compile = (compile_fn)dlsym(handle, "cranelift_compile_bytecode");
+    }
+    if (init && compile) {
+        if (init() == 0) {
+            nabu_register_jit((nabu_jit_compile_fn)compile);
+        }
+    }
+}
+
+void *nabu_jit_compile(const uint8_t *bytecode, size_t len,
+                        const char *class_name, const char *method_name) {
+    if (nabu_jit_fn == NULL) return NULL;
+    return nabu_jit_fn(bytecode, len, class_name, method_name);
 }
 
 intptr_t nabu_instance_field_offset(const void *obj, const char *name) {
@@ -648,12 +799,18 @@ void *nabu_init_object_ex(void *obj, const char *type_name, const char *super_na
 int nabu_jcl_is_object(const void *p) {
     if (p == NULL) return 0;
     const void *t = ((const void *const *)p)[0];
-    if (t < (const void *)nabu_type_cache
-            || t >= (const void *)(nabu_type_cache + NABU_MAX_TYPES)) {
-        return 0;
+    /* Library types (runtime cache). */
+    if (t >= (const void *)nabu_type_cache
+            && t < (const void *)(nabu_type_cache + NABU_MAX_TYPES)
+            && ((size_t)((const char *)t - (const char *)nabu_type_cache)
+                % sizeof(nabu_type_info)) == 0) {
+        return 1;
     }
-    return ((size_t)((const char *)t - (const char *)nabu_type_cache)
-            % sizeof(nabu_type_info)) == 0;
+    /* Interpreted types (runtime-registered). */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        if (t == (const void *)nabu_interpreted_types[i]) return 1;
+    }
+    return 0;
 }
 
 /* ---------------------------------------------------------------
@@ -1846,6 +2003,14 @@ gebruik MinGW/gcc met target x86_64-w64-windows-gnu."
 extern const struct mach_header_64 _mh_execute_header;
 #endif
 const char *nabu_compiled_type_name(const void *p) {
+    if (p == NULL) return NULL;
+    const void *interp_t = ((const void *const *)p)[0];
+    /* Interpreted type? */
+    for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {
+        if (interp_t == (const void *)nabu_interpreted_types[i]) {
+            return nabu_interpreted_types[i]->name;
+        }
+    }
 #ifdef _WIN32
     static const char *image_lo = NULL, *image_hi = NULL;
     if (p == NULL) return NULL;

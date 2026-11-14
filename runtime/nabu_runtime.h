@@ -259,6 +259,59 @@ void nabu_register_type_infos(const void *table, int32_t count);
 const nabu_type_info *nabu_compiled_type_for(const char *internal_name);
 
 /**
+ * Registreert een door de interpreter aangemaakte klasse als "interpreted"
+ * type, zodat deze zichtbaar wordt voor nabu_instanceof, nabu_compiled_type_for
+ * (als fallback) en de object-herkenningshelpers. Interpreted types delen het
+ *zelfde nabu_type_info-layout als gecompileerde types (zie docs/runtime-abi.md).
+ *
+ * @param name        Interne naam (bv. "pkg/Cls"), stabiel (wordt gekopieerd).
+ * @param super_name  Interne naam van de super-klasse, of NULL/"java/lang/Object".
+ * @param size        sizeof van het object (header + instantievelden), of 0 voor
+ *                    alleen de header.
+ * @param vtable      Vtable-array van functiepointers, of NULL.
+ * @param itable      Itable-array, of NULL.
+ * @return De (eigendom van de runtime) nabu_type_info*.
+ */
+nabu_type_info *nabu_register_interpreted_type(const char *name,
+                                                const char *super_name,
+                                                size_t size,
+                                                void **vtable,
+                                                void **itable);
+
+/** Zoekt een interpreted type op naam, of NULL. */
+const nabu_type_info *nabu_interpreted_type_for(const char *internal_name);
+
+/** Aantal geregistreerde interpreted types (voor tests/tracing). */
+int32_t nabu_interpreted_type_count(void);
+
+/* -------------------------------------------------------
+ * JIT hook (Fase 4): interface voor toekomstige JIT-compilatie
+ * ------------------------------------------------------- */
+
+/**
+ * Functiepointer-type voor JIT-compilatie. In v1 is dit een no-op.
+ * Later (Fase 4) wordt de daemon gekoppeld via out-of-process compile → .so → dlopen.
+ */
+typedef void *(*nabu_jit_compile_fn)(const uint8_t *bytecode, size_t len,
+                                      const char *class_name, const char *method_name);
+
+/**
+ * Registreert een JIT-compile-functie. Default is no-op (geen JIT).
+ * In v1 wordt deze functie aangeroepen maar doet niets.
+ */
+void nabu_register_jit(nabu_jit_compile_fn fn);
+
+/**
+ * Roept de geregistreerde JIT-functie aan (indien aanwezig).
+ * Retourneert NULL als er geen JIT is geregistreerd of als compilatie faalt.
+ */
+void *nabu_jit_compile(const uint8_t *bytecode, size_t len,
+                        const char *class_name, const char *method_name);
+
+/** Initialiseert de JIT (probeert Cranelift shared library te laden). */
+void nabu_jit_init(void);
+
+/**
  * Het (geïnterneerde) Class-object voor een class-literal. iname is de interne
  * naam ("pkg/Cls") of de descriptor van een primitief ("I").
  */

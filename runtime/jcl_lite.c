@@ -2975,6 +2975,11 @@ static void *jcl_field_obj(const char *cls, const nabu_field_info *f) {
 
 static s_field *jcl_field_of(void *self) { return (s_field *)jcl_state_kind(self, K_FIELD); }
 
+/* Open world: when the bytecode interpreter (nabu_interpreter.c / nabu_classfile.c) is linked in
+ * (-Dnabu.interpreter=true), a constructor in nabu_classfile.c installs these hooks. Without it they stay NULL. */
+int (*nabu_interp_load_hook)(const char *internal_name) = NULL;
+int (*nabu_interp_call_int_hook)(const char *internal_name, const char *method, int32_t a, int32_t b, int32_t *out) = NULL;
+
 /* Class.forName kent alleen klassen die het programma heeft: gecompileerd
  * (type-tabel), in de reflectie-registry, of een array. Voor de rest gooit
  * hij ClassNotFoundException, zoals de JVM. Eerder gaf hij voor elke naam een
@@ -2990,11 +2995,32 @@ BIND(void *, jcl_java_lang_Class_forName, "java.lang.Class_forName", (void *name
     }
     for (size_t i = 0; i <= len; i++) internal[i] = n[i] == '.' ? '/' : n[i];
     if (internal[0] != '[' && nabu_compiled_type_for(internal) == NULL
-            && nabu_lookup_reflection(internal) == NULL) {
+            && nabu_lookup_reflection(internal) == NULL
+            && !(nabu_interp_load_hook != NULL && nabu_interp_load_hook(internal) == 0)) {
         nabu_throw(jcl_throw("java/lang/ClassNotFoundException", "java/lang/ReflectiveOperationException", n));
         return NULL;
     }
     return jcl_class(internal);
+}
+/* org.nabu.interp.Interp.callStaticInt(String className, String method, int a, int b): calls the static method
+ * "int method(int, int)" of a class that is not part of the program but is found on NABU_CLASSPATH, in the
+ * bytecode interpreter. Primitive arguments only: the interpreter has its own representation of strings and objects. */
+BIND(int32_t, jcl_nabu_interp_callStaticInt, "Interp_callStaticInt", (void *cls, void *method, int32_t a, int32_t b)) {
+    const char *cn = jcl_str(cls);
+    char internal[512];
+    size_t len = strlen(cn);
+    if (len == 0 || len >= sizeof internal) { nabu_throw(jcl_throw("java/lang/ClassNotFoundException", "java/lang/ReflectiveOperationException", cn)); return 0; }
+    for (size_t i = 0; i <= len; i++) internal[i] = cn[i] == '.' ? '/' : cn[i];
+    int32_t out = 0;
+    if (nabu_interp_load_hook == NULL || nabu_interp_call_int_hook == NULL || nabu_interp_load_hook(internal) != 0) {
+        nabu_throw(jcl_throw("java/lang/ClassNotFoundException", "java/lang/ReflectiveOperationException", cn));
+        return 0;
+    }
+    if (nabu_interp_call_int_hook(internal, jcl_str(method), a, b, &out) != 0) {
+        nabu_throw(jcl_throw("java/lang/NoSuchMethodException", "java/lang/ReflectiveOperationException", jcl_str(method)));
+        return 0;
+    }
+    return out;
 }
 BIND(void *, jcl_java_lang_Class_forName_s, "java.lang.Class_forName$P523beb0a", (void *name)) { return jcl_java_lang_Class_forName(name); }
 /* Class.forName(String, boolean, ClassLoader): there is one class loader; initialization is lazy anyway. */

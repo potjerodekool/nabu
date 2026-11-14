@@ -5,7 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <setjmp.h>
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 
 /* Exception state. */
 static jmp_buf interp_jmp_buf;
@@ -382,12 +384,20 @@ void nabu_interp_deoptimize_all(void) {
 /* Try to JIT-compile a method via Cranelift, passing const_pool and method pointer. */
 void *nabu_jit_try_compile(nabu_interp_method_t *m) {
     if (m == NULL || m->code == NULL || m->code_len == 0) return NULL;
+#ifdef _WIN32
+    void *handle = NULL; /* the Cranelift JIT is not available on Windows */
+    if (0) {
+        handle = NULL;
+    }
+#else
     static void *handle = NULL;
     if (handle == NULL) {
         handle = dlopen("libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
         if (handle == NULL) handle = dlopen("/tmp/opencode/libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
     }
+#endif
     if (handle != NULL) {
+#ifndef _WIN32
         typedef void* (*compile_method_fn)(const uint8_t*, size_t, const char*, const char*, void*, void*);
         static compile_method_fn fn = NULL;
         if (fn == NULL) fn = (compile_method_fn)dlsym(handle, "cranelift_compile_method");
@@ -395,6 +405,7 @@ void *nabu_jit_try_compile(nabu_interp_method_t *m) {
             void *result = fn(m->code, m->code_len, m->class_name, m->name, m->const_pool, m);
             if (result != NULL) return result;
         }
+#endif
     }
     /* Fallback to standard nabu_jit_compile. */
     return nabu_jit_compile(m->code, m->code_len, m->class_name, m->name);

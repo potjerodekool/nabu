@@ -24,7 +24,9 @@
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -721,6 +723,9 @@ void nabu_register_jit(nabu_jit_compile_fn fn) {
 
 /* Try to load Cranelift JIT from shared library. */
 void nabu_jit_init(void) {
+#ifdef _WIN32
+    return; /* the Cranelift JIT is only available through dlopen (POSIX) */
+#else
     /* Try dlopen on the Cranelift shared library. */
     void *handle = dlopen("libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
     if (handle == NULL) {
@@ -741,6 +746,7 @@ void nabu_jit_init(void) {
             nabu_register_jit((nabu_jit_compile_fn)compile);
         }
     }
+#endif
 }
 
 void *nabu_jit_compile(const uint8_t *bytecode, size_t len,

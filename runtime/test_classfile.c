@@ -8,7 +8,10 @@ int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : "/tmp/opencode/jtest/Hello.class";
     nabu_interp_init();
     /* Load helper first, then main. */
-    if (nabu_classfile_load("/tmp/opencode/jtest/Helper.class") != 0) {
+    char helper[1024];
+    const char *slash = strrchr(path, '/');
+    snprintf(helper, sizeof(helper), "%.*sHelper.class", slash ? (int)(slash - path + 1) : 0, path);
+    if (nabu_classfile_load(helper) != 0) {
         fprintf(stderr, "failed to load Helper\n"); return 1;
     }
     if (nabu_classfile_load(path) != 0) {

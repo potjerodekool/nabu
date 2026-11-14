@@ -12,3 +12,6 @@ nabu_string_meta_t nabu_string_meta = { NULL, NULL, NULL };
 
 /* weak so they don't conflict if defined elsewhere */
 __attribute__((weak)) int nabu_class_is_annotation(const char *internal) { (void)internal; return 0; }
+/* the hooks that jcl_lite.c defines in a real program */
+int (*nabu_interp_load_hook)(const char *) = 0;
+int (*nabu_interp_call_int_hook)(const char *, const char *, int32_t, int32_t, int32_t *) = 0;

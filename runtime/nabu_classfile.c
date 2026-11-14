@@ -4,7 +4,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#ifndef strtok_r
+#define strtok_r(s, d, p) strtok_s((s), (d), (p))
+#endif
+#else
 #include <sys/time.h>
+#endif
 #include <math.h>
 
 /* ---- Constant pool entry (defined in nabu_interpreter.h) ---- */
@@ -1178,9 +1185,15 @@ static void native_object_equals(nabu_interp_frame_t *frame, void **args, int na
 
 static void native_system_currentTimeMillis(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)args; (void)nargs;
+#ifdef _WIN32
+    FILETIME ft; GetSystemTimeAsFileTime(&ft);
+    long long t = (((long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 10000LL - 11644473600000LL;
+    frame->result = (void *)(intptr_t)t;
+#else
     struct timeval tv;
     gettimeofday(&tv, NULL);
     frame->result = (void *)(intptr_t)(tv.tv_sec * 1000LL + tv.tv_usec / 1000);
+#endif
     frame->has_result = 1;
 }
 
@@ -2354,24 +2367,29 @@ static char *nabu_find_class_file(const char *internal_name) {
     if (env_cp) snprintf(env_buf, sizeof(env_buf), "%s", env_cp);
     else env_buf[0] = 0;
 
-    /* Try bases first */
+    /* NABU_CLASSPATH first (';' on Windows, ':' elsewhere) */
+    if (env_buf[0]) {
+#ifdef _WIN32
+        const char *sep = ";";
+#else
+        const char *sep = ":";
+#endif
+        char *save = NULL;
+        char *tok = strtok_r(env_buf, sep, &save);
+        while (tok) {
+            char buf[1024];
+            snprintf(buf, sizeof(buf), "%s/%s.class", tok, tmp);
+            FILE *f = fopen(buf, "rb");
+            if (f) { fclose(f); return strdup(buf); }
+            tok = strtok_r(NULL, sep, &save);
+        }
+    }
+    /* legacy development locations */
     for (int b = 0; bases[b] != NULL; b++) {
         char buf[1024];
         snprintf(buf, sizeof(buf), "%s/%s.class", bases[b], tmp);
         FILE *f = fopen(buf, "rb");
         if (f) { fclose(f); return strdup(buf); }
-    }
-    /* Try env classpath */
-    if (env_buf[0]) {
-        char *save = NULL;
-        char *tok = strtok_r(env_buf, ":", &save);
-        while (tok) {
-            char buf[1024];
-            snprintf(buf, sizeof(buf), "%s/%s.class", tok, tmp);
-            FILE *f = fopen(buf, "rb");
-            if (f) { fclose(f); /* restore env_buf? already consumed */ return strdup(buf); }
-            tok = strtok_r(NULL, ":", &save);
-        }
     }
     return NULL;
 }
@@ -2834,3 +2852,35 @@ int nabu_classfile_load(const char *path) {
     free(buf);
     return 0;
 }
+
+/* ---- Bridge to the compiled runtime (jcl_lite.c): open-world class loading ---- */
+extern int (*nabu_interp_load_hook)(const char *internal_name);
+extern int (*nabu_interp_call_int_hook)(const char *internal_name, const char *method, int32_t a, int32_t b, int32_t *out);
+
+static void bridge_init_once(void) {
+    static int done = 0;
+    if (!done) { done = 1; nabu_interp_init(); }
+}
+
+static int bridge_load(const char *internal_name) {
+    bridge_init_once();
+    return nabu_classfile_load_class(internal_name);
+}
+
+static int bridge_call_int(const char *internal_name, const char *method, int32_t a, int32_t b, int32_t *out) {
+    bridge_init_once();
+    if (nabu_interp_find_method(internal_name, method, "(II)I") == NULL) return -1;
+    void *args[2];
+    args[0] = (void *)(intptr_t)a;
+    args[1] = (void *)(intptr_t)b;
+    void *r = nabu_interp_invoke_by_name(internal_name, method, "(II)I", args, 2);
+    *out = (int32_t)(intptr_t)r;
+    return 0;
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((constructor)) static void nabu_interp_install_hooks(void) {
+    nabu_interp_load_hook = bridge_load;
+    nabu_interp_call_int_hook = bridge_call_int;
+}
+#endif

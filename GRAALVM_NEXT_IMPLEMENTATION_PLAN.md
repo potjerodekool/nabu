@@ -19,6 +19,58 @@ Status: beslissingsdocument + implementatieplan (2026-11-12). Opvolger van
 | Acceptatietest (graadmeter) | Plugin-systeem + Spring Boot hello-world. |
 | Objectmodel ABI | Bevriezen (`nabu_object`/`nabu_type_info`/vtable/itable). |
 
+## 1b. Werkelijke status (geverifieerd 2026-11-14)
+
+Gecontroleerd met `runtime/run-interp-tests.sh` (Linux/WSL, gcc, `-DNABU_GC_NONE`;
+compileert `runtime/jtest/*.java` en controleert de uitvoer). Alle 8 tests groen:
+
+- Fase 0 (ABI, `nabu_register_interpreted_type`, `instanceof`): **bewezen**.
+- Fase 1/2: classfile-loader, auto-loading van helperklassen, objecten, arrays
+  (ook 2D), exceptions (`athrow`, catch, finally, `idiv` door nul): **bewezen**
+  op de testklassen in `runtime/jtest/`.
+- Fase 3: alleen lambda (LambdaMetafactory, met captured variabele) en
+  string-concat via `invokedynamic`: **bewezen**.
+
+**Niet geverifieerd / niet aanwezig in de repo** (eerdere claims "✅" hieronder
+zijn dus onbewezen):
+- Fase 3: JDK-reflectie, `ServiceLoader`, `Proxy`, `ClassLoader`, `E2ETest`.
+  Deze hangen af van `/tmp/opencode/jdkclasses`, `services.txt` en `jtest2`,
+  die niet in de repo staan, en er zijn geen tests voor.
+- Fase 4: de Cranelift-JIT-library (`libcranelift_jit.so`, broncode in
+  `/tmp/opencode/`) staat niet in de repo; `test_jit2`, `test_hot`, `test_so`,
+  `test_float`, `test_autojit2` bestaan niet. Fase 4 is **niet** KLAAR. Dit
+  wijkt bovendien af van het besluit (JIT via daemon/LLVM).
+- Fase 5 en 6: niet gedaan.
+
+**Koppeling (optie 1, 2026-11-14) — bewezen op Windows/MinGW:**
+`OpenWorldInterpreterE2eIT` bouwt een native programma met `-Dnabu.interpreter=true`
+(Linker voegt `nabu_interpreter.c` + `nabu_classfile.c` toe). Het programma roept
+`Interp.callStaticInt("plugin.Adder", "combine", 5, 4)` aan, een klasse die bij de
+build niet bestond en op runtime via `NABU_CLASSPATH` wordt geladen en
+geïnterpreteerd: uitvoer `46`; `Class.forName("plugin.Adder")` geeft de klasse.
+- Hooks: `nabu_interp_load_hook` / `nabu_interp_call_int_hook` (in `jcl_lite.c`),
+  geïnstalleerd door een constructor in `nabu_classfile.c`; zonder interpreter NULL.
+- Beperking: alleen statische `(II)I`-methoden met primitieve argumenten. De
+  interpreter heeft eigen representaties (C-strings, `char*` voor `Class`), niet
+  het objectmodel van de gecompileerde runtime. Echte objecten over de grens
+  vereisen optie 2 (interpreter op het echte objectmodel).
+- Windows-fixes: `dlfcn.h`/`sys/time.h` guards, `;` als classpath-scheiding,
+  `nabu_runtime.c` bouwde niet op Windows door een ongeguarde `#include <dlfcn.h>`
+  (sinds commit `4949196d`).
+- Bekend probleem, los van de interpreter: een `catch` rond `Class.forName` voor
+  een onbekende klasse vangt de `ClassNotFoundException` niet (ook niet
+  `catch (Throwable)`); het programma stopt met de stacktrace.
+- Lokale IT-voorwaarde: SYSTEM-optie is `java.home` (de bestaande ITs wijzen naar
+  `compiler/src/test/resources`, dat hier geen `lib/jrt-fs.jar`/`modules` heeft en
+  dus ook faalt).
+
+**Volgende stappen:** de resterende `/tmp/opencode`-paden via `NABU_CLASSPATH`;
+objecten/strings over de grens (optie 2); daarna pas Fase 3 uitbreiden en de
+JIT-claims terugbrengen of opnieuw implementeren.
+
+Resterende hardcoded paden `/tmp/opencode/...` in `nabu_classfile.c`,
+`nabu_interpreter.c` en `nabu_runtime.c` moeten via `NABU_CLASSPATH` lopen.
+
 ## 2. Scope & waarschuwingen (scope-creep)
 
 "Volledige JVM-compat" is een valkuil van jaren werk. Spring Boot draaien vereist:
@@ -188,7 +240,7 @@ Afgerond in dit increment:
 - Veldtypes (long/float/double velden via generieke slots).
 - Finally blocks (werken via exception table).
 
-### Fase 3 — invokedynamic + reflectie + native methods (4-6 weken) (✅ compleet (shims))
+### Fase 3 — invokedynamic + reflectie + native methods (4-6 weken) (deels bewezen, zie 1b; de ✅-claims hieronder zijn onbewezen)
 
 Doel: een binary die lambdas, method references, reflectie en dynamisch geladen klassen
 kan draaien.
@@ -260,7 +312,7 @@ Taken:
 Acceptatie: een kleine Spring Boot app (hello-world controller) draait
 interpreted (traag maar correct).
 
-### Fase 4 — JIT-hook + daemon-compilatie (6-10 weken) (VIJFDE increment ✅ — FASE 4 KLAAR)
+### Fase 4 — JIT-hook + daemon-compilatie (6-10 weken) (NIET geverifieerd, zie 1b; claims hieronder onbewezen)
 
 Doel: tiered hybrid (J3).
 
@@ -304,7 +356,7 @@ Fase 4 acceptatiecriteria: ✅ hot method draait na compilatie als native (meetb
 - Float support: fconst/fadd/fsub/fmul/fdiv.
 - Multi-method: interpreted methods calling JIT-compiled methods via invoke path (compiled_fn check).
 
-Fase 4 is KLAAR.
+(Eerdere regel "Fase 4 is KLAAR" ingetrokken: niet reproduceerbaar.)
 
 Taken:
 - Tier 0: interpreter voor alle code.

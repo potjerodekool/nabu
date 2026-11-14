@@ -297,6 +297,13 @@ public class Linker {
         // the collector: a file of its own next to the others
         Path collector = main.resolveSibling(gc.runtimeSource());
         if (java.nio.file.Files.exists(collector)) srcs.add(collector);
+        // Open world: the bytecode interpreter loads classes that are not part of the program (-Dnabu.interpreter=true)
+        if (Boolean.getBoolean("nabu.interpreter")) {
+            for (String name : new String[] {"nabu_interpreter.c", "nabu_classfile.c"}) {
+                Path src = main.resolveSibling(name);
+                if (java.nio.file.Files.exists(src)) srcs.add(src);
+            }
+        }
         // PGO profile runtime: linked when -Dnabu.pgo.pipeline starts with pgo-instr-gen
         String pgoPipeline = System.getProperty("nabu.pgo.pipeline");
         if (pgoPipeline != null && pgoPipeline.startsWith("pgo-instr-gen")) {
@@ -331,7 +338,8 @@ public class Linker {
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
                 for (final String extra : new String[] {"nabu_runtime.c", "nabu_runtime.h", "jcl_lite.c", "nabu_gc.h",
-                        "gc_boehm.c", "gc_none.c", "nabu_profile_rt.c"}) {
+                        "gc_boehm.c", "gc_none.c", "nabu_profile_rt.c", "nabu_interpreter.c", "nabu_interpreter.h",
+                        "nabu_classfile.c"}) {
                     if (extra.equals(fileName)) continue;
                     try (var e = loader.getResourceAsStream("nabu/runtime/" + extra)) {
                         if (e != null) {

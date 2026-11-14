@@ -91,6 +91,13 @@ public class Inliner implements OptimizationPass {
         final List<IRBasicBlock> blocks = callee.blocks();
         if (blocks.isEmpty()) return false;
         if (blocks.size() > 10) return false; // multi-blok: beperkt tot kleine callees
+        // A function of the program itself must stay a frame of a stack trace. The IR has no inline scope, so
+        // after inlining here its lines would be attributed to the caller; LLVM inlines it with inline info.
+        for (final IRBasicBlock b : blocks) {
+            for (final IRInstruction in : b.instructions()) {
+                if (in.location() != null && in.location().isKnown()) return false;
+            }
+        }
         // Tel Returns: precies één.
         int returns = 0;
         for (final IRBasicBlock b : blocks) {

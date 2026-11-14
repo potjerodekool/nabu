@@ -91,8 +91,20 @@ public class EscapeAnalysis {
             }
         }
 
+        // The source front end leaves the receiver of a constructor call implicit: the emitter pairs it with the
+        // most recent allocation that has no constructor call yet (or, for this(..)/super(..), with 'this').
+        final Deque<String> pending = new ArrayDeque<>();
+        String lastAlloc = null;
+        final String ownThis = f.params.isEmpty() ? null : nameOf(f.params.get(0));
         for (final IRBasicBlock b : f.blocks()) {
             for (final IRInstruction in : b.instructions()) {
+                if (in instanceof IRInstruction.HeapAlloc ha && nameOf(ha.result()) != null) {
+                    pending.addLast(nameOf(ha.result()));
+                    lastAlloc = nameOf(ha.result());
+                } else if (in instanceof IRInstruction.StackAlloc sa && nameOf(sa.result()) != null) {
+                    pending.addLast(nameOf(sa.result()));
+                    lastAlloc = nameOf(sa.result());
+                }
                 if (in instanceof IRInstruction.Cast || in instanceof IRInstruction.Move
                         || in instanceof IRInstruction.HeapAlloc || in instanceof IRInstruction.StackAlloc
                         || in instanceof IRInstruction.Load || in instanceof IRInstruction.ArrayLoad
@@ -117,17 +129,34 @@ public class EscapeAnalysis {
                 }
                 if (in instanceof IRInstruction.Call c) {
                     final IRFunction callee = callees.get(c.function());
+                    final boolean ctor = c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.SPECIAL
+                            && isInit(c.function());
+                    final boolean explicitReceiver = c.paramTypes() != null
+                            && c.args().size() == c.paramTypes().size() + 1;
+                    final boolean implicit = ctor && !explicitReceiver;
+                    String receiver = null;
+                    if (ctor) {
+                        if (explicitReceiver) {
+                            if (!c.args().isEmpty()) pending.removeLastOccurrence(nameOf(c.args().get(0)));
+                        } else {
+                            receiver = pending.pollLast();
+                            if (receiver == null) {
+                                receiver = (!c.args().isEmpty() && nameOf(c.args().get(0)) != null
+                                        && nameOf(c.args().get(0)).equals(ownThis)) ? null : lastAlloc;
+                                if (receiver == null) receiver = ownThis;
+                            }
+                        }
+                    }
+                    final boolean unknownTarget = callee == null || depth >= 3
+                            || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.VIRTUAL
+                            || c.callKind() == io.github.potjerodekool.nabu.backend.ir.CallKind.INTERFACE;
+                    if (implicit && receiver != null && alias.contains(receiver)) {
+                        if (unknownTarget || paramEscapes(callee, 0, callees, depth, visiting)) return true;
+                    }
+                    final int shift = implicit ? 1 : 0;
                     for (int ai = 0; ai < c.args().size(); ai++) {
                         if (!namesAny(c.args().get(ai), alias)) continue;
-                        if (callee == null || depth >= 3 || ai >= callee.params.size()) return true;
-                        final String key = callee.name + "#" + ai;
-                        if (!visiting.add(key)) return true;
-                        try {
-                            final String pn = nameOf(callee.params.get(ai));
-                            if (pn == null || valueEscapes(callee, pn, callees, depth + 1, visiting)) return true;
-                        } finally {
-                            visiting.remove(key);
-                        }
+                        if (unknownTarget || paramEscapes(callee, ai + shift, callees, depth, visiting)) return true;
                     }
                     continue;
                 }
@@ -135,6 +164,25 @@ public class EscapeAnalysis {
             }
         }
         return false;
+    }
+
+    private static boolean paramEscapes(final IRFunction callee, final int index,
+                                         final Map<String, IRFunction> callees, final int depth,
+                                         final Set<String> visiting) {
+        if (index >= callee.params.size()) return true;
+        final String key = callee.name + "#" + index;
+        if (!visiting.add(key)) return true;
+        try {
+            final String pn = nameOf(callee.params.get(index));
+            return pn == null || valueEscapes(callee, pn, callees, depth + 1, visiting);
+        } finally {
+            visiting.remove(key);
+        }
+    }
+
+    /** Same test as the native backend's CallTargets.isInit. */
+    private static boolean isInit(final String function) {
+        return function.endsWith("_init") || function.contains("_init$");
     }
 
     private static boolean isPointerArithmetic(final IRInstruction.BinaryOp bo) {

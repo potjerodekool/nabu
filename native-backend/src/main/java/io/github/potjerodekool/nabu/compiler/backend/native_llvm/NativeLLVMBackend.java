@@ -50,9 +50,9 @@ public class NativeLLVMBackend implements Backend {
         // Intel's JCC erratum: a jump that crosses or ends on a 32-byte boundary does not enter the decode cache,
         // so a hot loop can run 40% slower for no reason but where its code happens to land. This asks the
         // assembler to pad branches so that none does (+0.6% code).
-        // Opt-in (-Dnabu.alignBranches=true) and x86 only: an unknown option makes LLVM exit the process.
+        // x86 only (an unknown option makes LLVM exit the process); -Dnabu.alignBranches=false switches it off.
         final String arch = System.getProperty("os.arch", "");
-        if ("true".equalsIgnoreCase(System.getProperty("nabu.alignBranches"))
+        if (!"false".equalsIgnoreCase(System.getProperty("nabu.alignBranches"))
                 && (arch.equals("amd64") || arch.equals("x86_64"))) {
             final org.bytedeco.javacpp.PointerPointer<BytePointer> argv = new org.bytedeco.javacpp.PointerPointer<>(2);
             argv.put(0, new BytePointer("nabu"));

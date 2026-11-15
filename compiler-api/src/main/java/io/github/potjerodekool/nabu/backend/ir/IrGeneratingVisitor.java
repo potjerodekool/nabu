@@ -1625,6 +1625,12 @@ public class IrGeneratingVisitor extends AbstractTreeVisitor<IRValue, IRBuilder>
             // (bv. `int execute(...)` met `return helpExitCode;`)
             if (builder.currentFunction() != null) {
                 value = unboxIfNeeded(value, builder.currentFunction().returnType);
+                // JLS 5.2: a primitive is widened to the return type (return n; in a long method).
+                final IRType returnType = builder.currentFunction().returnType;
+                if (value != null && returnType != null && isPrimitiveIRType(value.type())
+                        && isPrimitiveIRType(returnType) && isWideningNeeded(value.type(), returnType)) {
+                    value = builder.emitCast(value, returnType);
+                }
             }
             emitReturnThroughFinalizers(value);
         }

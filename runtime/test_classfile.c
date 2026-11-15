@@ -6,8 +6,7 @@
 
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : NULL;
-    if (!path) { fprintf(stderr, "usage: %s <file.class>
-", argv[0]); return 2; }
+    if (!path) { fprintf(stderr, "usage: %s <file.class>\n", argv[0]); return 2; }
     nabu_interp_init();
     /* Load helper first, then main. */
     char helper[1024];

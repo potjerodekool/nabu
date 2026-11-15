@@ -55,3 +55,6 @@ site/_site
 ### Local build output ###
 /build.log
 /logs_*.zip
+
+### Maven shade plugin output ###
+dependency-reduced-pom.xml

@@ -651,7 +651,8 @@ public class FunctionEmitter {
                 instructions.emitClassInit(classLayouts.ownerInternalName(fn.name));
             }
 
-            if (block == fn.blocks().get(0) && callsOthers(fn)) {
+            if (block == fn.blocks().get(0) && callsOthers(fn)
+                    && (entryPolls == null || entryPolls.contains(fn.name))) {
                 // Safepoint: een thread zonder lus of wachtpunt geeft zijn stack ook bij het binnengaan van een functie.
                 instructions.emitSafepointPoll();
             }
@@ -693,6 +694,13 @@ public class FunctionEmitter {
      * over normale sprongen en exception-randen (beschermd blok → handlers).
      * Onbereikbare blokken volgen daarna in IR-volgorde.
      */
+    /** The functions that poll at their entry (see {@link SafepointPlan}); null: every function that calls. */
+    private java.util.Set<String> entryPolls;
+
+    void setEntryPolls(final java.util.Set<String> entryPolls) {
+        this.entryPolls = entryPolls;
+    }
+
     /** True when the function contains a call: only those can run long without a loop or a wait. */
     private static boolean callsOthers(final IRFunction fn) {
         for (final IRBasicBlock block : fn.blocks()) {

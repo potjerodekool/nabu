@@ -109,6 +109,7 @@ public void setReflectionRegistry(
         long tp = System.nanoTime();
         // 0. Runtime helpers declareren
         declareRuntimeHelpers();
+        functions.setEntryPolls(SafepointPlan.entryPolls(modules));
         // Which instance fields does the program read? Dead-field elimination leaves the others out of the object
         // struct (FieldReachability); the same scan feeds the closureStats report.
         final boolean eliminate = FieldReachability.eliminate();

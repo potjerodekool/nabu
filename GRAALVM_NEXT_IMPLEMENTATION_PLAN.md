@@ -73,6 +73,23 @@ geïnterpreteerd: uitvoer `46`; `Class.forName("plugin.Adder")` geeft de klasse.
   `compiler/src/test/resources`, dat hier geen `lib/jrt-fs.jar`/`modules` heeft en
   dus ook faalt).
 
+**Fase 3 en 4 nagelopen (2026-11-15, WSL, `runtime/run-interp-jdk-tests.sh`):** het script bouwt de fixtures zelf
+(`jimage extract` van java.base naar `$NABU_DEV_DIR/jdkclasses/classes`, `services.txt`) en draait vier tests via
+`test_run.c`: `Class.forName` + `getDeclaredMethods` + `Method.invoke` (42), `Proxy.newProxyInstance` met een
+handler-klasse, `ClassLoader.getSystemClassLoader().loadClass`, en `ServiceLoader` via `services.txt`. Alle vier
+slagen, evenals de 8 bestaande tests. Bewezen gaten (niet in een test vastgelegd, want ze falen):
+- `Class.getDeclaredMethod(name, ...)` faalt: `interp: unknown method id/cp 17`, `stack underflow`.
+- `getDeclaredMethods()` geeft ook `<init>` terug (de JDK doet dat niet).
+- `Constructor.newInstance(7)` laat het veld op 0 (argument niet doorgegeven), `Field.get` geeft `null` en
+  `Field.set` doet niets voor een `int`-veld.
+- `Proxy` met een lambda als `InvocationHandler`: `proxy: no invoke/invokeMethod on java/lang/Object`;
+  `Proxy.isProxyClass` geeft niet-waar.
+- `println(boolean)` print `1`/`0` in plaats van `true`/`false`.
+- `ServiceLoader` leest alleen `$NABU_DEV_DIR/services.txt` (`iface=impl`), niet `META-INF/services`.
+- Fase 4: de interpreter heeft de teller (`call_count`), de drempel, `compiled_fn` en `nabu_interp_deoptimize`,
+  maar `libcranelift_jit.so` staat nergens in de repo of historie; zonder die library blijft de hook een no-op.
+  De claims over Cranelift, `.so`-compilatie en snellere hot methods zijn dus niet te verifiëren.
+
 **Volgende stappen:** de resterende `/tmp/opencode`-paden via `NABU_CLASSPATH`;
 objecten/strings over de grens (optie 2); daarna pas Fase 3 uitbreiden en de
 JIT-claims terugbrengen of opnieuw implementeren.

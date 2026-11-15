@@ -38,6 +38,8 @@ public final class DataFlowEngine {
         final Map<String, V> out = new LinkedHashMap<>();
         final Map<String, Set<String>> preds = Dominators.computePredecessors(blocks);
         final Map<String, List<String>> succs = buildSuccessors(blocks);
+        final Map<String, IRBasicBlock> blockByLabel = new java.util.HashMap<>();
+        for (final var b : blocks) blockByLabel.putIfAbsent(b.label(), b);
         // Dominator-info voor back-edge-detectie (widening).
         Dominators dominators = null;
         try { dominators = Dominators.compute(function); } catch (Exception ignored) {}
@@ -80,7 +82,7 @@ public final class DataFlowEngine {
 
         while (!worklist.isEmpty()) {
             final var label = worklist.poll();
-            final IRBasicBlock block = findBlock(blocks, label);
+            final IRBasicBlock block = blockByLabel.get(label);
             if (block == null) continue;
 
             if (analysis.direction() == DataFlowDirection.FORWARD) {
@@ -94,7 +96,7 @@ public final class DataFlowEngine {
                     for (final var p : predSet) {
                         V pv = out.get(p);
                         // Edge-refinement: verfijn op basis van de terminator van p
-                        final var pb = findBlock(blocks, p);
+                        final var pb = blockByLabel.get(p);
                         if (pb != null) {
                             final var t = pb.getTerminator();
                             if (t instanceof io.github.potjerodekool.nabu.backend.ir.instructions.IRInstruction.CondBranch cb) {
@@ -179,10 +181,5 @@ public final class DataFlowEngine {
             }
         }
         return succs;
-    }
-
-    private static IRBasicBlock findBlock(List<IRBasicBlock> blocks, String label) {
-        for (final var b : blocks) if (b.label().equals(label)) return b;
-        return null;
     }
 }

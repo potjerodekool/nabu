@@ -51,4 +51,21 @@ class OptimizerTest {
         assertEquals(List.of("entry", "catch.handler"),
                 optimized.blocks().stream().map(IRBasicBlock::label).toList());
     }
+
+    /** The optimizer rebuilds a function; what a bytecode method carries besides its blocks must stay. */
+    @Test
+    void bytecodeMetadataSurvivesOptimizer() {
+        final var function = new IRFunction("h", null, List.of(), SourceLocation.UNKNOWN, 0);
+        function.setJvmSignature("h", "(Ljava/lang/Object;)V");
+        function.setBytecodeAnnotations(List.of(),
+                List.of(List.of(new io.github.potjerodekool.nabu.backend.ir.IRAnnotation("x/Nullable", java.util.Map.of()))));
+        final var entry = new IRBasicBlock("entry");
+        entry.add(new IRInstruction.Return(null, SourceLocation.UNKNOWN));
+        function.addBlock(entry);
+
+        final var optimized = Optimizer.optimize(function);
+        assertEquals("h", optimized.jvmName());
+        assertEquals("(Ljava/lang/Object;)V", optimized.jvmDescriptor());
+        assertEquals(1, optimized.bytecodeParameterAnnotations().size());
+    }
 }

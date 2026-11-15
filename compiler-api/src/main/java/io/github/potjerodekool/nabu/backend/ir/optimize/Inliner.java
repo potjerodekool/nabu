@@ -83,9 +83,10 @@ public class Inliner implements OptimizationPass {
                 if (callee == null || callee == caller) continue;
                 if (call.returnType() != null && !call.returnType().equals(callee.returnType)) continue;
                 // Recursie-detectie: inline niet als callee (transitief) caller kan bereiken.
-                if (wouldRecurse(call.function(), caller.name)) continue;
                 if (!eligible(callee, inLoop)) continue;
                 if (!argsSimple(call.args())) continue;
+                // last: it walks the call graph below the callee
+                if (wouldRecurse(call.function(), caller.name)) continue;
 
                 // Inline.
                 if (doInline(caller, block, i, call, callee)) {

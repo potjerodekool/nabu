@@ -352,6 +352,16 @@ public class FunctionEmitter {
         debugLines.finish();
     }
 
+    private static final long INTERVAL_COST_LIMIT = Long.getLong("nabu.intervalCost", 1_000_000L);
+
+    private static long intervalCost(final IRFunction fn) {
+        long instructions = 0;
+        for (final var block : fn.blocks()) {
+            instructions += block.instructions().size();
+        }
+        return (long) fn.blocks().size() * instructions;
+    }
+
     private void emitBodyInner(IRFunction fn) {
         if (fn.isExternal()) return;
         currentFnNameForDiagnostics = fn.name;
@@ -362,8 +372,11 @@ public class FunctionEmitter {
             final var intervalAnalysis = new io.github.potjerodekool.nabu.backend.ir.dataflow.analysis.IntervalAnalysis();
             final var nullnessResult = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
                     fn, nullnessAnalysis);
-            final var intervalResult = io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(
-                    fn, intervalAnalysis);
+            // The intervals only remove bounds checks. Every block holds a map with an interval per variable, so the
+            // cost grows with blocks x variables: on a huge function (a generated initializer, a parser table) it
+            // takes minutes for nothing. -Dnabu.intervalCost=<n> sets the limit.
+            final var intervalResult = intervalCost(fn) > INTERVAL_COST_LIMIT ? null
+                    : io.github.potjerodekool.nabu.backend.ir.dataflow.DataFlowEngine.analyze(fn, intervalAnalysis);
             instructions.setNullnessResult(nullnessResult);
             instructions.setIntervalResult(intervalResult);
         } catch (Throwable t) {

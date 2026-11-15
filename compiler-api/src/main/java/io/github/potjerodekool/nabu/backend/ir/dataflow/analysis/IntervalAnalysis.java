@@ -152,6 +152,8 @@ public class IntervalAnalysis implements DataFlowAnalysis<Map<String, Interval>>
 
     @Override
     public Map<String, Interval> meet(Map<String, Interval> a, Map<String, Interval> b) {
+        // The join of a map with itself is that map: most joins on a straight path are of equal maps.
+        if (a == b || a.equals(b)) return a;
         final var r = new LinkedHashMap<>(a);
         final var keys = new LinkedHashSet<>(a.keySet());
         keys.addAll(b.keySet());

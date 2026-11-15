@@ -20,6 +20,8 @@ public class Inliner implements OptimizationPass {
     /** Callee -> set of callees it calls (voor recursie-detectie). */
     private final Map<String, Set<String>> callGraph = new HashMap<>();
     private int freshCounter = 0;
+    /** Owners (as in the function names) that have a static initializer. */
+    private final Set<String> ownersWithClassInit = new HashSet<>();
 
     // Drempels (instructies per callee-blok).
     private static final int THRESHOLD_SINGLE_USE = 80;
@@ -28,6 +30,14 @@ public class Inliner implements OptimizationPass {
     public Inliner(final Map<String, IRFunction> callees, final Map<String, Integer> callCounts) {
         this.callees = callees;
         this.callCounts = callCounts;
+        for (final String name : callees.keySet()) {
+            final int at = name.indexOf("<clinit>");
+            if (at > 1 && name.charAt(at - 1) == '_') {
+                ownersWithClassInit.add(name.substring(0, at - 1));
+            } else if (name.endsWith("_clinit")) {
+                ownersWithClassInit.add(name.substring(0, name.length() - "_clinit".length()));
+            }
+        }
         // Bouw call-graph voor recursie-detectie.
         for (final Map.Entry<String, IRFunction> e : callees.entrySet()) {
             final Set<String> cs = new HashSet<>();
@@ -90,6 +100,11 @@ public class Inliner implements OptimizationPass {
         if (callee.isExternal()) return false;
         final List<IRBasicBlock> blocks = callee.blocks();
         if (blocks.isEmpty()) return false;
+        // The backend starts a static method or constructor with the guard that runs the static initializer of its
+        // class (JLS 12.4). Inlined, the guard would be lost: Lazy.touch() never initialized Lazy.
+        for (int i = callee.name.indexOf('_'); i > 0; i = callee.name.indexOf('_', i + 1)) {
+            if (ownersWithClassInit.contains(callee.name.substring(0, i))) return false;
+        }
         if (blocks.size() > 10) return false; // multi-blok: beperkt tot kleine callees
         // A function of the program itself must stay a frame of a stack trace. The IR has no inline scope, so
         // after inlining here its lines would be attributed to the caller; LLVM inlines it with inline info.

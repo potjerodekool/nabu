@@ -27,13 +27,26 @@ void nabu_gc_init(void) {
     static volatile int started = 0;
     if (!started) {
         started = 1;
+        /* One marker thread. Marking in parallel pays the hand-off between the threads on every collection, and for the
+         * heaps of a server like the petstore (a few hundred MB, 30 threads, one of them running under the lock) that is
+         * more than it saves: the petstore serves 10-20% more requests per second with GC_MARKERS=1. The collector reads
+         * GC_MARKERS itself in GC_init, so an explicit value in the environment wins. */
+        if (getenv("GC_MARKERS") == NULL) {
+#ifdef _WIN32
+            _putenv("GC_MARKERS=1");
+#else
+            setenv("GC_MARKERS", "1", 0);
+#endif
+        }
         GC_init();
         /* A program like this starts by building a large object graph. With the small heap the collector begins with it
          * collects over and over while all of it is still alive (the petstore: 2.7 -> 2.1 s to start, +20 MB resident,
-         * and fewer collections afterwards). GC_INITIAL_HEAP_SIZE in the environment, which the collector reads
-         * itself, takes precedence. */
+         * and fewer collections afterwards). 256 MB: the petstore serves 13% (/pet/2) to 44% (/store/inventory) more
+         * requests per second than with 128 MB, for 86 MB more resident memory; the memory of a program that does not
+         * allocate that much is not touched. GC_INITIAL_HEAP_SIZE in the environment, which the collector reads itself,
+         * takes precedence. */
         if (getenv("GC_INITIAL_HEAP_SIZE") == NULL) {
-            GC_expand_hp((size_t) 128 << 20);
+            GC_expand_hp((size_t) 256 << 20);
         }
     }
 }

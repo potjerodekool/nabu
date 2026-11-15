@@ -47,18 +47,26 @@ public class NativeLLVMBackend implements Backend {
         LLVMInitializeAllTargetMCs();
         LLVMInitializeAllAsmParsers();
         LLVMInitializeAllAsmPrinters();
-        // Intel's JCC erratum: a jump that crosses or ends on a 32-byte boundary does not enter the decode cache,
-        // so a hot loop can run 40% slower for no reason but where its code happens to land. This asks the
-        // assembler to pad branches so that none does (+0.6% code).
-        // x86 only (an unknown option makes LLVM exit the process); -Dnabu.alignBranches=false switches it off.
+    }
+
+    /**
+     * Intel's JCC erratum: a jump that crosses or ends on a 32-byte boundary does not enter the decode cache, so a
+     * hot loop can run 40% slower for no reason but where its code happens to land. This asks the assembler to pad
+     * branches so that none does (+0.6% code). The assembler's relaxation is superlinear: for a large program (the
+     * petstore, 35000 modules) code generation takes 100 times as long, so it is only on for a small one.
+     * x86 only (an unknown option makes LLVM exit the process); -Dnabu.alignBranches=true|false overrides.
+     */
+    private static void alignBranches(final int moduleCount) {
         final String arch = System.getProperty("os.arch", "");
-        if (!"false".equalsIgnoreCase(System.getProperty("nabu.alignBranches"))
-                && (arch.equals("amd64") || arch.equals("x86_64"))) {
-            final org.bytedeco.javacpp.PointerPointer<BytePointer> argv = new org.bytedeco.javacpp.PointerPointer<>(2);
-            argv.put(0, new BytePointer("nabu"));
-            argv.put(1, new BytePointer("-x86-branches-within-32B-boundaries"));
-            LLVMParseCommandLineOptions(2, argv, new BytePointer("nabu"));
+        if (!arch.equals("amd64") && !arch.equals("x86_64")) {
+            return;
         }
+        final String prop = System.getProperty("nabu.alignBranches");
+        final boolean on = prop != null ? Boolean.parseBoolean(prop) : moduleCount <= 2000;
+        final org.bytedeco.javacpp.PointerPointer<BytePointer> argv = new org.bytedeco.javacpp.PointerPointer<>(2);
+        argv.put(0, new BytePointer("nabu"));
+        argv.put(1, new BytePointer("-x86-branches-within-32B-boundaries=" + on));
+        LLVMParseCommandLineOptions(2, argv, new BytePointer("nabu"));
     }
 
     @Override
@@ -347,6 +355,7 @@ public class NativeLLVMBackend implements Backend {
                                        String triple,
                                        boolean partitioned) throws CompileException {
         BuildDiagnostics.reset();
+        alignBranches(modules.size());
         LLVMContextRef ctx     = LLVMContextCreate();
         // The names of instructions, arguments and blocks are only for reading the .ll: for a large program they
         // are gigabytes (a string per value, 200000 functions). -Dnabu.llvm.discardNames=true|false overrides.

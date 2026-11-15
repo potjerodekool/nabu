@@ -2265,9 +2265,15 @@ public final class BytecodeReachabilityCompiler {
 
     /** Instantiations and initializations (JLS 12.4.1) in a lowered method. */
     private void queueActiveUses(final MethodNode methodNode) {
+        // A constructor call without a NEW of its own in this method is a super(..) or this(..) call: the object
+        // being built is an instance of the subclass, which is queued where it is created, not of the superclass.
+        int pendingNew = 0;
         for (final var insn : methodNode.instructions) {
             switch (insn.getOpcode()) {
-                case Opcodes.NEW -> queueInstantiate(((org.objectweb.asm.tree.TypeInsnNode) insn).desc);
+                case Opcodes.NEW -> {
+                    pendingNew++;
+                    queueInstantiate(((org.objectweb.asm.tree.TypeInsnNode) insn).desc);
+                }
                 case Opcodes.GETSTATIC, Opcodes.PUTSTATIC -> {
                     final var field = (org.objectweb.asm.tree.FieldInsnNode) insn;
                     queueInit(field.owner);
@@ -2287,7 +2293,10 @@ public final class BytecodeReachabilityCompiler {
                     if (!mi.owner.startsWith("[")) {
                         queueMethod(new MethodRef(mi.owner, mi.name, mi.desc, false));
                         if ("<init>".equals(mi.name)) {
-                            queueInstantiate(mi.owner);
+                            if (pendingNew > 0) {
+                                pendingNew--;
+                                queueInstantiate(mi.owner);
+                            }
                         }
                     }
                 }

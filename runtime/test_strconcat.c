@@ -5,7 +5,9 @@
 #include "nabu_runtime.h"
 
 int main(int argc, char **argv) {
-    const char *path = argc > 1 ? argv[1] : "/tmp/opencode/jtest/StrConcat.class";
+    const char *path = argc > 1 ? argv[1] : NULL;
+    if (!path) { fprintf(stderr, "usage: %s <file.class>
+", argv[0]); return 2; }
     nabu_interp_init();
     if (nabu_classfile_load(path) != 0) { fprintf(stderr, "load fail\n"); return 1; }
     void *r = nabu_interp_invoke_by_name("StrConcat", "main", "([Ljava/lang/String;)V", NULL, 0);

@@ -2013,6 +2013,8 @@ extern const struct mach_header_64 _mh_execute_header;
 #endif
 const char *nabu_compiled_type_name(const void *p) {
     if (p == NULL) return NULL;
+    /* A boxed Boolean or Character of the interpreter is a tagged value (see nabu_interpreter.h), not a pointer. */
+    if (((uintptr_t)p >> 48) == 0x5A5A || ((uintptr_t)p >> 48) == 0x5A5B) return NULL;
     const void *interp_t = ((const void *const *)p)[0];
     /* Interpreted type? */
     for (int32_t i = 0; i < nabu_interpreted_type_count_val; i++) {

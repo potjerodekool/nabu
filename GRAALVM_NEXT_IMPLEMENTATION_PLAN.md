@@ -94,9 +94,22 @@ Wat er mis was en is aangepast:
 - Een lambda als `InvocationHandler` werd niet herkend (`call_closure` is uit het opcode-pad gehaald); `getClass()` op een
   proxy werd naar de handler gestuurd; interface-types vinden nu de methoden van `Object`.
 - `ServiceLoader` zoekt ook `META-INF/services/<interface>` in de mappen van `NABU_CLASSPATH`.
-Nog open in Fase 3: `getMethod`/`getField` zoeken niet in superklassen en interfaces; `Field.get` op een `boolean`/`char`
-geeft de ruwe `int`; de natives voor `Method.invoke` boxen/unboxen niet (een `Integer` is hier gewoon de `int`); `<clinit>`
-van JDK-klassen draait niet; geen `META-INF/services` in jars.
+Daarna (zelfde dag) de open punten van Fase 3 aangepakt; negen tests worden twaalf (`BoxTest`, `ReflectBoxTest`,
+`ReflectInheritTest` erbij):
+- `getMethod`/`getField` zoeken nu ook in de superklassen en interfaces (loader bewaart de hiërarchie); `getConstructor`
+  blijft per klasse.
+- Boxing: `Integer.intValue()` e.d. ontbraken en gaven een segfault (de box is hier de ruwe waarde, `valueOf` is de
+  identiteit). Toegevoegd: `valueOf` en `xxxValue` voor alle wrappers. Een `Boolean` of `Character` draagt een tag in de
+  bovenste 16 bits (geen canoniek adres, dus nooit een pointer; `nabu_box_bool/char` in `nabu_interpreter.h`), zodat
+  `println(Object)`, `String.valueOf(Object)` en string-concat `true`/`x` tonen in plaats van `1`/`120`;
+  `Boolean.TRUE/FALSE` zijn dezelfde tags. `Field.get/set`, `Method.invoke` en `Constructor.newInstance` boxen en
+  unboxen volgens de descriptor.
+- String-concat met een primitieve `0`/`false` gaf `null` (de test op `args[i] != NULL`); een `boolean` gaf `1`, een
+  `char` het getal. Gerepareerd.
+Nog open in Fase 3: `<clinit>` van JDK-klassen draait niet (de JDK-klassen komen uit natives; `Boolean.TRUE` e.d. zijn
+voor de boxing apart afgehandeld); `META-INF/services` in jars wordt niet gelezen (geen zip-lezer in de runtime, alleen
+mappen op `NABU_CLASSPATH`); `Integer`/`Long`/`Short`/`Byte` hebben geen eigen box, dus `Object o = 5` is niet van een
+`Long`-box te onderscheiden en `equals`/`hashCode` van een box lopen via de heuristieken van de runtime.
 - Fase 4: de interpreter heeft de teller (`call_count`), de drempel, `compiled_fn` en `nabu_interp_deoptimize`,
   maar `libcranelift_jit.so` staat nergens in de repo of historie; zonder die library blijft de hook een no-op.
   De claims over Cranelift, `.so`-compilatie en snellere hot methods zijn dus niet te verifiëren.

@@ -136,6 +136,27 @@ int nabu_interp_field_count(const char *class_name);
 int nabu_interp_method_count(void);
 void nabu_interp_register_field(const char *class_name, const char *field_name, int index);
 /* Same, with the field descriptor and access flags (for reflection). */
+/* A boxed Integer, Long, Short, Byte, Float or Double is its raw value in the interpreter. A boxed Boolean or Character
+ * carries a tag in the upper 16 bits (not a canonical address, so never a pointer), which lets println(Object) and string
+ * concatenation print "true" or 'x' instead of 1 or 120. */
+#define NABU_BOX_BOOL 0x5A5A000000000000ULL
+#define NABU_BOX_CHAR 0x5A5B000000000000ULL
+static inline void *nabu_box_bool(int v) { return (void *)(uintptr_t)(NABU_BOX_BOOL | (v ? 1u : 0u)); }
+static inline void *nabu_box_char(int v) { return (void *)(uintptr_t)(NABU_BOX_CHAR | (unsigned)(v & 0xffff)); }
+static inline int nabu_box_kind(void *p) {   /* 1 Boolean, 2 Character, 0 not a tagged box */
+    uintptr_t t = (uintptr_t)p >> 48;
+    return t == 0x5A5A ? 1 : t == 0x5A5B ? 2 : 0;
+}
+/* The raw value of a possibly boxed primitive. */
+static inline void *nabu_unbox(void *p) { return nabu_box_kind(p) ? (void *)(uintptr_t)((uintptr_t)p & 0xffffffffu) : p; }
+/* The text of a tagged box ("true", "x"), or NULL when p is not one; buf holds at least 8 bytes. */
+static inline const char *nabu_box_text(void *p, char *buf) {
+    int k = nabu_box_kind(p);
+    if (k == 1) return ((uintptr_t)p & 1) ? "true" : "false";
+    if (k == 2) { buf[0] = (char)((uintptr_t)p & 0xff); buf[1] = 0; return buf; }
+    return NULL;
+}
+
 /* The Class object for a class or primitive name (implemented by the class file loader). */
 void *nabu_class_object_for_name(const char *name);
 /* Throw an exception of the given class (and its superclass) when the current native returns. */

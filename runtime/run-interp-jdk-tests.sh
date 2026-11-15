@@ -29,4 +29,7 @@ check LoaderTest 'loader|java.lang.String'
 check ServiceTest 'hello|1'
 check ServiceMetaTest 'hello meta|1'
 check StaticTest 'static-5|6|7|7|int|true'
+check BoxTest '6|5|true|true|true|x|8|4|2|flag=false zero=0 c=q s=null b=true'
+check ReflectBoxTest 'true|k|3|false|false|5|b|true'
+check ReflectInheritTest '8|derived|11|not declared|no such method'
 exit $fail

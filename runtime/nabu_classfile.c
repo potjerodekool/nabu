@@ -170,6 +170,7 @@ static void native_println_obj(nabu_interp_frame_t *frame, void **args, int narg
     int idx = (nargs > 1) ? 1 : 0;
     void *v = args != NULL ? args[idx] : NULL;
     if (v == NULL) { printf("null\n"); frame->has_result = 0; return; }
+    { char bb[8]; const char *bt = nabu_box_text(v, bb); if (bt != NULL) { printf("%s\n", bt); frame->has_result = 0; return; } }
     /* Heuristic: small values are ints (from unboxed lambda results). */
     if ((uintptr_t)v < (1 << 20)) {
         printf("%d\n", (int)(intptr_t)v);
@@ -414,6 +415,33 @@ typedef struct { void *obj; char *cls; char *name; int index; } nabu_field_info_
 static nabu_field_info_t nabu_field_table[NABU_MAX_FIELDS];
 static int nabu_field_table_count = 0;
 
+/* ---- Class hierarchy (superclass and interfaces), for getMethod/getField ---- */
+typedef struct { char *name; char *super_name; char **ifaces; int iface_count; } nabu_hier_t;
+static nabu_hier_t **hier = NULL;   /* pointers: a registration while a caller holds an entry must not move it */
+static int hier_count = 0, hier_cap = 0;
+
+static void hier_register(const char *name, const char *super_name, char **ifaces, int iface_count) {
+    if (hier_count >= hier_cap) {
+        int nc = hier_cap == 0 ? 64 : hier_cap * 2;
+        nabu_hier_t **a = (nabu_hier_t **)realloc(hier, sizeof(nabu_hier_t *) * nc);
+        if (a == NULL) return;
+        hier = a; hier_cap = nc;
+    }
+    nabu_hier_t *e = (nabu_hier_t *)calloc(1, sizeof(nabu_hier_t));
+    if (e == NULL) return;
+    e->name = strdup(name);
+    e->super_name = super_name ? strdup(super_name) : NULL;
+    e->iface_count = iface_count;
+    e->ifaces = (char **)calloc(iface_count > 0 ? iface_count : 1, sizeof(char *));
+    for (int i = 0; i < iface_count; i++) e->ifaces[i] = (ifaces && ifaces[i]) ? strdup(ifaces[i]) : NULL;
+    hier[hier_count++] = e;
+}
+
+static nabu_hier_t *hier_find(const char *name) {
+    for (int i = 0; i < hier_count; i++) if (strcmp(hier[i]->name, name) == 0) return hier[i];
+    return NULL;
+}
+
 static void nabu_register_field_info(void *obj, const char *cls, const char *name, int index) {
     if (nabu_field_table_count < NABU_MAX_FIELDS) {
         nabu_field_table[nabu_field_table_count].obj = obj;
@@ -593,13 +621,9 @@ static int param_types_match(void *exe, const char *exe_cls, void *wantArr) {
     return 1;
 }
 
-/* kind: 0 method, 1 constructor, 2 field. public_only: the getMethod/getConstructor/getField variants. */
-static void reflect_lookup(nabu_interp_frame_t *frame, void **args, int nargs, int kind, int public_only) {
-    void *clsObj = args != NULL ? args[0] : NULL;
-    const char *name = (kind != 1 && nargs > 1) ? (const char *)args[1] : NULL;
-    void *types = NULL;
-    if (kind == 0) types = nargs > 2 ? args[2] : NULL;
-    else if (kind == 1) types = nargs > 1 ? args[1] : NULL;
+/* The Method, Constructor or Field of a class by name and parameter types, or NULL. kind: 0 method, 1 constructor,
+ * 2 field. public_only: the getMethod/getConstructor/getField variants. */
+static void *reflect_find(void *clsObj, int kind, const char *name, void *types, int public_only) {
     nabu_interp_frame_t tmp;
     memset(&tmp, 0, sizeof(tmp));
     void *targs[1] = { clsObj };
@@ -621,13 +645,59 @@ static void reflect_lookup(nabu_interp_frame_t *frame, void **args, int nargs, i
         }
         if (kind != 2 && !param_types_match(e, exe_cls, types)) continue;
         if (public_only && fi_mod >= 0 && !(((int)(intptr_t)flds[fi_mod]) & 0x0001)) continue;
+        return e;
+    }
+    return NULL;
+}
+
+/* getMethod and getField also see what a class inherits: its superclasses first, then the interfaces. */
+static void *reflect_find_inherited(const char *internal, int kind, const char *name, void *types, int depth) {
+    if (internal == NULL || depth > 32) return NULL;
+    nabu_classfile_load_class(internal);
+    nabu_hier_t *h = hier_find(internal);
+    if (h == NULL) return NULL;
+    char dotted[256];
+    if (h->super_name != NULL) {
+        snprintf(dotted, sizeof(dotted), "%s", h->super_name);
+        for (char *q = dotted; *q; q++) if (*q == '/') *q = '.';
+        void *r = reflect_find(make_class_object(dotted), kind, name, types, 1);
+        if (r == NULL) r = reflect_find_inherited(h->super_name, kind, name, types, depth + 1);
+        if (r != NULL) return r;
+    }
+    for (int i = 0; i < h->iface_count; i++) {
+        if (h->ifaces[i] == NULL) continue;
+        snprintf(dotted, sizeof(dotted), "%s", h->ifaces[i]);
+        for (char *q = dotted; *q; q++) if (*q == '/') *q = '.';
+        void *r = reflect_find(make_class_object(dotted), kind, name, types, 1);
+        if (r == NULL) r = reflect_find_inherited(h->ifaces[i], kind, name, types, depth + 1);
+        if (r != NULL) return r;
+    }
+    return NULL;
+}
+
+static void reflect_lookup(nabu_interp_frame_t *frame, void **args, int nargs, int kind, int public_only) {
+    void *clsObj = args != NULL ? args[0] : NULL;
+    const char *name = (kind != 1 && nargs > 1) ? (const char *)args[1] : NULL;
+    void *types = NULL;
+    if (kind == 0) types = nargs > 2 ? args[2] : NULL;
+    else if (kind == 1) types = nargs > 1 ? args[1] : NULL;
+    void *e = reflect_find(clsObj, kind, name, types, public_only);
+    if (e == NULL && public_only && kind != 1) {
+        const char *cn = class_handle_name(clsObj);
+        if (cn != NULL) {
+            char internal[256];
+            snprintf(internal, sizeof(internal), "%s", cn);
+            for (char *q = internal; *q; q++) if (*q == '.') *q = '/';
+            e = reflect_find_inherited(internal, kind, name, types, 0);
+        }
+    }
+    if (e != NULL) {
         frame->result = e;
         frame->has_result = 1;
         return;
     }
-    if (kind == 0) nabu_interp_throw("java/lang/NoSuchMethodException", "java/lang/ReflectiveOperationException");
-    else if (kind == 1) nabu_interp_throw("java/lang/NoSuchMethodException", "java/lang/ReflectiveOperationException");
-    else nabu_interp_throw("java/lang/NoSuchFieldException", "java/lang/ReflectiveOperationException");
+    if (kind == 2) nabu_interp_throw("java/lang/NoSuchFieldException", "java/lang/ReflectiveOperationException");
+    else nabu_interp_throw("java/lang/NoSuchMethodException", "java/lang/ReflectiveOperationException");
     frame->result = NULL;
     frame->has_result = 1;
 }
@@ -638,6 +708,38 @@ static void native_class_getDeclaredConstructor(nabu_interp_frame_t *f, void **a
 static void native_class_getConstructor(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 1, 1); }
 static void native_class_getDeclaredField(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 2, 0); }
 static void native_class_getField(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 2, 1); }
+
+/* Boxing by descriptor character: a boolean or char becomes a tagged box, the other primitives stay raw (see
+ * nabu_interpreter.h); unboxing strips the tag from a primitive parameter. */
+static void *box_by_desc(char d, void *raw) {
+    if (d == 'Z') return nabu_box_bool(raw != NULL);
+    if (d == 'C') return nabu_box_char((int)(intptr_t)raw);
+    return raw;
+}
+
+static void *unbox_by_desc(char d, void *v) {
+    return (d == 'L' || d == '[' || d == 0) ? v : nabu_unbox(v);
+}
+
+/* The descriptor character of parameter i (0-based) of a method descriptor: a primitive letter, 'L' or '['. */
+static char desc_param_char(const char *desc, int i) {
+    const char *p = desc ? strchr(desc, '(') : NULL;
+    if (p == NULL) return 0;
+    p++;
+    for (int k = 0; *p && *p != ')'; k++) {
+        char c = *p;
+        if (k == i) return c;
+        while (*p == '[') p++;
+        if (*p == 'L') { while (*p && *p != ';') p++; }
+        if (*p) p++;
+    }
+    return 0;
+}
+
+static char desc_return_char(const char *desc) {
+    const char *p = desc ? strchr(desc, ')') : NULL;
+    return p ? p[1] : 0;
+}
 
 static void native_method_invoke(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
@@ -675,7 +777,7 @@ static void native_method_invoke(nabu_interp_frame_t *frame, void **args, int na
     int idx = 0;
     if (isInstance) cargs[idx++] = target;
     for (int i = 0; i < pcnt && i < argc; i++) {
-        cargs[idx++] = argArray ? argArray[i] : NULL;
+        cargs[idx++] = argArray ? unbox_by_desc(desc_param_char(info->desc, i), argArray[i]) : NULL;
     }
     /* for remaining params not in array, pass 0/null */
     while (idx < total) cargs[idx++] = NULL;
@@ -700,7 +802,7 @@ static void native_method_invoke(nabu_interp_frame_t *frame, void **args, int na
         }
     }
     free(cargs);
-    frame->result = r;
+    frame->result = box_by_desc(desc_return_char(info->desc), r);
     frame->has_result = 1;
 }
 
@@ -771,7 +873,7 @@ static void native_constructor_newInstance(nabu_interp_frame_t *frame, void **ar
         if (m != NULL) {
             void **cargs = (void **)malloc(sizeof(void *) * (argc + 1));
             cargs[0] = obj;
-            for (int i = 0; i < argc; i++) cargs[i + 1] = argArray ? argArray[i] : NULL;
+            for (int i = 0; i < argc; i++) cargs[i + 1] = argArray ? unbox_by_desc(desc_param_char(info->desc, i), argArray[i]) : NULL;
             nabu_interp_invoke(m, cargs, argc + 1);
             free(cargs);
         }
@@ -879,6 +981,7 @@ static void native_string_valueOf_obj(nabu_interp_frame_t *frame, void **args, i
     (void)nargs;
     void *v = (args != NULL) ? args[0] : NULL;
     if (v == NULL) { frame->result = (void *)strdup("null"); frame->has_result = 1; return; }
+    { char bb[8]; const char *bt = nabu_box_text(v, bb); if (bt != NULL) { frame->result = (void *)strdup(bt); frame->has_result = 1; return; } }
     /* if it's a char* string already */
     int printable = 0;
     if ((uintptr_t)v >= (1 << 20)) {
@@ -905,6 +1008,24 @@ static void native_integer_toString(nabu_interp_frame_t *frame, void **args, int
 static void native_identity_str(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
     frame->result = (args != NULL) ? args[0] : NULL;
+    frame->has_result = 1;
+}
+
+static void native_box_bool(nabu_interp_frame_t *frame, void **args, int nargs) {
+    (void)nargs;
+    frame->result = nabu_box_bool(args != NULL && (int)(intptr_t)args[0] != 0);
+    frame->has_result = 1;
+}
+
+static void native_box_char(nabu_interp_frame_t *frame, void **args, int nargs) {
+    (void)nargs;
+    frame->result = nabu_box_char(args != NULL ? (int)(intptr_t)args[0] : 0);
+    frame->has_result = 1;
+}
+
+static void native_unbox(nabu_interp_frame_t *frame, void **args, int nargs) {
+    (void)nargs;
+    frame->result = nabu_unbox(args != NULL ? args[0] : NULL);
     frame->has_result = 1;
 }
 
@@ -1055,6 +1176,15 @@ static void native_class_getDeclaredFields(nabu_interp_frame_t *frame, void **ar
     frame->has_result = 1;
 }
 
+/* The first character of the descriptor of a field (a primitive letter, 'L' or '['), 0 when unknown. */
+static char field_desc_char(const char *cls, const char *name) {
+    for (int i = 0; i < field_count_g; i++) {
+        if (strcmp(fields[i].class_name, cls) == 0 && strcmp(fields[i].name, name) == 0)
+            return fields[i].desc != NULL ? fields[i].desc[0] : 0;
+    }
+    return 0;
+}
+
 static void native_field_get(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
     void *fieldObj = (args != NULL) ? args[0] : NULL;
@@ -1070,7 +1200,7 @@ static void native_field_get(nabu_interp_frame_t *frame, void **args, int nargs)
         /* need field count to bounds-check; just read index */
         if (info->index >= 0) val = fields[info->index];
     }
-    frame->result = val;
+    frame->result = box_by_desc(field_desc_char(info->cls, info->name), val);
     frame->has_result = 1;
 }
 
@@ -1086,7 +1216,7 @@ static void native_field_set(nabu_interp_frame_t *frame, void **args, int nargs)
     }
     if (target != NULL && info->index >= 0) {
         void **fields = (void **)((char *)target + sizeof(nabu_object));
-        fields[info->index] = value;
+        fields[info->index] = unbox_by_desc(field_desc_char(info->cls, info->name), value);
     }
     frame->has_result = 0;
 }
@@ -2391,6 +2521,21 @@ static void register_builtins(void) {
     register_native("java/lang/Object", "toString", "()Ljava/lang/String;", native_object_toString);
     /* Integer */
     register_native("java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", native_identity_int);
+    /* A boxed primitive is its raw value in this interpreter: valueOf and xxxValue are the identity. */
+    register_native("java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", native_identity_int);
+    register_native("java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", native_box_bool);
+    register_native("java/lang/Character", "valueOf", "(C)Ljava/lang/Character;", native_box_char);
+    register_native("java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", native_identity_int);
+    register_native("java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", native_identity_int);
+    register_native("java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", native_identity_int);
+    register_native("java/lang/Integer", "intValue", "()I", native_identity_int);
+    register_native("java/lang/Long", "longValue", "()J", native_identity_int);
+    register_native("java/lang/Boolean", "booleanValue", "()Z", native_unbox);
+    register_native("java/lang/Character", "charValue", "()C", native_unbox);
+    register_native("java/lang/Short", "shortValue", "()S", native_identity_int);
+    register_native("java/lang/Byte", "byteValue", "()B", native_identity_int);
+    register_native("java/lang/Float", "floatValue", "()F", native_identity_int);
+    register_native("java/lang/Double", "doubleValue", "()D", native_identity_int);
     register_native("java/lang/Integer", "toString", "(I)Ljava/lang/String;", native_integer_toString);
     /* JDK java.lang.Class intrinsics (minimal). */
     register_native("java/lang/Class", "forName0", "(Ljava/lang/String;ZLjava/lang/ClassLoader;Ljava/lang/Class;)Ljava/lang/Class;", native_class_forName0);
@@ -3004,6 +3149,8 @@ int nabu_classfile_load(const char *path) {
             }
         }
     }
+
+    hier_register(this_class_name, super_name, iface_names, iface_count);
 
     /* Register interfaces. */
     if (iface_count > 0 && iface_names != NULL) {

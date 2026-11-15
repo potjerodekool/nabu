@@ -1032,6 +1032,8 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                         char *fname = (nat > 0) ? nabu_cp_utf8(m->const_pool, m->const_pool->entries[nat].nat_name) : NULL;
                         if (cname && fname && strcmp(cname, "java/lang/System") == 0 && strcmp(fname, "out") == 0) {
                             val = (void *)0x570D007; resolved = 1;
+                        } else if (cname && fname && strcmp(cname, "java/lang/Boolean") == 0 && (strcmp(fname, "TRUE") == 0 || strcmp(fname, "FALSE") == 0)) {
+                            val = nabu_box_bool(fname[0] == 'T'); resolved = 1;
                         } else if (cname && fname && strcmp(fname, "TYPE") == 0 && primitive_of_wrapper(cname) != NULL) {
                             val = nabu_class_object_for_name(primitive_of_wrapper(cname)); resolved = 1;
                         } else if (cname && fname) {
@@ -1674,7 +1676,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                             for (const char *rp = recipe; *rp; ) {
                                 if ((unsigned char)*rp == 1) {
                                     char tmp[256];
-                                    if (argi < pcnt && args[argi] != NULL) {
+                                    if (argi < pcnt) {
                                         /* Determine type from mdesc. */
                                         char t = 0;
                                         if (mdesc != NULL) {
@@ -1693,7 +1695,11 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                                             }
                                         }
                                         void *av = args[argi];
-                                        if (t == 'I' || t == 'B' || t == 'S' || t == 'C' || t == 'Z') {
+                                        if (t == 'Z') {
+                                            snprintf(tmp, sizeof(tmp), "%s", ((int)(intptr_t)av) ? "true" : "false");
+                                        } else if (t == 'C') {
+                                            snprintf(tmp, sizeof(tmp), "%c", (char)(intptr_t)av);
+                                        } else if (t == 'I' || t == 'B' || t == 'S') {
                                             snprintf(tmp, sizeof(tmp), "%d", (int)(intptr_t)av);
                                         } else if (t == 'J') {
                                             snprintf(tmp, sizeof(tmp), "%ld", (long)(intptr_t)av);
@@ -1705,13 +1711,17 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                                             long bits = (long)(intptr_t)av;
                                             double dv; memcpy(&dv, &bits, sizeof(dv));
                                             snprintf(tmp, sizeof(tmp), "%g", dv);
+                                        } else if ((t == 'L' || t == '[') && nabu_box_kind(av)) {
+                                            char bb[8];
+                                            snprintf(tmp, sizeof(tmp), "%s", nabu_box_text(av, bb));
                                         } else if (t == 'L' || t == '[') {
                                             char *a = (char *)av;
                                             int printable = (av != NULL) && ((uintptr_t)av >= (1 << 20));
                                             if (printable) {
                                                 for (int k = 0; k < 8 && a[k]; k++) if ((unsigned char)a[k] < 32) { printable = 0; break; }
                                             }
-                                            if (printable && a && a[0]) snprintf(tmp, sizeof(tmp), "%s", a);
+                                            if (av == NULL) snprintf(tmp, sizeof(tmp), "null");
+                                            else if (printable && a && a[0]) snprintf(tmp, sizeof(tmp), "%s", a);
                                             else snprintf(tmp, sizeof(tmp), "%d", (int)(intptr_t)av);
                                         } else {
                                             snprintf(tmp, sizeof(tmp), "%d", (int)(intptr_t)av);

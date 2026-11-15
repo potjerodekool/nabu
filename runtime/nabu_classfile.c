@@ -100,13 +100,15 @@ typedef struct {
     char *class_name;
     char *name;
     int index;
+    char *desc;
+    int access;
 } nabu_interp_field_t;
 
 static nabu_interp_field_t *fields = NULL;
 static int field_count_g = 0;
 static int field_cap = 0;
 
-void nabu_interp_register_field(const char *cls, const char *name, int index) {
+void nabu_interp_register_field_ex(const char *cls, const char *name, int index, const char *desc, int access) {
     if (field_count_g >= field_cap) {
         int nc = field_cap == 0 ? 16 : field_cap * 2;
         nabu_interp_field_t *a = (nabu_interp_field_t *)realloc(fields, sizeof(nabu_interp_field_t) * nc);
@@ -117,7 +119,13 @@ void nabu_interp_register_field(const char *cls, const char *name, int index) {
     fields[field_count_g].class_name = strdup(cls);
     fields[field_count_g].name = strdup(name);
     fields[field_count_g].index = index;
+    fields[field_count_g].desc = desc ? strdup(desc) : NULL;
+    fields[field_count_g].access = access;
     field_count_g++;
+}
+
+void nabu_interp_register_field(const char *cls, const char *name, int index) {
+    nabu_interp_register_field_ex(cls, name, index, NULL, 1);
 }
 
 int nabu_interp_field_index(const char *class_name, const char *field_name) {
@@ -227,6 +235,12 @@ static void native_println_double(nabu_interp_frame_t *frame, void **args, int n
     frame->has_result = 0;
 }
 
+static void native_println_boolean(nabu_interp_frame_t *frame, void **args, int nargs) {
+    int idx = (nargs > 1) ? 1 : 0;
+    puts(((int)(intptr_t)(args != NULL ? args[idx] : NULL)) != 0 ? "true" : "false");
+    frame->has_result = 0;
+}
+
 static void native_println_byte(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)frame;
     int idx = (nargs > 1) ? 1 : 0;
@@ -253,6 +267,8 @@ static void *make_class_object(const char *name) {
     }
     return obj;
 }
+
+void *nabu_class_object_for_name(const char *name) { return make_class_object(name); }
 
 /* Helper: extract class name from a Class handle (real object or char*). */
 static const char *class_handle_name(void *obj) {
@@ -305,10 +321,13 @@ static void native_class_getSimpleName(nabu_interp_frame_t *frame, void **args, 
     }
 }
 
+int nabu_is_proxy(void *p);
+
 static void native_object_getClass(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
     void *obj = (args != NULL) ? args[0] : NULL;
     const char *tn = obj ? nabu_compiled_type_name(obj) : NULL;
+    if (obj != NULL && nabu_is_proxy(obj)) tn = "jdk/proxy1/$Proxy0";
     if (tn == NULL) tn = "java/lang/Object";
     frame->result = make_class_object(tn);
     frame->has_result = 1;
@@ -426,6 +445,83 @@ static nabu_method_info_t *nabu_lookup_method_info(void *obj) {
     return NULL;
 }
 
+/* ---- Reflection: descriptors to Class objects ---- */
+
+/* The Class object of the type at *pp in a descriptor; advances *pp past it. Arrays are named as Class.getName does. */
+static void *desc_to_class(const char **pp) {
+    const char *p = *pp;
+    char buf[300];
+    const char *prim = NULL;
+    switch (*p) {
+        case 'I': prim = "int"; break;
+        case 'J': prim = "long"; break;
+        case 'Z': prim = "boolean"; break;
+        case 'B': prim = "byte"; break;
+        case 'S': prim = "short"; break;
+        case 'C': prim = "char"; break;
+        case 'F': prim = "float"; break;
+        case 'D': prim = "double"; break;
+        case 'V': prim = "void"; break;
+        default: break;
+    }
+    if (prim != NULL) { *pp = p + 1; return make_class_object(prim); }
+    const char *start = p;
+    while (*p == '[') p++;
+    if (*p == 'L') { while (*p != ';' && *p != 0) p++; if (*p == ';') p++; } else if (*p) p++;
+    size_t n = (size_t)(p - start);
+    if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+    if (*start == '[') {
+        memcpy(buf, start, n); buf[n] = 0;
+    } else {
+        /* Lpkg/Name; -> pkg.Name */
+        memcpy(buf, start + 1, n - 2); buf[n - 2] = 0;
+    }
+    for (char *q = buf; *q; q++) if (*q == '/') *q = '.';
+    *pp = p;
+    return make_class_object(buf);
+}
+
+static void *new_object_array(int n) {
+    void *arr = calloc(1, 8 + (size_t)(n > 0 ? n : 1) * sizeof(void *));
+    if (arr != NULL) *(int *)arr = n;
+    return arr;
+}
+
+/* Class[] of the parameter types of a method descriptor. */
+static void *desc_param_classes(const char *desc) {
+    int n = 0;
+    const char *p = desc ? strchr(desc, '(') : NULL;
+    if (p == NULL) return new_object_array(0);
+    p++;
+    const char *q = p;
+    while (*q != ')' && *q != 0) { while (*q == '[') q++; if (*q == 'L') { while (*q != ';' && *q) q++; } if (*q) q++; n++; }
+    void *arr = new_object_array(n);
+    void **elems = (void **)((char *)arr + 8);
+    for (int i = 0; i < n; i++) elems[i] = desc_to_class(&p);
+    return arr;
+}
+
+static void *desc_return_class(const char *desc) {
+    const char *p = desc ? strchr(desc, ')') : NULL;
+    if (p == NULL) return NULL;
+    p++;
+    return desc_to_class(&p);
+}
+
+/* Fill the type fields of a Method or Constructor object that the JDK classes read (getParameterTypes, ...). */
+static void fill_executable(void **flds, const char *cls, const char *desc, int access, int is_method) {
+    int fi_params = nabu_interp_field_index(cls, "parameterTypes");
+    int fi_exc = nabu_interp_field_index(cls, "exceptionTypes");
+    int fi_mod = nabu_interp_field_index(cls, "modifiers");
+    if (fi_params >= 0) flds[fi_params] = desc_param_classes(desc);
+    if (fi_exc >= 0) flds[fi_exc] = new_object_array(0);
+    if (fi_mod >= 0) flds[fi_mod] = (void *)(intptr_t)(access & 0xffff);
+    if (is_method) {
+        int fi_ret = nabu_interp_field_index(cls, "returnType");
+        if (fi_ret >= 0) flds[fi_ret] = desc_return_class(desc);
+    }
+}
+
 static void native_class_getDeclaredMethods(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
     const char *clsname = class_handle_name(args != NULL ? args[0] : NULL);
@@ -455,6 +551,7 @@ static void native_class_getDeclaredMethods(nabu_interp_frame_t *frame, void **a
     for (int mi = 0; mi < cnt && i < cnt; mi++) {
         nabu_interp_method_t *m = ms[mi];
         if (m == NULL) continue;
+        if (strcmp(m->name, "<init>") == 0 || strcmp(m->name, "<clinit>") == 0) continue;
         /* allocate Method object */
         void *obj = calloc(1, sizeof(nabu_object) + (size_t)(fc > 0 ? fc : 1) * sizeof(void *));
         if (obj == NULL) continue;
@@ -463,14 +560,84 @@ static void native_class_getDeclaredMethods(nabu_interp_frame_t *frame, void **a
         void **fields = (void **)((char *)obj + sizeof(nabu_object));
         if (fi_clazz >= 0) fields[fi_clazz] = make_class_object(clsname); /* Class object */
         if (fi_name >= 0) fields[fi_name] = (void *)strdup(m->name);
-        if (fi_modifiers >= 0) fields[fi_modifiers] = (void *)(intptr_t)1; /* public */
         if (fi_slot >= 0) fields[fi_slot] = (void *)(intptr_t)0;
+        fill_executable(fields, "java/lang/reflect/Method", m->desc, m->access, 1);
+        (void)fi_modifiers;
         nabu_register_method_info(obj, m->class_name, m->name, m->desc);
         elems[i++] = obj;
     }
+    if (arr != NULL) *(int *)arr = i; /* constructors and the class initializer are not methods */
     frame->result = arr;
     frame->has_result = 1;
 }
+
+static void native_class_getDeclaredConstructors(nabu_interp_frame_t *frame, void **args, int nargs);
+static void native_class_getDeclaredFields(nabu_interp_frame_t *frame, void **args, int nargs);
+
+/* ---- Reflection by name: getDeclaredMethod/Constructor/Field and the public variants ---- */
+
+static int param_types_match(void *exe, const char *exe_cls, void *wantArr) {
+    int fi = nabu_interp_field_index(exe_cls, "parameterTypes");
+    int want_n = wantArr != NULL ? *(int *)wantArr : 0;
+    void **want = wantArr != NULL ? (void **)((char *)wantArr + 8) : NULL;
+    void *have = NULL;
+    if (fi >= 0) have = ((void **)((char *)exe + sizeof(nabu_object)))[fi];
+    int have_n = have != NULL ? *(int *)have : 0;
+    if (have_n != want_n) return 0;
+    void **hv = have != NULL ? (void **)((char *)have + 8) : NULL;
+    for (int i = 0; i < want_n; i++) {
+        const char *a = class_handle_name(hv[i]);
+        const char *b = class_handle_name(want[i]);
+        if (a == NULL || b == NULL || strcmp(a, b) != 0) return 0;
+    }
+    return 1;
+}
+
+/* kind: 0 method, 1 constructor, 2 field. public_only: the getMethod/getConstructor/getField variants. */
+static void reflect_lookup(nabu_interp_frame_t *frame, void **args, int nargs, int kind, int public_only) {
+    void *clsObj = args != NULL ? args[0] : NULL;
+    const char *name = (kind != 1 && nargs > 1) ? (const char *)args[1] : NULL;
+    void *types = NULL;
+    if (kind == 0) types = nargs > 2 ? args[2] : NULL;
+    else if (kind == 1) types = nargs > 1 ? args[1] : NULL;
+    nabu_interp_frame_t tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    void *targs[1] = { clsObj };
+    if (kind == 0) native_class_getDeclaredMethods(&tmp, targs, 1);
+    else if (kind == 1) native_class_getDeclaredConstructors(&tmp, targs, 1);
+    else native_class_getDeclaredFields(&tmp, targs, 1);
+    void *arr = tmp.result;
+    int n = arr != NULL ? *(int *)arr : 0;
+    void **elems = arr != NULL ? (void **)((char *)arr + 8) : NULL;
+    const char *exe_cls = kind == 0 ? "java/lang/reflect/Method" : kind == 1 ? "java/lang/reflect/Constructor" : "java/lang/reflect/Field";
+    int fi_name = nabu_interp_field_index(exe_cls, "name");
+    int fi_mod = nabu_interp_field_index(exe_cls, "modifiers");
+    for (int i = 0; i < n; i++) {
+        void *e = elems[i];
+        void **flds = (void **)((char *)e + sizeof(nabu_object));
+        if (kind != 1) {
+            const char *en = fi_name >= 0 ? (const char *)flds[fi_name] : NULL;
+            if (name == NULL || en == NULL || strcmp(en, name) != 0) continue;
+        }
+        if (kind != 2 && !param_types_match(e, exe_cls, types)) continue;
+        if (public_only && fi_mod >= 0 && !(((int)(intptr_t)flds[fi_mod]) & 0x0001)) continue;
+        frame->result = e;
+        frame->has_result = 1;
+        return;
+    }
+    if (kind == 0) nabu_interp_throw("java/lang/NoSuchMethodException", "java/lang/ReflectiveOperationException");
+    else if (kind == 1) nabu_interp_throw("java/lang/NoSuchMethodException", "java/lang/ReflectiveOperationException");
+    else nabu_interp_throw("java/lang/NoSuchFieldException", "java/lang/ReflectiveOperationException");
+    frame->result = NULL;
+    frame->has_result = 1;
+}
+
+static void native_class_getDeclaredMethod(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 0, 0); }
+static void native_class_getMethod(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 0, 1); }
+static void native_class_getDeclaredConstructor(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 1, 0); }
+static void native_class_getConstructor(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 1, 1); }
+static void native_class_getDeclaredField(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 2, 0); }
+static void native_class_getField(nabu_interp_frame_t *f, void **a, int n) { reflect_lookup(f, a, n, 2, 1); }
 
 static void native_method_invoke(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
@@ -501,7 +668,8 @@ static void native_method_invoke(nabu_interp_frame_t *frame, void **args, int na
     /* We don't know static vs instance; assume instance if target != NULL and method not static. Use target always as first arg if target != NULL and pcnt matches. */
     /* Determine if desc has 'this' already? desc is the method desc (params only, no this). For instance, add 'this'. */
     /* Heuristic: if target != NULL, treat as instance method: total = pcnt + 1 */
-    int isInstance = (target != NULL);
+    nabu_interp_method_t *callee = nabu_interp_find_method(info->cls, info->name, info->desc);
+    int isInstance = callee != NULL ? !(callee->access & 0x0008) : (target != NULL);
     int total = isInstance ? pcnt + 1 : pcnt;
     void **cargs = (void **)malloc(sizeof(void *) * (total > 0 ? total : 1));
     int idx = 0;
@@ -570,6 +738,7 @@ static void native_class_getDeclaredConstructors(nabu_interp_frame_t *frame, voi
         ((nabu_object *)obj)->type = ti;
         void **fields = (void **)((char *)obj + sizeof(nabu_object));
         if (fi_clazz >= 0) fields[fi_clazz] = make_class_object(clsname);
+        fill_executable(fields, "java/lang/reflect/Constructor", m->desc, m->access, 0);
         nabu_register_ctor_info(obj, m->class_name, m->desc);
         elems[idx++] = obj;
     }
@@ -745,36 +914,64 @@ static void native_identity_int(nabu_interp_frame_t *frame, void **args, int nar
     frame->has_result = 1;
 }
 
+/* The providers of a service: "iface=impl" lines of $NABU_DEV_DIR/services.txt, and the META-INF/services/<iface> files
+ * in the directories of NABU_CLASSPATH. impls holds up to 64 names of 256 characters. */
+static int collect_service_impls(const char *iface, char impls[64][256]) {
+    int cnt = 0;
+    if (iface == NULL) return 0;
+    FILE *f = fopen(nabu_dev_path("services.txt"), "r");
+    if (f) {
+        char line[512];
+        while (fgets(line, sizeof(line), f) && cnt < 64) {
+            char *nl = strchr(line, '\n'); if (nl) *nl = 0;
+            char *eq = strchr(line, '=');
+            if (!eq) continue;
+            *eq = 0;
+            if (strcmp(line, iface) == 0) {
+                snprintf(impls[cnt], 256, "%s", eq + 1);
+                cnt++;
+            }
+        }
+        fclose(f);
+    }
+    const char *cp = getenv("NABU_CLASSPATH");
+    if (cp != NULL && *cp) {
+        char dotted[256];
+        snprintf(dotted, sizeof(dotted), "%s", iface);
+        for (char *q = dotted; *q; q++) if (*q == '/') *q = '.';
+        char *copy = strdup(cp);
+        char *save = NULL;
+        for (char *dir = strtok_r(copy, ":", &save); dir != NULL && cnt < 64; dir = strtok_r(NULL, ":", &save)) {
+            char path[1024];
+            snprintf(path, sizeof(path), "%s/META-INF/services/%s", dir, dotted);
+            FILE *sf = fopen(path, "r");
+            if (sf == NULL) continue;
+            char line[512];
+            while (fgets(line, sizeof(line), sf) && cnt < 64) {
+                char *hash = strchr(line, '#'); if (hash) *hash = 0;
+                char *b = line;
+                while (*b == ' ' || *b == '\t') b++;
+                size_t n = strlen(b);
+                while (n > 0 && (b[n - 1] == '\n' || b[n - 1] == '\r' || b[n - 1] == ' ' || b[n - 1] == '\t')) b[--n] = 0;
+                if (n == 0) continue;
+                int dup = 0;
+                for (int i = 0; i < cnt; i++) if (strcmp(impls[i], b) == 0) dup = 1;
+                if (!dup) { snprintf(impls[cnt], 256, "%s", b); cnt++; }
+            }
+            fclose(sf);
+        }
+        free(copy);
+    }
+    return cnt;
+}
+
 static void native_reflect_loadServices(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
     const char *iface = (const char *)(args != NULL ? args[0] : NULL);
-    /* Collect matching impls from $NABU_DEV_DIR/services.txt */
-    /* First pass: count */
-    int cnt = 0;
     char impls[64][256];
     memset(impls, 0, sizeof(impls));
+    int cnt = collect_service_impls(iface, impls);
 
-    if (iface) {
-        FILE *f = fopen(nabu_dev_path("services.txt"), "r");
-        if (f) {
-            char line[512];
-            while (fgets(line, sizeof(line), f)) {
-                /* trim newline */
-                char *nl = strchr(line, '\n'); if (nl) *nl = 0;
-                /* format: iface=impl */
-                char *eq = strchr(line, '=');
-                if (!eq) continue;
-                *eq = 0;
-                const char *k = line;
-                const char *v = eq + 1;
-                if (strcmp(k, iface) == 0 && cnt < 64) {
-                    snprintf(impls[cnt], sizeof(impls[cnt]), "%s", v);
-                    cnt++;
-                }
-            }
-            fclose(f);
-        }
-    }
     void *arr = calloc(1, 8 + (size_t)(cnt > 0 ? cnt : 1) * sizeof(void *));
     if (arr != NULL) *(int *)arr = cnt;
     void **elems = (void **)((char *)arr + 8);
@@ -825,6 +1022,7 @@ static void native_class_getDeclaredFields(nabu_interp_frame_t *frame, void **ar
     int fi_clazz = nabu_interp_field_index("java/lang/reflect/Field", "clazz");
     int fi_name = nabu_interp_field_index("java/lang/reflect/Field", "name");
     int fi_modifiers = nabu_interp_field_index("java/lang/reflect/Field", "modifiers");
+    int fi_type = nabu_interp_field_index("java/lang/reflect/Field", "type");
     int fc = nabu_interp_field_count("java/lang/reflect/Field");
     int idx = 0;
     /* iterate unique field names */
@@ -846,7 +1044,8 @@ static void native_class_getDeclaredFields(nabu_interp_frame_t *frame, void **ar
         void **flds = (void **)((char *)obj + sizeof(nabu_object));
         if (fi_clazz >= 0) flds[fi_clazz] = (void *)strdup(clsname);
         if (fi_name >= 0) flds[fi_name] = (void *)strdup(fields[i].name);
-        if (fi_modifiers >= 0) flds[fi_modifiers] = (void *)(intptr_t)1;
+        if (fi_modifiers >= 0) flds[fi_modifiers] = (void *)(intptr_t)(fields[i].access & 0xffff);
+        if (fi_type >= 0 && fields[i].desc != NULL) { const char *dp = fields[i].desc; flds[fi_type] = desc_to_class(&dp); }
         nabu_register_field_info(obj, internal, fields[i].name, fields[i].index);
         elems[idx++] = obj;
     }
@@ -957,8 +1156,9 @@ static void native_reflect_isProxy(nabu_interp_frame_t *frame, void **args, int 
 
 static void native_reflect_isProxyClass(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
-    /* args[0] is a Class handle (char*). We can't easily check; return 0. */
-    frame->result = (void *)(intptr_t)0;
+    /* A proxy object reports a class named $Proxy<n> (see native_object_getClass). */
+    const char *name = class_handle_name(args != NULL ? args[0] : NULL);
+    frame->result = (void *)(intptr_t)((name != NULL && strstr(name, "$Proxy") != NULL) ? 1 : 0);
     frame->has_result = 1;
 }
 
@@ -1489,24 +1689,7 @@ static nabu_sl_state_t *sl_create(void) {
 static void sl_load_providers(nabu_sl_state_t *s, const char *iface) {
     char impls[64][256];
     memset(impls, 0, sizeof(impls));
-    int cnt = 0;
-    if (iface) {
-        FILE *f = fopen(nabu_dev_path("services.txt"), "r");
-        if (f) {
-            char line[512];
-            while (fgets(line, sizeof(line), f) && cnt < 64) {
-                char *nl = strchr(line, '\n'); if (nl) *nl = 0;
-                char *eq = strchr(line, '=');
-                if (!eq) continue;
-                *eq = 0;
-                if (strcmp(line, iface) == 0) {
-                    snprintf(impls[cnt], sizeof(impls[cnt]), "%s", eq + 1);
-                    cnt++;
-                }
-            }
-            fclose(f);
-        }
-    }
+    int cnt = collect_service_impls(iface, impls);
 
     s->count = cnt;
     s->providers = (void **)calloc(cnt > 0 ? cnt : 1, sizeof(void *));
@@ -2268,6 +2451,12 @@ static void register_builtins(void) {
     register_native("java/lang/Class", "getDeclaredMethods", "()[Ljava/lang/reflect/Method;", native_class_getDeclaredMethods);
     register_native("java/lang/Class", "getDeclaredConstructors", "()[Ljava/lang/reflect/Constructor;", native_class_getDeclaredConstructors);
     register_native("java/lang/Class", "getDeclaredFields", "()[Ljava/lang/reflect/Field;", native_class_getDeclaredFields);
+    register_native("java/lang/Class", "getDeclaredMethod", "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;", native_class_getDeclaredMethod);
+    register_native("java/lang/Class", "getMethod", "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;", native_class_getMethod);
+    register_native("java/lang/Class", "getDeclaredConstructor", "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", native_class_getDeclaredConstructor);
+    register_native("java/lang/Class", "getConstructor", "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;", native_class_getConstructor);
+    register_native("java/lang/Class", "getDeclaredField", "(Ljava/lang/String;)Ljava/lang/reflect/Field;", native_class_getDeclaredField);
+    register_native("java/lang/Class", "getField", "(Ljava/lang/String;)Ljava/lang/reflect/Field;", native_class_getField);
     register_native("java/lang/reflect/Field", "get", "(Ljava/lang/Object;)Ljava/lang/Object;", native_field_get);
     register_native("java/lang/reflect/Field", "set", "(Ljava/lang/Object;Ljava/lang/Object;)V", native_field_set);
     register_native("java/lang/reflect/Constructor", "newInstance", "([Ljava/lang/Object;)Ljava/lang/Object;", native_constructor_newInstance);
@@ -2348,7 +2537,7 @@ static void register_builtins(void) {
     register_native("java/io/PrintStream", "println", "(J)V", native_println_long);
     register_native("java/io/PrintStream", "println", "(F)V", native_println_float);
     register_native("java/io/PrintStream", "println", "(D)V", native_println_double);
-    register_native("java/io/PrintStream", "println", "(Z)V", native_println_byte);
+    register_native("java/io/PrintStream", "println", "(Z)V", native_println_boolean);
     register_native("java/io/PrintStream", "println", "(B)V", native_println_byte);
     register_native("java/io/PrintStream", "println", "(S)V", native_println_byte);
     register_native("java/io/PrintStream", "print", "(I)V", native_print_int);
@@ -2582,12 +2771,13 @@ int nabu_classfile_load(const char *path) {
     /* Count existing fields for this class (for index assignment). */
     int base_field_idx = nabu_interp_field_count(this_class_name);
     for (int i = 0; i < field_count; i++) {
-        p += 2; /* access_flags */
+        int faccess = rd_u2(p); p += 2;
         int fname_idx = rd_u2(p); p += 2;
         int fdesc_idx = rd_u2(p); p += 2;
         char *fname = nabu_cp_utf8(cp, fname_idx);
         /* register field */
-        nabu_interp_register_field(this_class_name, fname != NULL ? fname : "?", base_field_idx + i);
+        nabu_interp_register_field_ex(this_class_name, fname != NULL ? fname : "?", base_field_idx + i,
+                                      nabu_cp_utf8(cp, fdesc_idx), faccess);
         int attr_count = rd_u2(p); p += 2;
         int saved_et_count = 0;
         const unsigned char *saved_exc_ptr = NULL;
@@ -2601,7 +2791,7 @@ int nabu_classfile_load(const char *path) {
     /* Methods */
     int method_count = rd_u2(p); p += 2;
     for (int i = 0; i < method_count; i++) {
-        p += 2; /* access_flags */
+        int maccess = rd_u2(p); p += 2;
         int name_idx = rd_u2(p); p += 2;
         int desc_idx = rd_u2(p); p += 2;
         char *mname = nabu_cp_utf8(cp, name_idx);
@@ -2739,6 +2929,7 @@ int nabu_classfile_load(const char *path) {
             m->exc_type_idx = NULL;
         }
 
+        m->access = maccess;
         /* Register method. */
         nabu_interp_register_method(m);
     }

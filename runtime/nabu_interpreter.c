@@ -370,6 +370,14 @@ int nabu_jit_invoke_helper(void *method_ptr, int cp_index, int a0, int a1, int a
     return (int)(intptr_t)result;
 }
 
+/* Throw an exception from a native: the interpreter raises it when the native returns. */
+void nabu_interp_throw(const char *cls, const char *super_cls) {
+    void *exc = calloc(1, sizeof(nabu_object) + 2 * sizeof(void *));
+    if (exc == NULL) return;
+    nabu_init_object_ex(exc, cls, super_cls);
+    interp_pending_exception = exc;
+}
+
 void nabu_interp_deoptimize_all(void) {
     for (nabu_interp_method_t *m = method_head; m != NULL; m = m->next) {
         if (m->compiled_fn != NULL) {
@@ -417,8 +425,119 @@ void *nabu_jit_try_compile(nabu_interp_method_t *m) {
     return NULL;
 }
 
+/* ---- Static fields and class initialization ---- */
+
+typedef struct { char *cls; char *name; void *value; } nabu_static_t;
+static nabu_static_t *statics = NULL;
+static int statics_count = 0, statics_cap = 0;
+
+static nabu_static_t *static_slot(const char *cls, const char *name, int create) {
+    for (int i = 0; i < statics_count; i++) {
+        if (strcmp(statics[i].cls, cls) == 0 && strcmp(statics[i].name, name) == 0) return &statics[i];
+    }
+    if (!create) return NULL;
+    if (statics_count >= statics_cap) {
+        int nc = statics_cap == 0 ? 64 : statics_cap * 2;
+        nabu_static_t *a = (nabu_static_t *)realloc(statics, sizeof(nabu_static_t) * nc);
+        if (a == NULL) return NULL;
+        statics = a; statics_cap = nc;
+    }
+    statics[statics_count].cls = strdup(cls);
+    statics[statics_count].name = strdup(name);
+    statics[statics_count].value = NULL;
+    return &statics[statics_count++];
+}
+
+/* The JDK classes come with natives and are not initialized here; classes of the program are (JLS 12.4, simplified:
+ * on the first call of one of their methods or access of a static field, without superclass or cycle handling). */
+static int is_jdk_class(const char *cls) {
+    return strncmp(cls, "java/", 5) == 0 || strncmp(cls, "javax/", 6) == 0 || strncmp(cls, "jdk/", 4) == 0
+        || strncmp(cls, "sun/", 4) == 0 || strncmp(cls, "NabuReflect", 11) == 0;
+}
+
+static char **inited_classes = NULL;
+static int inited_count = 0, inited_cap = 0;
+
+static void ensure_clinit(const char *cls) {
+    if (cls == NULL || is_jdk_class(cls)) return;
+    for (int i = 0; i < inited_count; i++) if (strcmp(inited_classes[i], cls) == 0) return;
+    if (inited_count >= inited_cap) {
+        int nc = inited_cap == 0 ? 32 : inited_cap * 2;
+        char **a = (char **)realloc(inited_classes, sizeof(char *) * nc);
+        if (a == NULL) return;
+        inited_classes = a; inited_cap = nc;
+    }
+    inited_classes[inited_count++] = strdup(cls);   /* marked first: a clinit that reads its own statics must not loop */
+    nabu_interp_method_t *ci = nabu_interp_find_method(cls, "<clinit>", "()V");
+    if (ci != NULL) nabu_interp_invoke(ci, NULL, 0);
+}
+
+/* The Class object of a primitive type, for getstatic Integer.TYPE and its siblings (int.class). */
+static const char *primitive_of_wrapper(const char *cls) {
+    if (strcmp(cls, "java/lang/Integer") == 0) return "int";
+    if (strcmp(cls, "java/lang/Long") == 0) return "long";
+    if (strcmp(cls, "java/lang/Boolean") == 0) return "boolean";
+    if (strcmp(cls, "java/lang/Byte") == 0) return "byte";
+    if (strcmp(cls, "java/lang/Short") == 0) return "short";
+    if (strcmp(cls, "java/lang/Character") == 0) return "char";
+    if (strcmp(cls, "java/lang/Float") == 0) return "float";
+    if (strcmp(cls, "java/lang/Double") == 0) return "double";
+    if (strcmp(cls, "java/lang/Void") == 0) return "void";
+    return NULL;
+}
+
+/* Call the implementation method of a lambda or method reference with the arguments of its functional method. */
+static void *call_closure(nabu_closure_t *cl, void **sam_args, int sam_params) {
+    int total = cl->captured_count + sam_params;
+    void **args = (void **)malloc(sizeof(void *) * (total > 0 ? total : 1));
+    /* Detect instance method ref. */
+    int is_instance = (count_params(cl->impl_desc) + 1 == (cl->captured_count + sam_params)) && (cl->captured_count + sam_params > 0);
+    if (is_instance) {
+        void *receiver;
+        int pi = 0;
+        void **params = (void **)malloc(sizeof(void *) * (cl->captured_count + sam_params));
+        if (cl->captured_count > 0) {
+            receiver = cl->captured[0];
+            for (int i = 1; i < cl->captured_count; i++) params[pi++] = cl->captured[i];
+            for (int i = 0; i < sam_params; i++) params[pi++] = sam_args[i];
+        } else {
+            receiver = (sam_params > 0) ? sam_args[0] : NULL;
+            for (int i = 1; i < sam_params; i++) params[pi++] = sam_args[i];
+        }
+        args[0] = receiver;
+        for (int i = 0; i < pi; i++) args[i + 1] = params[i];
+        free(params);
+    } else {
+        for (int i = 0; i < cl->captured_count; i++) args[i] = cl->captured[i];
+        for (int i = 0; i < sam_params; i++) args[cl->captured_count + i] = sam_args[i];
+    }
+    nabu_interp_method_t *target = nabu_interp_find_method(cl->impl_class, cl->impl_name, cl->impl_desc);
+    if (target == NULL) {
+        void *nf = nabu_find_native(cl->impl_class, cl->impl_name, cl->impl_desc);
+        if (nf != NULL) {
+            nabu_interp_method_t *nm = (nabu_interp_method_t *)calloc(1, sizeof(nabu_interp_method_t));
+            nm->class_name = strdup(cl->impl_class);
+            nm->name = strdup(cl->impl_name);
+            nm->desc = strdup(cl->impl_desc);
+            nm->is_native = 1;
+            nm->native_fn = nf;
+            nm->max_locals = 8; nm->max_stack = 8;
+            target = nm;
+        }
+    }
+    void *r = NULL;
+    if (target != NULL) {
+        r = nabu_interp_invoke(target, args, total);
+    } else {
+        fprintf(stderr, "interp: closure impl not found %s.%s%s\n", cl->impl_class, cl->impl_name, cl->impl_desc);
+    }
+    free(args);
+    return r;
+}
+
 void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
     if (m == NULL) return NULL;
+    if (m->class_name != NULL && m->name != NULL && strcmp(m->name, "<clinit>") != 0) ensure_clinit(m->class_name);
     /* If JIT-compiled and not deoptimized, call the compiled function directly. */
     if (m->compiled_fn != NULL && !m->deoptimized) {
         /* For now, assume (int, int) -> int signature. */
@@ -913,6 +1032,12 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                         char *fname = (nat > 0) ? nabu_cp_utf8(m->const_pool, m->const_pool->entries[nat].nat_name) : NULL;
                         if (cname && fname && strcmp(cname, "java/lang/System") == 0 && strcmp(fname, "out") == 0) {
                             val = (void *)0x570D007; resolved = 1;
+                        } else if (cname && fname && strcmp(fname, "TYPE") == 0 && primitive_of_wrapper(cname) != NULL) {
+                            val = nabu_class_object_for_name(primitive_of_wrapper(cname)); resolved = 1;
+                        } else if (cname && fname) {
+                            ensure_clinit(cname);
+                            nabu_static_t *sl = static_slot(cname, fname, 0);
+                            val = sl != NULL ? sl->value : NULL; resolved = 1;
                         }
                     }
                 }
@@ -920,7 +1045,24 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 push(f, val);
                 break;
             }
-            case 0xb3: { f->pc += 2; pop(f); break; }
+            case 0xb3: {
+                int idx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
+                void *val = pop(f);
+                if (m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
+                    nabu_cp_entry *e = &m->const_pool->entries[idx];
+                    if (e->tag == 9) {
+                        char *cname = nabu_cp_class_name(m->const_pool, e->ref_class);
+                        int nat = e->ref_nat;
+                        char *fname = (nat > 0) ? nabu_cp_utf8(m->const_pool, m->const_pool->entries[nat].nat_name) : NULL;
+                        if (cname && fname) {
+                            if (strcmp(m->name, "<clinit>") != 0 || strcmp(m->class_name, cname) != 0) ensure_clinit(cname);
+                            nabu_static_t *sl = static_slot(cname, fname, 1);
+                            if (sl != NULL) sl->value = val;
+                        }
+                    }
+                }
+                break;
+            }
             case 0xb4: {
                 int idx = (m->code[f->pc] << 8) | m->code[f->pc+1]; f->pc += 2;
                 void *obj = pop(f);
@@ -978,56 +1120,12 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                         if (cc != NULL) { cl = cc; sam_params = k; break; }
                     }
                     if (cl != NULL) {
-                        int impl_pcnt = count_params(cl->impl_desc);
                         if (sam_params < 0) sam_params = 0;
                         void **sam_args = (void **)malloc(sizeof(void *) * (sam_params > 0 ? sam_params : 1));
                         for (int i = sam_params - 1; i >= 0; i--) sam_args[i] = pop(f);
                         pop(f); /* receiver (closure) */
-                        int total = cl->captured_count + sam_params;
-                        void **args = (void **)malloc(sizeof(void *) * (total > 0 ? total : 1));
-                        /* Detect instance method ref. */
-                        int is_instance = (count_params(cl->impl_desc) + 1 == (cl->captured_count + sam_params)) && (cl->captured_count + sam_params > 0);
-                        if (is_instance) {
-                            void *receiver;
-                            int pi = 0;
-                            void **params = (void **)malloc(sizeof(void *) * (cl->captured_count + sam_params));
-                            if (cl->captured_count > 0) {
-                                receiver = cl->captured[0];
-                                for (int i = 1; i < cl->captured_count; i++) params[pi++] = cl->captured[i];
-                                for (int i = 0; i < sam_params; i++) params[pi++] = sam_args[i];
-                            } else {
-                                receiver = (sam_params > 0) ? sam_args[0] : NULL;
-                                for (int i = 1; i < sam_params; i++) params[pi++] = sam_args[i];
-                            }
-                            args[0] = receiver;
-                            for (int i = 0; i < pi; i++) args[i + 1] = params[i];
-                            free(params);
-                        } else {
-                            for (int i = 0; i < cl->captured_count; i++) args[i] = cl->captured[i];
-                            for (int i = 0; i < sam_params; i++) args[cl->captured_count + i] = sam_args[i];
-                        }
+                        void *r = call_closure(cl, sam_args, sam_params);
                         free(sam_args);
-                        nabu_interp_method_t *target = nabu_interp_find_method(cl->impl_class, cl->impl_name, cl->impl_desc);
-                        if (target == NULL) {
-                            void *nf = nabu_find_native(cl->impl_class, cl->impl_name, cl->impl_desc);
-                            if (nf != NULL) {
-                                nabu_interp_method_t *nm = (nabu_interp_method_t *)calloc(1, sizeof(nabu_interp_method_t));
-                                nm->class_name = strdup(cl->impl_class);
-                                nm->name = strdup(cl->impl_name);
-                                nm->desc = strdup(cl->impl_desc);
-                                nm->is_native = 1;
-                                nm->native_fn = nf;
-                                nm->max_locals = 8; nm->max_stack = 8;
-                                target = nm;
-                            }
-                        }
-                        void *r = NULL;
-                        if (target != NULL) {
-                            r = nabu_interp_invoke(target, args, total);
-                        } else {
-                            fprintf(stderr, "interp: closure impl not found %s.%s%s\n", cl->impl_class, cl->impl_name, cl->impl_desc);
-                        }
-                        free(args);
                         if (interp_pending_exception != NULL) {
                             if (interp_jmp_active) longjmp(interp_jmp_buf, 1);
                         }
@@ -1040,7 +1138,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     void *proxy_recv = NULL;
                     int proxy_sam = 0;
                     for (int k = 0; k < 8 && k < f->stack_top; k++) {
-                        if (nabu_is_proxy(f->stack[f->stack_top - 1 - k])) { proxy_recv = f->stack[f->stack_top - 1 - k]; proxy_sam = k; break; }
+                        if (nabu_is_proxy(f->stack[f->stack_top - 1 - k]) && !(proxy_method_name != NULL && strcmp(proxy_method_name, "getClass") == 0)) { proxy_recv = f->stack[f->stack_top - 1 - k]; proxy_sam = k; break; }
                     }
                     if (proxy_recv != NULL) {
                         void *handler = nabu_proxy_handler(proxy_recv);
@@ -1137,7 +1235,22 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     }
                 }
                 if (target == NULL) {
-                    fprintf(stderr, "interp: unknown method id/cp %d\n", idx);
+                    {
+                        const char *dc = "?", *dn = "?", *dd = "?";
+                        if (m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
+                            nabu_cp_entry *de = &m->const_pool->entries[idx];
+                            if ((de->tag == 10 || de->tag == 11 || de->tag == 9) && de->ref_class > 0 && de->ref_nat > 0) {
+                                char *c1 = nabu_cp_class_name(m->const_pool, de->ref_class);
+                                char *n1 = nabu_cp_utf8(m->const_pool, m->const_pool->entries[de->ref_nat].nat_name);
+                                char *d1 = nabu_cp_utf8(m->const_pool, m->const_pool->entries[de->ref_nat].nat_desc);
+                                if (c1) dc = c1;
+                                if (n1) dn = n1;
+                                if (d1) dd = d1;
+                            }
+                        }
+                        fprintf(stderr, "interp: unknown method %s.%s%s (cp %d) called from %s.%s%s\n", dc, dn, dd, idx,
+                                m->class_name ? m->class_name : "?", m->name ? m->name : "?", m->desc ? m->desc : "");
+                    }
                     /* Maintain stack balance. */
                     char *mdesc2 = NULL;
                     int pcnt2 = 0;
@@ -1249,10 +1362,16 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 }
                 /* Proxy dispatch */
                 if (f->stack_top > 0) {
+                    char *proxy_method_name = NULL;
+                    if (m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
+                        nabu_cp_entry *pe = &m->const_pool->entries[idx];
+                        if ((pe->tag == 9 || pe->tag == 10 || pe->tag == 11) && pe->ref_nat > 0)
+                            proxy_method_name = nabu_cp_utf8(m->const_pool, m->const_pool->entries[pe->ref_nat].nat_name);
+                    }
                     void *proxy_recv = NULL;
                     int proxy_sam = 0;
                     for (int k = 0; k < 8 && k < f->stack_top; k++) {
-                        if (nabu_is_proxy(f->stack[f->stack_top - 1 - k])) { proxy_recv = f->stack[f->stack_top - 1 - k]; proxy_sam = k; break; }
+                        if (nabu_is_proxy(f->stack[f->stack_top - 1 - k]) && !(proxy_method_name != NULL && strcmp(proxy_method_name, "getClass") == 0)) { proxy_recv = f->stack[f->stack_top - 1 - k]; proxy_sam = k; break; }
                     }
                      if (proxy_recv != NULL) {
                          void *handler = nabu_proxy_handler(proxy_recv);
@@ -1286,7 +1405,13 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                          nabu_interp_method_t *hm = nabu_interp_find_method(hcls, "invoke", invokeDesc);
                          void *r = NULL;
                          int invoked = 0;
-                         if (hm != NULL) {
+                         nabu_closure_t *hcl = nabu_as_closure(handler);
+                         if (hcl != NULL) {
+                             /* a lambda as InvocationHandler */
+                             void *hargs[3] = { proxy_recv, methodObj, argsArr };
+                             r = call_closure(hcl, hargs, 3);
+                             invoked = 1;
+                         } else if (hm != NULL) {
                              void *cargs[4] = { handler, proxy_recv, methodObj, argsArr };
                              r = nabu_interp_invoke(hm, cargs, 4);
                              invoked = 1;
@@ -1480,6 +1605,25 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                         }
                     }  /* end if (e->tag...) */
                 }  /* end if (m->const_pool...) */
+                if (target == NULL && m->const_pool != NULL && idx > 0 && idx < m->const_pool->count) {
+                    /* An interface type has the methods of Object (getClass, hashCode, ...). */
+                    nabu_cp_entry *oe = &m->const_pool->entries[idx];
+                    if (oe->ref_nat > 0) {
+                        char *on = nabu_cp_utf8(m->const_pool, m->const_pool->entries[oe->ref_nat].nat_name);
+                        char *od = nabu_cp_utf8(m->const_pool, m->const_pool->entries[oe->ref_nat].nat_desc);
+                        void *onf = (on && od) ? nabu_find_native("java/lang/Object", on, od) : NULL;
+                        if (onf != NULL) {
+                            nabu_interp_method_t *nm = (nabu_interp_method_t *)calloc(1, sizeof(nabu_interp_method_t));
+                            nm->class_name = strdup("java/lang/Object");
+                            nm->name = strdup(on);
+                            nm->desc = strdup(od);
+                            nm->is_native = 1;
+                            nm->native_fn = onf;
+                            nm->max_locals = 8; nm->max_stack = 8;
+                            target = nm;
+                        }
+                    }
+                }
                 if (target == NULL) {
                     fprintf(stderr, "interp: unknown interface method idx %d\n", idx);
                     break;

@@ -73,19 +73,30 @@ geïnterpreteerd: uitvoer `46`; `Class.forName("plugin.Adder")` geeft de klasse.
   `compiler/src/test/resources`, dat hier geen `lib/jrt-fs.jar`/`modules` heeft en
   dus ook faalt).
 
-**Fase 3 en 4 nagelopen (2026-11-15, WSL, `runtime/run-interp-jdk-tests.sh`):** het script bouwt de fixtures zelf
-(`jimage extract` van java.base naar `$NABU_DEV_DIR/jdkclasses/classes`, `services.txt`) en draait vier tests via
-`test_run.c`: `Class.forName` + `getDeclaredMethods` + `Method.invoke` (42), `Proxy.newProxyInstance` met een
-handler-klasse, `ClassLoader.getSystemClassLoader().loadClass`, en `ServiceLoader` via `services.txt`. Alle vier
-slagen, evenals de 8 bestaande tests. Bewezen gaten (niet in een test vastgelegd, want ze falen):
-- `Class.getDeclaredMethod(name, ...)` faalt: `interp: unknown method id/cp 17`, `stack underflow`.
-- `getDeclaredMethods()` geeft ook `<init>` terug (de JDK doet dat niet).
-- `Constructor.newInstance(7)` laat het veld op 0 (argument niet doorgegeven), `Field.get` geeft `null` en
-  `Field.set` doet niets voor een `int`-veld.
-- `Proxy` met een lambda als `InvocationHandler`: `proxy: no invoke/invokeMethod on java/lang/Object`;
-  `Proxy.isProxyClass` geeft niet-waar.
-- `println(boolean)` print `1`/`0` in plaats van `true`/`false`.
-- `ServiceLoader` leest alleen `$NABU_DEV_DIR/services.txt` (`iface=impl`), niet `META-INF/services`.
+**Fase 3 en 4 nagelopen en Fase 3 gerepareerd (2026-11-15, WSL, `runtime/run-interp-jdk-tests.sh`):** het script
+bouwt de fixtures zelf (`jimage extract` van java.base naar `$NABU_DEV_DIR/jdkclasses/classes`, `services.txt`,
+`jtest/META-INF/services`) en draait negen tests via `test_run.c`; samen met de 8 bestaande tests (`run-interp-tests.sh`)
+slagen ze allemaal: `Class.forName`, `getDeclaredMethods`, `Method.invoke`; `getDeclaredMethod/Constructor/Field` en de
+publieke varianten op naam en parametertypes, `Constructor.newInstance(7)`, `Field.get/set`; `Proxy` met een handler-klasse
+en met een lambda, `Proxy.isProxyClass`; `ClassLoader.loadClass`; `ServiceLoader` via `services.txt` en via
+`META-INF/services`; static velden, `<clinit>` van programmaklassen, `int.class` en `println(boolean)`.
+Wat er mis was en is aangepast:
+- Method/Constructor/Field-objecten misten `parameterTypes`, `returnType`, `exceptionTypes`, `modifiers` en `type`
+  (`getParameterCount()` gaf 0); de loader bewaart nu toegangsvlaggen en veldbeschrijvingen en de natives vullen ze.
+- `getDeclaredMethod(name, ...)` ging via `Class.reflectionData` en `Unsafe` en faalde (`unknown method`); nu natives
+  voor `getDeclaredMethod/Constructor/Field`, `getMethod/Constructor/Field` (alleen de klasse zelf, zonder
+  superklassen), met `NoSuchMethodException`/`NoSuchFieldException` via het nieuwe `nabu_interp_throw`.
+- `getDeclaredMethods()` gaf ook `<init>`/`<clinit>` terug.
+- `getstatic`/`putstatic` deden niets (`getstatic` gaf altijd 0, behalve `System.out`): nu een tabel per (klasse, veld),
+  en `<clinit>` van niet-JDK-klassen draait bij de eerste aanroep of veldtoegang (vereenvoudigd: geen superklasse- of
+  cyclusafhandeling). `getstatic Integer.TYPE` en de zusters geven de Class van het primitieve type.
+- `Method.invoke` koos instantie/statisch op `target != NULL`; nu op de toegangsvlag van de methode.
+- Een lambda als `InvocationHandler` werd niet herkend (`call_closure` is uit het opcode-pad gehaald); `getClass()` op een
+  proxy werd naar de handler gestuurd; interface-types vinden nu de methoden van `Object`.
+- `ServiceLoader` zoekt ook `META-INF/services/<interface>` in de mappen van `NABU_CLASSPATH`.
+Nog open in Fase 3: `getMethod`/`getField` zoeken niet in superklassen en interfaces; `Field.get` op een `boolean`/`char`
+geeft de ruwe `int`; de natives voor `Method.invoke` boxen/unboxen niet (een `Integer` is hier gewoon de `int`); `<clinit>`
+van JDK-klassen draait niet; geen `META-INF/services` in jars.
 - Fase 4: de interpreter heeft de teller (`call_count`), de drempel, `compiled_fn` en `nabu_interp_deoptimize`,
   maar `libcranelift_jit.so` staat nergens in de repo of historie; zonder die library blijft de hook een no-op.
   De claims over Cranelift, `.so`-compilatie en snellere hot methods zijn dus niet te verifiëren.

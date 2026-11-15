@@ -7,6 +7,7 @@ set -u
 R="$(cd "$(dirname "$0")" && pwd)"
 O="${TMPDIR:-/tmp}/nabu-interp-jdk-tests"; rm -rf "$O"; mkdir -p "$O/classes" "$O/dev/jdkclasses"
 javac --release 17 -d "$O/classes" "$R"/jtest/*.java || exit 1
+cp -r "$R"/jtest/META-INF "$O/classes/"   # service files, found through NABU_CLASSPATH
 JH="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
 jimage extract --dir "$O/x" --include 'regex:/java.base/java/(lang|util|io|net|nio|security|text|time)/.*' "$JH/lib/modules" || exit 1
 mkdir -p "$O/dev/jdkclasses/classes"; cp -r "$O"/x/java.base/* "$O/dev/jdkclasses/classes/"
@@ -21,7 +22,11 @@ check() {
   if [ "$out" == "$want" ]; then echo "PASS $1"; else echo "FAIL $1"; echo "--- got"; echo "$out"; echo "--- want"; echo "$want"; fail=1; fi
 }
 check ReflectMethodTest '42'
+check ReflectTest '42|7|42|count|7|99|x'
 check ProxyTest 'hello bob via greet'
+check ProxyLambdaTest 'hi bob via greet|true|false'
 check LoaderTest 'loader|java.lang.String'
 check ServiceTest 'hello|1'
+check ServiceMetaTest 'hello meta|1'
+check StaticTest 'static-5|6|7|7|int|true'
 exit $fail

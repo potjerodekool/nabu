@@ -44,6 +44,8 @@ typedef struct nabu_interp_method {
     int max_locals;
     int max_stack;
     int is_native;
+    /* Access flags of the method in the class file (0x0008 = static). */
+    int access;
     /* Constant pool of the owning class (for resolving ldc/getstatic at runtime). */
     nabu_cp *const_pool;
     /* Bootstrap methods for invokedynamic (class-level, shared). */
@@ -133,6 +135,12 @@ int nabu_interp_field_index(const char *class_name, const char *field_name);
 int nabu_interp_field_count(const char *class_name);
 int nabu_interp_method_count(void);
 void nabu_interp_register_field(const char *class_name, const char *field_name, int index);
+/* Same, with the field descriptor and access flags (for reflection). */
+/* The Class object for a class or primitive name (implemented by the class file loader). */
+void *nabu_class_object_for_name(const char *name);
+/* Throw an exception of the given class (and its superclass) when the current native returns. */
+void nabu_interp_throw(const char *class_name, const char *super_class_name);
+void nabu_interp_register_field_ex(const char *class_name, const char *field_name, int index, const char *desc, int access);
 
 /* Constant pool helpers (implemented in nabu_classfile.c). */
 char *nabu_cp_utf8(nabu_cp *cp, int idx);

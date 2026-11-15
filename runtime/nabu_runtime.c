@@ -730,7 +730,10 @@ void nabu_jit_init(void) {
     void *handle = dlopen("libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
     if (handle == NULL) {
         /* Try absolute path. */
-        handle = dlopen("/tmp/opencode/libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
+        const char *dev = getenv("NABU_DEV_DIR");
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/libcranelift_jit.so", (dev && *dev) ? dev : "/tmp/opencode");
+        handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
     }
     if (handle == NULL) return;
     /* Look up cranelift_init and cranelift_compile_to_so (preferred) or cranelift_compile_bytecode (fallback). */

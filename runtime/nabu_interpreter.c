@@ -393,7 +393,12 @@ void *nabu_jit_try_compile(nabu_interp_method_t *m) {
     static void *handle = NULL;
     if (handle == NULL) {
         handle = dlopen("libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
-        if (handle == NULL) handle = dlopen("/tmp/opencode/libcranelift_jit.so", RTLD_NOW | RTLD_GLOBAL);
+        if (handle == NULL) {
+            const char *dev = getenv("NABU_DEV_DIR");
+            char path[1024];
+            snprintf(path, sizeof(path), "%s/libcranelift_jit.so", (dev && *dev) ? dev : "/tmp/opencode");
+            handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+        }
     }
 #endif
     if (handle != NULL) {

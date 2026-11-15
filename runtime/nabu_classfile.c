@@ -16,6 +16,19 @@
 
 /* ---- Constant pool entry (defined in nabu_interpreter.h) ---- */
 
+/* Developer fixtures (jdkclasses, jtest, services.txt): $NABU_DEV_DIR, default /tmp/opencode. */
+static const char *nabu_dev_dir(void) {
+    const char *d = getenv("NABU_DEV_DIR");
+    return (d && *d) ? d : "/tmp/opencode";
+}
+
+/* Path below the developer directory, in a static buffer (single-threaded interpreter paths). */
+static const char *nabu_dev_path(const char *rel) {
+    static char buf[1024];
+    snprintf(buf, sizeof(buf), "%s/%s", nabu_dev_dir(), rel);
+    return buf;
+}
+
 static unsigned int rd_u2(const unsigned char *p) { return (p[0] << 8) | p[1]; }
 static unsigned int rd_u4(const unsigned char *p) { return (p[0]<<24)|(p[1]<<16)|(p[2]<<8)|p[3]; }
 
@@ -227,7 +240,7 @@ static char *name_to_path(const char *name);
 /* Helper: create a real java.lang.Class object with name field set. */
 static void *make_class_object(const char *name) {
     if (name == NULL) return NULL;
-    nabu_classfile_load("/tmp/opencode/jdkclasses/classes/java/lang/Class.class");
+    nabu_classfile_load(nabu_dev_path("jdkclasses/classes/java/lang/Class.class"));
     int fc = nabu_interp_field_count("java/lang/Class");
     void *obj = calloc(1, sizeof(nabu_object) + (size_t)(fc > 0 ? fc : 1) * sizeof(void *));
     if (obj == NULL) return NULL;
@@ -421,7 +434,7 @@ static void native_class_getDeclaredMethods(nabu_interp_frame_t *frame, void **a
     snprintf(internal, sizeof(internal), "%s", clsname);
     for (char *p = internal; *p; p++) if (*p == '.') *p = '/';
     /* ensure Method.class loaded for field indices */
-    nabu_classfile_load("/tmp/opencode/jdkclasses/classes/java/lang/reflect/Method.class");
+    nabu_classfile_load(nabu_dev_path("jdkclasses/classes/java/lang/reflect/Method.class"));
     /* collect methods */
     /* count */
     int cnt = nabu_interp_methods_for_class(internal, NULL, 10000);
@@ -530,7 +543,7 @@ static void native_class_getDeclaredConstructors(nabu_interp_frame_t *frame, voi
     char internal[256];
     snprintf(internal, sizeof(internal), "%s", clsname);
     for (char *p = internal; *p; p++) if (*p == '.') *p = '/';
-    nabu_classfile_load("/tmp/opencode/jdkclasses/classes/java/lang/reflect/Constructor.class");
+    nabu_classfile_load(nabu_dev_path("jdkclasses/classes/java/lang/reflect/Constructor.class"));
     /* collect <init> methods */
     int cnt = 0;
     nabu_interp_method_t **all = NULL;
@@ -735,14 +748,14 @@ static void native_identity_int(nabu_interp_frame_t *frame, void **args, int nar
 static void native_reflect_loadServices(nabu_interp_frame_t *frame, void **args, int nargs) {
     (void)nargs;
     const char *iface = (const char *)(args != NULL ? args[0] : NULL);
-    /* Collect matching impls from /tmp/opencode/services.txt */
+    /* Collect matching impls from $NABU_DEV_DIR/services.txt */
     /* First pass: count */
     int cnt = 0;
     char impls[64][256];
     memset(impls, 0, sizeof(impls));
 
     if (iface) {
-        FILE *f = fopen("/tmp/opencode/services.txt", "r");
+        FILE *f = fopen(nabu_dev_path("services.txt"), "r");
         if (f) {
             char line[512];
             while (fgets(line, sizeof(line), f)) {
@@ -799,7 +812,7 @@ static void native_class_getDeclaredFields(nabu_interp_frame_t *frame, void **ar
     char internal[256];
     snprintf(internal, sizeof(internal), "%s", clsname);
     for (char *p = internal; *p; p++) if (*p == '.') *p = '/';
-    nabu_classfile_load("/tmp/opencode/jdkclasses/classes/java/lang/reflect/Field.class");
+    nabu_classfile_load(nabu_dev_path("jdkclasses/classes/java/lang/reflect/Field.class"));
     /* count fields for this class */
     int cnt = 0;
     for (int i = 0; i < field_count_g; i++) {
@@ -1478,7 +1491,7 @@ static void sl_load_providers(nabu_sl_state_t *s, const char *iface) {
     memset(impls, 0, sizeof(impls));
     int cnt = 0;
     if (iface) {
-        FILE *f = fopen("/tmp/opencode/services.txt", "r");
+        FILE *f = fopen(nabu_dev_path("services.txt"), "r");
         if (f) {
             char line[512];
             while (fgets(line, sizeof(line), f) && cnt < 64) {
@@ -1920,13 +1933,13 @@ static char *name_to_path(const char *name) {
     snprintf(tmp, sizeof(tmp), "%s", name ? name : "");
     for (char *p = tmp; *p; p++) if (*p == '.') *p = '/';
     char buf[512];
-    snprintf(buf, sizeof(buf), "/tmp/opencode/jtest2/%s.class", tmp);
+    snprintf(buf, sizeof(buf), "%s/jtest2/%s.class", nabu_dev_dir(), tmp);
     FILE *f = fopen(buf, "rb");
     if (f) { fclose(f); return strdup(buf); }
-    snprintf(buf, sizeof(buf), "/tmp/opencode/jtest/%s.class", tmp);
+    snprintf(buf, sizeof(buf), "%s/jtest/%s.class", nabu_dev_dir(), tmp);
     f = fopen(buf, "rb");
     if (f) { fclose(f); return strdup(buf); }
-    snprintf(buf, sizeof(buf), "/tmp/opencode/jtest2/%s.class", tmp);
+    snprintf(buf, sizeof(buf), "%s/jtest2/%s.class", nabu_dev_dir(), tmp);
     return strdup(buf);
 }
 
@@ -2355,12 +2368,11 @@ static char *nabu_find_class_file(const char *internal_name) {
     /* normalize: if dots, convert to slashes */
     for (char *p = tmp; *p; p++) if (*p == '.') *p = '/';
     /* candidate base dirs */
-    const char *bases[] = {
-        "/tmp/opencode/jtest2",
-        "/tmp/opencode/jtest",
-        "/tmp/opencode/jdkclasses/classes",
-        NULL
-    };
+    char dev_base[3][600];
+    snprintf(dev_base[0], sizeof(dev_base[0]), "%s/jtest2", nabu_dev_dir());
+    snprintf(dev_base[1], sizeof(dev_base[1]), "%s/jtest", nabu_dev_dir());
+    snprintf(dev_base[2], sizeof(dev_base[2]), "%s/jdkclasses/classes", nabu_dev_dir());
+    const char *bases[] = { dev_base[0], dev_base[1], dev_base[2], NULL };
     /* also NABU_CLASSPATH env (colon-separated) */
     char *env_cp = getenv("NABU_CLASSPATH");
     char env_buf[4096];

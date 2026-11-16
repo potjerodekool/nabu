@@ -38,4 +38,5 @@ check BoxTest '6|5|true|true|true|x|8|4|2|flag=false zero=0 c=q s=null b=true'
 check ReflectBoxTest 'true|k|3|false|false|5|b|true'
 check ReflectInheritTest '8|derived|11|not declared|no such method'
 check JarLoadTest '42|from jar'
+check WideParamsTest '3.75|115|1.5'
 exit $fail

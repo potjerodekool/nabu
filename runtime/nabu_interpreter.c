@@ -535,6 +535,41 @@ static void *call_closure(nabu_closure_t *cl, void **sam_args, int sam_params) {
     return r;
 }
 
+/* The arguments of a call into the local variables of the frame. A long or double parameter takes two local variable slots
+ * in the numbering of the bytecode (lload_0, then iload_2 for the next parameter); the arguments themselves come one per
+ * value, the receiver first. */
+static void place_args(nabu_interp_frame_t *f, nabu_interp_method_t *m, void **args, int nargs) {
+    if (args == NULL) return;
+    const char *p = m->desc != NULL ? strchr(m->desc, '(') : NULL;
+    if (p == NULL) {
+        for (int i = 0; i < nargs && i < f->locals_cap; i++) f->locals[i] = args[i];
+        return;
+    }
+    p++;
+    int slot = 0, ai = 0;
+    if ((m->access & 0x0008) == 0 && nargs > 0) {
+        if (slot < f->locals_cap) f->locals[slot] = args[0];
+        slot++;
+        ai++;
+    }
+    while (*p != 0 && *p != ')' && ai < nargs) {
+        const int wide = *p == 'J' || *p == 'D';
+        if (*p == 'L') {
+            while (*p != 0 && *p != ';') p++;
+            if (*p == ';') p++;
+        } else if (*p == '[') {
+            while (*p == '[') p++;
+            if (*p == 'L') { while (*p != 0 && *p != ';') p++; if (*p == ';') p++; }
+            else if (*p != 0) p++;
+        } else {
+            p++;
+        }
+        if (slot < f->locals_cap) f->locals[slot] = args[ai];
+        slot += wide ? 2 : 1;
+        ai++;
+    }
+}
+
 void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
     if (m == NULL) return NULL;
     if (m->class_name != NULL && m->name != NULL && strcmp(m->name, "<clinit>") != 0) ensure_clinit(m->class_name);
@@ -570,9 +605,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
         return r;
     }
     nabu_interp_frame_t *f = frame_new(m);
-    for (int i = 0; i < nargs && i < f->locals_cap; i++) {
-        f->locals[i] = args != NULL ? args[i] : NULL;
-    }
+    place_args(f, m, args, nargs);
     void *result = NULL;
     int running = 1;
     int prev_active = interp_jmp_active;

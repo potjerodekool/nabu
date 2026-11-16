@@ -244,7 +244,7 @@ static void push(nabu_interp_frame_t *f, void *v) {
 }
 
 static void *pop(nabu_interp_frame_t *f) {
-    if (f->stack_top <= 0) { fprintf(stderr, "interp: stack underflow\n"); abort(); }
+    if (f->stack_top <= 0) { fprintf(stderr, "interp: stack underflow in %s.%s%s pc=%d\n", f->method && f->method->class_name ? f->method->class_name : "?", f->method && f->method->name ? f->method->name : "?", f->method && f->method->desc ? f->method->desc : "", f->pc); abort(); }
     return f->stack[--f->stack_top];
 }
 
@@ -938,7 +938,29 @@ static void *call_closure(nabu_closure_t *cl, void **sam_args, int sam_params) {
         for (int i = 0; i < cl->captured_count; i++) args[i] = cl->captured[i];
         for (int i = 0; i < sam_params; i++) args[cl->captured_count + i] = sam_args[i];
     }
+    if (strcmp(cl->impl_name, "<init>") == 0) {   /* a constructor reference: a new object, then its <init> */
+        void *obj = interp_new_object(cl->impl_class);
+        void **a2 = (void **)malloc(sizeof(void *) * (size_t)(total + 1));
+        a2[0] = obj;
+        for (int i = 0; i < total; i++) a2[i + 1] = args[i];
+        nabu_interp_method_t *init = nabu_interp_find_method(cl->impl_class, "<init>", cl->impl_desc);
+        if (init == NULL) {
+            void *nfi = nabu_find_native(cl->impl_class, "<init>", cl->impl_desc);
+            if (nfi != NULL) {
+                init = (nabu_interp_method_t *)calloc(1, sizeof(nabu_interp_method_t));
+                init->class_name = strdup(cl->impl_class); init->name = strdup("<init>"); init->desc = strdup(cl->impl_desc);
+                init->is_native = 1; init->native_fn = nfi; init->max_locals = 8; init->max_stack = 8;
+            }
+        }
+        if (init != NULL) nabu_interp_invoke(init, a2, total + 1);
+        free(a2); free(args);
+        return obj;
+    }
     nabu_interp_method_t *target = nabu_interp_find_method(cl->impl_class, cl->impl_name, cl->impl_desc);
+    if (is_instance && args[0] != NULL && (target == NULL || (target->code == NULL && !target->is_native))) {
+        const char *rt = interp_type_name(args[0]);   /* an interface method: the receiver's class decides */
+        if (rt != NULL) { nabu_interp_method_t *t2 = nabu_interp_resolve_in_hierarchy(rt, cl->impl_name, cl->impl_desc, 0); if (t2 != NULL) target = t2; }
+    }
     if (target == NULL) {
         void *nf = nabu_find_native(cl->impl_class, cl->impl_name, cl->impl_desc);
         if (nf != NULL) {
@@ -952,6 +974,10 @@ static void *call_closure(nabu_closure_t *cl, void **sam_args, int sam_params) {
             target = nm;
         }
     }
+        if (target == NULL) {   /* a JDK class that is not loaded yet, or a method of a superclass */
+            nabu_classfile_load_class(cl->impl_class);
+            target = nabu_interp_resolve_in_hierarchy(cl->impl_class, cl->impl_name, cl->impl_desc, 0);
+        }
     void *r = NULL;
     if (target != NULL) {
         r = nabu_interp_invoke(target, args, total);
@@ -1082,7 +1108,7 @@ char *nabu_interp_object_to_string(void *av) {
         const char *rt = interp_type_name(av);
         if (rt != NULL) {
             nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, "toString", "()Ljava/lang/String;", 0);
-            if (t != NULL && t->code != NULL) {
+            if (t != NULL && (t->code != NULL || (t->is_native && strcmp(t->class_name, "java/lang/Object") != 0))) {
                 void *args[1] = { av };
                 void *r = nabu_interp_invoke(t, args, 1);
                 if (r != NULL && (uintptr_t)r >= (1 << 20)) return strdup((const char *)r);
@@ -1104,6 +1130,7 @@ char *nabu_interp_object_to_string(void *av) {
 }
 
 void *nabu_interp_new_object(const char *cname) { return interp_new_object(cname); }
+void nabu_interp_ensure_clinit(const char *cls) { ensure_clinit(cls); }
 
 /* hashCode() of any value of the interpreter: a String (a char *), a box, an object with its own hashCode(), else its address. */
 int nabu_interp_hash_code(void *v) {
@@ -1114,7 +1141,7 @@ int nabu_interp_hash_code(void *v) {
     const char *rt = interp_type_name(v);
     if (rt != NULL) {
         nabu_interp_method_t *t = nabu_interp_resolve_in_hierarchy(rt, "hashCode", "()I", 0);
-        if (t != NULL && t->code != NULL) { void *a[1] = { v }; return (int)(intptr_t)nabu_interp_invoke(t, a, 1); }
+        if (t != NULL && (t->code != NULL || (t->is_native && strcmp(t->class_name, "java/lang/Object") != 0))) { void *a[1] = { v }; return (int)(intptr_t)nabu_interp_invoke(t, a, 1); }
         return (int)(((uintptr_t)v >> 4) & 0x7fffffff);
     }
     int h = 0;
@@ -1365,6 +1392,25 @@ static unsigned char *wide_masks_of(nabu_interp_method_t *m) {
     return masks;
 }
 
+/* How deep the receiver of an invoke lies under the top of the stack: the number of parameters. The scan for a lambda or proxy
+ * receiver looks there only (an argument that is a lambda must not be taken for the receiver); -1 when the instruction does not say. */
+static int invoke_param_count(nabu_interp_method_t *m, int idx) {
+    if (m->const_pool == NULL || idx <= 0 || idx >= m->const_pool->count) return -1;
+    nabu_cp_entry *e = &m->const_pool->entries[idx];
+    if (e->ref_nat <= 0) return -1;
+    const char *d = nabu_cp_utf8(m->const_pool, m->const_pool->entries[e->ref_nat].nat_desc);
+    return d != NULL ? count_params(d) : -1;
+}
+static int invoke_returns_void(nabu_interp_method_t *m, int idx) {
+    if (m->const_pool == NULL || idx <= 0 || idx >= m->const_pool->count) return 0;
+    nabu_cp_entry *e = &m->const_pool->entries[idx];
+    if (e->ref_nat <= 0) return 0;
+    const char *d = nabu_cp_utf8(m->const_pool, m->const_pool->entries[e->ref_nat].nat_desc);
+    return d != NULL && is_void_return(d);
+}
+static int recv_depth_lo(nabu_interp_method_t *m, int idx) { int n = invoke_param_count(m, idx); return n >= 0 ? n : 0; }
+static int recv_depth_hi(nabu_interp_method_t *m, int idx) { int n = invoke_param_count(m, idx); return n >= 0 ? n + 1 : 8; }
+
 /* A new object of a class: the class is loaded first so that the number of fields is right. */
 static void *interp_new_object(const char *cname) {
     if (cname != NULL) nabu_classfile_load_class(cname);
@@ -1385,8 +1431,31 @@ const char *nabu_interp_uncaught_exception(void) {
     return interp_pending_exception != NULL ? interp_type_name(interp_pending_exception) : NULL;
 }
 
+/* The interpreter prefers a native to the bytecode of the same method: a method object for it, made once. */
+static nabu_interp_method_t *native_method_for(const char *cls, const char *name, const char *desc) {
+    typedef struct nm_entry { char *key; nabu_interp_method_t *m; struct nm_entry *next; } nm_entry;
+    static nm_entry *buckets[256];
+    char key[700];
+    snprintf(key, sizeof key, "%s.%s%s", cls, name, desc);
+    unsigned h = 5381;
+    for (const char *p = key; *p; p++) h = h * 33 + (unsigned char)*p;
+    for (nm_entry *e = buckets[h & 255]; e != NULL; e = e->next) if (strcmp(e->key, key) == 0) return e->m;
+    void *nf = nabu_find_native(cls, name, desc);
+    nabu_interp_method_t *m = NULL;
+    if (nf != NULL) {
+        m = (nabu_interp_method_t *)calloc(1, sizeof(nabu_interp_method_t));
+        m->class_name = strdup(cls); m->name = strdup(name); m->desc = strdup(desc);
+        m->is_native = 1; m->native_fn = nf; m->max_locals = 8; m->max_stack = 8;
+    }
+    nm_entry *e = (nm_entry *)malloc(sizeof(nm_entry));
+    e->key = strdup(key); e->m = m; e->next = buckets[h & 255]; buckets[h & 255] = e;
+    return m;
+}
+
 nabu_interp_method_t *nabu_interp_resolve_in_hierarchy(const char *cls, const char *name, const char *desc, int depth) {
     if (cls == NULL || depth > 40) return NULL;
+    nabu_interp_method_t *nat = native_method_for(cls, name, desc);
+    if (nat != NULL) return nat;
     nabu_interp_method_t *t = nabu_interp_find_method(cls, name, desc);
     if (t != NULL && (t->code != NULL || t->is_native)) return t;
     t = nabu_interp_resolve_in_hierarchy(nabu_class_super_name(cls), name, desc, depth + 1);
@@ -1440,6 +1509,8 @@ static nabu_interp_method_t *resolve_invoke_target(nabu_interp_frame_t *f, nabu_
 
 void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
     if (m == NULL) return NULL;
+    { static int trace_calls = -1; if (trace_calls < 0) trace_calls = getenv("NABU_TRACE_CALLS") != NULL;
+      if (trace_calls) fprintf(stderr, "call %s.%s%s\n", m->class_name ? m->class_name : "?", m->name ? m->name : "?", m->desc ? m->desc : ""); }
     if (m->class_name != NULL && m->name != NULL && strcmp(m->name, "<clinit>") != 0) ensure_clinit(m->class_name);
     /* If JIT-compiled and not deoptimized, call the compiled function directly. */
 #ifndef _WIN32
@@ -2073,7 +2144,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 if (!is_static_early && f->stack_top > 0) {
                     nabu_closure_t *cl = NULL;
                     int sam_params = 0;
-                    for (int k = 0; k < 8 && k < f->stack_top; k++) {
+                    for (int k = recv_depth_lo(m, idx); k < recv_depth_hi(m, idx) && k < f->stack_top; k++) {
                         nabu_closure_t *cc = nabu_as_closure(f->stack[f->stack_top - 1 - k]);
                         if (cc != NULL) { cl = cc; sam_params = k; break; }
                     }
@@ -2087,7 +2158,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                         if (interp_pending_exception != NULL) {
                             if (interp_jmp_active) longjmp(interp_jmp_buf, 1);
                         }
-                        if (!is_void_return(cl->impl_desc)) push(f, r);
+                        if (!invoke_returns_void(m, idx)) push(f, r);   /* the call site decides: a constructor reference returns the object, list::add as a Consumer returns nothing */
                         break;
                     }
                 }
@@ -2095,7 +2166,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 if (!is_static_early && f->stack_top > 0) {
                     void *proxy_recv = NULL;
                     int proxy_sam = 0;
-                    for (int k = 0; k < 8 && k < f->stack_top; k++) {
+                    for (int k = recv_depth_lo(m, idx); k < recv_depth_hi(m, idx) && k < f->stack_top; k++) {
                         if (nabu_is_proxy(f->stack[f->stack_top - 1 - k]) && !(proxy_method_name != NULL && strcmp(proxy_method_name, "getClass") == 0)) { proxy_recv = f->stack[f->stack_top - 1 - k]; proxy_sam = k; break; }
                     }
                     if (proxy_recv != NULL) {
@@ -2290,7 +2361,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                 if (f->stack_top > 0) {
                     nabu_closure_t *cl = NULL;
                     int sam_params = 0;
-                    for (int k = 0; k < 8 && k < f->stack_top; k++) {
+                    for (int k = recv_depth_lo(m, idx); k < recv_depth_hi(m, idx) && k < f->stack_top; k++) {
                         nabu_closure_t *cc = nabu_as_closure(f->stack[f->stack_top - 1 - k]);
                         if (cc != NULL) { cl = cc; sam_params = k; break; }
                     }
@@ -2300,50 +2371,10 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                         void **sam_args = (void **)malloc(sizeof(void *) * (sam_params > 0 ? sam_params : 1));
                         for (int i = sam_params - 1; i >= 0; i--) sam_args[i] = pop(f);
                         pop(f); /* receiver */
-                        int total = cl->captured_count + sam_params;
-                        void **args = (void **)malloc(sizeof(void *) * (total > 0 ? total : 1));
-                        /* Detect instance method ref. */
-                        int is_instance = (count_params(cl->impl_desc) + 1 == (cl->captured_count + sam_params)) && (cl->captured_count + sam_params > 0);
-                        if (is_instance) {
-                            void *receiver;
-                            int pi = 0;
-                            void **params = (void **)malloc(sizeof(void *) * (cl->captured_count + sam_params));
-                            if (cl->captured_count > 0) {
-                                receiver = cl->captured[0];
-                                for (int i = 1; i < cl->captured_count; i++) params[pi++] = cl->captured[i];
-                                for (int i = 0; i < sam_params; i++) params[pi++] = sam_args[i];
-                            } else {
-                                receiver = (sam_params > 0) ? sam_args[0] : NULL;
-                                for (int i = 1; i < sam_params; i++) params[pi++] = sam_args[i];
-                            }
-                            args[0] = receiver;
-                            for (int i = 0; i < pi; i++) args[i + 1] = params[i];
-                            free(params);
-                        } else {
-                            for (int i = 0; i < cl->captured_count; i++) args[i] = cl->captured[i];
-                            for (int i = 0; i < sam_params; i++) args[cl->captured_count + i] = sam_args[i];
-                        }
+                        void *r = call_closure(cl, sam_args, sam_params);
                         free(sam_args);
-                        nabu_interp_method_t *target = nabu_interp_find_method(cl->impl_class, cl->impl_name, cl->impl_desc);
-                        if (target == NULL) {
-                            void *nf = nabu_find_native(cl->impl_class, cl->impl_name, cl->impl_desc);
-                            if (nf != NULL) {
-                                nabu_interp_method_t *nm = (nabu_interp_method_t *)calloc(1, sizeof(nabu_interp_method_t));
-                                nm->class_name = strdup(cl->impl_class);
-                                nm->name = strdup(cl->impl_name);
-                                nm->desc = strdup(cl->impl_desc);
-                                nm->is_native = 1;
-                                nm->native_fn = nf;
-                                nm->max_locals = 8; nm->max_stack = 8;
-                                target = nm;
-                            }
-                        }
-                        void *r = NULL;
-                        if (target != NULL) r = nabu_interp_invoke(target, args, total);
-                        else fprintf(stderr, "interp: closure impl not found %s.%s%s\n", cl->impl_class, cl->impl_name, cl->impl_desc);
-                        free(args);
                         if (interp_pending_exception != NULL) { if (interp_jmp_active) longjmp(interp_jmp_buf, 1); }
-                        if (!is_void_return(cl->impl_desc)) push(f, r);
+                        if (!invoke_returns_void(m, idx)) push(f, r);   /* the call site decides: a constructor reference returns the object, list::add as a Consumer returns nothing */
                         break;
                     }
                 }
@@ -2357,7 +2388,7 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                     }
                     void *proxy_recv = NULL;
                     int proxy_sam = 0;
-                    for (int k = 0; k < 8 && k < f->stack_top; k++) {
+                    for (int k = recv_depth_lo(m, idx); k < recv_depth_hi(m, idx) && k < f->stack_top; k++) {
                         if (nabu_is_proxy(f->stack[f->stack_top - 1 - k]) && !(proxy_method_name != NULL && strcmp(proxy_method_name, "getClass") == 0)) { proxy_recv = f->stack[f->stack_top - 1 - k]; proxy_sam = k; break; }
                     }
                      if (proxy_recv != NULL) {
@@ -2558,11 +2589,12 @@ void *nabu_interp_invoke(nabu_interp_method_t *m, void **args, int nargs) {
                             nm->max_locals = 8; nm->max_stack = 8;
                             target = nm;
                         } else if (cname && mname && mdesc) {
+                            /* the receiver's class and its superclasses first: an interface's default method comes last */
+                            if (recv_type != NULL) target = nabu_interp_resolve_in_hierarchy(recv_type, mname, mdesc, 0);
                             for (int t = 0; t < chain_count && target == NULL; t++) {
                                 target = nabu_interp_find_method(chain[t], mname, mdesc);
                                 if (target != NULL && target->code == NULL && !target->is_native) target = NULL;   /* abstract */
                             }
-                            if (target == NULL && recv_type != NULL) target = nabu_interp_resolve_in_hierarchy(recv_type, mname, mdesc, 0);   /* inherited */
                             if (target == NULL) target = nabu_interp_find_method(cname, mname, mdesc);
                         }
                         /* Insert into itable cache if resolved. */

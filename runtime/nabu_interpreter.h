@@ -130,6 +130,7 @@ char *nabu_interp_double_to_string(double v);
 char *nabu_interp_float_to_string(float v);
 char *nabu_interp_object_to_string(void *obj);
 void *nabu_interp_new_object(const char *class_name);
+void nabu_interp_ensure_clinit(const char *class_name);
 int nabu_interp_hash_code(void *value);
 char *nabu_interp_sb_text(void *obj);
 nabu_interp_method_t *nabu_interp_resolve_in_hierarchy(const char *cls, const char *name, const char *desc, int depth);

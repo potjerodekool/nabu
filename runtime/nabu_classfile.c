@@ -312,7 +312,6 @@ static const char *class_handle_name(void *obj) {
 }
 
 static void native_class_forName0(nabu_interp_frame_t *frame, void **args, int nargs) {
-    (void)nargs;
     const char *name = (const char *)(args != NULL ? args[0] : NULL);
     if (name == NULL) { frame->result = NULL; frame->has_result = 1; return; }
     /* Class.forName loads the class (from a directory or a jar of NABU_CLASSPATH); one that cannot be found still gets its
@@ -321,7 +320,8 @@ static void native_class_forName0(nabu_interp_frame_t *frame, void **args, int n
     snprintf(internal, sizeof(internal), "%s", name);
     for (char *p = internal; *p; p++) if (*p == '.') *p = '/';
     nabu_classfile_load_class(internal);
-    frame->result = make_class_object(name);
+    if (nargs > 1 && args[1] != NULL) nabu_interp_ensure_clinit(internal);   /* forName(name, true, loader) runs the static initializer */
+    frame->result = make_class_object(internal);
     frame->has_result = 1;
 }
 
@@ -345,11 +345,18 @@ static void native_class_getSimpleName(nabu_interp_frame_t *frame, void **args, 
     if (frame->result != NULL) {
         char *s = (char *)frame->result;
         char *dot = strrchr(s, '.');
-        if (dot) {
-            char *base = strdup(dot + 1);
-            free(s);
-            frame->result = base;
+        char *base = strdup(dot ? dot + 1 : s);
+        char *dollar = strrchr(base, '$');   /* a nested class: the name after the last $; an anonymous class has none */
+        if (dollar) {
+            char *rest = dollar + 1;
+            int digits = *rest != 0;
+            for (char *q = rest; *q; q++) if (*q < '0' || *q > '9') digits = 0;
+            char *name = strdup(digits ? "" : rest);
+            free(base);
+            base = name;
         }
+        free(s);
+        frame->result = base;
     }
 }
 
@@ -3110,6 +3117,128 @@ static void native_sharedsecrets_jla(nabu_interp_frame_t *frame, void **args, in
     if (jla == NULL) jla = nabu_interp_new_object("jdk/internal/access/JavaLangAccessImpl");
     frame->result = jla; frame->has_result = 1;
 }
+static void native_class_getSuperclass(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *cls = (nargs > 0) ? class_handle_name(args[0]) : NULL;
+    const char *sup = NULL;
+    if (cls != NULL && cls[0] != '[') { nabu_classfile_load_class(cls); sup = nabu_class_super_name(cls); }
+    frame->result = sup != NULL ? make_class_object(sup) : NULL;
+    frame->has_result = 1;
+}
+
+/* Class.getEnumConstantsShared(): values() of the enum, NULL for a class that is not one. */
+static void native_class_getEnumConstantsShared(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *cls = (nargs > 0) ? class_handle_name(args[0]) : NULL;
+    frame->result = NULL; frame->has_result = 1;
+    if (cls == NULL) return;
+    char desc[300];
+    snprintf(desc, sizeof desc, "()[L%s;", cls);
+    nabu_classfile_load_class(cls);
+    nabu_interp_method_t *t = nabu_interp_find_method(cls, "values", desc);
+    if (t != NULL) frame->result = nabu_interp_invoke(t, NULL, 0);
+    else if (getenv("NABU_TRACE_EXC")) fprintf(stderr, "no values() for %s\n", cls);
+}
+/* A field of an interpreted object by name (the value of its slot). */
+static void *obj_field(void *obj, const char *cls, const char *name) {
+    int fi = nabu_interp_field_index(cls, name);
+    return (obj != NULL && fi >= 0) ? ((void **)((char *)obj + sizeof(nabu_object)))[fi] : NULL;
+}
+
+/* StringJoiner.toString(): the JDK builds it with StringConcatHelper over byte arrays, which the interpreter does not have. */
+static void native_stringjoiner_toString(nabu_interp_frame_t *frame, void **args, int nargs) {
+    void *j = nargs > 0 ? args[0] : NULL;
+    const char *prefix = (const char *)obj_field(j, "java/util/StringJoiner", "prefix");
+    const char *suffix = (const char *)obj_field(j, "java/util/StringJoiner", "suffix");
+    const char *delim = (const char *)obj_field(j, "java/util/StringJoiner", "delimiter");
+    const char *empty = (const char *)obj_field(j, "java/util/StringJoiner", "emptyValue");
+    void *elts = obj_field(j, "java/util/StringJoiner", "elts");
+    int size = (int)(intptr_t)obj_field(j, "java/util/StringJoiner", "size");
+    if (prefix == NULL) prefix = ""; if (suffix == NULL) suffix = ""; if (delim == NULL) delim = "";
+    if (size == 0 && empty != NULL) { frame->result = strdup(empty); frame->has_result = 1; return; }
+    void **e = elts != NULL ? (void **)((char *)elts + 8) : NULL;
+    size_t cap = strlen(prefix) + strlen(suffix) + 1;
+    for (int i = 0; i < size; i++) cap += strlen(e && e[i] ? (const char *)e[i] : "null") + strlen(delim);
+    char *r = (char *)malloc(cap);
+    strcpy(r, prefix);
+    for (int i = 0; i < size; i++) { if (i > 0) strcat(r, delim); strcat(r, e && e[i] ? (const char *)e[i] : "null"); }
+    strcat(r, suffix);
+    frame->result = r; frame->has_result = 1;
+}
+static void native_stringjoiner_length(nabu_interp_frame_t *frame, void **args, int nargs) {
+    native_stringjoiner_toString(frame, args, nargs);
+    NATIVE_RET_INT(frame, (int)strlen((const char *)frame->result));
+}
+
+/* CharSequence.toString/length/charAt: a String is a plain char *, anything else is an object that has these methods. */
+static int charseq_delegate(nabu_interp_frame_t *frame, void **args, int nargs, const char *name, const char *desc) {
+    void *h = nargs > 0 ? args[0] : NULL;
+    if (h == NULL || (uintptr_t)h < 0x100000000ull || (uintptr_t)h >= 0x800000000000ull) return 0;
+    const char *sbt = nabu_interp_sb_text(h);
+    if (sbt != NULL) return 0;   /* a StringBuilder of the natives: its text is its value */
+    const char *rt = nabu_compiled_type_name(h);
+    nabu_interp_method_t *t = rt != NULL ? nabu_interp_resolve_in_hierarchy(rt, name, desc, 0) : NULL;
+    if (t == NULL || (t->code == NULL && !t->is_native) || strcmp(t->class_name, "java/lang/CharSequence") == 0) return 0;
+    frame->result = nabu_interp_invoke(t, args, nargs); frame->has_result = 1;
+    return 1;
+}
+static const char *charseq_text(void *h) { const char *t = nabu_interp_sb_text(h); return t != NULL ? t : (h != NULL ? (const char *)h : ""); }
+static void native_charseq_toString(nabu_interp_frame_t *frame, void **args, int nargs) {
+    if (charseq_delegate(frame, args, nargs, "toString", "()Ljava/lang/String;")) return;
+    frame->result = strdup(charseq_text(nargs > 0 ? args[0] : NULL)); frame->has_result = 1;
+}
+static void native_charseq_length(nabu_interp_frame_t *frame, void **args, int nargs) {
+    if (charseq_delegate(frame, args, nargs, "length", "()I")) return;
+    NATIVE_RET_INT(frame, (int)strlen(charseq_text(nargs > 0 ? args[0] : NULL)));
+}
+static void native_charseq_charAt(nabu_interp_frame_t *frame, void **args, int nargs) {
+    if (charseq_delegate(frame, args, nargs, "charAt", "(I)C")) return;
+    const char *t = charseq_text(nargs > 0 ? args[0] : NULL);
+    int i = nargs > 1 ? (int)(intptr_t)args[1] : 0;
+    NATIVE_RET_INT(frame, (i >= 0 && i < (int)strlen(t)) ? (unsigned char)t[i] : 0);
+}
+
+/* A method of an object of the interpreter, found from its class upwards (iterator(), hasNext(), next() ...). */
+static void *call_method_of(void *obj, const char *name, const char *desc) {
+    const char *rt = (obj != NULL && (uintptr_t)obj >= 0x100000000ull && (uintptr_t)obj < 0x800000000000ull) ? nabu_compiled_type_name(obj) : NULL;
+    nabu_interp_method_t *t = rt != NULL ? nabu_interp_resolve_in_hierarchy(rt, name, desc, 0) : NULL;
+    if (t == NULL) return NULL;
+    void *a[1] = { obj };
+    return nabu_interp_invoke(t, a, 1);
+}
+
+/* String.join(CharSequence delimiter, Iterable elements) */
+static void native_string_join_iterable(nabu_interp_frame_t *frame, void **args, int nargs) {
+    char *delim = nabu_interp_object_to_string(nargs > 0 ? args[0] : NULL);
+    void *it = call_method_of(nargs > 1 ? args[1] : NULL, "iterator", "()Ljava/util/Iterator;");
+    size_t cap = 64, len = 0;
+    char *r = (char *)malloc(cap);
+    r[0] = 0;
+    int first = 1;
+    while (it != NULL && ((intptr_t)call_method_of(it, "hasNext", "()Z") & 1)) {
+        char *e = nabu_interp_object_to_string(call_method_of(it, "next", "()Ljava/lang/Object;"));
+        size_t need = len + strlen(delim) + strlen(e) + 1;
+        if (need > cap) { while (need > cap) cap *= 2; r = (char *)realloc(r, cap); }
+        if (!first) { strcpy(r + len, delim); len += strlen(delim); }
+        strcpy(r + len, e); len += strlen(e);
+        first = 0;
+        free(e);
+    }
+    free(delim);
+    frame->result = r; frame->has_result = 1;
+}
+
+/* JavaLangAccess.join(prefix, suffix, delimiter, elements, size) for StringJoiner */
+static void native_jla_join(nabu_interp_frame_t *frame, void **args, int nargs) {
+    const char *prefix = arg_cstr(args, 1, nargs), *suffix = arg_cstr(args, 2, nargs), *delim = arg_cstr(args, 3, nargs);
+    void **elems = (nargs > 4 && args[4] != NULL) ? (void **)((char *)args[4] + 8) : NULL;
+    int size = nargs > 5 ? (int)(intptr_t)args[5] : 0;
+    size_t cap = strlen(prefix) + strlen(suffix) + 1;
+    for (int i = 0; i < size; i++) cap += strlen(elems && elems[i] ? (const char *)elems[i] : "null") + strlen(delim);
+    char *r = (char *)malloc(cap);
+    strcpy(r, prefix);
+    for (int i = 0; i < size; i++) { if (i > 0) strcat(r, delim); strcat(r, elems && elems[i] ? (const char *)elems[i] : "null"); }
+    strcat(r, suffix);
+    frame->result = r; frame->has_result = 1;
+}
 static void native_jla_getEnumConstantsShared(nabu_interp_frame_t *frame, void **args, int nargs) {
     const char *cls = (nargs > 1) ? class_handle_name(args[1]) : NULL;
     frame->result = NULL; frame->has_result = 1;
@@ -3119,6 +3248,7 @@ static void native_jla_getEnumConstantsShared(nabu_interp_frame_t *frame, void *
     nabu_classfile_load_class(cls);
     nabu_interp_method_t *t = nabu_interp_find_method(cls, "values", desc);
     if (t != NULL) frame->result = nabu_interp_invoke(t, NULL, 0);
+    if (getenv("NABU_TRACE_EXC")) fprintf(stderr, "enum constants of %s: %s\n", cls, frame->result ? "found" : "none");
 }
 
 /* Comparable.compareTo(Object) for what the interpreter has no class for: Strings (a char *), boxed numbers (the value itself),
@@ -3201,6 +3331,11 @@ UNBOX_NATIVE(native_float_to_long, 'F', 'J')
 UNBOX_NATIVE(native_float_to_float, 'F', 'F')
 UNBOX_NATIVE(native_float_to_double, 'F', 'D')
 
+static void native_int_sum(nabu_interp_frame_t *frame, void **args, int nargs) { NATIVE_RET_INT(frame, (int)((nargs > 0 ? (int)(intptr_t)args[0] : 0) + (nargs > 1 ? (int)(intptr_t)args[1] : 0))); }
+static void native_int_max(nabu_interp_frame_t *frame, void **args, int nargs) { int a = nargs > 0 ? (int)(intptr_t)args[0] : 0, b = nargs > 1 ? (int)(intptr_t)args[1] : 0; NATIVE_RET_INT(frame, a > b ? a : b); }
+static void native_int_min(nabu_interp_frame_t *frame, void **args, int nargs) { int a = nargs > 0 ? (int)(intptr_t)args[0] : 0, b = nargs > 1 ? (int)(intptr_t)args[1] : 0; NATIVE_RET_INT(frame, a < b ? a : b); }
+static void native_long_sum(nabu_interp_frame_t *frame, void **args, int nargs) { frame->result = (void *)(intptr_t)((nargs > 0 ? (long)(intptr_t)args[0] : 0) + (nargs > 1 ? (long)(intptr_t)args[1] : 0)); frame->has_result = 1; }
+static void native_double_sum(nabu_interp_frame_t *frame, void **args, int nargs) { ret_double(frame, arg_double(args, 0, nargs) + arg_double(args, 2, nargs)); }
 static void native_string_lastChars(nabu_interp_frame_t *frame, void **args, int nargs) {   /* isBlank */
     const char *s = arg_cstr(args, 0, nargs);
     int blank = 1;
@@ -3362,13 +3497,29 @@ static void register_builtins(void) {
     register_native("jdk/internal/misc/CDS", "isSharingEnabled", "()Z", native_zero);
     register_native("jdk/internal/misc/CDS", "initializeFromArchive", "(Ljava/lang/Class;)V", native_nothing);
     register_native("jdk/internal/util/ArraysSupport", "hashCode", "([Ljava/lang/Object;III)I", native_arrayssupport_hashCode);
+    register_native("java/lang/Class", "getSuperclass", "()Ljava/lang/Class;", native_class_getSuperclass);
+    register_native("java/lang/Class", "getEnumConstantsShared", "()[Ljava/lang/Object;", native_class_getEnumConstantsShared);
+    register_native("java/lang/Class", "getEnumConstants", "()[Ljava/lang/Object;", native_class_getEnumConstantsShared);
     register_native("jdk/internal/access/SharedSecrets", "getJavaLangAccess", "()Ljdk/internal/access/JavaLangAccess;", native_sharedsecrets_jla);
+    register_native("java/lang/String", "join", "(Ljava/lang/CharSequence;Ljava/lang/Iterable;)Ljava/lang/String;", native_string_join_iterable);
+    register_native("java/lang/CharSequence", "toString", "()Ljava/lang/String;", native_charseq_toString);
+    register_native("java/lang/CharSequence", "length", "()I", native_charseq_length);
+    register_native("java/lang/CharSequence", "charAt", "(I)C", native_charseq_charAt);
+    register_native("java/util/StringJoiner", "toString", "()Ljava/lang/String;", native_stringjoiner_toString);
+    register_native("java/util/StringJoiner", "length", "()I", native_stringjoiner_length);
+    register_native("jdk/internal/access/JavaLangAccess", "join", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;I)Ljava/lang/String;", native_jla_join);
+    register_native("jdk/internal/access/JavaLangAccessImpl", "join", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;I)Ljava/lang/String;", native_jla_join);
     register_native("jdk/internal/access/JavaLangAccess", "getEnumConstantsShared", "(Ljava/lang/Class;)[Ljava/lang/Enum;", native_jla_getEnumConstantsShared);
     register_native("jdk/internal/access/JavaLangAccessImpl", "getEnumConstantsShared", "(Ljava/lang/Class;)[Ljava/lang/Enum;", native_jla_getEnumConstantsShared);
     register_native("java/lang/Comparable", "compareTo", "(Ljava/lang/Object;)I", native_comparable_compareTo);
     register_native("java/lang/Integer", "compareTo", "(Ljava/lang/Integer;)I", native_comparable_compareTo);
     register_native("java/lang/Long", "compareTo", "(Ljava/lang/Long;)I", native_comparable_compareTo);
     register_native("java/lang/Integer", "compare", "(II)I", native_integer_compare);
+    register_native("java/lang/Integer", "sum", "(II)I", native_int_sum);
+    register_native("java/lang/Integer", "max", "(II)I", native_int_max);
+    register_native("java/lang/Integer", "min", "(II)I", native_int_min);
+    register_native("java/lang/Long", "sum", "(JJ)J", native_long_sum);
+    register_native("java/lang/Double", "sum", "(DD)D", native_double_sum);
     register_native("java/lang/Long", "compare", "(JJ)I", native_long_compare);
     register_native("java/lang/StringBuilder", "length", "()I", native_sb_length);
     register_native("java/lang/StringBuilder", "charAt", "(I)C", native_sb_charAt);

@@ -48,6 +48,16 @@ pub struct Host {
     pub resolve_invoke: extern "C" fn(cp: *mut c_void, idx: c_int, op: c_int, method: *mut *mut c_void, desc: *mut c_char, cap: c_int) -> c_int,
     /// invokevirtual from compiled code: the receiver is args[0]; non-zero when an exception is pending.
     pub call_virtual: extern "C" fn(cp: *mut c_void, idx: c_int, args: *const i64, nargs: c_int, result: *mut i64) -> c_int,
+    /// invokeinterface from compiled code: like call_virtual, a closure or proxy as receiver goes through the interpreter.
+    pub call_interface: extern "C" fn(cp: *mut c_void, idx: c_int, args: *const i64, nargs: c_int, result: *mut i64) -> c_int,
+    /// An invoke that the interpreter does (JDK methods, natives): the receiver, if any, is args[0].
+    pub call_synth: extern "C" fn(cp: *mut c_void, idx: c_int, op: c_int, args: *const i64, nargs: c_int, result: *mut i64) -> c_int,
+    /// `new`: a fresh object of the class.
+    pub new_object: extern "C" fn(cp: *mut c_void, idx: c_int) -> *mut c_void,
+    /// The String or Class constant of an ldc (made once, at compile time); NULL for another constant.
+    pub ldc_ref: extern "C" fn(cp: *mut c_void, idx: c_int) -> *mut c_void,
+    /// athrow: makes the object the pending exception.
+    pub throw_obj: extern "C" fn(obj: *mut c_void),
 }
 
 struct Jit {
@@ -222,7 +232,9 @@ fn decode(code: &[u8]) -> Option<Vec<Insn>> {
             0x15..=0x19 | 0x36..=0x3a => (*code.get(pc + 1)? as i32, 2),
             0x84 => ((*code.get(pc + 1)? as i32) | ((*code.get(pc + 2)? as i8 as i32) << 8), 3),
             0x99..=0xa7 | 0xc6 | 0xc7 => (pc as i32 + s2(pc + 1)?, 3),
-            0xb6..=0xb8 => (u2(pc + 1)?, 3),
+            0xb6..=0xb8 | 0xbb | 0xc0 => (u2(pc + 1)?, 3),
+            0xb9 => (u2(pc + 1)?, 5),
+            0xbf => (0, 1),
             _ => return None,
         };
         out.push(Insn { pc, op, a, next: pc + len });
@@ -236,7 +248,7 @@ fn is_branch(op: u8) -> bool {
 }
 
 fn ends_block(op: u8) -> bool {
-    matches!(op, 0xa7 | 0xac..=0xb1)
+    matches!(op, 0xa7 | 0xac..=0xb1 | 0xbf)
 }
 
 /// The types of the operand stack at the start of every block, found by running over the code once; None when the code is
@@ -385,6 +397,8 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
                 st.push(I)
             } else if (host.cp_float)(cp, insn.a, &mut f) != 0 {
                 st.push(F)
+            } else if !(host.ldc_ref)(cp, insn.a).is_null() {
+                st.push(A)
             } else {
                 return None;
             }
@@ -562,7 +576,14 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
             pop_ty(st)?;
         }
         0xb1 => {}
-        0xb6..=0xb8 => {
+        0xbb => {
+            st.push(A);
+        }
+        0xbf => {
+            pop_ty(st)?;
+        }
+        0xc0 => {}
+        0xb6..=0xb9 => {
             let mut method: *mut c_void = std::ptr::null_mut();
             let mut buf = [0 as c_char; 256];
             if (host.resolve_invoke)(cp, insn.a, insn.op as c_int, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
@@ -974,7 +995,13 @@ fn emit(
             } else if (host.cp_float)(cp, insn.a, &mut f) != 0 {
                 b.ins().f32const(f)
             } else {
-                return None;
+                let r = (host.ldc_ref)(cp, insn.a);
+                if r.is_null() {
+                    return None;
+                }
+                let v = b.ins().iconst(types::I64, r as usize as i64);
+                refs.insert(v);
+                v
             };
             st.push(v);
         }
@@ -1343,15 +1370,47 @@ fn emit(
             b.ins().return_(&[z]);
             return Some(true);
         }
-        0xb6..=0xb8 => {
+        0xbb => {
+            let mut s = Signature::new(cc);
+            s.params.push(AbiParam::new(ptr));
+            s.params.push(AbiParam::new(types::I32));
+            s.returns.push(AbiParam::new(ptr));
+            let sigref = b.import_signature(s);
+            let f = b.ins().iconst(ptr, host.new_object as usize as i64);
+            let cpv = b.ins().iconst(ptr, cp as usize as i64);
+            let idxv = b.ins().iconst(types::I32, insn.a as i64);
+            let call = b.ins().call_indirect(sigref, f, &[cpv, idxv]);
+            let r = b.inst_results(call)[0];
+            refs.insert(r);
+            st.push(r);
+        }
+        0xbf => {
+            let obj = st.pop()?;
+            let mut s = Signature::new(cc);
+            s.params.push(AbiParam::new(ptr));
+            let sigref = b.import_signature(s);
+            let f = b.ins().iconst(ptr, host.throw_obj as usize as i64);
+            b.ins().call_indirect(sigref, f, &[obj]);
+            let z = b.ins().iconst(types::I64, 0);
+            b.ins().return_(&[z]);
+            return Some(true);
+        }
+        0xc0 => {}
+        0xb6..=0xb9 => {
             let mut method: *mut c_void = std::ptr::null_mut();
             let mut buf = [0 as c_char; 256];
-            if (host.resolve_invoke)(cp, insn.a, op as c_int, &mut method, buf.as_mut_ptr(), buf.len() as c_int) == 0 {
+            let kind = (host.resolve_invoke)(cp, insn.a, op as c_int, &mut method, buf.as_mut_ptr(), buf.len() as c_int);
+            if kind == 0 {
                 return None;
             }
             let desc = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().ok()?;
             let (params, cret) = parse_desc(desc)?;
             let n = params.len() + if op == 0xb8 { 0 } else { 1 };
+            if kind == 5 {
+                // java/lang/Object.<init>: drop the receiver
+                st.pop()?;
+                return Some(false);
+            }
             let args_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, (n.max(1) * 8) as u32, 3));
             let res_slot = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
             let mut vals: Vec<Value> = Vec::with_capacity(n);
@@ -1365,7 +1424,7 @@ fn emit(
                 b.ins().stack_store(ptr, raw, args_slot, (i * 8) as i32);
             }
             let a = b.ins().stack_addr(ptr, args_slot, 0);
-            if op == 0xb8 && method == self_method {
+            if kind == 1 && method == self_method {
                 // a call of this very method: straight to the machine code, then look whether it left an exception
                 let call = b.ins().call(self_ref, &[a]);
                 let raw = b.inst_results(call)[0];
@@ -1389,7 +1448,7 @@ fn emit(
             }
             let count = b.ins().iconst(types::I32, n as i64);
             let r = b.ins().stack_addr(ptr, res_slot, 0);
-            let call = if op == 0xb6 {
+            let call = if kind == 3 || kind == 6 {
                 let cpv = b.ins().iconst(ptr, cp as usize as i64);
                 let idxv = b.ins().iconst(types::I32, insn.a as i64);
                 let mut s = Signature::new(cc);
@@ -1400,8 +1459,24 @@ fn emit(
                 s.params.push(AbiParam::new(ptr));
                 s.returns.push(AbiParam::new(types::I32));
                 let sigref = b.import_signature(s);
-                let f = b.ins().iconst(ptr, host.call_virtual as usize as i64);
+                let target = if kind == 3 { host.call_virtual as usize } else { host.call_interface as usize };
+                let f = b.ins().iconst(ptr, target as i64);
                 b.ins().call_indirect(sigref, f, &[cpv, idxv, a, count, r])
+            } else if kind == 4 {
+                let cpv = b.ins().iconst(ptr, cp as usize as i64);
+                let idxv = b.ins().iconst(types::I32, insn.a as i64);
+                let opv = b.ins().iconst(types::I32, op as i64);
+                let mut s = Signature::new(cc);
+                s.params.push(AbiParam::new(ptr));
+                s.params.push(AbiParam::new(types::I32));
+                s.params.push(AbiParam::new(types::I32));
+                s.params.push(AbiParam::new(ptr));
+                s.params.push(AbiParam::new(types::I32));
+                s.params.push(AbiParam::new(ptr));
+                s.returns.push(AbiParam::new(types::I32));
+                let sigref = b.import_signature(s);
+                let f = b.ins().iconst(ptr, host.call_synth as usize as i64);
+                b.ins().call_indirect(sigref, f, &[cpv, idxv, opv, a, count, r])
             } else {
                 let m = b.ins().iconst(ptr, method as usize as i64);
                 let mut s = Signature::new(cc);

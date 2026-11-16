@@ -75,6 +75,9 @@ if command -v cargo >/dev/null 2>&1; then
   out_int=$(cd "$O" && NABU_JIT=0 timeout 60 ./test_run "$O/classes/JitTryTest.class" JitTryTest 2>&1)
   out_java=$(cd "$O" && java -cp classes JitTryTest 2>&1)
   if [ "$out_jit" == "$out_int" ] && [ "$out_jit" == "$out_java" ]; then echo "PASS JitTryTest"; else echo "FAIL JitTryTest"; echo "--- jit"; echo "$out_jit"; echo "--- interpreted"; echo "$out_int"; echo "--- java"; echo "$out_java"; fail=1; fi
+  out_jit=$(cd "$O" && timeout 60 ./test_run "$O/classes/JitStaticsTest.class" JitStaticsTest 2>&1)
+  out_java=$(cd "$O" && java -cp classes JitStaticsTest 2>&1)
+  if [ "$out_jit" == "$out_java" ]; then echo "PASS JitStaticsTest"; else echo "FAIL JitStaticsTest"; diff <(echo "$out_java") <(echo "$out_jit"); fail=1; fi
   unset NABU_JIT_LIB NABU_JIT_THRESHOLD
 fi
 check WideParamsTest '3.75|115|1.5'

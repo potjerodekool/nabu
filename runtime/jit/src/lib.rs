@@ -62,6 +62,11 @@ pub struct Host {
     pub exc_match: extern "C" fn(cp: *mut c_void, type_idx: c_int) -> c_int,
     /// The pending exception, which is no longer pending afterwards.
     pub exc_take: extern "C" fn() -> *mut c_void,
+    /// getstatic / putstatic of a field the interpreter handles itself (JDK classes, System.out): non-zero when an exception is pending.
+    pub get_static: extern "C" fn(cp: *mut c_void, idx: c_int, result: *mut i64) -> c_int,
+    pub put_static: extern "C" fn(cp: *mut c_void, idx: c_int, value: i64) -> c_int,
+    /// instanceof of an object against the class at a constant pool index.
+    pub instance_of: extern "C" fn(cp: *mut c_void, idx: c_int, obj: *mut c_void) -> c_int,
 }
 
 struct Jit {
@@ -273,7 +278,7 @@ fn decode(code: &[u8]) -> Option<(Vec<Insn>, Vec<SwitchInfo>)> {
             }
             0xbd => (u2(pc + 1)?, 3),
             0x99..=0xa7 | 0xc6 | 0xc7 => (pc as i32 + s2(pc + 1)?, 3),
-            0xb6..=0xb8 | 0xbb | 0xc0 => (u2(pc + 1)?, 3),
+            0xb6..=0xb8 | 0xbb | 0xc0 | 0xc1 => (u2(pc + 1)?, 3),
             0xb9 | 0xba => (u2(pc + 1)?, 5),
             0xbf | 0xc2 | 0xc3 => (0, 1),
             0xaa | 0xab => {
@@ -683,6 +688,10 @@ fn apply_types(insn: &Insn, st: &mut Vec<Ty>, host: &Host, cp: *mut c_void) -> O
             pop_ty(st)?;
         }
         0xc0 => {}
+        0xc1 => {
+            pop_ty(st)?;
+            st.push(I);
+        }
         0xb6..=0xba => {
             let mut method: *mut c_void = std::ptr::null_mut();
             let mut buf = [0 as c_char; 256];
@@ -1114,9 +1123,69 @@ fn emit(
             refs.insert(r);
             st.push(r);
         }
+        0xc1 => {
+            let obj = st.pop()?;
+            let mut sg = Signature::new(cc);
+            sg.params.push(AbiParam::new(ptr));
+            sg.params.push(AbiParam::new(types::I32));
+            sg.params.push(AbiParam::new(ptr));
+            sg.returns.push(AbiParam::new(types::I32));
+            let sigref = b.import_signature(sg);
+            let f = b.ins().iconst(ptr, host.instance_of as usize as i64);
+            let cpv = b.ins().iconst(ptr, cp as usize as i64);
+            let idxv = b.ins().iconst(types::I32, insn.a as i64);
+            let call = b.ins().call_indirect(sigref, f, &[cpv, idxv, obj]);
+            let r = b.inst_results(call)[0];
+            st.push(r);
+        }
         0xb2..=0xb5 => {
             let (t, slot) = field_kind(host, cp, insn.a, op == 0xb2 || op == 0xb3)?;
             let fl = MemFlagsData::trusted();
+            if slot == -1 && (op == 0xb2 || op == 0xb3) {
+                // a static that the interpreter handles itself (a JDK class, System.out)
+                let cpv = b.ins().iconst(ptr, cp as usize as i64);
+                let idxv = b.ins().iconst(types::I32, insn.a as i64);
+                let mut sg = Signature::new(cc);
+                sg.params.push(AbiParam::new(ptr));
+                sg.params.push(AbiParam::new(types::I32));
+                let status;
+                let mut res_slot = None;
+                if op == 0xb2 {
+                    let rs = b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+                    res_slot = Some(rs);
+                    sg.params.push(AbiParam::new(ptr));
+                    sg.returns.push(AbiParam::new(types::I32));
+                    let sigref = b.import_signature(sg);
+                    let f = b.ins().iconst(ptr, host.get_static as usize as i64);
+                    let r = b.ins().stack_addr(ptr, rs, 0);
+                    let call = b.ins().call_indirect(sigref, f, &[cpv, idxv, r]);
+                    status = b.inst_results(call)[0];
+                } else {
+                    let v = st.pop()?;
+                    let raw = to_slot(b, v, t);
+                    sg.params.push(AbiParam::new(types::I64));
+                    sg.returns.push(AbiParam::new(types::I32));
+                    let sigref = b.import_signature(sg);
+                    let f = b.ins().iconst(ptr, host.put_static as usize as i64);
+                    let call = b.ins().call_indirect(sigref, f, &[cpv, idxv, raw]);
+                    status = b.inst_results(call)[0];
+                }
+                let fail_blk = b.create_block();
+                let cont_blk = b.create_block();
+                b.ins().brif(status, fail_blk, &[], cont_blk, &[]);
+                b.switch_to_block(fail_blk);
+                exc_exit(b, ex, ptr, cc);
+                b.switch_to_block(cont_blk);
+                if let Some(rs) = res_slot {
+                    let raw = b.ins().stack_load(ptr, types::I64, rs, 0);
+                    let v = from_slot(b, raw, t);
+                    if t == Ty::A {
+                        refs.insert(v);
+                    }
+                    st.push(v);
+                }
+                return Some(false);
+            }
             match op {
                 0xb2 => {
                     let addr = b.ins().iconst(ptr, slot);

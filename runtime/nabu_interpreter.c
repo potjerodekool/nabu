@@ -541,6 +541,9 @@ typedef struct {
     void (*throw_obj)(void *obj);
     int (*exc_match)(void *cp, int type_idx);
     void *(*exc_take)(void);
+    int (*get_static)(void *cp, int idx, int64_t *result);
+    int (*put_static)(void *cp, int idx, int64_t value);
+    int (*instance_of)(void *cp, int idx, void *obj);
 } nabu_jit_host_t;
 
 static int jit_cp_int(void *cpv, int idx, int32_t *out) {
@@ -671,8 +674,8 @@ static int jit_resolve_field(void *cpv, int idx, int is_static, int64_t *out, ch
         *out = (int64_t)(intptr_t)&assertions_disabled;
         return 1;
     }
-    /* the special statics of the getstatic opcode (System.out, Boolean.TRUE, Integer.TYPE) and the JDK's stay interpreted */
-    if (is_jdk_class(cname)) return 0;
+    /* the special statics of the getstatic opcode (System.out, Boolean.TRUE, Integer.TYPE) and the JDK's are read by the interpreter */
+    if (is_jdk_class(cname)) { *out = -1; return 1; }
     ensure_clinit(cname);
     nabu_static_t *sl = static_slot(cname, fname, 1);
     if (sl == NULL) return 0;
@@ -773,7 +776,7 @@ static nabu_interp_method_t *jit_synth(nabu_cp *cp, int idx, int op, const char 
     p = p != NULL ? p + 1 : mdesc;
     char types[64];
     int nt = 0;
-    if (op != 0xb8 && op != 0xba) types[nt++] = 'L';
+    if (op != 0xb8 && op != 0xba && op != 0xb2 && op != 0xb3) types[nt++] = 'L';
     for (char ch; nt < 60 && (ch = jit_next_type(&p)) != 0; ) types[nt++] = ch;
     for (int i = 0; i < nt; i++) {
         char ch = types[i];
@@ -791,7 +794,7 @@ static nabu_interp_method_t *jit_synth(nabu_cp *cp, int idx, int op, const char 
     m->class_name = strdup("jit/Synth");
     m->name = strdup("synth");
     m->desc = strdup(mdesc);
-    m->access = (op == 0xb8 || op == 0xba) ? 0x0008 : 0;
+    m->access = (op == 0xb8 || op == 0xba || op == 0xb2 || op == 0xb3) ? 0x0008 : 0;
     m->code = (uint8_t *)memcpy(malloc((size_t)n), code, (size_t)n);
     m->code_len = n;
     m->max_locals = slot + 1;
@@ -860,6 +863,30 @@ static void *jit_ldc_ref(void *cpv, int idx) {
 
 static void jit_throw_obj(void *obj) { interp_pending_exception = obj; }
 
+/* getstatic and putstatic of a field the interpreter handles itself, through a one-instruction method (see jit_synth). */
+static nabu_interp_method_t *jit_synth_field(nabu_cp *cp, int idx, int op, const char *fdesc) {
+    char md[300];
+    if (op == 0xb2) snprintf(md, sizeof md, "()%s", fdesc); else snprintf(md, sizeof md, "(%s)V", fdesc);
+    return jit_synth(cp, idx, op, md);
+}
+static int jit_get_static(void *cpv, int idx, int64_t *result) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    const char *fd = nabu_cp_utf8(cp, cp->entries[cp->entries[idx].ref_nat].nat_desc);
+    nabu_interp_method_t *t = jit_synth_field(cp, idx, 0xb2, fd);
+    return jit_host_call(t, NULL, 0, result);
+}
+static int jit_put_static(void *cpv, int idx, int64_t value) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    const char *fd = nabu_cp_utf8(cp, cp->entries[cp->entries[idx].ref_nat].nat_desc);
+    nabu_interp_method_t *t = jit_synth_field(cp, idx, 0xb3, fd);
+    int64_t unused;
+    return jit_host_call(t, &value, 1, &unused);
+}
+static int jit_instance_of(void *cpv, int idx, void *obj) {
+    nabu_cp *cp = (nabu_cp *)cpv;
+    return interp_instanceof(obj, nabu_cp_class_name(cp, idx));
+}
+
 /* A catch of compiled code: does the pending exception match the catch type, and take it. */
 static int jit_exc_match(void *cpv, int type_idx) {
     nabu_cp *cp = (nabu_cp *)cpv;
@@ -889,7 +916,8 @@ static int jit_load(void) {
                                     jit_host_call, jit_host_throw_arith, &interp_pending_exception,
                                     jit_resolve_field, jit_host_throw_exc, jit_new_array,
                                     jit_resolve_invoke, jit_call_virtual, jit_call_interface, jit_call_synth,
-                                    jit_new_object, jit_ldc_ref, jit_throw_obj, jit_exc_match, jit_exc_take };
+                                    jit_new_object, jit_ldc_ref, jit_throw_obj, jit_exc_match, jit_exc_take,
+                                    jit_get_static, jit_put_static, jit_instance_of };
     if (init(&host) != 0) return 0;
     jit_state = 1;
     return 1;

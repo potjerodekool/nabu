@@ -85,6 +85,7 @@ typedef struct { int kind; void **ks, **vs; int32_t size, cap; } s_map;
 typedef struct { int kind; const nabu_field_info *f; char *cls; } s_field;
 /* A java.lang.Thread. state: 0 new, 1 started, 2 terminated. Threads run one at a time (see nabu_gil_*). */
 typedef struct { int kind; char *name; void *target; void *threadLocals; void *inheritableThreadLocals;
+                 void *terminatingThreadLocals;   /* the map of the TerminatingThreadLocals (the buffer cache of NIO) */
                  int daemon; int priority; int64_t id;
                  int state; int interrupted; int permit; void *self; volatile int wait_state; void *inherit_from;
                  void *group; void *handler; void *container; int is_virtual; void *sv_bindings; void *sv_cache; void *sv_scope;
@@ -5761,8 +5762,10 @@ BIND(void *, jcl_Thread_threadLocals, "java.lang.Thread_threadLocals", (void *se
 BIND(void, jcl_Thread_setThreadLocals, "java.lang.Thread_setThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->threadLocals = map; }
 BIND(void *, jcl_Thread_inheritableThreadLocals, "java.lang.Thread_inheritableThreadLocals", (void *self)) { return jcl_thread_of(self)->inheritableThreadLocals; }
 BIND(void, jcl_Thread_setInheritableThreadLocals, "java.lang.Thread_setInheritableThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->inheritableThreadLocals = map; }
-BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { (void)self; return NULL; }
-BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { (void)self; (void)map; }
+/* The values of a TerminatingThreadLocal live as long as the thread: the NIO buffer cache of the thread is made once.
+ * (Their threadTerminated callbacks are not run when a thread ends.) */
+BIND(void *, jcl_Thread_terminatingThreadLocals, "java.lang.Thread_terminatingThreadLocals", (void *self)) { return jcl_thread_of(self)->terminatingThreadLocals; }
+BIND(void, jcl_Thread_setTerminatingThreadLocals, "java.lang.Thread_setTerminatingThreadLocals", (void *self, void *map)) { jcl_thread_of(self)->terminatingThreadLocals = map; }
 /* Scoped values (ScopedValue): the bindings and the cache of the running thread. A thread starts without bindings
  * (NULL); findScopedValueBindings, which the JVM answers by walking the stack, then also gives NULL: no bindings. */
 BIND(void *, jcl_Thread_threadContainer, "java.lang.Thread_threadContainer", (void *self)) { return jcl_thread_of(self)->container; }
